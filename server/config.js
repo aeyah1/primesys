@@ -2,7 +2,7 @@
 // import named values from here instead of scattering `process.env.X || '...'`
 // across the codebase. Fail-fast validation prevents booting with a broken
 // config and seeing weird errors deep inside controllers later.
-require('dotenv').config()
+require('dotenv').config({ path: require('path').join(__dirname, '.env') })
 
 function required(name) {
   const v = process.env[name]

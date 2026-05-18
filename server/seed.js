@@ -1,7 +1,7 @@
 // Run once after creating the database: node seed.js
 // Default admin — username: admin / password: Admin@2026
 // Change the password immediately after first login.
-require('dotenv').config()
+require('dotenv').config({ path: require('path').join(__dirname, '.env') })
 const bcrypt = require('bcryptjs')
 const pool = require('./db/pool')
 
