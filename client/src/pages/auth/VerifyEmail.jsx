@@ -23,8 +23,8 @@ export default function VerifyEmail() {
   }, [token])
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[--color-canvas] p-8">
-      <div className="w-full max-w-sm text-center space-y-5">
+    <div className="min-h-screen flex flex-col justify-center bg-[--color-canvas] p-8">
+      <div className="w-full max-w-sm mx-auto py-8 text-center space-y-5">
 
         <div className="flex size-10 items-center justify-center rounded-xl bg-[--color-brand] mx-auto">
           <Leaf className="size-5 text-emerald-200" />

@@ -135,8 +135,8 @@ export default function Login() {
       </div>
 
       {/* ── Form panel ── */}
-      <div className="flex flex-1 items-center justify-center p-8" style={{ animation: 'fade-in-left 0.45s 0.1s ease-out both' }}>
-        <div className="w-full max-w-sm">
+      <div className="flex flex-1 flex-col justify-center p-8" style={{ animation: 'fade-in-left 0.45s 0.1s ease-out both' }}>
+        <div className="w-full max-w-sm mx-auto py-8">
 
           {/* Mobile logo */}
           <div className="flex items-center gap-2.5 mb-8 lg:hidden">

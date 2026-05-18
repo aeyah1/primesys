@@ -20,8 +20,8 @@ export default function ResetPassword() {
 
   if (!token) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[--color-canvas] p-6">
-        <div className="text-center space-y-3">
+      <div className="min-h-screen flex flex-col justify-center bg-[--color-canvas] p-6">
+        <div className="text-center space-y-3 mx-auto">
           <AlertCircle className="size-10 text-red-500 mx-auto" />
           <p className="font-semibold text-[--color-text-primary]">Invalid reset link</p>
           <Link to="/forgot-password" className="text-sm text-[--color-brand] hover:underline">
@@ -56,8 +56,8 @@ export default function ResetPassword() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[--color-canvas] p-6">
-      <div className="w-full max-w-sm">
+    <div className="min-h-screen flex flex-col justify-center bg-[--color-canvas] p-6">
+      <div className="w-full max-w-sm mx-auto py-8">
         <div className="flex items-center gap-2.5 mb-8">
           <div className="flex size-9 items-center justify-center rounded-xl bg-[--color-brand]">
             <Leaf className="size-4 text-emerald-200" />

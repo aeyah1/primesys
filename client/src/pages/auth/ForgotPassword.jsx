@@ -27,8 +27,8 @@ export default function ForgotPassword() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[--color-canvas] p-6">
-      <div className="w-full max-w-sm">
+    <div className="min-h-screen flex flex-col justify-center bg-[--color-canvas] p-6">
+      <div className="w-full max-w-sm mx-auto py-8">
         <div className="flex items-center gap-2.5 mb-8">
           <div className="flex size-9 items-center justify-center rounded-xl bg-[--color-brand]">
             <Leaf className="size-4 text-emerald-200" />
