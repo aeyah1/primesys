@@ -113,6 +113,14 @@ io.on('connection', (socket) => {
 })
 // ─────────────────────────────────────────────────────────
 
-cron.schedule('* * * * *', sendDueReminders)
+// Wrap in try/catch so a transient TiDB connection drop or mail failure
+// doesn't propagate out of the cron task (node-cron silently swallows errors).
+cron.schedule('* * * * *', async () => {
+  try {
+    await sendDueReminders()
+  } catch (err) {
+    console.error('[cron] sendDueReminders failed:', err.message)
+  }
+})
 
 server.listen(config.port, () => console.log(`PRimeSys server running on http://localhost:${config.port}`))

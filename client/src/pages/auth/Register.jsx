@@ -155,7 +155,9 @@ export default function Register() {
       </div>
 
       {/* ── Form panel ── */}
-      <div className="flex flex-1 flex-col justify-center p-8" style={{ animation: 'fade-in-left 0.45s 0.1s ease-out both' }}>
+      {/* justify-center only on lg+: on mobile, vertical centering pushes top fields above the
+          viewport when the form (with role selector) is taller than the screen, making them unreachable. */}
+      <div className="flex flex-1 flex-col px-6 py-10 lg:justify-center lg:p-8" style={{ animation: 'fade-in-left 0.45s 0.1s ease-out both' }}>
         <div className="w-full max-w-sm mx-auto py-8">
 
           {/* Mobile logo */}

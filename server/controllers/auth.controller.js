@@ -113,7 +113,10 @@ exports.register = async (req, res) => {
     )
 
     const link = `${config.clientUrl}/verify-email?token=${token}`
-    await sendMail({ to: email.trim(), subject: 'Verify your PRimeSys account', html: verifyAccountEmail({ name: name.trim(), link }) })
+    // Fire-and-forget: don't make the user wait 10–30s for SMTP. If it fails,
+    // they can use "resend verification" from the post-register dialog.
+    sendMail({ to: email.trim(), subject: 'Verify your PRimeSys account', html: verifyAccountEmail({ name: name.trim(), link }) })
+      .catch(err => console.error('[mailer] register verification email failed:', err.message))
 
     res.status(201).json({ message: 'Account created. Check your email to verify before signing in.' })
   } catch (err) {
@@ -163,7 +166,8 @@ exports.resendVerification = async (req, res) => {
     await pool.execute('UPDATE users SET verify_token = ?, verify_expires = ? WHERE id = ?', [hash, expStr, user.id])
 
     const link = `${config.clientUrl}/verify-email?token=${token}`
-    await sendMail({ to: user.email, subject: 'Verify your PRimeSys account', html: verifyAccountEmail({ name: user.name, link }) })
+    sendMail({ to: user.email, subject: 'Verify your PRimeSys account', html: verifyAccountEmail({ name: user.name, link }) })
+      .catch(err => console.error('[mailer] resend verification email failed:', err.message))
 
     res.json(ok)
   } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
@@ -305,11 +309,11 @@ exports.forgotPassword = async (req, res) => {
 
     const resetUrl = `${config.clientUrl}/reset-password?token=${token}`
 
-    await sendMail({
+    sendMail({
       to: user.email,
       subject: 'PRimeSys — Reset Your Password',
       html: resetPasswordEmail({ name: user.name, resetUrl }),
-    })
+    }).catch(err => console.error('[mailer] password reset email failed:', err.message))
 
     res.json(ok)
   } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
