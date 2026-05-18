@@ -20,6 +20,11 @@ const io     = new Server(server, {
   cors: { origin: config.clientUrl, credentials: true }
 })
 
+// Trust the first proxy in front of us (Render's load balancer).
+// Required so rate-limit middleware reads the real client IP from
+// X-Forwarded-For rather than rate-limiting the proxy's IP.
+app.set('trust proxy', 1)
+
 app.use(helmet())
 app.use(cors({ origin: config.clientUrl, credentials: true }))
 app.use(express.json({ limit: '2mb' }))
