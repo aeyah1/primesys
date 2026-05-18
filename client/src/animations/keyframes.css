@@ -1,0 +1,209 @@
+/* ============================================================
+   PRimeSys Animation Keyframes
+   All custom @keyframes used throughout the system.
+   Imported by index.css — do not import elsewhere.
+   ============================================================ */
+
+/* ── Entry animations ──────────────────────────────────────── */
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in-down {
+  from { opacity: 0; transform: translateY(-10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in-left {
+  from { opacity: 0; transform: translateX(14px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes fade-in-right {
+  from { opacity: 0; transform: translateX(-14px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.94); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes scale-in-fast {
+  from { opacity: 0; transform: scale(0.85); }
+  60%  { transform: scale(1.04); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes page-enter {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Exit animations ───────────────────────────────────────── */
+
+@keyframes scale-out {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0; transform: scale(0.94); }
+}
+
+@keyframes fade-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+
+/* ── Continuous animations ─────────────────────────────────── */
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1;   transform: scale(1); }
+  50%       { opacity: 0.7; transform: scale(0.88); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+  50%       { box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-5px); }
+}
+
+@keyframes bounce-subtle {
+  0%, 100% { transform: translateY(0); }
+  40%       { transform: translateY(-6px); }
+  60%       { transform: translateY(-3px); }
+}
+
+@keyframes ping-once {
+  0%   { transform: scale(1); opacity: 1; }
+  80%  { transform: scale(1.9); opacity: 0; }
+  100% { transform: scale(1.9); opacity: 0; }
+}
+
+/* ── Interaction ───────────────────────────────────────────── */
+
+@keyframes pop {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.12); }
+  70%  { transform: scale(0.96); }
+  100% { transform: scale(1); }
+}
+
+@keyframes press {
+  0%, 100% { transform: scale(1); }
+  50%       { transform: scale(0.96); }
+}
+
+@keyframes wiggle {
+  0%, 100% { transform: rotate(0deg); }
+  20%       { transform: rotate(-4deg); }
+  40%       { transform: rotate(4deg); }
+  60%       { transform: rotate(-3deg); }
+  80%       { transform: rotate(3deg); }
+}
+
+/* ============================================================
+   GLOBAL COMPONENT ANIMATIONS
+   Applied via CSS selectors — automatically covers all instances.
+   ============================================================ */
+
+/* Page-level transition */
+.animate-page {
+  animation: page-enter 0.22s ease-out both;
+  will-change: opacity, transform;
+}
+
+/* Skeleton shimmer effect */
+.skeleton-shimmer {
+  background-color: var(--color-overlay);
+  position: relative;
+  overflow: hidden;
+}
+.skeleton-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.45) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+
+/* Table row stagger entry — animates on mount/navigation */
+tbody tr {
+  animation: fade-in-up 0.2s ease-out both;
+}
+tbody tr:nth-child(1)  { animation-delay:   0ms; }
+tbody tr:nth-child(2)  { animation-delay:  35ms; }
+tbody tr:nth-child(3)  { animation-delay:  70ms; }
+tbody tr:nth-child(4)  { animation-delay: 105ms; }
+tbody tr:nth-child(5)  { animation-delay: 140ms; }
+tbody tr:nth-child(6)  { animation-delay: 175ms; }
+tbody tr:nth-child(7)  { animation-delay: 210ms; }
+tbody tr:nth-child(8)  { animation-delay: 245ms; }
+tbody tr:nth-child(9)  { animation-delay: 280ms; }
+tbody tr:nth-child(10) { animation-delay: 315ms; }
+tbody tr:nth-child(11) { animation-delay: 350ms; }
+tbody tr:nth-child(12) { animation-delay: 385ms; }
+
+/* Card stagger for grid layouts — add .card-grid to wrapper */
+.card-grid > * {
+  animation: fade-in-up 0.3s ease-out both;
+}
+.card-grid > *:nth-child(1) { animation-delay:  0ms; }
+.card-grid > *:nth-child(2) { animation-delay: 60ms; }
+.card-grid > *:nth-child(3) { animation-delay: 120ms; }
+.card-grid > *:nth-child(4) { animation-delay: 180ms; }
+.card-grid > *:nth-child(5) { animation-delay: 240ms; }
+.card-grid > *:nth-child(6) { animation-delay: 300ms; }
+
+/* Form element focus transition */
+input, textarea, select {
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background-color 0.15s ease;
+}
+
+/* Badge appear animation */
+.badge-enter {
+  animation: scale-in-fast 0.22s ease-out both;
+}
+
+/* Active status pulse dot */
+.status-dot-pulse {
+  animation: ping-once 1.4s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+/* Sidebar nav icon float on hover */
+.nav-icon-hover:hover .nav-icon {
+  animation: bounce-subtle 0.5s ease-out;
+}
+
+/* Notification bell wiggle */
+.bell-wiggle {
+  animation: wiggle 0.5s ease-in-out;
+}
+
