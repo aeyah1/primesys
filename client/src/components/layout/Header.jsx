@@ -3,7 +3,7 @@ import { useAuth } from '@/context/AuthContext'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
 import { NotificationBell } from '@/components/shared/NotificationBell'
-import { LogOut, UserCircle, Bell } from 'lucide-react'
+import { LogOut, UserCircle, Bell, Menu } from 'lucide-react'
 
 const ROLE_LABELS = { admin: 'Administrator', procurement: 'Procurement', extension: 'Extension Officer', supply: 'Supply Officer' }
 const ROLE_COLORS = {
@@ -13,17 +13,26 @@ const ROLE_COLORS = {
   supply:      'bg-orange-100 text-orange-800',
 }
 
-export default function Header({ title }) {
+export default function Header({ title, onMobileMenu }) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const initials = user?.name?.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'U'
 
   return (
     <header
-      className="h-[70px] flex items-center justify-between px-8 border-b border-[--color-border] bg-white shrink-0"
+      className="h-[70px] flex items-center justify-between px-4 sm:px-6 lg:px-8 border-b border-[--color-border] bg-white shrink-0"
       style={{ boxShadow: '0 1px 0 0 var(--color-border), 0 2px 8px 0 rgba(15,74,34,0.04)' }}
     >
-      <h1 className="text-ui-lg font-bold text-[--color-text-primary] truncate">{title}</h1>
+      <div className="flex items-center gap-2 min-w-0">
+        <button
+          onClick={onMobileMenu}
+          aria-label="Open navigation menu"
+          className="lg:hidden -ml-1 p-2 rounded-lg text-[--color-text-muted] hover:text-[--color-text-primary] hover:bg-[--color-overlay] transition-colors"
+        >
+          <Menu className="size-5" />
+        </button>
+        <h1 className="text-ui-lg font-bold text-[--color-text-primary] truncate">{title}</h1>
+      </div>
 
       <div className="flex items-center gap-1.5">
         <NotificationBell />

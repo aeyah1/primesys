@@ -23,20 +23,36 @@ const ALL_NAV = [
 
 const ROLE_LABELS = { admin: 'Administrator', procurement: 'Procurement', extension: 'Extension Officer', supply: 'Supply Officer' }
 
-export default function Sidebar({ collapsed, onToggle }) {
+export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const nav = ALL_NAV.filter(n => n.roles.includes(user?.role))
   const initials = user?.name?.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'U'
 
   return (
-    <aside
-      className={cn(
-        'flex flex-col h-full shrink-0 transition-all duration-300 ease-in-out',
-        collapsed ? 'w-[72px]' : 'w-[280px]'
+    <>
+      {/* Mobile backdrop */}
+      {mobileOpen && (
+        <div
+          onClick={onMobileClose}
+          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+          aria-hidden="true"
+        />
       )}
-      style={{ background: 'linear-gradient(180deg, hsl(145,70%,11%) 0%, hsl(145,60%,19%) 100%)' }}
-    >
+
+      <aside
+        className={cn(
+          'flex flex-col h-full shrink-0 transition-all duration-300 ease-in-out',
+          // Mobile: fixed drawer that slides in from the left
+          'fixed inset-y-0 left-0 z-50',
+          mobileOpen ? 'translate-x-0' : '-translate-x-full',
+          // Desktop: normal in-flow sidebar (always visible)
+          'lg:relative lg:translate-x-0',
+          // Width — collapsed only applies on desktop; mobile always uses full width
+          collapsed ? 'lg:w-[72px] w-[280px]' : 'w-[280px]'
+        )}
+        style={{ background: 'linear-gradient(180deg, hsl(145,70%,11%) 0%, hsl(145,60%,19%) 100%)' }}
+      >
       {/* Logo */}
       <div className={cn(
         'flex items-center gap-3 border-b border-white/10 shrink-0 h-[70px]',
@@ -125,12 +141,13 @@ export default function Sidebar({ collapsed, onToggle }) {
 
         <button
           onClick={onToggle}
-          className="flex items-center justify-center gap-2 w-full rounded-xl py-2 text-xs text-emerald-300 hover:bg-white/10 hover:text-white transition-colors"
+          className="hidden lg:flex items-center justify-center gap-2 w-full rounded-xl py-2 text-xs text-emerald-300 hover:bg-white/10 hover:text-white transition-colors"
         >
           <ChevronRight className={cn('size-3.5 transition-transform duration-300', !collapsed && 'rotate-180')} />
           {!collapsed && <span>Collapse</span>}
         </button>
       </div>
     </aside>
+    </>
   )
 }

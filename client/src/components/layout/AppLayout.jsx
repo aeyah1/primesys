@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import Header from './Header'
@@ -22,8 +22,18 @@ const TITLES = {
 
 export default function AppLayout() {
   const [collapsed, setCollapsed] = useState(false)
+  const [mobileOpen, setMobileOpen] = useState(false)
   const { pathname } = useLocation()
   useLiveUpdates()
+
+  // Close the mobile drawer whenever the user navigates to a new route
+  useEffect(() => { setMobileOpen(false) }, [pathname])
+
+  // Lock body scroll while the mobile drawer is open
+  useEffect(() => {
+    document.body.style.overflow = mobileOpen ? 'hidden' : ''
+    return () => { document.body.style.overflow = '' }
+  }, [mobileOpen])
 
   const title = Object.entries(TITLES)
     .sort((a, b) => b[0].length - a[0].length)
@@ -31,10 +41,15 @@ export default function AppLayout() {
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: 'var(--color-canvas)' }}>
-      <Sidebar collapsed={collapsed} onToggle={() => setCollapsed(p => !p)} />
+      <Sidebar
+        collapsed={collapsed}
+        onToggle={() => setCollapsed(p => !p)}
+        mobileOpen={mobileOpen}
+        onMobileClose={() => setMobileOpen(false)}
+      />
       <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
-        <Header title={title} />
-        <main className="flex-1 min-h-0 overflow-y-auto px-10 py-8">
+        <Header title={title} onMobileMenu={() => setMobileOpen(true)} />
+        <main className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 lg:px-10 py-6 lg:py-8">
           <AnimatedPage key={pathname}>
             <Outlet />
           </AnimatedPage>
