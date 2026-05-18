@@ -45,6 +45,7 @@ const config = {
     user:     optional('DB_USER',     'root'),
     password: optional('DB_PASSWORD', ''),
     database: optional('DB_NAME',     'primesys_db'),
+    ssl:      optional('DB_SSL', 'false').toLowerCase() === 'true',
   },
 
   mail: {

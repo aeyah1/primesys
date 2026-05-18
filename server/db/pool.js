@@ -10,7 +10,9 @@ const pool = mysql.createPool({
   waitForConnections: true,
   connectionLimit:  10,
   queueLimit:       0,
-  timezone:         '+00:00'
+  timezone:         '+00:00',
+  // Cloud DBs (TiDB, Aiven, etc.) require TLS; local XAMPP does not.
+  ...(config.db.ssl ? { ssl: { minVersion: 'TLSv1.2', rejectUnauthorized: true } } : {}),
 })
 
 module.exports = pool
