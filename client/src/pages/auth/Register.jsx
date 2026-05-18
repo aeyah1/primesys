@@ -70,7 +70,7 @@ export default function Register() {
   }
 
   return (
-    <div className="min-h-screen flex bg-[--color-canvas]">
+    <div className="h-screen flex bg-[--color-canvas]">
 
       {/* ── Brand panel ── */}
       <div
@@ -155,9 +155,12 @@ export default function Register() {
       </div>
 
       {/* ── Form panel ── */}
-      {/* justify-center only on lg+: on mobile, vertical centering pushes top fields above the
-          viewport when the form (with role selector) is taller than the screen, making them unreachable. */}
-      <div className="flex flex-1 flex-col px-6 py-10 lg:justify-center lg:p-8" style={{ animation: 'fade-in-left 0.45s 0.1s ease-out both' }}>
+      {/* Own scroll container: index.css sets html/body to overflow:hidden so the page
+          itself can't scroll. On mobile the form is taller than the viewport (role selector
+          alone is ~280px) so this panel must scroll internally. min-h-full + lg:justify-center
+          keeps the form vertically centered on desktop when it does fit. */}
+      <div className="flex-1 overflow-y-auto" style={{ animation: 'fade-in-left 0.45s 0.1s ease-out both' }}>
+        <div className="min-h-full flex flex-col px-6 py-10 lg:justify-center lg:p-8">
         <div className="w-full max-w-sm mx-auto py-8">
 
           {/* Mobile logo */}
@@ -343,6 +346,7 @@ export default function Register() {
               </Link>
             </p>
           </div>
+        </div>
         </div>
       </div>
 
