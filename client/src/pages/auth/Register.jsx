@@ -73,11 +73,8 @@ export default function Register() {
     <div className="h-screen flex bg-[--color-canvas]">
 
       {/* ── Brand panel ── */}
-      {/* lg:rounded-r-[2.5rem] softens the hard vertical seam where the brand
-          panel meets the form panel, so the green looks like a card stuck to
-          the left edge instead of a slab. */}
       <div
-        className="hidden lg:flex flex-col justify-between w-[44%] p-10 relative overflow-hidden lg:rounded-r-[2.5rem]"
+        className="hidden lg:flex flex-col justify-between w-[44%] p-10 relative overflow-hidden"
         style={{ background: 'linear-gradient(160deg, hsl(145,70%,11%) 0%, hsl(145,60%,19%) 100%)', animation: 'fade-in-right 0.45s ease-out both' }}
       >
         <div className="pointer-events-none absolute -top-24 -right-24 size-80 rounded-full bg-white/[0.03]" />

@@ -88,7 +88,7 @@ function AuthSkeleton() {
     <div className="h-screen flex bg-[--color-canvas]">
       {/* Brand panel — mirrors Login/Register left side */}
       <div
-        className="hidden lg:flex flex-col justify-between w-[44%] p-10 relative overflow-hidden lg:rounded-r-[2.5rem]"
+        className="hidden lg:flex flex-col justify-between w-[44%] p-10 relative overflow-hidden"
         style={{ background: 'linear-gradient(160deg, hsl(145,70%,11%) 0%, hsl(145,60%,19%) 100%)' }}
       >
         <div className="flex items-center gap-3">
