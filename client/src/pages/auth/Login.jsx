@@ -84,7 +84,7 @@ export default function Login() {
 
       {/* ── Brand panel ── */}
       <div
-        className="hidden lg:flex flex-col justify-between w-[44%] p-10 relative overflow-hidden"
+        className="hidden lg:flex flex-col justify-between w-[44%] p-10 relative overflow-hidden lg:rounded-r-[2.5rem]"
         style={{ background: 'linear-gradient(160deg, hsl(145,70%,11%) 0%, hsl(145,60%,19%) 100%)', animation: 'fade-in-right 0.45s ease-out both' }}
       >
         <div className="pointer-events-none absolute -top-24 -right-24 size-80 rounded-full bg-white/[0.03]" />
