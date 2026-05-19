@@ -108,7 +108,7 @@ export default function Login() {
               <span className="text-emerald-300 text-xs font-medium tracking-wide">NEMSU Cantilan Campus</span>
             </div>
             <h2 className="text-white font-bold leading-[1.15] mb-3 text-4xl">
-              Streamlined<br />Procurement,<br />Start to Finish.
+              From request<br />to delivery.
             </h2>
             <p className="text-emerald-100/50 leading-relaxed text-sm max-w-xs">
               One platform for purchase requests, bidding, purchase orders, and delivery monitoring.
