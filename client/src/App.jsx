@@ -4,6 +4,7 @@ import { useAuth } from '@/context/AuthContext'
 import AppLayout from '@/components/layout/AppLayout'
 import LandingPage from '@/pages/landing/LandingPage'
 import Login from '@/pages/auth/Login'
+import PageSkeleton from '@/components/shared/PageSkeleton'
 
 // Lazy-loaded routes — split into separate chunks. The landing page and login
 // stay eager because they're the most common cold-entry points.
@@ -29,7 +30,7 @@ const SettingsPage      = lazy(() => import('@/pages/settings/Settings'))
 
 function ProtectedRoute({ children, roles }) {
   const { user, loading } = useAuth()
-  if (loading) return null
+  if (loading) return <PageSkeleton />
   if (!user)   return <Navigate to="/login" replace />
   if (roles && !roles.includes(user.role)) return <Navigate to="/dashboard" replace />
   return children
@@ -37,23 +38,14 @@ function ProtectedRoute({ children, roles }) {
 
 function PublicRoute({ children }) {
   const { user, loading } = useAuth()
-  if (loading) return null
+  if (loading) return <PageSkeleton />
   if (user)    return <Navigate to="/dashboard" replace />
   return children
 }
 
-// Subtle full-viewport fallback shown while a route chunk loads.
-function RouteFallback() {
-  return (
-    <div className="fixed inset-0 flex items-center justify-center bg-[--color-canvas] z-[60]">
-      <div className="size-6 rounded-full border-2 border-[--color-brand] border-r-transparent animate-spin" />
-    </div>
-  )
-}
-
 export default function App() {
   return (
-    <Suspense fallback={<RouteFallback />}>
+    <Suspense fallback={<PageSkeleton />}>
       <Routes>
         <Route path="/"         element={<LandingPage />} />
         <Route path="/login"           element={<PublicRoute><Login /></PublicRoute>} />
