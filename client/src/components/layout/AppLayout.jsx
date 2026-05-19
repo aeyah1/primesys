@@ -17,11 +17,15 @@ const TITLES = {
   '/reports':         'Reports & Analytics',
   '/users':           'User Management',
   '/quarters':        'Quarters',
-  '/profile':         'My Profile',
+  '/settings':        'Settings',
 }
 
+// Shared key with AppearanceTab — keep in sync if renaming.
+const SIDEBAR_DEFAULT_KEY = 'primesys_sidebar_collapsed_default'
+
 export default function AppLayout() {
-  const [collapsed, setCollapsed] = useState(false)
+  // Read the user's saved preference once on mount; falls back to false (expanded).
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(SIDEBAR_DEFAULT_KEY) === 'true')
   const [mobileOpen, setMobileOpen] = useState(false)
   const { pathname } = useLocation()
   useLiveUpdates()

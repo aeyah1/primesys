@@ -3,7 +3,7 @@ import { useAuth } from '@/context/AuthContext'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
 import { NotificationBell } from '@/components/shared/NotificationBell'
-import { LogOut, UserCircle, Bell, Menu } from 'lucide-react'
+import { LogOut, Settings as SettingsIcon, Bell, Menu } from 'lucide-react'
 
 const ROLE_LABELS = { admin: 'Administrator', procurement: 'Procurement', extension: 'Extension Officer', supply: 'Supply Officer' }
 const ROLE_COLORS = {
@@ -69,9 +69,9 @@ export default function Header({ title, onMobileMenu }) {
               <p className="text-xs text-[--color-text-muted] mt-0.5">{user?.email}</p>
             </div>
             <div className="py-1">
-              <DropdownMenuItem onClick={() => navigate('/profile')} className="gap-2">
-                <UserCircle className="size-4 text-[--color-text-muted]" />
-                My Profile
+              <DropdownMenuItem onClick={() => navigate('/settings')} className="gap-2">
+                <SettingsIcon className="size-4 text-[--color-text-muted]" />
+                Settings
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem

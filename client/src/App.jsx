@@ -25,7 +25,7 @@ const QuarterList       = lazy(() => import('@/pages/quarters/QuarterList'))
 const HistoryPage       = lazy(() => import('@/pages/history/HistoryPage'))
 const RemindersPage     = lazy(() => import('@/pages/reminders/RemindersPage'))
 const NotificationsPage = lazy(() => import('@/pages/notifications/NotificationsPage'))
-const ProfilePage       = lazy(() => import('@/pages/profile/ProfilePage'))
+const SettingsPage      = lazy(() => import('@/pages/settings/Settings'))
 
 function ProtectedRoute({ children, roles }) {
   const { user, loading } = useAuth()
@@ -76,7 +76,8 @@ export default function App() {
           <Route path="history"       element={<HistoryPage />} />
           <Route path="reminders"     element={<RemindersPage />} />
           <Route path="notifications" element={<NotificationsPage />} />
-          <Route path="profile"       element={<ProfilePage />} />
+          <Route path="settings"      element={<SettingsPage />} />
+          <Route path="profile"       element={<Navigate to="/settings" replace />} />
           <Route path="reports"       element={<ProtectedRoute roles={['admin','procurement']}><ReportsPage /></ProtectedRoute>} />
           <Route path="users"         element={<ProtectedRoute roles={['admin']}><UserList /></ProtectedRoute>} />
           <Route path="quarters"      element={<ProtectedRoute roles={['admin']}><QuarterList /></ProtectedRoute>} />

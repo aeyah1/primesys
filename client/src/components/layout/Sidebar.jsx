@@ -2,7 +2,7 @@ import { NavLink, Link } from 'react-router-dom'
 import {
   LayoutDashboard, FileText, ShoppingCart, Truck,
   Users, Calendar, ChevronRight, Bell, History,
-  LogOut, Leaf, UserCircle, Gavel, AlarmClock,
+  LogOut, Leaf, Settings as SettingsIcon, Gavel, AlarmClock,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useNavigate } from 'react-router-dom'
@@ -110,7 +110,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
         {!collapsed ? (
           <div className="flex items-center gap-2">
             <Link
-              to="/profile"
+              to="/settings"
               className="flex items-center gap-3 flex-1 min-w-0 px-2 py-2.5 rounded-xl hover:bg-white/10 transition-colors"
             >
               <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white/20 text-white text-xs font-bold">
@@ -131,11 +131,11 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
           </div>
         ) : (
           <Link
-            to="/profile"
+            to="/settings"
             className="flex items-center justify-center py-2.5 text-emerald-300 hover:text-white hover:bg-white/10 rounded-xl transition-colors"
-            title="My Profile"
+            title="Settings"
           >
-            <UserCircle className="size-5" />
+            <SettingsIcon className="size-5" />
           </Link>
         )}
 

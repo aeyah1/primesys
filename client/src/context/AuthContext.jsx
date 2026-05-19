@@ -51,8 +51,21 @@ export function AuthProvider({ children }) {
     if (socket) { socket.disconnect() }
   }, [socket])
 
+  // Re-fetch the signed-in user from /auth/me so changes made in Settings
+  // (display name, fund_cluster, etc.) flow through to the sidebar/header
+  // without a full page reload.
+  const refreshUser = useCallback(async () => {
+    try {
+      const { data } = await api.get('/auth/me')
+      setUser(data)
+      sessionStorage.setItem('primesys_user', JSON.stringify(data))
+    } catch {
+      // 401 will be handled by the axios interceptor (redirects to /login)
+    }
+  }, [])
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, socket }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, refreshUser, socket }}>
       {children}
     </AuthContext.Provider>
   )
