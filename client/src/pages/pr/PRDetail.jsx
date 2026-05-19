@@ -640,13 +640,31 @@ export default function PRDetail() {
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to approve PO'),
   })
 
-  const [reminded, setReminded] = useState(false)
+  // Cooldown matches the server-side limiter (1 reminder per PR per hour) and
+  // persists in localStorage so refreshing the page doesn't reset the button.
+  // Stored as the unix-ms timestamp when the cooldown EXPIRES.
+  const REMIND_COOLDOWN_MS = 60 * 60 * 1000
+  const remindKey = `pr-reminded:${id}`
+  const [remindUntil, setRemindUntil] = useState(() => {
+    const stored = parseInt(localStorage.getItem(remindKey) || '0', 10)
+    return Number.isFinite(stored) ? stored : 0
+  })
+  const reminded = remindUntil > Date.now()
+
+  // Auto-flip the button back on when the cooldown expires (without a refresh).
+  useEffect(() => {
+    if (!reminded) return
+    const t = setTimeout(() => setRemindUntil(0), remindUntil - Date.now())
+    return () => clearTimeout(t)
+  }, [reminded, remindUntil])
+
   const { mutate: sendReminder, isPending: reminding } = useMutation({
     mutationFn: () => api.post(`/pr/${id}/remind`),
     onSuccess: () => {
       toast.success('Reminder sent to procurement team')
-      setReminded(true)
-      setTimeout(() => setReminded(false), 60_000)
+      const expires = Date.now() + REMIND_COOLDOWN_MS
+      localStorage.setItem(remindKey, String(expires))
+      setRemindUntil(expires)
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to send reminder'),
   })

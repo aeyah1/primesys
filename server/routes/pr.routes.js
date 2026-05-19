@@ -1,19 +1,25 @@
 const router      = require('express').Router()
 const { body }    = require('express-validator')
-const { rateLimit, ipKeyGenerator } = require('express-rate-limit')
+const { rateLimit } = require('express-rate-limit')
 const c           = require('../controllers/pr.controller')
 const auth        = require('../middleware/auth.middleware')
 const authorize   = require('../middleware/authorize.middleware')
 const { handle }  = require('../middleware/validate')
 const makeUploader = require('../utils/upload')
 
+// One reminder per PR per hour, keyed by PR id alone (not IP+PR). Reasoning:
+// the audience is procurement staff, and what we're protecting is THEIR inbox.
+// If two extension officers can each fire a reminder on the same PR within
+// minutes, procurement gets pinged twice — that's the spam we're stopping.
+// Tradeoff: a second person can't independently nudge for an hour, but the
+// first ping is enough to alert procurement.
 const remindLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
-  max: 3,
+  max: 1,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => `${ipKeyGenerator(req)}:${req.params.id}`,
-  message: { message: 'Reminder already sent recently. Please wait before sending again.' },
+  keyGenerator: (req) => `pr-remind:${req.params.id}`,
+  message: { message: 'A reminder for this PR was already sent in the past hour. Please wait before sending again.' },
 })
 
 const upload = makeUploader('pr')
