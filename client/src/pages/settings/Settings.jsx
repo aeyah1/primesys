@@ -1,17 +1,19 @@
 import { useState } from 'react'
-import { User, Lock, Palette, Building2 } from 'lucide-react'
+import { User, Lock, Bell, Palette, Building2 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { cn } from '@/lib/utils'
 import ProfileTab from './ProfileTab'
 import SecurityTab from './SecurityTab'
+import NotificationsTab from './NotificationsTab'
 import AppearanceTab from './AppearanceTab'
 import OrganizationTab from './OrganizationTab'
 
 const TABS = [
-  { key: 'profile',      label: 'Profile',      icon: User,      Comp: ProfileTab },
-  { key: 'security',     label: 'Security',     icon: Lock,      Comp: SecurityTab },
-  { key: 'appearance',   label: 'Appearance',   icon: Palette,   Comp: AppearanceTab },
-  { key: 'organization', label: 'Organization', icon: Building2, Comp: OrganizationTab, adminOnly: true },
+  { key: 'profile',       label: 'Profile',       icon: User,      Comp: ProfileTab },
+  { key: 'security',      label: 'Security',      icon: Lock,      Comp: SecurityTab },
+  { key: 'notifications', label: 'Notifications', icon: Bell,      Comp: NotificationsTab },
+  { key: 'appearance',    label: 'Appearance',    icon: Palette,   Comp: AppearanceTab },
+  { key: 'organization',  label: 'Organization',  icon: Building2, Comp: OrganizationTab, adminOnly: true },
 ]
 
 export default function Settings() {

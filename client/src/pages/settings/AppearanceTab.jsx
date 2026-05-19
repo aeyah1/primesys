@@ -1,38 +1,71 @@
 import { useState, useEffect } from 'react'
-import { PanelLeftClose } from 'lucide-react'
+import { Moon, PanelLeftClose } from 'lucide-react'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 
-// localStorage key shared with AppLayout — keep in sync if renaming.
-const SIDEBAR_DEFAULT_KEY = 'primesys_sidebar_collapsed_default'
+// Shared keys with main.jsx (theme) and AppLayout (sidebar default).
+const THEME_KEY            = 'primesys_theme'
+const SIDEBAR_DEFAULT_KEY  = 'primesys_sidebar_collapsed_default'
 
 export default function AppearanceTab() {
+  const [dark,      setDark]      = useState(() => localStorage.getItem(THEME_KEY) === 'dark')
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(SIDEBAR_DEFAULT_KEY) === 'true')
 
-  // Persist on every change so the next AppLayout mount sees the new default.
+  // Live-apply theme changes to <html> and persist.
+  useEffect(() => {
+    if (dark) {
+      document.documentElement.setAttribute('data-theme', 'dark')
+      localStorage.setItem(THEME_KEY, 'dark')
+    } else {
+      document.documentElement.removeAttribute('data-theme')
+      localStorage.setItem(THEME_KEY, 'light')
+    }
+  }, [dark])
+
   useEffect(() => {
     localStorage.setItem(SIDEBAR_DEFAULT_KEY, String(collapsed))
   }, [collapsed])
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Layout</CardTitle>
-        <CardDescription>Saved on this device only — doesn't sync across browsers</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <ToggleRow
-          icon={PanelLeftClose}
-          label="Keep sidebar collapsed by default"
-          description="Useful on smaller screens. You can still expand it any time with the chevron at the bottom of the sidebar."
-          checked={collapsed}
-          onChange={(next) => {
-            setCollapsed(next)
-            toast.success(next ? 'Sidebar will start collapsed next time' : 'Sidebar will start expanded next time')
-          }}
-        />
-      </CardContent>
-    </Card>
+    <div className="space-y-5">
+      <Card>
+        <CardHeader>
+          <CardTitle>Theme</CardTitle>
+          <CardDescription>Switch between light and dark. Applies immediately.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ToggleRow
+            icon={Moon}
+            label="Dark mode"
+            description="Easier on the eyes in low light. The sidebar keeps its green for brand consistency."
+            checked={dark}
+            onChange={(next) => {
+              setDark(next)
+              toast.success(next ? 'Dark mode on' : 'Light mode on')
+            }}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Layout</CardTitle>
+          <CardDescription>Saved on this device only — doesn't sync across browsers</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ToggleRow
+            icon={PanelLeftClose}
+            label="Keep sidebar collapsed by default"
+            description="Useful on smaller screens. You can still expand it any time with the chevron at the bottom of the sidebar."
+            checked={collapsed}
+            onChange={(next) => {
+              setCollapsed(next)
+              toast.success(next ? 'Sidebar will start collapsed next time' : 'Sidebar will start expanded next time')
+            }}
+          />
+        </CardContent>
+      </Card>
+    </div>
   )
 }
 

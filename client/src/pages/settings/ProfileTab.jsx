@@ -20,24 +20,12 @@ const ROLE_LABELS = {
 
 export default function ProfileTab() {
   const { user, refreshUser } = useAuth()
-
   const [name, setName] = useState(user?.name || '')
-  const [fc,   setFc]   = useState(user?.fund_cluster || '')
-  const [rcc,  setRcc]  = useState(user?.responsibility_center_code || '')
 
-  // Keep form in sync if user object reloads (e.g. on first mount after sign-in).
-  useEffect(() => {
-    setName(user?.name || '')
-    setFc(user?.fund_cluster || '')
-    setRcc(user?.responsibility_center_code || '')
-  }, [user])
+  useEffect(() => { setName(user?.name || '') }, [user])
 
   const { mutate: save, isPending: saving } = useMutation({
-    mutationFn: () => api.patch('/auth/me', {
-      name:                        name.trim(),
-      fund_cluster:                fc.trim() || null,
-      responsibility_center_code:  rcc.trim() || null,
-    }),
+    mutationFn: () => api.patch('/auth/me', { name: name.trim() }),
     onSuccess: async () => {
       await refreshUser()
       toast.success('Profile updated')
@@ -45,10 +33,7 @@ export default function ProfileTab() {
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to save profile'),
   })
 
-  const dirty =
-    name.trim() !== (user?.name || '') ||
-    fc.trim()   !== (user?.fund_cluster || '') ||
-    rcc.trim()  !== (user?.responsibility_center_code || '')
+  const dirty = name.trim() !== (user?.name || '')
 
   return (
     <div className="space-y-5">
@@ -74,22 +59,13 @@ export default function ProfileTab() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Editable details</CardTitle>
-          <CardDescription>These appear on the PRs you create and in the user directory</CardDescription>
+          <CardTitle>Display name</CardTitle>
+          <CardDescription>How your name appears across the app and on PRs you create</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="prof-name">Display name</Label>
+            <Label htmlFor="prof-name">Full name</Label>
             <Input id="prof-name" value={name} onChange={e => setName(e.target.value)} placeholder="Your full name" />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="prof-fc">Fund cluster</Label>
-            <Input id="prof-fc" value={fc} onChange={e => setFc(e.target.value)} placeholder="e.g. 101" />
-            <p className="text-ui-xs text-[--color-text-muted]">Defaults onto PRs you create. Leave blank to use the org default.</p>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="prof-rcc">Responsibility center code</Label>
-            <Input id="prof-rcc" value={rcc} onChange={e => setRcc(e.target.value)} placeholder="e.g. 08 016 0300064" />
           </div>
           <div className="flex justify-end pt-1">
             <Button onClick={() => save()} disabled={saving || !dirty || !name.trim()} className="gap-1.5" size="sm">

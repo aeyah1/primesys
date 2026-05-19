@@ -8,6 +8,12 @@ import GlobalLoadingBar from '@/components/shared/GlobalLoadingBar'
 import App from './App'
 import './index.css'
 
+// Apply saved theme before React mounts so dark-mode users don't see a
+// flash of the light theme. AppearanceTab updates this same key.
+if (localStorage.getItem('primesys_theme') === 'dark') {
+  document.documentElement.setAttribute('data-theme', 'dark')
+}
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {

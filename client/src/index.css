@@ -44,6 +44,45 @@
   --color-border:        hsl(145, 22%, 87%);
   --color-border-strong: hsl(145, 22%, 72%);
 
+  /* Status colors — referenced by badges/borders that need to shift in dark mode */
+  --color-input-bg:      hsl(0, 0%, 100%);
+}
+
+/* ============================================================
+   DARK MODE — applied via `data-theme="dark"` on <html>.
+   AppearanceTab in Settings flips this attribute and persists
+   the choice to localStorage. The Sidebar keeps its green
+   gradient intentionally so the brand stays consistent.
+   ============================================================ */
+[data-theme="dark"] {
+  --brand:       145 50% 55%;
+  --brand-light: 145 30% 20%;
+  --brand-dark:  145 50% 65%;
+
+  --color-brand:       hsl(145, 50%, 55%);
+  --color-brand-light: hsl(145, 30%, 20%);
+  --color-brand-dark:  hsl(145, 50%, 65%);
+
+  --color-gold:        hsl(43, 75%, 60%);
+  --color-gold-light:  hsl(43, 30%, 22%);
+
+  --canvas:  145 12% 9%;
+  --overlay: 145 14% 14%;
+
+  --color-canvas:        hsl(145, 12%, 9%);
+  --color-overlay:       hsl(145, 14%, 14%);
+  --color-surface:       hsl(145, 12%, 13%);
+  --color-surface-raised: hsl(145, 13%, 17%);
+
+  --color-text-primary:   hsl(0, 0%, 96%);
+  --color-text-secondary: hsl(145, 8%, 72%);
+  --color-text-muted:     hsl(145, 6%, 52%);
+
+  --color-border:        hsl(145, 12%, 24%);
+  --color-border-strong: hsl(145, 14%, 36%);
+
+  --color-input-bg:      hsl(145, 14%, 16%);
+
   /* Radius */
   --radius-xs: 0.375rem;  /* 6px  */
   --radius-sm: 0.5rem;    /* 8px  */

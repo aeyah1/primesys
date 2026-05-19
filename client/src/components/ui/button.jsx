@@ -15,7 +15,7 @@ const buttonVariants = cva(
     variants: {
       variant: {
         primary:   'bg-[--color-brand] text-white hover:bg-[--color-brand-dark] shadow-sm hover:shadow-md hover:-translate-y-px',
-        secondary: 'bg-white text-[--color-text-primary] border border-[--color-border] hover:border-[--color-border-strong] hover:bg-[--color-overlay] shadow-xs hover:shadow-sm hover:-translate-y-px',
+        secondary: 'bg-[--color-surface] text-[--color-text-primary] border border-[--color-border] hover:border-[--color-border-strong] hover:bg-[--color-overlay] shadow-xs hover:shadow-sm hover:-translate-y-px',
         ghost:     'text-[--color-text-secondary] hover:bg-[--color-overlay] hover:text-[--color-text-primary]',
         danger:    'bg-red-600 text-white hover:bg-red-700 shadow-sm hover:shadow-md hover:-translate-y-px',
         outline:   'border border-[--color-brand] text-[--color-brand] hover:bg-[--color-brand-light] hover:-translate-y-px',
