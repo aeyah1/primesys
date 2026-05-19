@@ -345,9 +345,11 @@ exports.remind = asyncHandler(async (req, res) => {
   const [sender] = await pool.execute('SELECT name FROM users WHERE id = ?', [req.user.id])
   const senderName = sender[0]?.name || 'A team member'
 
-  // Notify all active procurement + admin users
+  // Notify active procurement staff only. Admins are not the audience for a
+  // "please act on this PR" reminder — the button literally reads
+  // "Remind Procurement", so the recipient list must match.
   const [targets] = await pool.execute(
-    "SELECT id, email, name FROM users WHERE role IN ('procurement','admin') AND is_active = 1"
+    "SELECT id, email, name FROM users WHERE role = 'procurement' AND is_active = 1"
   )
   if (!targets.length) return res.status(404).json({ message: 'No procurement staff found' })
 
