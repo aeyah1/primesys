@@ -163,7 +163,7 @@ export default function GuidePage() {
   const role = user?.role
 
   return (
-    <div className="space-y-4 max-w-3xl">
+    <div className="space-y-4">
 
       {/* Header */}
       <div>
