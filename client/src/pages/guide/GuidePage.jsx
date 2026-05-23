@@ -3,12 +3,10 @@ import {
   BookOpen, FileText, Gavel, ShoppingCart, Truck,
   Users, CheckCircle, ArrowRight, ChevronDown, ChevronUp,
   ClipboardList, Trophy, Package, Send, Eye, Pencil,
-  Trash2, Bell, Clock, Download, Shield, PlayCircle,
+  Trash2, Bell, Clock, Download, Shield,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
 import { useAuth } from '@/context/AuthContext'
-import OnboardingModal from '@/components/shared/OnboardingModal'
 
 const ROLE_LABELS = {
   admin:       'Administrator',
@@ -163,7 +161,6 @@ function RoleGuide({ role }) {
 export default function GuidePage() {
   const { user } = useAuth()
   const role = user?.role
-  const [showTour, setShowTour] = useState(false)
 
   const modules = [
     { icon: FileText,     label: 'Purchase Requests', color: 'text-amber-600',   bg: 'bg-amber-50'   },
@@ -303,27 +300,14 @@ export default function GuidePage() {
     <div className="space-y-4">
 
       {/* Header */}
-      <div className="animate-fade-in-down flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold text-[--color-text-primary] flex items-center gap-2">
-            <BookOpen className="size-6 text-[--color-brand] animate-float" /> User Guide
-          </h1>
-          <p className="text-sm text-[--color-text-muted] mt-1">
-            Everything you need to know about using PRimeSys.
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-2 shrink-0 animate-fade-in"
-          onClick={() => setShowTour(true)}
-        >
-          <PlayCircle className="size-4 text-[--color-brand]" />
-          Replay Welcome Tour
-        </Button>
+      <div className="animate-fade-in-down">
+        <h1 className="text-2xl font-bold text-[--color-text-primary] flex items-center gap-2">
+          <BookOpen className="size-6 text-[--color-brand] animate-float" /> User Guide
+        </h1>
+        <p className="text-sm text-[--color-text-muted] mt-1">
+          Everything you need to know about using PRimeSys.
+        </p>
       </div>
-
-      {showTour && <OnboardingModal forceShow onClose={() => setShowTour(false)} />}
 
       {/* Role badge */}
       {role && (
