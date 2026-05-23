@@ -71,9 +71,9 @@ export default function PRList() {
   const canCreate = ['admin', 'procurement', 'extension'].includes(user?.role)
 
   // column count for empty/skeleton states
-  let colCount = 7
-  if (isProcurement) colCount = 9  // +1 for left indicator column, +1 for actions column
-  if (isExtension)   colCount = 8  // +1 for actions column
+  let colCount = 8  // +1 for Submitted By
+  if (isProcurement) colCount = 10  // +1 for left indicator, +1 for actions
+  if (isExtension)   colCount = 9   // +1 for actions
 
   return (
     <div className="space-y-4">
@@ -119,6 +119,7 @@ export default function PRList() {
                 <TableHead>PR Number</TableHead>
                 <TableHead>Quarter</TableHead>
                 <TableHead>Title</TableHead>
+                <TableHead>Submitted By</TableHead>
                 <TableHead className="text-right">Amount</TableHead>
                 <TableHead>PR Status</TableHead>
                 <TableHead>Delivery</TableHead>
@@ -183,6 +184,9 @@ export default function PRList() {
                           <TableCell className="text-sm text-[--color-text-primary] max-w-48 truncate">
                             {pr.title || <span className="text-[--color-text-muted] italic">No title</span>}
                           </TableCell>
+                          <TableCell className="text-sm text-[--color-text-secondary]">
+                            {pr.created_by_name || <span className="text-[--color-text-muted]">—</span>}
+                          </TableCell>
                           <TableCell className="text-right text-sm text-[--color-text-secondary]">
                             {pr.total_amount ? fmtCurrency(pr.total_amount) : '—'}
                           </TableCell>
@@ -193,13 +197,8 @@ export default function PRList() {
                               : <span className="text-xs text-[--color-text-muted]">No PO yet</span>
                             }
                           </TableCell>
-                          <TableCell>
-                            <div className="text-sm text-[--color-text-muted]">{fmtDate(pr.created_at)}</div>
-                            {isProcurement && pr.created_by_name && (
-                              <div className="text-[11px] text-[--color-text-muted] mt-0.5">
-                                by {pr.created_by_name}
-                              </div>
-                            )}
+                          <TableCell className="text-sm text-[--color-text-muted]">
+                            {fmtDate(pr.created_at)}
                           </TableCell>
 
                           {/* Actions column */}
