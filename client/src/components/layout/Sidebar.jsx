@@ -2,7 +2,7 @@ import { NavLink, Link } from 'react-router-dom'
 import {
   LayoutDashboard, FileText, ShoppingCart, Truck,
   Users, Calendar, ChevronRight, Bell, History,
-  LogOut, Leaf, Settings as SettingsIcon, Gavel, AlarmClock,
+  LogOut, Leaf, Settings as SettingsIcon, Gavel, AlarmClock, BookOpen,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useNavigate } from 'react-router-dom'
@@ -19,6 +19,7 @@ const ALL_NAV = [
   { to: '/notifications',   label: 'Notifications',       icon: Bell,            roles: ['admin','procurement','extension','supply'] },
   { to: '/users',           label: 'User Management',     icon: Users,           roles: ['admin'],                              divider: true },
   { to: '/quarters',        label: 'Quarters',            icon: Calendar,        roles: ['admin'] },
+  { to: '/guide',           label: 'User Guide',          icon: BookOpen,        roles: ['admin','procurement','extension','supply'], divider: true },
 ]
 
 const ROLE_LABELS = { admin: 'Administrator', procurement: 'Procurement', extension: 'Extension Officer', supply: 'Supply Officer' }
