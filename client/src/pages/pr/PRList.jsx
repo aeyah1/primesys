@@ -72,7 +72,7 @@ export default function PRList() {
 
   // column count for empty/skeleton states
   let colCount = 7
-  if (isProcurement) colCount = 8  // +1 for left indicator column
+  if (isProcurement) colCount = 9  // +1 for left indicator column, +1 for actions column
   if (isExtension)   colCount = 8  // +1 for actions column
 
   return (
@@ -123,7 +123,7 @@ export default function PRList() {
                 <TableHead>PR Status</TableHead>
                 <TableHead>Delivery</TableHead>
                 <TableHead>Date</TableHead>
-                {isExtension && <TableHead className="w-20" />}
+                {(isExtension || isProcurement) && <TableHead className="w-20" />}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -202,27 +202,40 @@ export default function PRList() {
                             )}
                           </TableCell>
 
-                          {/* Extension edit/delete actions */}
-                          {isExtension && (
+                          {/* Actions column */}
+                          {(isExtension || isProcurement) && (
                             <TableCell onClick={e => e.stopPropagation()}>
                               <div className="flex items-center gap-1">
-                                {pr.created_by === user?.id && (
+                                {isExtension && pr.created_by === user?.id && (
                                   <>
-                                    <button
-                                      onClick={() => navigate(`/pr/${pr.id}/edit`)}
-                                      title="Edit PR"
-                                      className="p-1.5 rounded-lg text-[--color-text-muted] hover:text-[--color-brand] hover:bg-[--color-overlay] transition-colors"
-                                    >
-                                      <Pencil className="size-3.5" />
-                                    </button>
-                                    <button
-                                      onClick={() => setDeleteTarget(pr)}
-                                      title="Delete PR"
-                                      className="p-1.5 rounded-lg text-[--color-text-muted] hover:text-red-600 hover:bg-red-50 transition-colors"
-                                    >
-                                      <Trash2 className="size-3.5" />
-                                    </button>
+                                    {pr.status === 'draft' && (
+                                      <button
+                                        onClick={() => navigate(`/pr/${pr.id}/edit`)}
+                                        title="Edit PR"
+                                        className="p-1.5 rounded-lg text-[--color-text-muted] hover:text-[--color-brand] hover:bg-[--color-overlay] transition-colors"
+                                      >
+                                        <Pencil className="size-3.5" />
+                                      </button>
+                                    )}
+                                    {pr.status === 'draft' && (
+                                      <button
+                                        onClick={() => setDeleteTarget(pr)}
+                                        title="Delete PR"
+                                        className="p-1.5 rounded-lg text-[--color-text-muted] hover:text-red-600 hover:bg-red-50 transition-colors"
+                                      >
+                                        <Trash2 className="size-3.5" />
+                                      </button>
+                                    )}
                                   </>
+                                )}
+                                {isProcurement && (
+                                  <button
+                                    onClick={() => setDeleteTarget(pr)}
+                                    title="Delete PR"
+                                    className="p-1.5 rounded-lg text-[--color-text-muted] hover:text-red-600 hover:bg-red-50 transition-colors"
+                                  >
+                                    <Trash2 className="size-3.5" />
+                                  </button>
                                 )}
                               </div>
                             </TableCell>
