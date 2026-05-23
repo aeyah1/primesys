@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
 import { PRStatusBadge, DeliveryStatusBadge, LotStatusBadge, POStatusBadge } from '@/components/shared/StatusBadge'
 import AttachmentsPanel from '@/components/shared/AttachmentsPanel'
 import { fmtDate, fmtCurrency, PR_STATUS_LABELS } from '@/lib/utils'
@@ -129,6 +130,7 @@ function LotsSection({ prId, canManage }) {
 const EMPTY_ITEM = { group_label: '', item_name: '', quantity: '1', unit: 'pax', estimated_cost: '' }
 
 function PRItemsSection({ prId, canEdit }) {
+  const [itemToDelete, setItemToDelete] = useState(null)
   const qc = useQueryClient()
   const [draft, setDraft] = useState(EMPTY_ITEM)
   const setD = (k, v) => setDraft(p => ({ ...p, [k]: v }))
@@ -247,9 +249,7 @@ function PRItemsSection({ prId, canEdit }) {
                               {canEdit && (
                                 <td className="px-3 text-center">
                                   <button
-                                    onClick={() => {
-                                      if (window.confirm(`Remove "${item.item_name}" from this PR?`)) deleteItem(item.id)
-                                    }}
+                                    onClick={() => setItemToDelete(item)}
                                     className="p-1.5 rounded text-[--color-text-muted] hover:text-red-600 hover:bg-red-50 transition-colors"
                                   >
                                     <Trash2 className="size-4" />
@@ -356,6 +356,23 @@ function PRItemsSection({ prId, canEdit }) {
           </>
         )}
       </CardContent>
+
+      <Dialog open={!!itemToDelete} onOpenChange={o => { if (!o) setItemToDelete(null) }}>
+        <DialogContent title="Remove Item">
+          <p className="text-sm text-[--color-text-secondary] pt-1">
+            Remove <strong>"{itemToDelete?.item_name}"</strong> from this PR? This cannot be undone.
+          </p>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setItemToDelete(null)}>Cancel</Button>
+            <Button
+              className="bg-red-600 hover:bg-red-700 text-white border-0"
+              onClick={() => { deleteItem(itemToDelete.id); setItemToDelete(null) }}
+            >
+              Remove Item
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   )
 }
@@ -590,6 +607,13 @@ export default function PRDetail() {
   const canManage   = ['admin', 'procurement'].includes(user?.role)
   const isExtension = user?.role === 'extension'
 
+  const [showDeletePR, setShowDeletePR] = useState(false)
+  const { mutate: deletePR, isPending: deletingPR } = useMutation({
+    mutationFn: () => api.delete(`/pr/${id}`),
+    onSuccess: () => { toast.success('Purchase request deleted'); navigate('/pr') },
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed to delete PR'),
+  })
+
   const openPDF = async (endpoint, label) => {
     try {
       const res = await api.get(endpoint, { responseType: 'blob' })
@@ -728,6 +752,15 @@ export default function PRDetail() {
           >
             <BellRing className="size-4" />
             {reminded ? 'Reminder Sent' : reminding ? 'Sending…' : 'Remind Procurement'}
+          </Button>
+        )}
+        {(canManage || (isExtension && pr.created_by === user?.id)) && (
+          <Button
+            variant="outline" size="sm"
+            className="gap-2 shrink-0 border-red-300 text-red-600 hover:bg-red-50"
+            onClick={() => setShowDeletePR(true)}
+          >
+            <Trash2 className="size-4" /> Delete PR
           </Button>
         )}
         {canManage && pr.status === 'submitted' && (
@@ -981,6 +1014,30 @@ export default function PRDetail() {
 
       {/* Activity Log */}
       <ActivityLog prId={id} />
+
+      {/* Delete PR confirmation */}
+      <Dialog open={showDeletePR} onOpenChange={o => { if (!o) setShowDeletePR(false) }}>
+        <DialogContent title="Delete Purchase Request">
+          <div className="pt-1 space-y-3">
+            <p className="text-sm text-[--color-text-secondary]">
+              Permanently delete <strong>{pr?.pr_number}</strong>? This will also remove all items, attachments, and activity logs. This cannot be undone.
+            </p>
+            <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-xs text-red-700">
+              All data associated with this PR will be lost.
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setShowDeletePR(false)} disabled={deletingPR}>Cancel</Button>
+            <Button
+              className="bg-red-600 hover:bg-red-700 text-white border-0"
+              onClick={() => deletePR()}
+              disabled={deletingPR}
+            >
+              {deletingPR ? 'Deleting…' : 'Delete PR'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
