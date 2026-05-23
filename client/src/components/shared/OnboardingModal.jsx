@@ -185,15 +185,15 @@ export default function OnboardingModal({ forceShow = false, onClose }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
          style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)', animation: 'fade-in 0.2s ease-out both' }}>
 
-      <div className="relative w-full max-w-md rounded-2xl bg-[--color-surface] shadow-2xl overflow-hidden animate-scale-in-fast">
+      <div className="relative w-full max-w-lg rounded-2xl bg-[--color-surface] shadow-2xl overflow-hidden animate-scale-in-fast">
 
         {/* Gradient top bar */}
-        <div className={`h-1.5 w-full bg-gradient-to-r ${slide.color}`} />
+        <div className={`h-2 w-full bg-gradient-to-r ${slide.color}`} />
 
         {/* Skip button */}
         <button
           onClick={dismiss}
-          className="absolute top-3 right-3 p-1.5 rounded-lg text-[--color-text-muted] hover:text-[--color-text-primary] hover:bg-[--color-overlay] transition-colors"
+          className="absolute top-4 right-4 p-1.5 rounded-lg text-[--color-text-muted] hover:text-[--color-text-primary] hover:bg-[--color-overlay] transition-colors"
           title="Skip tour"
         >
           <X className="size-4" />
@@ -202,32 +202,32 @@ export default function OnboardingModal({ forceShow = false, onClose }) {
         {/* Slide content */}
         <div
           key={animKey}
-          className={`px-8 pt-8 pb-6 text-center ${animClass}`}
-          style={{ minHeight: '260px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}
+          className={`px-10 pt-10 pb-7 text-center ${animClass}`}
+          style={{ minHeight: '300px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}
         >
           {/* Icon */}
-          <div className={`mb-5 flex size-16 items-center justify-center rounded-2xl bg-gradient-to-br ${slide.color} shadow-lg animate-scale-in-fast`}>
+          <div className={`mb-6 flex size-20 items-center justify-center rounded-2xl bg-gradient-to-br ${slide.color} shadow-lg animate-scale-in-fast`}>
             {slide.icon
-              ? <span className="text-3xl">{slide.icon}</span>
+              ? <span className="text-4xl">{slide.icon}</span>
               : slide.Icon
-                ? <slide.Icon className="size-8 text-white" />
+                ? <slide.Icon className="size-10 text-white" />
                 : null
             }
           </div>
 
           {/* Title */}
-          <h2 className="text-xl font-bold text-[--color-text-primary] mb-3 leading-tight">
+          <h2 className="text-2xl font-bold text-[--color-text-primary] mb-3 leading-tight">
             {step === 0 ? `${slide.title.replace('!', '')}, ${user.name?.split(' ')[0]}!` : slide.title}
           </h2>
 
           {/* Body */}
-          <p className="text-sm text-[--color-text-secondary] leading-relaxed max-w-xs">
+          <p className="text-sm text-[--color-text-secondary] leading-relaxed max-w-sm">
             {slide.body}
           </p>
         </div>
 
         {/* Footer */}
-        <div className="px-8 pb-7 flex flex-col items-center gap-4">
+        <div className="px-10 pb-8 flex flex-col items-center gap-5">
 
           {/* Dot indicators */}
           <div className="flex items-center gap-2">
@@ -237,7 +237,7 @@ export default function OnboardingModal({ forceShow = false, onClose }) {
                 onClick={() => { setDirection(i > step ? 'right' : 'left'); setAnimKey(k => k + 1); setStep(i) }}
                 className={`rounded-full transition-all duration-300 ${
                   i === step
-                    ? 'w-5 h-2 bg-[--color-brand]'
+                    ? 'w-6 h-2 bg-[--color-brand]'
                     : 'w-2 h-2 bg-[--color-border] hover:bg-[--color-text-muted]'
                 }`}
               />
@@ -248,12 +248,11 @@ export default function OnboardingModal({ forceShow = false, onClose }) {
           <div className="flex w-full items-center justify-between gap-3">
             <Button
               variant="ghost"
-              size="sm"
               onClick={() => go('left')}
               disabled={step === 0}
-              className="gap-1"
+              className="gap-1.5"
             >
-              <ArrowLeft className="size-3.5" /> Back
+              <ArrowLeft className="size-4" /> Back
             </Button>
 
             <button
@@ -264,12 +263,12 @@ export default function OnboardingModal({ forceShow = false, onClose }) {
             </button>
 
             {isLast ? (
-              <Button size="sm" onClick={dismiss} className="gap-1">
-                Get Started <CheckCircle className="size-3.5" />
+              <Button onClick={dismiss} className="gap-1.5">
+                Get Started <CheckCircle className="size-4" />
               </Button>
             ) : (
-              <Button size="sm" onClick={() => go('right')} className="gap-1">
-                Next <ArrowRight className="size-3.5" />
+              <Button onClick={() => go('right')} className="gap-1.5">
+                Next <ArrowRight className="size-4" />
               </Button>
             )}
           </div>
