@@ -212,11 +212,8 @@ exports.update = asyncHandler(async (req, res) => {
 exports.remove = asyncHandler(async (req, res) => {
   const [rows] = await pool.execute('SELECT id, created_by, status FROM purchase_requests WHERE id = ?', [req.params.id])
   if (!rows.length) return res.status(404).json({ message: 'PR not found' })
-  if (req.user.role === 'extension') {
-    if (rows[0].created_by !== req.user.id)
-      return res.status(403).json({ message: 'You can only delete your own purchase requests' })
-    if (rows[0].status !== 'draft')
-      return res.status(403).json({ message: 'You can only delete draft purchase requests' })
+  if (req.user.role === 'extension' && rows[0].created_by !== req.user.id) {
+    return res.status(403).json({ message: 'You can only delete your own purchase requests' })
   }
   await pool.execute('DELETE FROM purchase_requests WHERE id = ?', [req.params.id])
   res.json({ message: 'PR deleted' })
