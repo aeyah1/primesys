@@ -162,13 +162,147 @@ export default function GuidePage() {
   const { user } = useAuth()
   const role = user?.role
 
+  const modules = [
+    { icon: FileText,     label: 'Purchase Requests', color: 'text-amber-600',   bg: 'bg-amber-50'   },
+    { icon: Gavel,        label: 'Lots & Bidding',    color: 'text-blue-600',    bg: 'bg-blue-50'    },
+    { icon: ShoppingCart, label: 'Purchase Orders',   color: 'text-purple-600',  bg: 'bg-purple-50'  },
+    { icon: Truck,        label: 'Delivery Tracking', color: 'text-emerald-600', bg: 'bg-emerald-50' },
+  ]
+
+  const sections = [
+    {
+      icon: BookOpen,
+      title: 'What is PRimeSys?',
+      defaultOpen: true,
+      content: (
+        <>
+          <p className="text-sm text-[--color-text-secondary] leading-relaxed mt-3">
+            <strong>PRimeSys</strong> is a web-based procurement management system for NEMSU Cantilan Campus.
+            It digitizes and tracks the entire procurement process — from Purchase Request (PR) creation
+            all the way to delivery confirmation — replacing manual paper-based workflows.
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
+            {modules.map(({ icon: Icon, label, color, bg }, i) => (
+              <div
+                key={label}
+                className={`flex flex-col items-center gap-2 rounded-xl border border-[--color-border] ${bg} px-3 py-4 animate-fade-in-up hover:scale-105 transition-transform duration-200`}
+                style={{ animationDelay: `${i * 80}ms` }}
+              >
+                <Icon className={`size-6 ${color} animate-float`} style={{ animationDelay: `${i * 200}ms` }} />
+                <p className="text-xs font-semibold text-center text-[--color-text-secondary]">{label}</p>
+              </div>
+            ))}
+          </div>
+        </>
+      ),
+    },
+    {
+      icon: Users,
+      title: `Your Guide — ${ROLE_LABELS[role] || 'All Users'}`,
+      defaultOpen: true,
+      content: <RoleGuide role={role} />,
+    },
+    {
+      icon: ArrowRight,
+      title: 'Full System Workflow',
+      defaultOpen: false,
+      content: (
+        <>
+          <p className="text-sm text-[--color-text-secondary] mt-3 mb-5 leading-relaxed">
+            This is the complete flow of a procurement cycle from start to finish, showing which role does what at each step.
+          </p>
+          <div className="space-y-0">
+            {[
+              { number: 1, role: 'Extension',   color: 'bg-amber-500',   icon: Pencil,        title: 'Extension creates a PR',        desc: 'Extension Officer creates a new Purchase Request, fills in items with descriptions, quantities, units, and estimated costs.' },
+              { number: 2, role: 'Extension',   color: 'bg-amber-500',   icon: Send,          title: 'Extension submits the PR',       desc: 'The PR is submitted to Procurement. Status changes from Draft → Submitted.' },
+              { number: 3, role: 'Procurement', color: 'bg-blue-600',    icon: ClipboardList, title: 'Procurement canvasses the PR',   desc: 'Procurement reviews the PR and clicks "Canvass PR". Status changes from Submitted → Bidding.' },
+              { number: 4, role: 'Procurement', color: 'bg-blue-600',    icon: Gavel,         title: 'Lots are created and awarded',   desc: 'Procurement creates lots in Lots & Awards and assigns suppliers. Once all lots are awarded, PR moves to Ready for PO automatically.' },
+              { number: 5, role: 'Procurement', color: 'bg-blue-600',    icon: ShoppingCart,  title: 'Purchase Order is issued',       desc: 'Procurement issues a PO from the PR detail page with the supplier, amount, and expected delivery date.' },
+              { number: 6, role: 'Supply',      color: 'bg-emerald-600', icon: Truck,         title: 'Supply records delivery',        desc: 'Supply Officer receives the goods and records the delivery (Full or Partial). Supply can also send delivery status updates.' },
+              { number: 7, role: 'System',      color: 'bg-gray-500',    icon: CheckCircle,   title: 'PR is marked Completed',         desc: 'Once all items are fully delivered, the PR status automatically becomes Completed.' },
+            ].map(step => (
+              <Step key={step.number} number={step.number} icon={step.icon} title={`[${step.role}] ${step.title}`} description={step.desc} color={step.color} />
+            ))}
+          </div>
+        </>
+      ),
+    },
+    {
+      icon: FileText,
+      title: 'PR Status Explained',
+      defaultOpen: false,
+      content: (
+        <div className="mt-3 space-y-0 divide-y divide-[--color-border]">
+          {[
+            { status: 'Draft',        color: 'bg-gray-100 text-gray-700',       desc: 'PR has been created but not yet submitted. Only the creator can see and edit it.' },
+            { status: 'Submitted',    color: 'bg-amber-100 text-amber-800',     desc: 'PR has been submitted to Procurement and is awaiting review.' },
+            { status: 'Bidding',      color: 'bg-blue-100 text-blue-800',       desc: 'Procurement is canvassing — creating lots and selecting suppliers.' },
+            { status: 'Ready for PO', color: 'bg-purple-100 text-purple-800',   desc: 'All lots have been awarded. Procurement can now issue a Purchase Order.' },
+            { status: 'Completed',    color: 'bg-emerald-100 text-emerald-800', desc: 'The goods have been fully delivered and accepted.' },
+            { status: 'Cancelled',    color: 'bg-red-100 text-red-800',         desc: 'The PR was cancelled and will not proceed further.' },
+          ].map(({ status, color, desc }, i) => (
+            <div key={status} className="flex items-start gap-3 py-3 animate-fade-in-up" style={{ animationDelay: `${i * 60}ms` }}>
+              <span className={`inline-block shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold mt-0.5 ${color}`}>{status}</span>
+              <p className="text-sm text-[--color-text-secondary] leading-relaxed">{desc}</p>
+            </div>
+          ))}
+        </div>
+      ),
+    },
+    {
+      icon: ClipboardList,
+      title: 'Features Overview',
+      defaultOpen: false,
+      content: (
+        <div className="mt-2">
+          {[
+            { icon: FileText,      title: 'Purchase Requests',  description: 'Create, submit, and track PRs. Supports item grouping by project/section, file attachments, and activity logs.' },
+            { icon: Gavel,         title: 'Lots & Awards',      description: 'Group PR items into lots for RA 9184 bidding compliance. Assign supplier details and award amounts per lot.' },
+            { icon: ShoppingCart,  title: 'Purchase Orders',    description: 'Automatically generated from awarded lots. Tracks supplier info, amounts, and delivery status.' },
+            { icon: Truck,         title: 'Deliveries',         description: 'Record full or partial deliveries. Download Inspection and Acceptance Reports (IAR) as PDF.' },
+            { icon: Bell,          title: 'Notifications',      description: 'Real-time in-app notifications for status changes, new POs, deliveries, and reminders.' },
+            { icon: Clock,         title: 'Reminders',          description: 'Schedule reminders for yourself or others. Overdue reminders are sent via email automatically.' },
+            { icon: Download,      title: 'PDF Export',         description: 'Download PR Forms, Abstract of Quotations, and IAR documents for printing or filing.' },
+            { icon: ClipboardList, title: 'Reports',            description: 'Dashboard analytics showing PR counts by status, PO trends, and delivery performance (Procurement & Admin only).' },
+            { icon: Users,         title: 'User Management',    description: 'Admin can create accounts, assign roles, and activate or deactivate users.' },
+            { icon: Trash2,        title: 'Delete & Edit',      description: 'Extension Officers can edit or delete their own PRs from the list or detail page. Procurement can delete any PR.' },
+          ].map((f, i) => (
+            <div key={f.title} className="animate-fade-in-up" style={{ animationDelay: `${i * 50}ms` }}>
+              <Feature icon={f.icon} title={f.title} description={f.description} />
+            </div>
+          ))}
+        </div>
+      ),
+    },
+    {
+      icon: Bell,
+      title: 'Tips & Reminders',
+      defaultOpen: false,
+      content: (
+        <div className="mt-3 space-y-3">
+          {[
+            'The active Quarter must be set by an Admin before PRs can be submitted. Contact your admin if you see a quarter error.',
+            'All notifications appear in the bell icon (top right). Click "View all" to see the full notification history.',
+            'You can download the PR Form PDF at any point from the PR detail page. The Abstract of Quotations is available once the PR reaches Bidding stage.',
+            'If your email or password needs to be changed, go to Settings → Security.',
+            'Reminders can be set for any date — the system will email you automatically when they are due.',
+          ].map((tip, i) => (
+            <div key={i} className="animate-fade-in-up" style={{ animationDelay: `${i * 80}ms` }}>
+              <Tip>{tip}</Tip>
+            </div>
+          ))}
+        </div>
+      ),
+    },
+  ]
+
   return (
     <div className="space-y-4">
 
       {/* Header */}
-      <div>
+      <div className="animate-fade-in-down">
         <h1 className="text-2xl font-bold text-[--color-text-primary] flex items-center gap-2">
-          <BookOpen className="size-6 text-[--color-brand]" /> User Guide
+          <BookOpen className="size-6 text-[--color-brand] animate-float" /> User Guide
         </h1>
         <p className="text-sm text-[--color-text-muted] mt-1">
           Everything you need to know about using PRimeSys.
@@ -177,104 +311,20 @@ export default function GuidePage() {
 
       {/* Role badge */}
       {role && (
-        <div className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium ${ROLE_COLORS[role]}`}>
+        <div className={`animate-scale-in inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium ${ROLE_COLORS[role]}`}>
           <Shield className="size-4" />
           You are logged in as: <strong>{ROLE_LABELS[role]}</strong>
         </div>
       )}
 
-      {/* What is PRimeSys */}
-      <Section icon={BookOpen} title="What is PRimeSys?">
-        <p className="text-sm text-[--color-text-secondary] leading-relaxed mt-3">
-          <strong>PRimeSys</strong> is a web-based procurement management system for NEMSU Cantilan Campus.
-          It digitizes and tracks the entire procurement process — from Purchase Request (PR) creation
-          all the way to delivery confirmation — replacing manual paper-based workflows.
-        </p>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
-          {[
-            { icon: FileText,     label: 'Purchase Requests', color: 'text-amber-600',   bg: 'bg-amber-50'   },
-            { icon: Gavel,        label: 'Lots & Bidding',    color: 'text-blue-600',    bg: 'bg-blue-50'    },
-            { icon: ShoppingCart, label: 'Purchase Orders',   color: 'text-purple-600',  bg: 'bg-purple-50'  },
-            { icon: Truck,        label: 'Delivery Tracking', color: 'text-emerald-600', bg: 'bg-emerald-50' },
-          ].map(({ icon: Icon, label, color, bg }) => (
-            <div key={label} className={`flex flex-col items-center gap-2 rounded-xl border border-[--color-border] ${bg} px-3 py-4`}>
-              <Icon className={`size-6 ${color}`} />
-              <p className="text-xs font-semibold text-center text-[--color-text-secondary]">{label}</p>
-            </div>
-          ))}
+      {/* Sections */}
+      {sections.map((s, i) => (
+        <div key={s.title} className="animate-fade-in-up" style={{ animationDelay: `${i * 60}ms` }}>
+          <Section icon={s.icon} title={s.title} defaultOpen={s.defaultOpen}>
+            {s.content}
+          </Section>
         </div>
-      </Section>
-
-      {/* Your Role Guide */}
-      <Section icon={Users} title={`Your Guide — ${ROLE_LABELS[role] || 'All Users'}`}>
-        <RoleGuide role={role} />
-      </Section>
-
-      {/* Full System Workflow */}
-      <Section icon={ArrowRight} title="Full System Workflow" defaultOpen={false}>
-        <p className="text-sm text-[--color-text-secondary] mt-3 mb-5 leading-relaxed">
-          This is the complete flow of a procurement cycle from start to finish, showing which role does what at each step.
-        </p>
-        <div className="space-y-0">
-          {[
-            { number: 1, role: 'Extension',   color: 'bg-amber-500',   icon: Pencil,       title: 'Extension creates a PR',         desc: 'Extension Officer creates a new Purchase Request, fills in items with descriptions, quantities, units, and estimated costs.' },
-            { number: 2, role: 'Extension',   color: 'bg-amber-500',   icon: Send,         title: 'Extension submits the PR',        desc: 'The PR is submitted to Procurement. Status changes from Draft → Submitted.' },
-            { number: 3, role: 'Procurement', color: 'bg-blue-600',    icon: ClipboardList, title: 'Procurement canvasses the PR',   desc: 'Procurement reviews the PR and clicks "Canvass PR". Status changes from Submitted → Bidding.' },
-            { number: 4, role: 'Procurement', color: 'bg-blue-600',    icon: Gavel,        title: 'Lots are created and awarded',    desc: 'Procurement creates lots in Lots & Awards and assigns suppliers. Once all lots are awarded, PR moves to Ready for PO automatically.' },
-            { number: 5, role: 'Procurement', color: 'bg-blue-600',    icon: ShoppingCart, title: 'Purchase Order is issued',        desc: 'Procurement issues a PO from the PR detail page with the supplier, amount, and expected delivery date.' },
-            { number: 6, role: 'Supply',      color: 'bg-emerald-600', icon: Truck,        title: 'Supply records delivery',         desc: 'Supply Officer receives the goods and records the delivery (Full or Partial). Supply can also send delivery status updates.' },
-            { number: 7, role: 'System',      color: 'bg-gray-500',    icon: CheckCircle,  title: 'PR is marked Completed',          desc: 'Once all items are fully delivered, the PR status automatically becomes Completed.' },
-          ].map(step => (
-            <Step key={step.number} number={step.number} icon={step.icon} title={`[${step.role}] ${step.title}`} description={step.desc} color={step.color} />
-          ))}
-        </div>
-      </Section>
-
-      {/* PR Statuses explained */}
-      <Section icon={FileText} title="PR Status Explained" defaultOpen={false}>
-        <div className="mt-3 space-y-0 divide-y divide-[--color-border]">
-          {[
-            { status: 'Draft',        color: 'bg-gray-100 text-gray-700',      desc: 'PR has been created but not yet submitted. Only the creator can see and edit it.' },
-            { status: 'Submitted',    color: 'bg-amber-100 text-amber-800',    desc: 'PR has been submitted to Procurement and is awaiting review.' },
-            { status: 'Bidding',      color: 'bg-blue-100 text-blue-800',      desc: 'Procurement is canvassing — creating lots and selecting suppliers.' },
-            { status: 'Ready for PO', color: 'bg-purple-100 text-purple-800',  desc: 'All lots have been awarded. Procurement can now issue a Purchase Order.' },
-            { status: 'Completed',    color: 'bg-emerald-100 text-emerald-800', desc: 'The goods have been fully delivered and accepted.' },
-            { status: 'Cancelled',    color: 'bg-red-100 text-red-800',        desc: 'The PR was cancelled and will not proceed further.' },
-          ].map(({ status, color, desc }) => (
-            <div key={status} className="flex items-start gap-3 py-3">
-              <span className={`inline-block shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold mt-0.5 ${color}`}>{status}</span>
-              <p className="text-sm text-[--color-text-secondary] leading-relaxed">{desc}</p>
-            </div>
-          ))}
-        </div>
-      </Section>
-
-      {/* Features overview */}
-      <Section icon={ClipboardList} title="Features Overview" defaultOpen={false}>
-        <div className="mt-2">
-          <Feature icon={FileText}     title="Purchase Requests"    description="Create, submit, and track PRs. Supports item grouping by project/section, file attachments, and activity logs." />
-          <Feature icon={Gavel}        title="Lots & Awards"        description="Group PR items into lots for RA 9184 bidding compliance. Assign supplier details and award amounts per lot." />
-          <Feature icon={ShoppingCart} title="Purchase Orders"      description="Automatically generated from awarded lots. Tracks supplier info, amounts, and delivery status." />
-          <Feature icon={Truck}        title="Deliveries"           description="Record full or partial deliveries. Download Inspection and Acceptance Reports (IAR) as PDF." />
-          <Feature icon={Bell}         title="Notifications"        description="Real-time in-app notifications for status changes, new POs, deliveries, and reminders." />
-          <Feature icon={Clock}        title="Reminders"            description="Schedule reminders for yourself or others. Overdue reminders are sent via email automatically." />
-          <Feature icon={Download}     title="PDF Export"           description="Download PR Forms, Abstract of Quotations, and IAR documents for printing or filing." />
-          <Feature icon={ClipboardList} title="Reports"             description="Dashboard analytics showing PR counts by status, PO trends, and delivery performance (Procurement & Admin only)." />
-          <Feature icon={Users}        title="User Management"      description="Admin can create accounts, assign roles, and activate or deactivate users." />
-          <Feature icon={Trash2}       title="Delete & Edit"        description="Extension Officers can edit or delete their own PRs from the list or detail page. Procurement can delete any PR." />
-        </div>
-      </Section>
-
-      {/* Tips */}
-      <Section icon={Bell} title="Tips & Reminders" defaultOpen={false}>
-        <div className="mt-3 space-y-3">
-          <Tip>The active Quarter must be set by an Admin before PRs can be submitted. Contact your admin if you see a quarter error.</Tip>
-          <Tip>All notifications appear in the bell icon (top right). Click "View all" to see the full notification history.</Tip>
-          <Tip>You can download the PR Form PDF at any point from the PR detail page. The Abstract of Quotations is available once the PR reaches Bidding stage.</Tip>
-          <Tip>If your email or password needs to be changed, go to Settings → Security.</Tip>
-          <Tip>Reminders can be set for any date — the system will email you automatically when they are due.</Tip>
-        </div>
-      </Section>
+      ))}
 
     </div>
   )
