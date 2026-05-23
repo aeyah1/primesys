@@ -207,24 +207,20 @@ export default function PRList() {
                               <div className="flex items-center gap-1">
                                 {isExtension && pr.created_by === user?.id && (
                                   <>
-                                    {pr.status === 'draft' && (
-                                      <button
-                                        onClick={() => navigate(`/pr/${pr.id}/edit`)}
-                                        title="Edit PR"
-                                        className="p-1.5 rounded-lg text-[--color-text-muted] hover:text-[--color-brand] hover:bg-[--color-overlay] transition-colors"
-                                      >
-                                        <Pencil className="size-3.5" />
-                                      </button>
-                                    )}
-                                    {pr.status === 'draft' && (
-                                      <button
-                                        onClick={() => setDeleteTarget(pr)}
-                                        title="Delete PR"
-                                        className="p-1.5 rounded-lg text-[--color-text-muted] hover:text-red-600 hover:bg-red-50 transition-colors"
-                                      >
-                                        <Trash2 className="size-3.5" />
-                                      </button>
-                                    )}
+                                    <button
+                                      onClick={() => navigate(`/pr/${pr.id}/edit`)}
+                                      title="Edit PR"
+                                      className="p-1.5 rounded-lg text-[--color-text-muted] hover:text-[--color-brand] hover:bg-[--color-overlay] transition-colors"
+                                    >
+                                      <Pencil className="size-3.5" />
+                                    </button>
+                                    <button
+                                      onClick={() => setDeleteTarget(pr)}
+                                      title="Delete PR"
+                                      className="p-1.5 rounded-lg text-[--color-text-muted] hover:text-red-600 hover:bg-red-50 transition-colors"
+                                    >
+                                      <Trash2 className="size-3.5" />
+                                    </button>
                                   </>
                                 )}
                                 {isProcurement && (
