@@ -22,7 +22,7 @@ import { useAuth } from '@/context/AuthContext'
 import api from '@/lib/axios'
 
 const PR_STATUSES = ['draft', 'submitted', 'bidding', 'for_po', 'completed', 'cancelled']
-const UNITS = ['pax', 'pc', 'set', 'lot', 'pair', 'ream', 'box', 'unit', 'kg', 'L', 'roll', 'pack', 'bottle', 'can', 'sheet', 'bag', 'bundle']
+const UNITS = ['pax', 'pc', 'set', 'lot', 'pair', 'ream', 'box', 'unit', 'kg', 'L', 'roll', 'pack', 'bottle', 'can', 'sheet', 'bag', 'sack', 'bundle']
 
 function groupBySection(items) {
   const groups = []

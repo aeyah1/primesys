@@ -18,7 +18,7 @@ import { fmtCurrency } from '@/lib/utils'
 import { useAuth } from '@/context/AuthContext'
 import api from '@/lib/axios'
 
-const UNITS = ['pax', 'pc', 'set', 'lot', 'pair', 'ream', 'box', 'unit', 'kg', 'L', 'roll', 'pack', 'bottle', 'can', 'sheet', 'bag', 'bundle']
+const UNITS = ['pax', 'pc', 'set', 'lot', 'pair', 'ream', 'box', 'unit', 'kg', 'L', 'roll', 'pack', 'bottle', 'can', 'sheet', 'bag', 'sack', 'bundle']
 const EMPTY_ITEM = { item_name: '', quantity: '1', unit: 'pax', estimated_cost: '' }
 
 const EMPTY_SUPPLIER = {
