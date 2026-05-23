@@ -27,6 +27,7 @@ const HistoryPage       = lazy(() => import('@/pages/history/HistoryPage'))
 const RemindersPage     = lazy(() => import('@/pages/reminders/RemindersPage'))
 const NotificationsPage = lazy(() => import('@/pages/notifications/NotificationsPage'))
 const SettingsPage      = lazy(() => import('@/pages/settings/Settings'))
+const GuidePage         = lazy(() => import('@/pages/guide/GuidePage'))
 
 function ProtectedRoute({ children, roles }) {
   const { user, loading } = useAuth()
@@ -69,6 +70,7 @@ export default function App() {
           <Route path="reminders"     element={<RemindersPage />} />
           <Route path="notifications" element={<NotificationsPage />} />
           <Route path="settings"      element={<SettingsPage />} />
+          <Route path="guide"         element={<GuidePage />} />
           <Route path="profile"       element={<Navigate to="/settings" replace />} />
           <Route path="reports"       element={<ProtectedRoute roles={['admin','procurement']}><ReportsPage /></ProtectedRoute>} />
           <Route path="users"         element={<ProtectedRoute roles={['admin']}><UserList /></ProtectedRoute>} />
