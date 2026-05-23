@@ -144,22 +144,24 @@ const SLIDES = {
   ],
 }
 
-export default function OnboardingModal() {
+export default function OnboardingModal({ forceShow = false, onClose }) {
   const { user } = useAuth()
   const [visible,   setVisible]   = useState(false)
   const [step,      setStep]      = useState(0)
-  const [direction, setDirection] = useState('right') // 'right' | 'left'
+  const [direction, setDirection] = useState('right')
   const [animKey,   setAnimKey]   = useState(0)
 
   useEffect(() => {
     if (!user?.id) return
+    if (forceShow) { setStep(0); setVisible(true); return }
     const seen = localStorage.getItem(ONBOARDING_KEY(user.id))
     if (!seen) setVisible(true)
-  }, [user?.id])
+  }, [user?.id, forceShow])
 
   const dismiss = () => {
     localStorage.setItem(ONBOARDING_KEY(user.id), '1')
     setVisible(false)
+    onClose?.()
   }
 
   if (!visible || !user?.role) return null
