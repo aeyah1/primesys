@@ -139,7 +139,7 @@ function RoleGuide({ role }) {
         <Step number={4} icon={Truck}        title="Track delivery"          description="Supply records how many of each item arrived, and you can record a delivery from the PR page or the Purchase Orders page too. The Overdue tab on Purchase Orders lists every PO past its expected date. If the supplier gives a new date, click Change Expected Date on the PO and give the reason; the requestor and supply are told. Once every PO is fully delivered, and no item is left to award, the PR is Completed automatically." />
         <Step number={5} icon={XCircle}      title="If a supplier backs out" description="Before anything is delivered, click Cancel PO on that supplier's PO, with a reason. Only its items go back to canvass for a new award; other suppliers' POs stay." />
       </div>
-      <Tip>A PR with no award or PO can be deleted; otherwise cancel it instead. Use Reports for spending and pipeline analytics, and Reminders to schedule follow-ups.</Tip>
+      <Tip>Once the TWG has approved a PR, it can be deleted while it has no award or PO; otherwise cancel it instead. While the TWG still has it, only an admin can cancel or delete it. Use Reports for spending and pipeline analytics, and Reminders to schedule follow-ups.</Tip>
     </div>
   )
 
