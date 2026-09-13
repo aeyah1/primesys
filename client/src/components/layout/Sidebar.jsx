@@ -61,7 +61,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
         'flex items-center gap-3 border-b border-white/10 shrink-0 h-[70px]',
         collapsed ? 'px-0 justify-center' : 'px-5'
       )}>
-        <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white shadow-md">
+        <div className="flex size-10 shrink-0 items-center justify-center">
           <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-8 object-contain" />
         </div>
         {!collapsed && (

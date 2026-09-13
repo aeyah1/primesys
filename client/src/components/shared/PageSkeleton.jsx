@@ -23,7 +23,7 @@ function AppSkeleton() {
         style={{ background: 'linear-gradient(180deg, hsl(225,75%,10%) 0%, hsl(222,65%,22%) 100%)' }}
       >
         <div className="flex items-center gap-3 border-b border-white/10 h-[70px] px-5">
-          <div className="flex size-10 items-center justify-center rounded-xl bg-white shadow-md">
+          <div className="flex size-10 items-center justify-center">
             <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-8 object-contain" />
           </div>
           <div className="space-y-1.5">
@@ -91,7 +91,7 @@ function AuthSkeleton() {
         style={{ background: 'linear-gradient(160deg, hsl(225,75%,10%) 0%, hsl(222,65%,22%) 100%)' }}
       >
         <div className="flex items-center gap-3">
-          <div className="flex size-11 items-center justify-center rounded-xl bg-white/95 shadow-md">
+          <div className="flex size-11 items-center justify-center">
             <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-9 object-contain" />
           </div>
           <div className="space-y-1.5">

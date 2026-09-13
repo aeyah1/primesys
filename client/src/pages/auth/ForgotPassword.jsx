@@ -30,7 +30,7 @@ export default function ForgotPassword() {
     <div className="min-h-screen flex flex-col justify-center bg-[--color-canvas] p-6">
       <div className="w-full max-w-sm mx-auto py-8">
         <div className="flex items-center gap-2.5 mb-8">
-          <div className="flex size-9 items-center justify-center rounded-xl bg-white border border-[--color-border] shadow-sm">
+          <div className="flex size-9 items-center justify-center">
             <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-7 object-contain" />
           </div>
           <span className="font-bold text-xl text-[--color-text-primary] tracking-tight">PRimeSys</span>
