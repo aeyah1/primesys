@@ -26,16 +26,25 @@ exports.create = async (req, res) => {
       'INSERT INTO quarters (label, year, budget) VALUES (?, ?, ?)',
       [label, year, budget ? parseFloat(budget) : null]
     )
-    res.status(201).json({ id: result.insertId, label, year, budget: budget || null, is_active: 1 })
+    // Reply with the saved row, so defaults such as is_active are reported as stored.
+    const [[row]] = await pool.execute('SELECT * FROM quarters WHERE id = ?', [result.insertId])
+    res.status(201).json(row)
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ message: 'Quarter already exists' })
     console.error(err); res.status(500).json({ message: 'Internal server error' })
   }
 }
 
+// True when the quarter exists.
+async function quarterExists(id) {
+  const [rows] = await pool.execute('SELECT id FROM quarters WHERE id = ?', [id])
+  return rows.length > 0
+}
+
 exports.updateBudget = async (req, res) => {
   try {
     const { budget } = req.body
+    if (!await quarterExists(req.params.id)) return res.status(404).json({ message: 'Quarter not found' })
     await pool.execute('UPDATE quarters SET budget = ? WHERE id = ?', [budget ? parseFloat(budget) : null, req.params.id])
     res.json({ message: 'Budget updated' })
   } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
@@ -43,6 +52,7 @@ exports.updateBudget = async (req, res) => {
 
 exports.toggle = async (req, res) => {
   try {
+    if (!await quarterExists(req.params.id)) return res.status(404).json({ message: 'Quarter not found' })
     await pool.execute('UPDATE quarters SET is_active = NOT is_active WHERE id = ?', [req.params.id])
     res.json({ message: 'Quarter toggled' })
   } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
