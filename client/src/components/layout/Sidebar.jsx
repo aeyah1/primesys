@@ -3,25 +3,39 @@ import {
   LayoutDashboard, FileText, ShoppingCart, Truck,
   Users, Calendar, ChevronRight, Bell, Archive,
   LogOut, Settings as SettingsIcon, Gavel, AlarmClock, BookOpen,
-  ClipboardCheck,
+  ClipboardCheck, BarChart3,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 
-const ALL_NAV = [
-  { to: '/dashboard',       label: 'Dashboard',           icon: LayoutDashboard, roles: ['admin','procurement','requestor','supply','twg'], end: true },
-  { to: '/twg/reviews',     label: 'TWG Reviews',         icon: ClipboardCheck,  roles: ['twg','admin'] },
-  { to: '/pr',              label: 'Purchase Requests',   icon: FileText,        roles: ['admin','procurement','requestor'] },
-  { to: '/bidding',         label: 'Lots & Awards',       icon: Gavel,           roles: ['admin','procurement','supply'] },
-  { to: '/po',              label: 'Purchase Orders',     icon: ShoppingCart,    roles: ['admin','procurement','supply'] },
-  { to: '/delivery',        label: 'Deliveries',          icon: Truck,           roles: ['admin','procurement','supply'] },
-  { to: '/archive',         label: 'Archive',             icon: Archive,         roles: ['admin','procurement','requestor','supply','twg'], divider: true },
-  { to: '/reminders',       label: 'Reminders',           icon: AlarmClock,      roles: ['admin','procurement','requestor','supply','twg'] },
-  { to: '/notifications',   label: 'Notifications',       icon: Bell,            roles: ['admin','procurement','requestor','supply','twg'] },
-  { to: '/users',           label: 'User Management',     icon: Users,           roles: ['admin'],                              divider: true },
-  { to: '/quarters',        label: 'Quarters',            icon: Calendar,        roles: ['admin'] },
-  { to: '/guide',           label: 'User Guide',          icon: BookOpen,        roles: ['admin','procurement','requestor','supply','twg'], divider: true },
+const ALL = ['admin','procurement','requestor','supply','twg']
+
+// Menu groups by purpose; the Procurement group follows the order a PR moves through the office.
+const NAV_GROUPS = [
+  { label: 'Overview', items: [
+    { to: '/dashboard',     label: 'Dashboard',         icon: LayoutDashboard, roles: ALL, end: true },
+    { to: '/notifications', label: 'Notifications',     icon: Bell,            roles: ALL },
+    { to: '/reminders',     label: 'Reminders',         icon: AlarmClock,      roles: ALL },
+  ] },
+  { label: 'Procurement', items: [
+    { to: '/pr',            label: 'Purchase Requests', icon: FileText,        roles: ['admin','procurement','requestor'] },
+    { to: '/twg/reviews',   label: 'TWG Reviews',       icon: ClipboardCheck,  roles: ['twg','admin'] },
+    { to: '/bidding',       label: 'Lots & Awards',     icon: Gavel,           roles: ['admin','procurement','supply'] },
+    { to: '/po',            label: 'Purchase Orders',   icon: ShoppingCart,    roles: ['admin','procurement','supply'] },
+    { to: '/delivery',      label: 'Deliveries',        icon: Truck,           roles: ['admin','procurement','supply'] },
+  ] },
+  { label: 'Records', items: [
+    { to: '/reports',       label: 'Reports',           icon: BarChart3,       roles: ['admin','procurement'] },
+    { to: '/archive',       label: 'Archive',           icon: Archive,         roles: ALL },
+  ] },
+  { label: 'Administration', items: [
+    { to: '/users',         label: 'User Management',   icon: Users,           roles: ['admin'] },
+    { to: '/quarters',      label: 'Quarters',          icon: Calendar,        roles: ['admin'] },
+  ] },
+  { label: 'Help', items: [
+    { to: '/guide',         label: 'User Guide',        icon: BookOpen,        roles: ALL },
+  ] },
 ]
 
 const ROLE_LABELS = { admin: 'Administrator', procurement: 'Procurement', requestor: 'Requestor', supply: 'Supply Officer', twg: 'Technical Working Group' }
@@ -29,7 +43,9 @@ const ROLE_LABELS = { admin: 'Administrator', procurement: 'Procurement', reques
 export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
-  const nav = ALL_NAV.filter(n => n.roles.includes(user?.role))
+  const groups = NAV_GROUPS
+    .map(g => ({ ...g, items: g.items.filter(n => n.roles.includes(user?.role)) }))
+    .filter(g => g.items.length)
   const initials = user?.name?.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'U'
 
   return (
@@ -73,37 +89,46 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 min-h-0 overflow-y-auto py-4 px-3 space-y-0.5">
-        {nav.map((item) => (
-          <div key={item.to}>
-            {item.divider && (
-              <div className="my-3 mx-1 h-px bg-white/10" />
-            )}
-            <NavLink
-              to={item.to}
-              end={!!item.end}
-              className={({ isActive }) => cn(
-                'flex items-center gap-3 rounded-xl px-3 py-3 text-[14.5px] font-medium',
-                'transition-all duration-200 ease-out',
-                isActive
-                  ? 'bg-white text-[--color-brand-dark] shadow-sm scale-[1.01]'
-                  : 'text-blue-100/80 hover:bg-white/10 hover:text-white hover:translate-x-0.5',
-                collapsed && 'justify-center px-0 py-3.5'
+      <nav className="flex-1 min-h-0 overflow-y-auto py-4 px-3">
+        {groups.map((group, i) => (
+          <div key={group.label} role="group" aria-label={group.label}>
+            {collapsed
+              ? i > 0 && <div className="my-3 mx-1 h-px bg-white/10" />
+              : (
+                <p className={cn('px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wider leading-none text-blue-100/50', i > 0 && 'pt-4')}>
+                  {group.label}
+                </p>
               )}
-              title={collapsed ? item.label : undefined}
-            >
-              {({ isActive }) => (
-                <>
-                  <item.icon className={cn(
-                    'size-[18px] shrink-0 transition-transform duration-200',
-                    isActive ? 'text-[--color-brand] scale-110' : 'text-[#ECB22E]'
-                  )} />
-                  {!collapsed && (
-                    <span className="truncate transition-all duration-200">{item.label}</span>
+            <div className="space-y-0.5">
+              {group.items.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={!!item.end}
+                  className={({ isActive }) => cn(
+                    'flex items-center gap-3 rounded-xl px-3 py-3 text-[14.5px] font-medium',
+                    'transition-all duration-200 ease-out',
+                    isActive
+                      ? 'bg-white text-[--color-brand-dark] shadow-sm scale-[1.01]'
+                      : 'text-blue-100/80 hover:bg-white/10 hover:text-white hover:translate-x-0.5',
+                    collapsed && 'justify-center px-0 py-3.5'
                   )}
-                </>
-              )}
-            </NavLink>
+                  title={collapsed ? item.label : undefined}
+                >
+                  {({ isActive }) => (
+                    <>
+                      <item.icon className={cn(
+                        'size-[18px] shrink-0 transition-transform duration-200',
+                        isActive ? 'text-[--color-brand] scale-110' : 'text-[#ECB22E]'
+                      )} />
+                      {!collapsed && (
+                        <span className="truncate transition-all duration-200">{item.label}</span>
+                      )}
+                    </>
+                  )}
+                </NavLink>
+              ))}
+            </div>
           </div>
         ))}
       </nav>
