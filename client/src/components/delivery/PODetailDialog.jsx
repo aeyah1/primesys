@@ -161,7 +161,7 @@ export default function PODetailDialog({ poId, onClose }) {
               <p className="text-xs font-bold text-[--color-text-secondary] uppercase tracking-wider">Deliveries ({po.deliveries.length})</p>
               {po.deliveries.length ? (
                 <div className="rounded-lg border border-[--color-border]">
-                  {po.deliveries.map(d => <DeliveryRow key={d.id} d={d} canUpload={canFiles && po.po_status === 'active'} canDelete={staff} />)}
+                  {po.deliveries.map(d => <DeliveryRow key={d.id} d={d} canUpload={canFiles && po.po_status === 'active'} canDelete={staff && po.delivery_status !== 'delivered'} />)}
                 </div>
               ) : <p className="text-sm text-[--color-text-muted]">Nothing has been delivered yet.</p>}
             </div>

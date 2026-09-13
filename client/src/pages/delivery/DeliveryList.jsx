@@ -376,7 +376,7 @@ export default function DeliveryList() {
                 endpoint={`/delivery/${attachDelivery.id}`}
                 queryKey={`delivery-attachments-${attachDelivery.id}`}
                 canUpload={true}
-                canDelete={isStaff}
+                canDelete={isStaff && !attachDelivery.locked}
               />
             )}
           </div>

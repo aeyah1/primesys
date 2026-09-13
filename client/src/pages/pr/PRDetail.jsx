@@ -883,7 +883,7 @@ export default function PRDetail() {
             endpoint={`/pr/${id}`}
             queryKey={`pr-attachments-${id}`}
             canUpload={!pr.deleted_at}
-            canDelete={canManage && !pr.deleted_at}
+            canDelete={canManage && !pr.deleted_at && !['completed', 'rejected', 'cancelled'].includes(pr.status)}
           />
         </CardContent>
       </Card>

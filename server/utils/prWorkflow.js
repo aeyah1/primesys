@@ -125,6 +125,11 @@ function deleteBlock(user, pr) {
   return null
 }
 
+// Files on a closed or deleted PR stay with the record (audit WF-8).
+function fileDeleteBlock(pr) {
+  return pr.deleted_at || FINAL.includes(pr.status) ? deny(409, 'Files on a closed PR are kept on record') : null
+}
+
 // po: { po_status, delivery_status, hasDeliveries }
 function poCancelBlock(user, po) {
   if (!STAFF.includes(user.role)) return deny(403, 'Only procurement or an admin can cancel a purchase order')
@@ -221,4 +226,4 @@ async function syncPRProgress(conn, prId, { user, note = null }) {
   return to
 }
 
-module.exports = { PR_STATUSES, loadPR, editBlock, deleteBlock, poCancelBlock, prPermissions, changePRStatus, syncPRProgress }
+module.exports = { PR_STATUSES, loadPR, editBlock, deleteBlock, fileDeleteBlock, poCancelBlock, prPermissions, changePRStatus, syncPRProgress }

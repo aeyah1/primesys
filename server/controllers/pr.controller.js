@@ -5,7 +5,7 @@ const asyncHandler    = require('../utils/asyncHandler')
 const prReminderEmail = require('../emails/prReminder')
 const { prScope } = require('../middleware/scope.middleware')
 const withTransaction = require('../db/transaction')
-const { PR_STATUSES, loadPR, editBlock, deleteBlock, poCancelBlock, prPermissions, changePRStatus } = require('../utils/prWorkflow')
+const { PR_STATUSES, loadPR, editBlock, deleteBlock, fileDeleteBlock, poCancelBlock, prPermissions, changePRStatus } = require('../utils/prWorkflow')
 const { recordBlock, QTY_ORDERED, QTY_RECEIVED } = require('../utils/deliveryWorkflow')
 const { orderBySection } = require('../utils/itemSections')
 const { currentQuarter } = require('../utils/quarters')
@@ -582,14 +582,17 @@ exports.downloadAttachment = asyncHandler(async (req, res) => {
 })
 
 exports.deleteAttachment = asyncHandler(async (req, res) => {
+  const pr = await loadPR(pool, req.params.id)
+  const denied = pr ? fileDeleteBlock(pr) : { status: 404, message: 'PR not found' }
+  if (denied) return res.status(denied.status).json({ message: denied.message })
   const [rows] = await pool.execute(
     'SELECT * FROM pr_attachments WHERE id = ? AND pr_id = ?',
     [req.params.attachId, req.params.id]
   )
   if (!rows.length) return res.status(404).json({ message: 'Attachment not found' })
-  const filePath = path.join(__dirname, '..', 'uploads', 'pr', rows[0].filename)
-  fs.unlink(filePath, () => {})
   await pool.execute('DELETE FROM pr_attachments WHERE id = ?', [req.params.attachId])
+  // The file goes after its row, so a failed delete never leaves a row without its file.
+  fs.unlink(path.join(__dirname, '..', 'uploads', 'pr', rows[0].filename), () => {})
   res.json({ message: 'Attachment deleted' })
 })
 

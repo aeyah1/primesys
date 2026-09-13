@@ -32,6 +32,14 @@ function fixtures() {
     INSERT INTO purchase_orders (id, po_number, purchase_request_id, supplier_name, issued_date, total_amount, issued_by) VALUES
       (1, 'PO-S-001', 4, 'S4', '2026-09-01', 100, 2);
     INSERT INTO deliveries (id, po_id, delivered_date, received_by, status, notes) VALUES (1, 1, '2026-09-05', 5, 'partial', 'half');
+    -- A closed PR with a fully delivered PO, each with a file that must be kept.
+    INSERT INTO purchase_requests (id, pr_number, title, status, created_by) VALUES (5, 'PR-S-005', 'A completed', 'completed', 3);
+    INSERT INTO lots (id, purchase_request_id, lot_number, status, awarded_to, awarded_amount, created_by) VALUES (2, 5, 'LOT-001', 'awarded', 'S5', 50, 2);
+    INSERT INTO purchase_orders (id, po_number, purchase_request_id, supplier_name, issued_date, total_amount, issued_by, delivery_status) VALUES
+      (2, 'PO-S-002', 5, 'S5', '2026-09-01', 50, 2, 'delivered');
+    INSERT INTO deliveries (id, po_id, delivered_date, received_by, status) VALUES (2, 2, '2026-09-06', 5, 'complete');
+    INSERT INTO pr_attachments (id, pr_id, filename, original_name, uploaded_by) VALUES (50, 5, 'sec-kept.pdf', 'kept.pdf', 3);
+    INSERT INTO delivery_attachments (id, delivery_id, filename, original_name, uploaded_by) VALUES (60, 2, 'sec-kept-d.pdf', 'kept-d.pdf', 5);
     ${H.LINK_POS}
     SET FOREIGN_KEY_CHECKS = 1;
   `
@@ -181,6 +189,22 @@ async function run() {
   t.check(G6, 'no token → 401 (what the old "Bearer null" download got)', anon.status === 401, anon.status)
   r = await http(4, 'GET', `/pr/1/attachments/${att.id}/download`)
   t.check(G6, "another requestor → 404", r.status === 404, show(r))
+
+  const G7 = 'Deleting files (WF-8, API-13)'
+  const [png] = await H.sql(TEST_DB, "SELECT id, filename FROM pr_attachments WHERE original_name = 'photo.png'")
+  r = await http(2, 'DELETE', `/pr/1/attachments/${png.id}`)
+  t.check(G7, 'file on an open PR deleted', r.status === 200, show(r))
+  const pngRow = await H.sql(TEST_DB, 'SELECT id FROM pr_attachments WHERE id = ?', [png.id])
+  t.check(G7, '…its row and its file both gone', !pngRow.length && !fs.existsSync(path.join(uploadsDir, png.filename)), png.filename)
+  r = await http(2, 'DELETE', '/pr/5/attachments/50')
+  t.check(G7, 'file on a completed PR kept (409)', r.status === 409 && /kept on record/.test(r.data?.message), show(r))
+  const [rcpt] = await H.sql(TEST_DB, "SELECT id, filename FROM delivery_attachments WHERE original_name = 'receipt.pdf'")
+  r = await http(2, 'DELETE', `/delivery/1/attachments/${rcpt.id}`)
+  t.check(G7, 'file on a delivery of an open PO deleted, file gone', r.status === 200 && !fs.existsSync(path.join(H.SERVER, 'uploads', 'delivery', rcpt.filename)), show(r))
+  r = await http(2, 'DELETE', '/delivery/2/attachments/60')
+  t.check(G7, 'file on a fully delivered PO kept (409)', r.status === 409 && /kept on record/.test(r.data?.message), show(r))
+  const kept = await H.sql(TEST_DB, 'SELECT id FROM pr_attachments WHERE id = 50 UNION ALL SELECT id FROM delivery_attachments WHERE id = 60')
+  t.check(G7, '…both kept rows are still there', kept.length === 2, JSON.stringify(kept))
 
   return t.summary()
 }
