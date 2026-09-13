@@ -176,6 +176,7 @@ async function run() {
   const u1Token = r.data?.token
   check(G3, 'username + password → 200, requestor token', r.status === 200 && r.data.user.role === 'requestor' && !!u1Token, show(r))
   check(G3, '…no password hash in the reply', r.status === 200 && !('password_hash' in r.data.user), Object.keys(r.data?.user || {}).join())
+  check(G3, '…the token carries only the account id and version (SEC-8)', Object.keys(jwt.decode(u1Token) || {}).sort().join() === 'exp,iat,id,tv', JSON.stringify(jwt.decode(u1Token)))
   r = await http('POST', '/auth/login', { identifier: u1.email.toUpperCase(), password: PW })
   check(G3, 'email (any case) + password → 200', r.status === 200, show(r))
   const wrong = await http('POST', '/auth/login', { identifier: 'req1', password: 'wrong-password' })

@@ -8,7 +8,7 @@ const config   = require('../config')
 const throttle = require('../utils/loginThrottle')
 const securityLog = require('../utils/securityLog')
 const { verifyCaptcha } = require('../utils/captcha')
-const { endSessions } = require('../middleware/auth.middleware')
+const { endSessions, invalidateUserCache } = require('../middleware/auth.middleware')
 const verifyAccountEmail = require('../emails/verifyAccount')
 const resetPasswordEmail = require('../emails/resetPassword')
 const accountExistsEmail = require('../emails/accountExists')
@@ -24,10 +24,9 @@ const REGISTERED    = 'Check your email to finish signing up.'
 const LINK_SENT     = 'If an unverified account matches, a new verification link has been sent.'
 const RESET_SENT    = 'If an account matches the information provided, reset instructions will be sent.'
 
-// `tv` is the account's token_version: a password change or reset raises it,
-// and tokens carrying an older number are refused (auth.middleware).
+// Tokens carry only the account id and token_version (tv); the rest is read from the database per request (audit SEC-8).
 const sign = (user, tokenVersion) => jwt.sign(
-  { id: user.id, name: user.name, username: user.username, email: user.email, role: user.role, tv: tokenVersion },
+  { id: user.id, tv: tokenVersion },
   config.jwt.secret,
   { expiresIn: config.jwt.expiresIn, algorithm: 'HS256' }
 )
@@ -237,6 +236,7 @@ exports.updateProfile = async (req, res) => {
       'UPDATE users SET name = ?, fund_cluster = COALESCE(?, fund_cluster), responsibility_center_code = COALESCE(?, responsibility_center_code) WHERE id = ?',
       [name.trim(), fund_cluster || null, responsibility_center_code || null, req.user.id]
     )
+    invalidateUserCache(req.user.id)   // the next request carries the new name
     res.json({ message: 'Profile updated' })
   } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
 }

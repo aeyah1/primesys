@@ -253,7 +253,7 @@ add('P3 supply',   'supply records a partial delivery',   5, 'POST', '/delivery'
   (r) => { NEW.d7 = r.data?.id; return r.status === 201 }, '201')
 add('P3 supply',   '…PO partial, notes carried over',     2, 'GET', '/po/7', undefined, poIs(po => po.delivery_status === 'partial' && po.delivery_notes === '3 of 5 boxes'), 'partial')
 add('P3 supply',   '…PR still Ready for PO',              2, 'GET', '/pr/30', undefined, statusIs('for_po'), 'for_po')
-add('P3 supply',   '…procurement notified',               2, 'GET', '/notifications', undefined, (r) => r.status === 200 && r.data.some(n => /recorded a partial delivery for PO-P2-007/.test(n.message)), 'notice')
+add('P3 supply',   '…procurement notified',               2, 'GET', '/notifications', undefined, (r) => r.status === 200 && r.data.some(n => /^sup1 recorded a partial delivery for PO-P2-007/.test(n.message)), 'notice naming the recorder from the database')
 add('P3 sync',     'supply update "pending" refused',     5, 'PATCH', () => `/delivery/${NEW.d7}/supply-update`, { status: 'pending', notes: 'x' }, code(400), '400 (was saved as "")')
 // A note no longer changes a delivery: the rest of the goods are recorded as a delivery.
 add('P3 sync',     'a note can\'t mark it complete',      5, 'PATCH', () => `/delivery/${NEW.d7}/supply-update`, { status: 'complete', notes: 'all 5 boxes in' }, code(409), '409')
