@@ -2,6 +2,8 @@ const router      = require('express').Router()
 const { body }    = require('express-validator')
 const { rateLimit } = require('express-rate-limit')
 const c           = require('../controllers/pr.controller')
+const items       = require('../controllers/prItems.controller')
+const files       = require('../controllers/prAttachments.controller')
 const auth        = require('../middleware/auth.middleware')
 const authorize   = require('../middleware/authorize.middleware')
 const { handle, textRule, moneyRule, quantityRule, dateRule, idRule } = require('../middleware/validate')
@@ -104,29 +106,29 @@ router.post('/:id/remind',
 )
 
 // PR Items
-router.get('/:id/items',              prRead, c.listItems)
+router.get('/:id/items',              prRead, items.listItems)
 router.post('/:id/items',             authorize('procurement', 'admin', 'requestor'), prAccess,
-  textRule('item_name', 'Item name', 500, { required: true }), itemFields('', oneItem), handle, c.addItem)
+  textRule('item_name', 'Item name', 500, { required: true }), itemFields('', oneItem), handle, items.addItem)
 router.patch('/:id/items/:itemId',    authorize('procurement', 'admin', 'requestor'), prAccess,
-  itemFields('', oneItem), handle, c.updateItem)
-router.delete('/:id/items/:itemId',   authorize('procurement', 'admin', 'requestor'), prAccess, c.deleteItem)
+  itemFields('', oneItem), handle, items.updateItem)
+router.delete('/:id/items/:itemId',   authorize('procurement', 'admin', 'requestor'), prAccess, items.deleteItem)
 
 // Activity log
 router.get('/:id/logs', prRead, c.getLogs)
 
 // Attachments
-router.get('/:id/attachments',                    prRead, c.listAttachments)
-router.get('/:id/attachments/:attachId/download', prRead, c.downloadAttachment)
+router.get('/:id/attachments',                    prRead, files.listAttachments)
+router.get('/:id/attachments/:attachId/download', prRead, files.downloadAttachment)
 router.post('/:id/attachments',
   authorize('procurement', 'admin', 'requestor', 'supply'),
   prAccess,        // before multer, so a blocked upload never writes a file
   upload.single('file'),
-  c.uploadAttachment
+  files.uploadAttachment
 )
 router.delete('/:id/attachments/:attachId',
   authorize('procurement', 'admin'),
   prAccess,
-  c.deleteAttachment
+  files.deleteAttachment
 )
 
 module.exports = router

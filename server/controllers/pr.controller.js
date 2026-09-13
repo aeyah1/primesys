@@ -5,7 +5,7 @@ const asyncHandler    = require('../utils/asyncHandler')
 const prReminderEmail = require('../emails/prReminder')
 const { prScope } = require('../middleware/scope.middleware')
 const withTransaction = require('../db/transaction')
-const { PR_STATUSES, loadPR, editBlock, deleteBlock, fileDeleteBlock, poCancelBlock, prPermissions, changePRStatus } = require('../utils/prWorkflow')
+const { PR_STATUSES, loadPR, editDenied, deleteBlock, poCancelBlock, prPermissions, changePRStatus } = require('../utils/prWorkflow')
 const { recordBlock, QTY_ORDERED, QTY_RECEIVED } = require('../utils/deliveryWorkflow')
 const { orderBySection } = require('../utils/itemSections')
 const { currentQuarter } = require('../utils/quarters')
@@ -376,7 +376,7 @@ exports.update = asyncHandler(async (req, res) => {
   const newCategory    = category && VALID_CATEGORIES.includes(category) ? category : null
   const newPurposeType = purpose_type && VALID_PURPOSE_TYPES.includes(purpose_type) ? purpose_type : null
 
-  const denied = await editDenied(req.user, req.params.id)
+  const denied = await editDenied(pool, req.user, req.params.id)
   if (denied) return res.status(denied.status).json({ message: denied.message })
   // Each context column is set unconditionally (no COALESCE) so the client can
   // legitimately CLEAR a field by sending null/empty. category and purpose_type
@@ -454,77 +454,6 @@ exports.markRead = asyncHandler(async (req, res) => {
   res.json({ ok: true })
 })
 
-// ── PR Items ──────────────────────────────────────────────
-
-// Header and item edits share one rule (prWorkflow.editBlock): items feed the
-// PR, PO, and IAR PDFs, so they freeze with the PR.
-async function editDenied(user, prId) {
-  const pr = await loadPR(pool, prId)
-  return pr ? editBlock(user, pr) : { status: 404, message: 'PR not found' }
-}
-
-exports.listItems = asyncHandler(async (req, res) => {
-  const [rows] = await pool.execute(
-    'SELECT id, group_label, item_name, quantity, unit, estimated_cost, notes FROM pr_items WHERE pr_id = ? ORDER BY id',
-    [req.params.id]
-  )
-  res.json(rows)
-})
-
-exports.addItem = asyncHandler(async (req, res) => {
-  const { group_label, item_name, quantity, unit, estimated_cost, notes } = req.body
-  if (!item_name?.trim()) return res.status(400).json({ message: 'Item name is required' })
-  const denied = await editDenied(req.user, req.params.id)
-  if (denied) return res.status(denied.status).json({ message: denied.message })
-  const [result] = await pool.execute(
-    'INSERT INTO pr_items (pr_id, group_label, item_name, quantity, unit, estimated_cost, notes) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    [req.params.id, group_label?.trim() || null, item_name.trim(), quantity || 1, unit || null, estimated_cost || null, notes || null]
-  )
-  res.status(201).json({ id: result.insertId, group_label: group_label?.trim() || null, item_name: item_name.trim(), quantity, unit, estimated_cost })
-})
-
-exports.updateItem = asyncHandler(async (req, res) => {
-  const b = req.body
-  if ('item_name' in b && !String(b.item_name ?? '').trim()) return res.status(400).json({ message: 'Item name is required' })
-
-  // Verify the item belongs to this PR (404 if not — prevents cross-PR tampering).
-  const [rows] = await pool.execute(
-    'SELECT id FROM pr_items WHERE id = ? AND pr_id = ?',
-    [req.params.itemId, req.params.id]
-  )
-  if (!rows.length) return res.status(404).json({ message: 'Item not found' })
-
-  const denied = await editDenied(req.user, req.params.id)
-  if (denied) return res.status(denied.status).json({ message: denied.message })
-
-  // Only the fields sent change; a blank optional field is cleared, a blank quantity is ignored (audit API-14).
-  const text = (v) => String(v ?? '').trim() || null
-  const num  = (v) => (v != null && v !== '' ? parseFloat(v) : null)
-  const changes = {
-    group_label:    'group_label' in b ? text(b.group_label) : undefined,
-    item_name:      'item_name' in b ? text(b.item_name) : undefined,
-    quantity:       num(b.quantity) ?? undefined,
-    unit:           'unit' in b ? text(b.unit) : undefined,
-    estimated_cost: 'estimated_cost' in b ? num(b.estimated_cost) : undefined,
-    notes:          'notes' in b ? text(b.notes) : undefined,
-  }
-  const cols = Object.keys(changes).filter(c => changes[c] !== undefined)
-  if (cols.length) {
-    await pool.execute(
-      `UPDATE pr_items SET ${cols.map(c => `${c} = ?`).join(', ')} WHERE id = ? AND pr_id = ?`,
-      [...cols.map(c => changes[c]), req.params.itemId, req.params.id]
-    )
-  }
-  res.json({ message: 'Item updated' })
-})
-
-exports.deleteItem = asyncHandler(async (req, res) => {
-  const denied = await editDenied(req.user, req.params.id)
-  if (denied) return res.status(denied.status).json({ message: denied.message })
-  await pool.execute('DELETE FROM pr_items WHERE id = ? AND pr_id = ?', [req.params.itemId, req.params.id])
-  res.json({ message: 'Item removed' })
-})
-
 // ── Activity log ─────────────────────────────────────────
 
 exports.getLogs = asyncHandler(async (req, res) => {
@@ -537,63 +466,6 @@ exports.getLogs = asyncHandler(async (req, res) => {
     ORDER BY psl.created_at ASC
   `, [req.params.id])
   res.json(rows)
-})
-
-// ── Attachments ──────────────────────────────────────────
-
-const path = require('path')
-const fs   = require('fs')
-
-exports.uploadAttachment = asyncHandler(async (req, res) => {
-  if (!req.file) return res.status(400).json({ message: 'No file uploaded' })
-  const [rows] = await pool.execute('SELECT id FROM purchase_requests WHERE id = ?', [req.params.id])
-  if (!rows.length) {
-    fs.unlink(req.file.path, () => {})
-    return res.status(404).json({ message: 'PR not found' })
-  }
-  const [result] = await pool.execute(
-    'INSERT INTO pr_attachments (pr_id, filename, original_name, mimetype, size, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)',
-    [req.params.id, req.file.filename, req.file.originalname, req.file.mimetype, req.file.size, req.user.id]
-  )
-  res.status(201).json({ id: result.insertId, original_name: req.file.originalname })
-})
-
-exports.listAttachments = asyncHandler(async (req, res) => {
-  const [rows] = await pool.execute(`
-    SELECT pa.id, pa.original_name, pa.mimetype, pa.size, pa.created_at,
-           u.name AS uploaded_by_name
-    FROM pr_attachments pa
-    JOIN users u ON pa.uploaded_by = u.id
-    WHERE pa.pr_id = ?
-    ORDER BY pa.created_at ASC
-  `, [req.params.id])
-  res.json(rows)
-})
-
-exports.downloadAttachment = asyncHandler(async (req, res) => {
-  const [rows] = await pool.execute(
-    'SELECT * FROM pr_attachments WHERE id = ? AND pr_id = ?',
-    [req.params.attachId, req.params.id]
-  )
-  if (!rows.length) return res.status(404).json({ message: 'Attachment not found' })
-  const filePath = path.join(__dirname, '..', 'uploads', 'pr', rows[0].filename)
-  if (!fs.existsSync(filePath)) return res.status(404).json({ message: 'File not found on disk' })
-  res.download(filePath, rows[0].original_name)
-})
-
-exports.deleteAttachment = asyncHandler(async (req, res) => {
-  const pr = await loadPR(pool, req.params.id)
-  const denied = pr ? fileDeleteBlock(pr) : { status: 404, message: 'PR not found' }
-  if (denied) return res.status(denied.status).json({ message: denied.message })
-  const [rows] = await pool.execute(
-    'SELECT * FROM pr_attachments WHERE id = ? AND pr_id = ?',
-    [req.params.attachId, req.params.id]
-  )
-  if (!rows.length) return res.status(404).json({ message: 'Attachment not found' })
-  await pool.execute('DELETE FROM pr_attachments WHERE id = ?', [req.params.attachId])
-  // The file goes after its row, so a failed delete never leaves a row without its file.
-  fs.unlink(path.join(__dirname, '..', 'uploads', 'pr', rows[0].filename), () => {})
-  res.json({ message: 'Attachment deleted' })
 })
 
 exports.remind = asyncHandler(async (req, res) => {
