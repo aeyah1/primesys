@@ -299,6 +299,8 @@ add('Reports', 'categories are PR categories',           1, 'GET', '/reports/sum
 add('Reports', '"completed" total sent (was read as "delivered")', 1, 'GET', '/reports/summary', undefined,
   (r) => r.status === 200 && Number(r.data.totals.completed) >= 3 && !('delivered' in r.data.totals), 'completed >= 3')
 add('Reports', 'requestor has no reports',               3, 'GET', '/reports/summary', undefined, code(403), '403')
+add('Reports', 'quarters newest first, also within a year', 1, 'GET', '/reports/summary', undefined,
+  (r) => r.status === 200 && r.data.byQuarter.map(q => `${q.year} ${q.label}`).join() === '2026 Q4,2026 Q3', 'Q4 before Q3')
 add('PO notice', 'supply told a PO was issued',          5, 'GET', '/notifications', undefined,
   (r) => r.status === 200 && r.data.some(n => /was issued for PR PR-P2-028/.test(n.message) && n.reference_type === 'pr'), 'notice (was missing)')
 add('PO notice', 'requestor told too',                   4, 'GET', '/notifications', undefined,

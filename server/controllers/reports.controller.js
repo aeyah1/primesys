@@ -17,7 +17,7 @@ exports.summary = async (req, res) => {
       LEFT JOIN purchase_requests pr ON pr.quarter_id = q.id AND pr.status != 'cancelled' AND ${scope.sql}
       LEFT JOIN purchase_orders po   ON po.purchase_request_id = pr.id AND po.po_status = 'active'
       GROUP BY q.id
-      ORDER BY q.year DESC, FIELD(q.label,'Q1','Q2','Q3','Q4')
+      ORDER BY q.year DESC, FIELD(q.label,'Q1','Q2','Q3','Q4') DESC
     `, scope.params)
 
     // Spending by the PR's procurement category
