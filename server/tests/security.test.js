@@ -15,6 +15,7 @@ const jwt    = serverReq('jsonwebtoken')
 const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 4: 'requestor', 5: 'supply', 6: 'twg', 7: 'procurement' }
 const tok  = (id) => jwt.sign({ id, role: ROLE[id] }, config.jwt.secret, { expiresIn: '1h' })
 const SENT = []
+let mailDelay = 0   // How long each stubbed email takes, in ms, to let cron runs overlap.
 
 function fixtures() {
   const hash = serverReq('bcryptjs').hashSync('Test@1234', 4)
@@ -139,6 +140,14 @@ async function run() {
   t.check(G3, 'deactivated recipient skipped', !SENT.some(m => m.to === 'gonestaff@sec.invalid'), JSON.stringify(SENT.map(m => m.to)))
   const [waiting] = await H.sql(TEST_DB, "SELECT is_sent FROM reminders WHERE title = 'due for inactive'")
   t.check(G3, '…their reminder waits (not marked sent)', waiting?.is_sent === 0, JSON.stringify(waiting))
+  await H.sql(TEST_DB, "INSERT INTO reminders (title, remind_at, created_by, assigned_to) VALUES ('due once', NOW() - INTERVAL 1 MINUTE, 2, 5)")
+  SENT.length = 0
+  const cron = require(path.join(H.SERVER, 'controllers', 'reminders.controller.js'))
+  mailDelay = 300
+  await Promise.all([cron.sendDueReminders(), cron.sendDueReminders()])
+  mailDelay = 0
+  const once = SENT.filter(m => /due once/.test(m.subject)).length
+  t.check(G3, 'two overlapping runs email a due reminder once (API-11)', once === 1, `${once} emails`)
 
   // ═══ Uploads (SEC-3, API-1) ══════════════════════════════════════════════
   const G4 = 'Upload checks (SEC-3)'
@@ -209,4 +218,4 @@ async function run() {
   return t.summary()
 }
 
-H.main({ db: TEST_DB, base: BASE, fixtures, onMail: (m) => SENT.push(m), run })
+H.main({ db: TEST_DB, base: BASE, fixtures, onMail: (m) => { SENT.push(m); return mailDelay && new Promise(r => setTimeout(r, mailDelay)) }, run })

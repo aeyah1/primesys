@@ -173,7 +173,11 @@ exports.sendDueReminders = async () => {
       WHERE r.remind_at <= NOW() AND r.is_sent = 0 AND r.is_done = 0
     `)
 
+    let sent = 0
     for (const r of due) {
+      // Claim the reminder before sending, so overlapping runs never email it twice.
+      const [claim] = await pool.execute('UPDATE reminders SET is_sent = 1 WHERE id = ? AND is_sent = 0', [r.id])
+      if (!claim.affectedRows) continue
       try {
         await sendMail({
           to: r.assigned_to_email,
@@ -187,14 +191,14 @@ exports.sendDueReminders = async () => {
             lotNumber:     r.lot_number,
           }),
         })
+        sent++
       } catch (mailErr) {
+        // A failed email is logged, not retried; the reminder still shows on the Reminders page.
         console.error(`Reminder email failed for reminder ${r.id}:`, mailErr.message)
       }
-
-      await pool.execute('UPDATE reminders SET is_sent = 1 WHERE id = ?', [r.id])
     }
 
-    if (due.length) console.log(`[reminders] Sent ${due.length} reminder email(s)`)
+    if (sent) console.log(`[reminders] Sent ${sent} reminder email(s)`)
   } catch (err) {
     console.error('[reminders] Cron error:', err.message)
   }
