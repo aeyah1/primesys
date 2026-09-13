@@ -47,6 +47,11 @@ function removeBlock(po) {
   return deliveryLocked(po) ? deny(409, 'Deliveries on a fully delivered purchase order are kept on record') : null
 }
 
+// Files on a fully delivered PO stay with the record (audit WF-8).
+function fileDeleteBlock(po) {
+  return deliveryLocked(po) ? deny(409, 'Files on a fully delivered purchase order are kept on record') : null
+}
+
 // Row-locks the PO, so delivery writes on one PO run one after another.
 async function lockPO(conn, poId) {
   const [rows] = await conn.execute(
@@ -132,5 +137,5 @@ async function syncPODelivery(conn, po, user) {
 
 module.exports = {
   hundredths, poLines, QTY_ORDERED, QTY_RECEIVED,
-  deliveryLocked, recordBlock, changeBlock, removeBlock, lockPO, lockDelivery, syncPODelivery,
+  deliveryLocked, recordBlock, changeBlock, removeBlock, fileDeleteBlock, lockPO, lockDelivery, syncPODelivery,
 }

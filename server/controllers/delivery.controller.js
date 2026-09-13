@@ -9,7 +9,7 @@ const sendMail        = require('../utils/mailer')
 const deliveryStatusEmail   = require('../emails/deliveryStatus')
 const { prScope } = require('../middleware/scope.middleware')
 const {
-  hundredths, poLines, deliveryLocked, recordBlock, changeBlock, removeBlock, lockPO, lockDelivery, syncPODelivery,
+  hundredths, poLines, deliveryLocked, recordBlock, changeBlock, removeBlock, fileDeleteBlock, lockPO, lockDelivery, syncPODelivery,
 } = require('../utils/deliveryWorkflow')
 const { poItems } = require('../utils/awardWorkflow')
 
@@ -443,13 +443,19 @@ exports.downloadAttachment = async (req, res) => {
 exports.deleteAttachment = async (req, res) => {
   try {
     const [rows] = await pool.execute(
-      'SELECT * FROM delivery_attachments WHERE id = ? AND delivery_id = ?',
+      `SELECT a.filename, po.delivery_status
+         FROM delivery_attachments a
+         JOIN deliveries d       ON d.id = a.delivery_id
+         JOIN purchase_orders po ON po.id = d.po_id
+        WHERE a.id = ? AND a.delivery_id = ?`,
       [req.params.attachId, req.params.id]
     )
     if (!rows.length) return res.status(404).json({ message: 'Attachment not found' })
-    const filePath = path.join(UPLOAD_DIR, rows[0].filename)
-    fs.unlink(filePath, () => {})
+    const denied = fileDeleteBlock(rows[0])
+    if (denied) return res.status(denied.status).json({ message: denied.message })
     await pool.execute('DELETE FROM delivery_attachments WHERE id = ?', [req.params.attachId])
+    // The file goes after its row, so a failed delete never leaves a row without its file.
+    fs.unlink(path.join(UPLOAD_DIR, rows[0].filename), () => {})
     res.json({ message: 'Attachment deleted' })
   } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
 }
