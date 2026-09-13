@@ -53,7 +53,7 @@ function onlyRegisterFields(req, res, next) {
 const DOMAINS = A.emailDomains   // [] = any domain
 const emailDomainAllowed = (email) => !DOMAINS.length || DOMAINS.includes(email.split('@').pop().toLowerCase())
 const DOMAIN_MSG = DOMAINS.length
-  ? `Please sign up with your NEMSU email address (ending in ${DOMAINS.map(d => '@' + d).join(' or ')})`
+  ? `Please sign up with an email address ending in ${DOMAINS.map(d => '@' + d).join(' or ')}`
   : 'Email domain not allowed'
 
 const nameRule = (field, label) => body(field)

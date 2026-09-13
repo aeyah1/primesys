@@ -13,7 +13,7 @@ const { db: TEST_DB, base: BASE, port: PORT } = H.configure({
     LOGIN_IP_RATE_LIMIT: '60', LOGIN_IP_RATE_WINDOW: '15',
     LOGIN_MAX_ATTEMPTS: '5', LOGIN_LOCKOUT_MINUTES: '2', LOGIN_LOCKOUT_MAX_MINUTES: '30',
     AUTH_EMAIL_RATE_LIMIT: '20', AUTH_EMAIL_COOLDOWN_MINUTES: '2',
-    ALLOWED_EMAIL_DOMAINS: 'auth.invalid',   // stands in for nemsu.edu.ph
+    ALLOWED_EMAIL_DOMAINS: 'auth.invalid,demo.invalid',   // stands in for nemsu.edu.ph,gmail.com
   },
 })
 const { SERVER, CLIENT, LOGS, print } = H
@@ -98,13 +98,15 @@ async function run() {
     check(G1, `privileged field ${field}=${JSON.stringify(value)} → refused, no account`, r.status === 400 && made.n === 0, show(r))
   }
   r = await http('GET', '/auth/registration-info')
-  check(G1, 'sign-up form is told which email domains are accepted', r.status === 200 && JSON.stringify(r.data.email_domains) === '["auth.invalid"]', show(r))
+  check(G1, 'sign-up form is told which email domains are accepted', r.status === 200 && JSON.stringify(r.data.email_domains) === '["auth.invalid","demo.invalid"]', show(r))
   const outsider = reg({ email: 'someone@gmail.com' })
   r = await http('POST', '/auth/register', outsider)
-  check(G1, 'email outside the allowed domains → 400, no account', r.status === 400 && /NEMSU email/.test(r.data.message)
+  check(G1, 'email outside the allowed domains → 400, no account', r.status === 400 && /ending in @auth\.invalid or @demo\.invalid/.test(r.data.message)
     && (await q('SELECT COUNT(*) AS n FROM users WHERE username = ?', [outsider.username]))[0].n === 0, show(r))
   r = await http('POST', '/auth/register', reg({ email: `caps${seq + 1}@AUTH.INVALID` }))
   check(G1, 'allowed domain typed in capitals → accepted', r.status === 201, show(r))
+  r = await http('POST', '/auth/register', reg({ email: 'second-domain@demo.invalid' }))
+  check(G1, 'a second listed domain (like gmail.com for a demo) → accepted', r.status === 201, show(r))
 
   const bot = reg({ website: 'https://spam.example' })
   r = await http('POST', '/auth/register', bot)
