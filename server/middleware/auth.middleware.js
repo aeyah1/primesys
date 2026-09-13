@@ -9,7 +9,7 @@ const config = require('../config')
 // CACHE_TTL_MS, and at once when users.controller invalidates the entry.
 // Map preserves insertion order — re-setting a key on read moves it to the tail,
 // and we evict from the head when over capacity.
-// Entry: { active, role, tokenVersion, cachedAt }
+// Entry: { active, role, name, tokenVersion, cachedAt }
 const stateCache        = new Map()
 const CACHE_TTL_MS      = 30_000
 const CACHE_MAX_ENTRIES = 5000
@@ -33,16 +33,17 @@ function cacheGet(userId) {
   return hit
 }
 
-// { active, role, tokenVersion } for a user, from the cache when fresh. A
+// { active, role, name, tokenVersion } for a user, from the cache when fresh. A
 // missing user is inactive. Throws when the database can't be reached.
 async function loadUserState(userId) {
   const now = Date.now()
   const hit = cacheGet(userId)
   if (hit && now - hit.cachedAt < CACHE_TTL_MS) return hit
-  const [rows] = await pool.execute('SELECT is_active, role, token_version FROM users WHERE id = ?', [userId])
+  const [rows] = await pool.execute('SELECT is_active, role, name, token_version FROM users WHERE id = ?', [userId])
   const entry = {
     active: rows.length > 0 && rows[0].is_active === 1,
     role: rows[0]?.role ?? null,
+    name: rows[0]?.name ?? null,
     tokenVersion: rows[0]?.token_version ?? 0,
     cachedAt: now,
   }
@@ -99,6 +100,7 @@ const verifyToken = async (req, res, next) => {
     return res.status(401).json({ message: 'Your session has ended because the password was changed. Please sign in again.' })
   }
   req.user.role = state.role   // the account's current role, not the one in the token
+  req.user.name = state.name   // the account's current name; tokens no longer carry one
 
   next()
 }
