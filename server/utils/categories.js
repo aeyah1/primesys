@@ -12,4 +12,4 @@ const CATEGORY_LABELS = {
 const CATEGORIES = Object.keys(CATEGORY_LABELS)
 const categoryLabel = (c) => CATEGORY_LABELS[c] || c
 
-module.exports = { CATEGORIES, CATEGORY_LABELS, categoryLabel }
+module.exports = { CATEGORIES, categoryLabel }

@@ -82,4 +82,4 @@ async function notifyAreaReviewers(io, pr, { resubmitted = false, exceptId = nul
   }
 }
 
-module.exports = { IN_AREA, areasOf, reviewsCategory, setAreas, areaReviewers, coverage, notifyAreaReviewers }
+module.exports = { IN_AREA, areasOf, reviewsCategory, setAreas, coverage, notifyAreaReviewers }

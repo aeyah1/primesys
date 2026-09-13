@@ -124,4 +124,4 @@ function drawTable(doc, columns, rows) {
   return y
 }
 
-module.exports = { M, BRAND, GRAY, LIGHT, BORDER, fmtDate, fmtCurrency, pageHeader, pageFooter, hRule, metaField, sigBlock, drawTable }
+module.exports = { M, BRAND, GRAY, LIGHT, fmtDate, fmtCurrency, pageHeader, pageFooter, hRule, metaField, sigBlock, drawTable }
