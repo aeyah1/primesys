@@ -195,7 +195,15 @@ async function run() {
     ['cost "NaN"', { item_name: 'x', estimated_cost: 'NaN' }], ['item name over 500 characters', { item_name: 'x'.repeat(501) }],
     ['unit over 50 characters', { item_name: 'x', unit: 'u'.repeat(51) }],
   ]) await is(G7, `item: ${label} → 400`, 3, 'POST', '/pr/53/items', body, code(400))
-  await is(G7, 'item: 2.5 units at 1,234.56 accepted', 3, 'POST', '/pr/53/items', { item_name: 'Cable', quantity: 2.5, estimated_cost: 1234.56 }, code(201))
+  const cable = await is(G7, 'item: 2.5 units at 1,234.56 accepted', 3, 'POST', '/pr/53/items', { item_name: 'Cable', quantity: 2.5, unit: 'm', estimated_cost: 1234.56 }, code(201))
+  const cableRow = (r) => r.data?.find?.(x => x.id === cable.data?.id)
+  await is(G7, 'item PATCH with only notes → 200 (API-14)', 3, 'PATCH', `/pr/53/items/${cable.data?.id}`, { notes: 'Cat6' }, code(200))
+  await is(G7, '…unit, quantity, and cost kept (were wiped)', 3, 'GET', '/pr/53/items', undefined,
+    (r) => { const i = cableRow(r); return r.status === 200 && i?.unit === 'm' && Number(i?.quantity) === 2.5 && Number(i?.estimated_cost) === 1234.56 && i?.notes === 'Cat6' })
+  await is(G7, 'item PATCH with a blank name → 400', 3, 'PATCH', `/pr/53/items/${cable.data?.id}`, { item_name: '  ' }, code(400, /Item name is required/))
+  await is(G7, 'item PATCH clearing the cost → 200', 3, 'PATCH', `/pr/53/items/${cable.data?.id}`, { estimated_cost: '' }, code(200))
+  await is(G7, '…cost cleared, name and notes kept', 3, 'GET', '/pr/53/items', undefined,
+    (r) => { const i = cableRow(r); return r.status === 200 && i?.estimated_cost === null && i?.item_name === 'Cable' && i?.notes === 'Cat6' })
   await is(G7, 'PR: title over 200 characters → 400', 3, 'POST', '/pr', { title: 'x'.repeat(201) }, code(400))
   await is(G7, 'PR: date the calendar lacks → 400', 3, 'POST', '/pr', { title: 'x', date_needed: '2026-02-30' }, code(400))
   await is(G7, 'PR: bad quantity names the item', 3, 'POST', '/pr', { title: 'x', items: [{ item_name: 'a' }, { item_name: 'b', quantity: 'x' }] }, code(400, /Item 2 quantity/))
