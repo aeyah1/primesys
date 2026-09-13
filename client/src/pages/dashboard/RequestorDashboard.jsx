@@ -46,7 +46,7 @@ export default function RequestorDashboard() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="text-ui-2xl font-bold text-[--color-text-primary]">
-            Welcome, {user?.name?.split(' ')[0]}
+            Welcome, {user?.name}
           </h2>
           <p className="text-ui-sm text-[--color-text-secondary] mt-0.5">
             Here is where your requests are.
