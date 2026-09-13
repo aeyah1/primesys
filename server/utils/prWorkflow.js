@@ -22,6 +22,9 @@ const STATUS_LABELS = {
 
 const EDITORS = ['requestor', 'procurement', 'admin']
 const STAFF   = ['procurement', 'admin']
+// While the TWG has a PR only an admin may cancel or delete it (audit WF-6, WF-7).
+const ADMIN      = ['admin']
+const TWG_STAGES = ['submitted', 'revision_requested']
 
 // from → to → rule. A rule either lists the roles that may make the move through
 // the status endpoint (`roles`; `owner`: only the PR's creator or an admin;
@@ -42,8 +45,8 @@ const TRANSITIONS = {
   draft:              { submitted: { roles: EDITORS, owner: true }, cancelled: { roles: STAFF } },
   submitted:          { draft: { roles: EDITORS, owner: true },
                         twg_review: { via: 'twg' }, revision_requested: { via: 'twg' }, rejected: { via: 'twg' },
-                        cancelled: { roles: STAFF } },
-  revision_requested: { submitted: { roles: EDITORS, owner: true }, cancelled: { roles: STAFF } },
+                        cancelled: { roles: ADMIN } },
+  revision_requested: { submitted: { roles: EDITORS, owner: true }, cancelled: { roles: ADMIN } },
   twg_review:         { bidding: { roles: STAFF }, revision_requested: { roles: STAFF, reason: true },
                         cancelled: { roles: STAFF } },
   bidding:            { for_po: { via: 'award' }, revision_requested: { roles: STAFF, reason: true, noAward: true },
@@ -114,6 +117,9 @@ function deleteBlock(user, pr) {
       : deny(409, 'You can only delete a PR while it is a draft or returned for revision')
   }
   if (!STAFF.includes(user.role)) return deny(403, 'Your role can\'t delete purchase requests')
+  if (!ADMIN.includes(user.role) && TWG_STAGES.includes(pr.status)) {
+    return deny(403, 'While the TWG has this PR, only an admin can delete it')
+  }
   if (pr.hasAnyPO) return deny(409, 'This PR has a purchase order on record, so it can\'t be deleted')
   if (pr.hasLot)   return deny(409, 'This PR has lots on record, so it can\'t be deleted. Cancel it instead.')
   return null

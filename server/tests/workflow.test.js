@@ -97,7 +97,8 @@ add('Permissions', 'procurement, for_po with PO',   2, 'GET', '/pr/19', undefine
 // can return an approved PR for revision instead (audit WF-1).
 add('Permissions', 'procurement, TWG-approved',     2, 'GET', '/pr/20', undefined, perms(P_(false, true, ['bidding', 'revision_requested', 'cancelled'])), 'locked; canvass, return, cancel')
 add('Permissions', 'procurement, own draft',        2, 'GET', '/pr/24', undefined, perms(P_(true, true, ['submitted', 'cancelled'])), 'submit own')
-add('Permissions', "procurement, someone's submitted", 2, 'GET', '/pr/25', undefined, perms(P_(false, true, ['cancelled'])), 'locked, no retract (not owner)')
+add('Permissions', "procurement, someone's submitted", 2, 'GET', '/pr/25', undefined, perms(P_(false, false, [])), 'locked; cancel and delete are admin-only at the TWG (WF-6, WF-7)')
+add('Permissions', "admin, someone's submitted",      1, 'GET', '/pr/25', undefined, perms(P_(false, true, ['draft', 'cancelled'], true)), 'admin may still cancel, delete, or review')
 add('Permissions', 'admin, completed',              1, 'GET', '/pr/16', undefined, perms(P_(false, false, [])), 'final: kept, not deletable')
 add('Permissions', 'list rows carry permissions',   3, 'GET', '/pr?limit=100', undefined,
   (r) => { const row = (id) => r.data.data.find(x => x.id === id)
@@ -123,6 +124,8 @@ add('Status', 'recanvass with a PO',                2, 'PATCH', '/pr/19/status',
 add('Status', 'cancel with a PO',                   2, 'PATCH', '/pr/19/status', { status: 'cancelled' }, code(409), '409 has PO')
 add('Status', 'recanvass without a PO',             2, 'PATCH', '/pr/22/status', { status: 'bidding' }, code(200), '200')
 add('Status', 'cancel while bidding',               2, 'PATCH', '/pr/23/status', { status: 'cancelled' }, code(200), '200')
+add('Status', 'procurement cancels a submitted PR (WF-6)', 2, 'PATCH', '/pr/25/status', { status: 'cancelled' }, code(403), '403 admin only')
+add('Status', 'procurement cancels a returned PR (WF-6)',  2, 'PATCH', '/pr/26/status', { status: 'cancelled' }, code(403), '403 admin only')
 add('Status', 'unknown status',                     2, 'PATCH', '/pr/20/status', { status: 'awarded' }, code(400), '400')
 
 // ── TWG review goes through the same rules ───────────────────────────────────
@@ -167,6 +170,7 @@ add('Edit', 'procurement adds item under canvass (WF-1)', 2, 'POST',  '/pr/15/it
 // ── Deletion rules ───────────────────────────────────────────────────────────
 add('Delete', 'requestor deletes own submitted PR', 3, 'DELETE', '/pr/12', undefined, code(409), '409')
 add('Delete', 'requestor deletes own draft',        3, 'DELETE', '/pr/13', undefined, code(200), '200, file kept (soft delete)')
+add('Delete', 'procurement deletes a returned PR (WF-7)', 2, 'DELETE', '/pr/26', undefined, code(403), '403 admin only')
 add('Delete', 'requestor deletes returned PR',      3, 'DELETE', '/pr/26', undefined, code(200), '200')
 add('Delete', 'requestor deletes PR under canvass', 3, 'DELETE', '/pr/15', undefined, code(409), '409')
 add('Delete', 'procurement deletes, no lot/PO',     2, 'DELETE', '/pr/20', undefined, code(200), '200')
@@ -185,7 +189,8 @@ add('Archive', 'deleted PR cannot be changed',           3, 'PATCH', '/pr/13', {
 add('Archive', 'stats count deleted separately',         3, 'GET', '/pr/stats', undefined, (r) => r.status === 200 && r.data.deleted === 2, 'deleted=2')
 add('Archive', 'admin deletes a completed PR',           1, 'DELETE', '/pr/16', undefined, code(409), '409 kept')
 add('Archive', 'procurement deletes a rejected PR',      2, 'DELETE', '/pr/17', undefined, code(409), '409 kept')
-add('Archive', 'staff delete of a submitted PR',         2, 'DELETE', '/pr/25', undefined, code(200), '200')
+add('Archive', 'procurement deletes a submitted PR (WF-7)', 2, 'DELETE', '/pr/25', undefined, code(403), '403 admin only')
+add('Archive', 'admin deletes a submitted PR',           1, 'DELETE', '/pr/25', undefined, code(200), '200')
 add('Archive', '…drops out of the TWG queue',            6, 'GET', '/twg/pending', undefined, (r) => r.status === 200 && !idsOf(r.data).includes(25), 'no 25')
 add('Archive', 'procurement deleted view (no drafts)',   2, 'GET', '/pr?deleted=only&limit=100', undefined, idsEq([20, 25, 26]), 'ids=[20,25,26]')
 
