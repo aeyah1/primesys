@@ -81,6 +81,7 @@ async function run() {
   const u1 = reg()
   let r = await http('POST', '/auth/register', u1)
   check(G1, 'normal registration → 201', r.status === 201, show(r))
+  const firstReply = r.data?.message
   let [row] = await q('SELECT role, is_verified, is_active, is_approved, verify_token, TIMESTAMPDIFF(MINUTE, NOW(), verify_expires) AS mins FROM users WHERE username = ?', [u1.username])
   check(G1, '…created as requestor, unverified, active', row && row.role === 'requestor' && row.is_verified === 0 && row.is_active === 1 && row.is_approved === 1, JSON.stringify(row))
   check(G1, '…verification link lasts 24 h (was ~16 h: UTC/local mix)', row && row.mins >= 1435 && row.mins <= 1440, `mins=${row?.mins}`)
@@ -111,8 +112,17 @@ async function run() {
   check(G1, 'honeypot filled → normal-looking 201, nothing created or sent', r.status === 201 && botRow.n === 0 && mailsTo(bot.email).length === 0, show(r))
   r = await http('POST', '/auth/register', reg({ username: u1.username }))
   check(G1, 'duplicate username → 409', r.status === 409, show(r))
-  r = await http('POST', '/auth/register', reg({ email: u1.email.toUpperCase() }))
-  check(G1, 'duplicate email (any case) → 409', r.status === 409, show(r))
+  const dupUnverified = reg({ email: u1.email.toUpperCase() })
+  r = await http('POST', '/auth/register', dupUnverified)
+  check(G1, 'duplicate email (any case) → the same 201 reply as a new sign-up (SEC-7)', r.status === 201 && r.data.message === firstReply, show(r))
+  const [dupRow] = await q('SELECT COUNT(*) AS n FROM users WHERE username = ?', [dupUnverified.username])
+  check(G1, '…no account created, no extra link inside the cooldown', dupRow.n === 0 && mailsTo(u1.email).length === 1, `n=${dupRow.n} mails=${mailsTo(u1.email).length}`)
+  r = await http('POST', '/auth/register', reg({ email: 'SUP1@auth.invalid' }))
+  const notice = mailsTo('sup1@auth.invalid')
+  check(G1, 'email of a verified account → same 201, owner told once', r.status === 201 && r.data.message === firstReply && notice.length === 1
+    && /already have an account/.test(notice[0].html) && !/token=/.test(notice[0].html), `${show(r)} mails=${notice.length}`)
+  r = await http('POST', '/auth/register', reg({ email: 'sup1@auth.invalid' }))
+  check(G1, '…a second try inside the cooldown sends nothing more', r.status === 201 && mailsTo('sup1@auth.invalid').length === 1, `mails=${mailsTo('sup1@auth.invalid').length}`)
   for (const [label, over] of [
     ['password under 8 characters', { password: 'Short-1', confirm_password: 'Short-1' }],
     ['password over 72 bytes', { password: 'x'.repeat(73), confirm_password: 'x'.repeat(73) }],
