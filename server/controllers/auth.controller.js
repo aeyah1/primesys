@@ -11,6 +11,7 @@ const { verifyCaptcha } = require('../utils/captcha')
 const { endSessions } = require('../middleware/auth.middleware')
 const verifyAccountEmail = require('../emails/verifyAccount')
 const resetPasswordEmail = require('../emails/resetPassword')
+const accountExistsEmail = require('../emails/accountExists')
 
 const BCRYPT_COST = 10
 // Compared against when no account matches, so an unknown username takes as
@@ -19,7 +20,7 @@ const DUMMY_HASH = bcrypt.hashSync('no-such-account-placeholder', BCRYPT_COST)
 
 const INVALID_LOGIN = 'Invalid username/email or password.'
 const TOO_MANY      = 'Too many sign-in attempts. Please wait a few minutes before trying again.'
-const REGISTERED    = 'Account created. Check your email for a verification link, then sign in.'
+const REGISTERED    = 'Check your email to finish signing up.'
 const LINK_SENT     = 'If an unverified account matches, a new verification link has been sent.'
 const RESET_SENT    = 'If an account matches the information provided, reset instructions will be sent.'
 
@@ -68,8 +69,14 @@ exports.register = async (req, res) => {
 
     const [usernameCheck] = await pool.execute('SELECT id FROM users WHERE LOWER(username) = LOWER(?)', [username])
     if (usernameCheck.length) return res.status(409).json({ message: 'That username is already taken' })
-    const [emailCheck] = await pool.execute('SELECT id FROM users WHERE LOWER(email) = LOWER(?)', [email])
-    if (emailCheck.length) return res.status(409).json({ message: 'Email already registered' })
+    // Hashing before the email check makes both replies below take the same time.
+    const passwordHash = await bcrypt.hash(password, BCRYPT_COST)
+    const [emailCheck] = await pool.execute('SELECT id, name, email, is_verified FROM users WHERE LOWER(email) = LOWER(?)', [email])
+    if (emailCheck.length) {
+      // Same reply as a new sign-up so the form doesn't reveal which emails have accounts (audit SEC-7).
+      await tellOwner(emailCheck[0], req.ip)
+      return res.status(201).json({ message: REGISTERED })
+    }
 
     const name = `${first_name} ${last_name}`   // both trimmed by the route's validators
     const { token, hash: tokenHash } = newToken()
@@ -78,12 +85,16 @@ exports.register = async (req, res) => {
       const [result] = await pool.execute(
         `INSERT INTO users (name, username, email, password_hash, role, is_verified, is_approved, verify_token, verify_expires)
          VALUES (?, ?, ?, ?, 'requestor', 0, 1, ?, NOW() + INTERVAL 24 HOUR)`,
-        [name, username, email, await bcrypt.hash(password, BCRYPT_COST), tokenHash]
+        [name, username, email, passwordHash, tokenHash]
       )
       userId = result.insertId
     } catch (err) {
       // Another sign-up took the same username or email between the checks and the insert.
-      if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ message: 'That username or email is already registered' })
+      if (err.code === 'ER_DUP_ENTRY') {
+        return /uq_email/.test(err.message)
+          ? res.status(201).json({ message: REGISTERED })
+          : res.status(409).json({ message: 'That username is already taken' })
+      }
       throw err
     }
 
@@ -120,25 +131,41 @@ exports.verifyEmail = async (req, res) => {
 // reveals nothing about the account.
 exports.resendVerification = async (req, res) => {
   try {
-    const { identifier } = req.body
-    const [rows] = await pool.execute(
-      `SELECT id, name, email FROM users
-        WHERE (LOWER(email) = LOWER(?) OR LOWER(username) = LOWER(?)) AND is_verified = 0
-          AND (verify_expires IS NULL OR verify_expires <= NOW() + INTERVAL 24 HOUR - INTERVAL ? MINUTE)
-        LIMIT 1`,
-      [identifier, identifier, config.auth.emailCooldownMin]
-    )
-    if (rows.length) {
-      const { token, hash } = newToken()
-      await pool.execute(
-        'UPDATE users SET verify_token = ?, verify_expires = NOW() + INTERVAL 24 HOUR WHERE id = ?',
-        [hash, rows[0].id]
-      )
-      securityLog('verification_resent', { userId: rows[0].id, ip: req.ip })
-      sendVerification(rows[0], token)
-    }
+    await resendLink(req.body.identifier, req.ip)
     res.json({ message: LINK_SENT })
   } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
+}
+
+// Sends a new link to the unverified account matching `identifier`, at most once per cooldown.
+async function resendLink(identifier, ip) {
+  const [rows] = await pool.execute(
+    `SELECT id, name, email FROM users
+      WHERE (LOWER(email) = LOWER(?) OR LOWER(username) = LOWER(?)) AND is_verified = 0
+        AND (verify_expires IS NULL OR verify_expires <= NOW() + INTERVAL 24 HOUR - INTERVAL ? MINUTE)
+      LIMIT 1`,
+    [identifier, identifier, config.auth.emailCooldownMin]
+  )
+  if (!rows.length) return
+  const { token, hash } = newToken()
+  await pool.execute('UPDATE users SET verify_token = ?, verify_expires = NOW() + INTERVAL 24 HOUR WHERE id = ?', [hash, rows[0].id])
+  securityLog('verification_resent', { userId: rows[0].id, ip })
+  sendVerification(rows[0], token)
+}
+
+// When each account last got an "account exists" email, so repeated sign-ups can't flood its inbox.
+const existsNoticeAt = new Map()
+
+// Tells the owner of an email someone signed up with: a new link if unverified, else a notice.
+async function tellOwner(user, ip) {
+  securityLog('register_existing_email', { userId: user.id, ip })
+  if (!user.is_verified) return resendLink(user.email, ip)
+  if (Date.now() - (existsNoticeAt.get(user.id) || 0) < config.auth.emailCooldownMin * 60_000) return
+  existsNoticeAt.set(user.id, Date.now())
+  sendMail({
+    to: user.email,
+    subject: 'Your PRimeSys account',
+    html: accountExistsEmail({ name: user.name, loginUrl: `${config.clientUrl}/login`, resetUrl: `${config.clientUrl}/forgot-password` }),
+  }).catch(err => console.error('[mailer] account-exists email failed:', err.message))
 }
 
 // Sign-in. Nothing about an account (whether it exists, is active, verified,
