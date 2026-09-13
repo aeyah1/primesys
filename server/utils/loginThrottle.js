@@ -1,6 +1,6 @@
 const config = require('../config')
 
-// ── Per-account sign-in throttle ─────────────────────────────────────────────
+// Per-account sign-in throttle
 // Failed sign-ins are counted per ACCOUNT (its user id, so typing the username
 // or the email counts the same), or per typed identifier when no account
 // matches, so a probe for a missing account is treated exactly like a real one.
@@ -14,7 +14,7 @@ const config = require('../config')
 // dropped first), swept every 5 minutes.
 const IDLE_MS     = 60 * 60 * 1000   // forget an account's failures 1 h after the last one
 const MAX_ENTRIES = 10_000
-const entries     = new Map()        // key → { attempts, strikes, lockedUntil, lastFailAt }
+const entries     = new Map()        // key -> { attempts, strikes, lockedUntil, lastFailAt }
 
 setInterval(() => {
   const now = Date.now()

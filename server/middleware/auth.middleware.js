@@ -7,7 +7,7 @@ const config = require('../config')
 // is only what it was at sign-in; every authorization decision uses the role
 // from here, so an admin's role change or deactivation applies within
 // CACHE_TTL_MS, and at once when users.controller invalidates the entry.
-// Map preserves insertion order — re-setting a key on read moves it to the tail,
+// Map preserves insertion order - re-setting a key on read moves it to the tail,
 // and we evict from the head when over capacity.
 // Entry: { active, role, name, tokenVersion, cachedAt }
 const stateCache        = new Map()
@@ -85,7 +85,7 @@ const verifyToken = async (req, res, next) => {
     state = await loadUserState(req.user.id)
   } catch (err) {
     // DB unreachable. Fall back to the last known state (even if expired),
-    // otherwise refuse — never grant access without a known state.
+    // otherwise refuse - never grant access without a known state.
     console.error('[auth] account-state DB error:', err.message)
     state = cacheGet(req.user.id)
     if (!state) {

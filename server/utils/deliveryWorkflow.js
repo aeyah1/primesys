@@ -1,16 +1,16 @@
 const { syncPRProgress } = require('./prWorkflow')
 const httpError          = require('./httpError')
 
-// ── Delivery rules ───────────────────────────────────────────────────────────
+// Delivery rules
 // A purchase order's delivery records (the `deliveries` table) are the source
 // of truth. purchase_orders.delivery_status / delivery_date / delivery_notes
 // only summarize them, and only syncPODelivery writes them.
 //
 // A PO's lines are its awards' items (lot_items); each delivery records how
 // much of each line arrived (delivery_items). Such a PO is
-//   nothing received            → pending
-//   some received               → partial
-//   every line received in full → delivered
+// nothing received            -> pending
+// some received               -> partial
+// every line received in full -> delivered
 // A PO issued before awards named their items has no lines; its records say
 // partial or complete, and a complete record makes it delivered.
 // Once a PO is delivered, its PR moves to Completed when every one of its POs

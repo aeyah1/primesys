@@ -14,7 +14,7 @@ DROP PROCEDURE _legacy_guard;
 
 -- PRimeSys full migration for pre-May-2026 databases. Run this in phpMyAdmin SQL tab.
 
--- ─── 1. User columns ─────────────────────────────────────────────────────────
+-- 1. User columns
 
 DROP PROCEDURE IF EXISTS _add_col;
 
@@ -42,11 +42,11 @@ UPDATE users SET is_verified = 1 WHERE verify_token IS NULL;
 
 DROP PROCEDURE IF EXISTS _add_col;
 
--- ─── 2. Role ENUM ────────────────────────────────────────────────────────────
+-- 2. Role ENUM
 ALTER TABLE users
   MODIFY COLUMN role ENUM('admin','extension','procurement','supply') NOT NULL DEFAULT 'extension';
 
--- ─── 3. Suppliers table ───────────────────────────────────────────────────────
+-- 3. Suppliers table
 CREATE TABLE IF NOT EXISTS `suppliers` (
   `id`             INT UNSIGNED  NOT NULL AUTO_INCREMENT,
   `name`           VARCHAR(200)  NOT NULL,
@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS `suppliers` (
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ─── 4. Lots table (create first so ENUM alter below works) ──────────────────
+-- 4. Lots table (create first so ENUM alter below works)
 CREATE TABLE IF NOT EXISTS `lots` (
   `id`                  INT UNSIGNED  NOT NULL AUTO_INCREMENT,
   `purchase_request_id` INT UNSIGNED  NOT NULL,
@@ -82,7 +82,7 @@ CREATE TABLE IF NOT EXISTS `lots` (
   FOREIGN KEY (`created_by`)          REFERENCES `users`(`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ─── 5. Purchase orders table (create before deliveries FK) ──────────────────
+-- 5. Purchase orders table (create before deliveries FK)
 CREATE TABLE IF NOT EXISTS `purchase_orders` (
   `id`                     INT UNSIGNED  NOT NULL AUTO_INCREMENT,
   `po_number`              VARCHAR(50)   NOT NULL,
@@ -108,19 +108,19 @@ CREATE TABLE IF NOT EXISTS `purchase_orders` (
   FOREIGN KEY (`issued_by`)           REFERENCES `users`(`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ─── 6. PR status ENUM (add bidding phases) ──────────────────────────────────
+-- 6. PR status ENUM (add bidding phases)
 ALTER TABLE purchase_requests
   MODIFY COLUMN status
     ENUM('draft','submitted','bidding','awarded','for_po','waiting_delivery','delivered','completed','cancelled')
     NOT NULL DEFAULT 'draft';
 
--- ─── 7. Lot status ENUM (add for_bidding — table now guaranteed to exist) ────
+-- 7. Lot status ENUM (add for_bidding - table now guaranteed to exist)
 ALTER TABLE lots
   MODIFY COLUMN status
     ENUM('draft','open','for_bidding','closed','awarded','cancelled')
     NOT NULL DEFAULT 'draft';
 
--- ─── 8. Bidding results ───────────────────────────────────────────────────────
+-- 8. Bidding results
 CREATE TABLE IF NOT EXISTS `bidding_results` (
   `id`          INT UNSIGNED  NOT NULL AUTO_INCREMENT,
   `lot_id`      INT UNSIGNED  NOT NULL,
@@ -139,7 +139,7 @@ CREATE TABLE IF NOT EXISTS `bidding_results` (
   FOREIGN KEY (`created_by`)  REFERENCES `users`(`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ─── 9. Deliveries ───────────────────────────────────────────────────────────
+-- 9. Deliveries
 CREATE TABLE IF NOT EXISTS `deliveries` (
   `id`             INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `po_id`          INT UNSIGNED NOT NULL,
@@ -154,7 +154,7 @@ CREATE TABLE IF NOT EXISTS `deliveries` (
   FOREIGN KEY (`received_by`) REFERENCES `users`(`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ─── 10. PR status audit log ─────────────────────────────────────────────────
+-- 10. PR status audit log
 CREATE TABLE IF NOT EXISTS `pr_status_logs` (
   `id`          INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `pr_id`       INT UNSIGNED NOT NULL,

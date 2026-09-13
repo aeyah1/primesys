@@ -6,9 +6,9 @@ const { canAccess }    = require('../middleware/scope.middleware')
 
 // Reminders are emailed from the PRimeSys address, so who may be reminded is
 // limited (audit SEC-2):
-//   requestor → themselves only (Remind Procurement on a PR covers the rest)
-//   admin     → any active user
-//   others    → any active staff member, or the requestor who filed the linked PR
+// requestor -> themselves only (Remind Procurement on a PR covers the rest)
+// admin     -> any active user
+// others    -> any active staff member, or the requestor who filed the linked PR
 // A linked PR or lot must be one this user may see.
 const STAFF_ROLES = ['admin', 'procurement', 'supply', 'twg']
 
@@ -156,7 +156,7 @@ exports.remove = async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
 }
 
-// Called by the cron job — not exposed as an HTTP route. Deactivated users are
+// Called by the cron job - not exposed as an HTTP route. Deactivated users are
 // skipped (their reminders wait, in case the account is reactivated).
 exports.sendDueReminders = async () => {
   try {

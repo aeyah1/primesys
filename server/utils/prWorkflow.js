@@ -2,7 +2,7 @@ const withTransaction = require('../db/transaction')
 const httpError       = require('./httpError')
 const { cancelAwards, awardProgress, statusFromAwards } = require('./awardWorkflow')
 
-// ── Purchase request workflow rules ──────────────────────────────────────────
+// Purchase request workflow rules
 // The one place that decides which status moves, edits, and deletions a user
 // may make on a PR (and when a PO may be cancelled). Endpoints enforce these
 // rules, and GET /pr and GET /pr/:id return them as `permissions` so the UI
@@ -26,14 +26,14 @@ const STAFF   = ['procurement', 'admin']
 const ADMIN      = ['admin']
 const TWG_STAGES = ['submitted', 'revision_requested']
 
-// from → to → rule. A rule either lists the roles that may make the move through
+// from -> to -> rule. A rule either lists the roles that may make the move through
 // the status endpoint (`roles`; `owner`: only the PR's creator or an admin;
 // `noPO`: not while an active purchase order exists; `noAward`: not once a
 // supplier is awarded; `reason`: a note is required; `alsoVia`: the award
 // workflow makes it too, without those checks), or names the single action
 // that makes it (`via`). Final statuses have no moves.
 //
-// "Return for revision" (twg_review / bidding → revision_requested) is how
+// "Return for revision" (twg_review / bidding -> revision_requested) is how
 // Procurement gets an approved PR changed: items are locked from submission on
 // (editBlock), so the requestor fixes it and it goes back through the TWG.
 //
@@ -178,7 +178,7 @@ async function editDenied(db, user, prId) {
 // `ifAllowed` (side effects such as a delivery completing a PR), an illegal or
 // no-op move is skipped instead. Resolves with { changed, pr }.
 //
-// A recanvass (Ready for PO → Bidding by hand) voids the awards, and so does
+// A recanvass (Ready for PO -> Bidding by hand) voids the awards, and so does
 // cancelling the PR: its awarded lots are cancelled in the same transaction,
 // so a PO can only be issued on a new award. (Neither is allowed while a PO
 // is active.) The award workflow reopening the canvass keeps the others.
@@ -217,7 +217,7 @@ async function changePRStatus(prId, to, { user, via = 'manual', note = null, ifA
 }
 
 // Moves a PR from canvass on to where its awards put it (statusFromAwards),
-// logging each step with `note`: Bidding ↔ Ready for PO → Completed. Call
+// logging each step with `note`: Bidding <-> Ready for PO -> Completed. Call
 // inside the transaction that changed its awards, items, POs, or deliveries.
 // Other statuses are left alone. Resolves with the PR's status.
 async function syncPRProgress(conn, prId, { user, note = null }) {

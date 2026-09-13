@@ -3,7 +3,7 @@ const notify    = require('./notify')
 const httpError = require('./httpError')
 const { orderBySection } = require('./itemSections')
 
-// ── Award (lot) rules ────────────────────────────────────────────────────────
+// Award (lot) rules
 // A lot records the supplier awarded some of a PR's items (lot_items with a
 // pr_item_id) for an amount. Different items may go to different suppliers,
 // each PR item to at most one award at a time. Each supplier's awards get

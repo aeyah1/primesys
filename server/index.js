@@ -42,7 +42,7 @@ function userOrIpKey(req, res) {
   return `ip:${ipKeyGenerator(req, res)}`
 }
 
-// Global rate limiter — 300 per 15 min per user (1000 per IP fallback for unauth traffic)
+// Global rate limiter - 300 per 15 min per user (1000 per IP fallback for unauth traffic)
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: (req) => req.headers.authorization?.startsWith('Bearer ') ? 300 : 1000,
@@ -52,7 +52,7 @@ const apiLimiter = rateLimit({
   message: { message: 'Too many requests, please try again later.' },
 })
 
-// Write operations (POST/PATCH/DELETE) — 100 per 15 min per user (300 per IP fallback)
+// Write operations (POST/PATCH/DELETE) - 100 per 15 min per user (300 per IP fallback)
 const writeLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: (req) => req.headers.authorization?.startsWith('Bearer ') ? 100 : 300,
@@ -98,7 +98,7 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ message: 'Internal server error' })
 })
 
-// ── Socket.IO — require a valid, current JWT for an active account ──────────
+// Socket.IO - require a valid, current JWT for an active account
 // (Deactivating a user or changing their password also disconnects their open
 // sockets; see users.controller and auth.middleware.endSessions.)
 io.use(async (socket, next) => {
@@ -127,7 +127,6 @@ io.on('connection', (socket) => {
     }
   })
 })
-// ─────────────────────────────────────────────────────────
 
 // Wrap in try/catch so a transient DB connection drop or mail failure
 // doesn't propagate out of the cron task (node-cron silently swallows errors).

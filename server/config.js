@@ -15,7 +15,7 @@ function optional(name, fallback) {
   return v === undefined || v === '' ? fallback : v
 }
 
-// Validate at module load — caller still calls validate() in index.js to surface
+// Validate at module load - caller still calls validate() in index.js to surface
 // errors before binding to a port. Throwing here would crash any tool that just
 // imports config (e.g. migration scripts), so we defer the assert to validate().
 function validate() {

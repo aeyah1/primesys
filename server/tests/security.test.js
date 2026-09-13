@@ -79,7 +79,7 @@ async function run() {
   const t = H.suite('SECURITY')
   let r
 
-  // ═══ Reminders (SEC-2) ═══════════════════════════════════════════════════
+  // Reminders (SEC-2)
   const G1 = 'Reminder recipients (SEC-2)'
   r = await http(3, 'GET', '/reminders/users')
   t.check(G1, 'requestor picker = themselves only', r.status === 200 && ids(r) === '3', show(r))
@@ -149,7 +149,7 @@ async function run() {
   const once = SENT.filter(m => /due once/.test(m.subject)).length
   t.check(G3, 'two overlapping runs email a due reminder once (API-11)', once === 1, `${once} emails`)
 
-  // ═══ Uploads (SEC-3, API-1) ══════════════════════════════════════════════
+  // Uploads (SEC-3, API-1)
   const G4 = 'Upload checks (SEC-3)'
   for (const [label, bytes, name, type] of [
     ['PDF', PDF, 'quote.pdf', 'application/pdf'], ['PNG', PNG, 'photo.png', 'image/png'], ['JPEG', JPG, 'photo.jpg', 'image/jpeg'],

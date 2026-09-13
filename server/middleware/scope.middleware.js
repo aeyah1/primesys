@@ -1,18 +1,18 @@
 const pool = require('../db/pool')
 const { IN_AREA } = require('../utils/twgAreas')
 
-// ── Record visibility (C2) ───────────────────────────────────────────────────
+// Record visibility (C2)
 // Every procurement record hangs off a purchase request, so visibility is
 // decided once, on the PR, and inherited by its items, logs, attachments,
 // PDFs, lots, purchase order, and deliveries.
 //
-//   admin       → every PR
-//   procurement → every PR except other users' drafts
-//   twg         → PRs in their review areas (categories an admin assigned,
+// admin       -> every PR
+// procurement -> every PR except other users' drafts
+// twg         -> PRs in their review areas (categories an admin assigned,
 //                 utils/twgAreas.js) that are in a TWG stage or were reviewed
 //                 by the TWG, plus any PR they made a TWG decision on. Never drafts.
-//   supply      → PRs with an awarded lot or a purchase order
-//   requestor   → only PRs they created (also the fallback for unknown roles)
+// supply      -> PRs with an awarded lot or a purchase order
+// requestor   -> only PRs they created (also the fallback for unknown roles)
 //
 // Everyone can also see PRs they created themselves. Deleted PRs are archived:
 // hidden everywhere except the read-only views that pass `includeDeleted`.

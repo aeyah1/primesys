@@ -8,7 +8,7 @@ exports.summary = async (req, res) => {
   try {
     const scope = prScope(req.user)
 
-    // Quarterly spending — POs are linked directly to PRs via purchase_request_id
+    // Quarterly spending - POs are linked directly to PRs via purchase_request_id
     const [byQuarter] = await pool.execute(`
       SELECT q.id, q.label, q.year, q.budget,
              COUNT(DISTINCT pr.id)              AS pr_count,
@@ -40,7 +40,7 @@ exports.summary = async (req, res) => {
       GROUP BY pr.status
     `, scope.params)
 
-    // Monthly spending trend — last 12 months
+    // Monthly spending trend - last 12 months
     const [monthly] = await pool.execute(`
       SELECT
         DATE_FORMAT(po.created_at, '%Y-%m')     AS month,

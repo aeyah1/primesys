@@ -2,9 +2,9 @@ const esc = require('../utils/escapeHtml')
 
 // Formal letter sent to the requestor when their PR cycle closes
 // (supply officer marks the delivery as complete).
-//   recipientName — requestor's display name
-//   prNumber      — system-generated PR identifier (safe)
-//   updaterName   — supply officer's display name (untrusted)
+// recipientName - requestor's display name
+// prNumber - system-generated PR identifier (safe)
+// updaterName - supply officer's display name (untrusted)
 module.exports = function deliveryCompleteEmail({ recipientName, prNumber, updaterName }) {
   return `
     <div style="font-family:Georgia,'Times New Roman',serif;max-width:620px;margin:auto;padding:40px 48px;border:1px solid #d1d5db;background:#fff;color:#111827;line-height:1.8;font-size:14px;">

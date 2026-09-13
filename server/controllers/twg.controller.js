@@ -1,4 +1,4 @@
-// TWG (Technical Working Group) controller — isolated from pr.controller.
+// TWG (Technical Working Group) controller - isolated from pr.controller.
 // Owns the review surface between a requestor's submission and procurement bidding.
 
 const pool         = require('../db/pool')
@@ -13,13 +13,13 @@ const { IN_AREA, areasOf, reviewsCategory } = require('../utils/twgAreas')
 // A TWG member works only in their review areas; an admin sees every area.
 const areaFilter = (user) => (user.role === 'admin' ? { sql: '1 = 1', params: [] } : { sql: IN_AREA, params: [user.id] })
 
-// GET /twg/areas — the review areas of the signed-in member (admins: all).
+// GET /twg/areas - the review areas of the signed-in member (admins: all).
 exports.areas = asyncHandler(async (req, res) => {
   const all = req.user.role === 'admin'
   res.json({ all, areas: all ? CATEGORIES : await areasOf(pool, req.user.id) })
 })
 
-// GET /twg/pending — PRs awaiting TWG review (status = 'submitted') in this
+// GET /twg/pending - PRs awaiting TWG review (status = 'submitted') in this
 // member's areas, oldest submission first. ?category= narrows to one area.
 exports.listPending = asyncHandler(async (req, res) => {
   const { page, limit, offset } = paging(req.query, { defaultLimit: 20, maxLimit: 100 })
@@ -68,7 +68,7 @@ exports.listPending = asyncHandler(async (req, res) => {
   })
 })
 
-// POST /twg/:prId/review — body: { action: 'approve' | 'revise' | 'reject', comment }
+// POST /twg/:prId/review - body: { action: 'approve' | 'revise' | 'reject', comment }
 // Comment is REQUIRED for 'revise' and 'reject'; optional for 'approve'.
 exports.reviewPR = asyncHandler(async (req, res) => {
   const { action, comment } = req.body
@@ -142,7 +142,7 @@ exports.reviewPR = asyncHandler(async (req, res) => {
   res.json({ message: `PR ${resultLabel}` })
 })
 
-// GET /twg/stats — dashboard tiles for the TWG dashboard, counted over this
+// GET /twg/stats - dashboard tiles for the TWG dashboard, counted over this
 // member's review areas (admins: all), with the pending count per area.
 exports.stats = asyncHandler(async (req, res) => {
   const sevenDaysAgo = "DATE_SUB(NOW(), INTERVAL 7 DAY)"
@@ -193,7 +193,7 @@ exports.stats = asyncHandler(async (req, res) => {
   })
 })
 
-// GET /twg/recent — last 10 PRs THIS TWG user has actioned.
+// GET /twg/recent - last 10 PRs THIS TWG user has actioned.
 exports.recent = asyncHandler(async (req, res) => {
   const [rows] = await pool.execute(`
     SELECT psl.id, psl.from_status, psl.to_status, psl.note, psl.created_at,

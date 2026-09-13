@@ -16,7 +16,7 @@ exports.passwordRule = (field, label = 'Password') => body(field)
   .isLength({ min: 8 }).withMessage(`${label} must be at least 8 characters`).bail()
   .custom(v => Buffer.byteLength(v, 'utf8') <= 72).withMessage(`${label} is too long (72 characters at most)`)
 
-// ── Field rules sized to their database columns ─────────────────────────────
+// Field rules sized to their database columns
 // Every value is checked before it reaches the database, so nothing is
 // silently cut, rounded, or zeroed (the pool also runs in strict SQL mode).
 // A label may be a function of the field's path, e.g. to name "Item 2".

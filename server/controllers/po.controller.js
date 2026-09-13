@@ -44,7 +44,7 @@ const genPONumber = async (attempt = 0) => {
   return prefix + String(next).padStart(3, '0')
 }
 
-// GET /po?view=&search=&page= — one page of a view (default: all active POs),
+// GET /po?view=&search=&page= - one page of a view (default: all active POs),
 // with the count of every view. `delivery_status` / `po_status` still work.
 exports.list = asyncHandler(async (req, res) => {
   const { search, delivery_status, po_status } = req.query
@@ -133,7 +133,7 @@ exports.getById = asyncHandler(async (req, res) => {
   })
 })
 
-// PATCH /po/:id/expected-date — { expected_delivery_date, reason }: the
+// PATCH /po/:id/expected-date - { expected_delivery_date, reason }: the
 // supplier's new delivery date, and why. Procurement or admin, while the PO
 // is active and not fully delivered; the requestor and supply are told.
 exports.reschedule = asyncHandler(async (req, res) => {

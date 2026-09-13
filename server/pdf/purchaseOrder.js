@@ -4,7 +4,7 @@ const { M, BRAND, GRAY, LIGHT, fmtDate, fmtCurrency, pageHeader, pageFooter, hRu
 module.exports = function drawPurchaseOrder(doc, { po, items, priced }) {
   const W = doc.page.width - M * 2
 
-  // ── Header
+  // Header
   let y = pageHeader(doc, 'PURCHASE ORDER')
   if (po.po_status === 'cancelled') {
     doc.fontSize(12).fillColor('#b91c1c').font('Helvetica-Bold')
@@ -12,7 +12,7 @@ module.exports = function drawPurchaseOrder(doc, { po, items, priced }) {
     y = doc.y + 10
   }
 
-  // ── Meta row
+  // Meta row
   metaField(doc, 'PO NUMBER',    po.po_number,    M,       y, 140)
   metaField(doc, 'RELATED PR',   po.pr_number,    M + 150, y, 130)
   metaField(doc, 'ISSUED DATE',  fmtDate(po.issued_date), M + 290, y, 130)
@@ -20,7 +20,7 @@ module.exports = function drawPurchaseOrder(doc, { po, items, priced }) {
     po.quarter_label ? `${po.quarter_label} ${po.quarter_year}` : '—', M + 430, y, 90)
   y += 36; hRule(doc, y); y += 12
 
-  // ── Supplier
+  // Supplier
   doc.fontSize(8).fillColor(GRAY).font('Helvetica').text('SUPPLIER', M, y)
   doc.fontSize(11).fillColor('#111827').font('Helvetica-Bold').text(po.supplier_name, M, y + 12, { width: 280 })
   let leftY = y + 28
@@ -33,14 +33,14 @@ module.exports = function drawPurchaseOrder(doc, { po, items, priced }) {
   y = Math.max(leftY, y + 60) + 10
   hRule(doc, y); y += 10
 
-  // ── For
+  // For
   if (po.pr_title) {
     doc.fontSize(8).fillColor(GRAY).font('Helvetica').text('FOR', M, y)
     doc.fontSize(10).fillColor('#111827').font('Helvetica').text(po.pr_title, M, y + 12, { width: W })
     y += 30
   }
 
-  // ── Items table
+  // Items table
   if (items.length) {
     doc.fontSize(8).fillColor(GRAY).font('Helvetica-Bold').text('ITEMS', M, y); y += 12
     doc.y = y
@@ -73,21 +73,21 @@ module.exports = function drawPurchaseOrder(doc, { po, items, priced }) {
     y += 16
   }
 
-  // ── Total amount box
+  // Total amount box
   doc.y = y
   doc.roundedRect(M, y, W, 44, 6).fillColor(LIGHT).fill()
   doc.fontSize(9).fillColor(GRAY).font('Helvetica').text('TOTAL AMOUNT', M + 16, y + 8)
   doc.fontSize(20).fillColor(BRAND).font('Helvetica-Bold').text(fmtCurrency(po.total_amount), M + 16, y + 20)
   y += 60
 
-  // ── Notes
+  // Notes
   if (po.notes) {
     doc.fontSize(8).fillColor(GRAY).font('Helvetica').text('NOTES', M, y)
     doc.fontSize(9).fillColor('#374151').font('Helvetica').text(po.notes, M, y + 12, { width: W })
     doc.y = doc.y + 16; y = doc.y
   }
 
-  // ── Signature lines
+  // Signature lines
   const sigY = doc.page.height - 130
   hRule(doc, sigY - 10)
   sigBlock(doc, M,       sigY, 'Issued By',    po.issued_by_name, 'Procurement Officer')

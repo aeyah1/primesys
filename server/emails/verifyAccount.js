@@ -1,8 +1,8 @@
 const esc = require('../utils/escapeHtml')
 
 // Builds the "verify your PRimeSys account" email.
-//   name — recipient display name (untrusted, will be HTML-escaped)
-//   link — verification URL (server-built, contains opaque token)
+// name - recipient display name (untrusted, will be HTML-escaped)
+// link - verification URL (server-built, contains opaque token)
 module.exports = function verifyAccountEmail({ name, link }) {
   return `
     <div style="font-family:Georgia,'Times New Roman',serif;max-width:620px;margin:auto;padding:40px 48px;border:1px solid #d1d5db;background:#fff;color:#111827;line-height:1.8;font-size:14px;">

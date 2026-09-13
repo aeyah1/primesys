@@ -2,7 +2,7 @@ const pool   = require('../db/pool')
 const notify = require('./notify')
 const { CATEGORIES, categoryLabel } = require('./categories')
 
-// ── TWG review areas ─────────────────────────────────────────────────────────
+// TWG review areas
 // A PR is reviewed by the TWG members whose review areas include its category
 // (twg_assignments, set by an admin in User Management). The routing is worked
 // out when needed, never stored on the PR, so moving an area to another member

@@ -236,7 +236,7 @@ exports.update = asyncHandler(async (req, res) => {
   })
 })
 
-// ── Lots & Awards work queue ────────────────────────────────────────────────
+// Lots & Awards work queue
 // PRs by what they need next. A PR awarded in part can be in more than one:
 //   needs_award  under canvass (Bidding): some items still need an award
 //   awaiting_po  awards with no purchase order yet
@@ -259,7 +259,7 @@ const STAGE_ORDER = {
 const AWARDED = (col) => `(SELECT ${col} FROM lots l WHERE l.purchase_request_id = pr.id AND l.status = 'awarded')`
 const ACTIVE_POS = (col) => `(SELECT ${col} FROM purchase_orders px WHERE px.purchase_request_id = pr.id AND px.po_status = 'active')`
 
-// GET /lots/queue?stage=&category=&search=&page= — one page of a stage, with
+// GET /lots/queue?stage=&category=&search=&page= - one page of a stage, with
 // the count of every stage and of every category in this stage.
 exports.queue = asyncHandler(async (req, res) => {
   const q = req.query
@@ -328,7 +328,7 @@ exports.queue = asyncHandler(async (req, res) => {
   })
 })
 
-// GET /lots/suppliers — suppliers awarded or quoting before, latest first,
+// GET /lots/suppliers - suppliers awarded or quoting before, latest first,
 // each under the spelling used most and with the latest known value of every
 // detail, so a new quotation or award can reuse them.
 exports.suppliers = asyncHandler(async (req, res) => {
@@ -363,7 +363,7 @@ exports.suppliers = asyncHandler(async (req, res) => {
   })))
 })
 
-// ── Abstract of Quotations (PDF) ────────────────────────────────────────────
+// Abstract of Quotations (PDF)
 // With quotations: every supplier's unit price per PR item side by side (the
 // lowest marked, the awarded ones bold), their totals, then the awards. With
 // awards only (recorded without quotations): each award and its items.
