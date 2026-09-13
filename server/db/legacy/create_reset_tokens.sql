@@ -1,3 +1,4 @@
+-- LEGACY: only for databases created before May 2026, applied in the README order.
 -- Password reset tokens table
 -- Run once: Get-Content server/db/create_reset_tokens.sql | & "C:\xampp\mysql\bin\mysql.exe" -u root primesys
 

@@ -1,3 +1,4 @@
+-- LEGACY: only for databases created before May 2026, applied in the README order.
 CREATE TABLE IF NOT EXISTS `reminders` (
   `id`          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   `title`       VARCHAR(255) NOT NULL,

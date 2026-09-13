@@ -1,3 +1,4 @@
+-- LEGACY: only for databases created before May 2026, applied in the README order.
 -- Per-user "I have viewed this PR" markers, replacing the previous
 -- localStorage-only tracker in the client. Lets read state survive
 -- browser clears, sync across devices, and (later) feed admin reports.

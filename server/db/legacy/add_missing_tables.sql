@@ -1,5 +1,18 @@
--- PRimeSys — Full Migration (safe to re-run: uses IF NOT EXISTS)
--- Run this in phpMyAdmin SQL tab. If you get a partial error, run it again.
+-- LEGACY: only for databases created before May 2026; the guard below stops it on a newer one (audit DB-4).
+DROP PROCEDURE IF EXISTS _legacy_guard;
+DELIMITER $$
+CREATE PROCEDURE _legacy_guard()
+BEGIN
+  IF (SELECT COLUMN_TYPE FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'role') REGEXP '''(twg|requestor)''' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Stopped: this database is newer than this migration, which would erase roles. No data was changed.';
+  END IF;
+END$$
+DELIMITER ;
+CALL _legacy_guard();
+DROP PROCEDURE _legacy_guard;
+
+-- PRimeSys full migration for pre-May-2026 databases. Run this in phpMyAdmin SQL tab.
 
 -- ─── 1. User columns ─────────────────────────────────────────────────────────
 

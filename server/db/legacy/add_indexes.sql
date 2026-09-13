@@ -1,3 +1,4 @@
+-- LEGACY: only for databases created before May 2026, applied in the README order.
 -- PRimeSys Database Index Migrations
 -- Safe: skips any table or index that doesn't exist yet
 

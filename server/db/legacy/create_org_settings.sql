@@ -1,3 +1,4 @@
+-- LEGACY: only for databases created before May 2026, applied in the README order.
 -- Organization-wide settings table
 -- Run once in phpMyAdmin
 

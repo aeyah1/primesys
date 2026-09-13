@@ -1,5 +1,18 @@
--- Run this in phpMyAdmin to add missing columns to the users table
--- Safe: uses IF NOT EXISTS checks via information_schema
+-- LEGACY: only for databases created before May 2026; the guard below stops it on a newer one (audit DB-4).
+DROP PROCEDURE IF EXISTS _legacy_guard;
+DELIMITER $$
+CREATE PROCEDURE _legacy_guard()
+BEGIN
+  IF (SELECT COLUMN_TYPE FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'role') REGEXP '''(twg|requestor)''' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Stopped: this database is newer than this migration, which would erase roles. No data was changed.';
+  END IF;
+END$$
+DELIMITER ;
+CALL _legacy_guard();
+DROP PROCEDURE _legacy_guard;
+
+-- Run this in phpMyAdmin to add missing columns to the users table.
 
 DROP PROCEDURE IF EXISTS _add_col;
 

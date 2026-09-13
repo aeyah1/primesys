@@ -1,3 +1,17 @@
+-- Stops without changes on a database that already has the twg or requestor role (audit DB-4).
+DROP PROCEDURE IF EXISTS _legacy_guard;
+DELIMITER $$
+CREATE PROCEDURE _legacy_guard()
+BEGIN
+  IF (SELECT COLUMN_TYPE FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'role') REGEXP '''(twg|requestor)''' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Stopped: this database already has this migration, and running it again would erase roles. No data was changed.';
+  END IF;
+END$$
+DELIMITER ;
+CALL _legacy_guard();
+DROP PROCEDURE _legacy_guard;
+
 -- Migration: Add Technical Working Group (TWG) role and review workflow.
 --
 -- New flow:
