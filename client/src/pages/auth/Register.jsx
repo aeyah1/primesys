@@ -48,7 +48,7 @@ export default function Register() {
       return
     }
     if (domains.length && !domains.includes(form.email.split('@').pop().toLowerCase())) {
-      toast.error(`Please sign up with your NEMSU email address (ending in ${domainList})`)
+      toast.error(`Please sign up with an email address ending in ${domainList}`)
       return
     }
     if (form.password.length < 8)       { toast.error('Password must be at least 8 characters'); return }
@@ -219,7 +219,7 @@ export default function Register() {
                 <Input
                   id="email"
                   type="email"
-                  placeholder="you@nemsu.edu.ph"
+                  placeholder={`you@${domains[0] || 'nemsu.edu.ph'}`}
                   value={form.email}
                   onChange={e => set('email', e.target.value)}
                   required maxLength={150}
@@ -229,7 +229,7 @@ export default function Register() {
               </div>
               <p className="text-xs text-[--color-text-muted]">
                 {domains.length
-                  ? `Use your NEMSU email address (ending in ${domainList}). A verification link will be sent there.`
+                  ? `Use an email address ending in ${domainList}. A verification link will be sent there.`
                   : 'A verification link will be sent here to activate your account'}
               </p>
             </div>
