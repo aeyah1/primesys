@@ -88,8 +88,8 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
         )}
       </div>
 
-      {/* Nav */}
-      <nav className="flex-1 min-h-0 overflow-y-auto py-4 px-3">
+      {/* Nav: scrolls when the menu is long, with the scrollbar hidden */}
+      <nav className="flex-1 min-h-0 overflow-y-auto py-4 px-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {groups.map((group, i) => (
           <div key={group.label} role="group" aria-label={group.label}>
             {collapsed
