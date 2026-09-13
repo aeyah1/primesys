@@ -64,8 +64,6 @@ export default function Login() {
         setError({ type: 'lockout', message: data.message })
       } else if (res?.status === 403 && data.type === 'unverified') {
         setError({ type: 'unverified', message: data.message, identifier: form.identifier })
-      } else if (res?.status === 403 && data.type === 'pending_approval') {
-        setError({ type: 'pending', message: data.message })
       } else if (res?.status === 403) {
         setError({ type: 'inactive', message: data.message })
       } else if (res?.status === 401) {
@@ -270,16 +268,6 @@ export default function Login() {
                 <div>
                   <p className="text-sm font-semibold text-orange-800">Account deactivated</p>
                   <p className="text-xs text-orange-700 mt-0.5">Your account has been deactivated. Contact your administrator.</p>
-                </div>
-              </div>
-            )}
-
-            {error?.type === 'pending' && (
-              <div className="flex gap-3 items-start rounded-xl border border-amber-200 bg-amber-50 p-3.5">
-                <Clock className="size-4 text-amber-600 shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm font-semibold text-amber-800">Waiting for approval</p>
-                  <p className="text-xs text-amber-700 mt-0.5">An administrator must approve your account before you can sign in.</p>
                 </div>
               </div>
             )}
