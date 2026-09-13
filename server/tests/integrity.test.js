@@ -209,6 +209,11 @@ async function run() {
   await is(G7, 'quarter: negative budget → 400', 1, 'POST', '/quarters', { label: 'Q1', year: 2027, budget: -5 }, code(400))
   const q = await is(G7, 'quarter: Q1 2027 accepted', 1, 'POST', '/quarters', { label: 'Q1', year: 2027, budget: 500000 }, code(201))
   await is(G7, 'quarter budget "abc" → 400', 1, 'PATCH', `/quarters/${q.data?.id}/budget`, { budget: 'abc' }, code(400))
+  await is(G7, 'quarter: created reply matches the saved row (API-12)', 1, 'GET', '/quarters', undefined,
+    (r) => r.status === 200 && q.data?.is_active === 0 && r.data.find(x => x.id === q.data.id)?.is_active === 0)
+  await is(G7, 'quarter: the same budget again → 200', 1, 'PATCH', `/quarters/${q.data?.id}/budget`, { budget: 500000 }, code(200))
+  await is(G7, 'quarter: toggle an unknown id → 404 (API-12)', 1, 'PATCH', '/quarters/9999/toggle', undefined, code(404))
+  await is(G7, 'quarter: budget of an unknown id → 404 (API-12)', 1, 'PATCH', '/quarters/9999/budget', { budget: 5 }, code(404))
   await is(G7, 'settings: fund cluster over 50 characters → 400', 1, 'PATCH', '/settings', { fund_cluster: 'f'.repeat(51) }, code(400))
   await is(G7, 'user: name over 100 characters → 400', 1, 'POST', '/users', { name: 'n'.repeat(101), username: 'longname', email: 'l@int.invalid', password: 'Long-Enough-1', role: 'supply' }, code(400))
   await is(G7, 'user: 2-letter username → 400', 1, 'POST', '/users', { name: 'N', username: 'ab', email: 'ab@int.invalid', password: 'Long-Enough-1', role: 'supply' }, code(400))
