@@ -101,7 +101,7 @@ const listUploads = () => new Set(UPLOADS.flatMap(d => (fs.existsSync(d) ? fs.re
 // Boots the real server with the mailer replaced by `onMail`, and waits until it answers.
 async function bootServer(base, onMail = () => {}) {
   const mailerId = require.resolve(path.join(SERVER, 'utils', 'mailer.js'))
-  require.cache[mailerId] = { id: mailerId, filename: mailerId, loaded: true, exports: async (m) => { onMail(m) } }
+  require.cache[mailerId] = { id: mailerId, filename: mailerId, loaded: true, exports: async (m) => { await onMail(m) } }
   require(path.join(SERVER, 'index.js'))
   for (let i = 0; i < 50; i++) {
     try { if ((await fetch(`${base}/auth/registration-info`)).ok) return } catch { /* not listening yet */ }
