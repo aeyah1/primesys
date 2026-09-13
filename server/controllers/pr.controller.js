@@ -15,7 +15,7 @@ const drawPRForm = require('../pdf/prForm')
 
 // Builds the next PR number using MAX(suffix) + 1, so it's stable across deletions
 // and so concurrent inserts naturally collide on the UNIQUE constraint (handled by retry).
-// `attempt` shifts the candidate number forward on retry — set by the caller's retry loop.
+// `attempt` shifts the candidate number forward on retry - set by the caller's retry loop.
 const genPRNumber = async (quarterId, attempt = 0) => {
   let prefix, whereSql, whereParams
   if (quarterId) {
@@ -242,7 +242,7 @@ const toSqlDate = (v) => {
   if (!v) return null
   const s = String(v).trim()
   if (!s) return null
-  // Accept either 'YYYY-MM-DD' or an ISO datetime — slice the date portion.
+  // Accept either 'YYYY-MM-DD' or an ISO datetime - slice the date portion.
   return s.length >= 10 ? s.slice(0, 10) : null
 }
 
@@ -433,9 +433,9 @@ exports.remove = asyncHandler(async (req, res) => {
   res.json({ message: 'PR deleted and moved to the archive' })
 })
 
-// ── Per-user read markers ─────────────────────────────────
+// Per-user read markers
 
-// GET /pr/reads — array of PR IDs the current user has marked as viewed.
+// GET /pr/reads - array of PR IDs the current user has marked as viewed.
 exports.listReads = asyncHandler(async (req, res) => {
   const [rows] = await pool.execute(
     'SELECT pr_id FROM pr_reads WHERE user_id = ?',
@@ -444,7 +444,7 @@ exports.listReads = asyncHandler(async (req, res) => {
   res.json(rows.map(r => r.pr_id))
 })
 
-// POST /pr/:id/read — mark this PR as viewed by the current user (idempotent).
+// POST /pr/:id/read - mark this PR as viewed by the current user (idempotent).
 exports.markRead = asyncHandler(async (req, res) => {
   await pool.execute(
     `INSERT INTO pr_reads (user_id, pr_id) VALUES (?, ?)
@@ -454,7 +454,7 @@ exports.markRead = asyncHandler(async (req, res) => {
   res.json({ ok: true })
 })
 
-// ── Activity log ─────────────────────────────────────────
+// Activity log
 
 exports.getLogs = asyncHandler(async (req, res) => {
   const [rows] = await pool.execute(`
@@ -479,7 +479,7 @@ exports.remind = asyncHandler(async (req, res) => {
   const senderName = sender[0]?.name || 'A team member'
 
   // Notify active procurement staff only. Admins are not the audience for a
-  // "please act on this PR" reminder — the button literally reads
+  // "please act on this PR" reminder - the button literally reads
   // "Remind Procurement", so the recipient list must match.
   const [targets] = await pool.execute(
     "SELECT id, email, name FROM users WHERE role = 'procurement' AND is_active = 1"

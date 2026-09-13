@@ -71,7 +71,7 @@ async function run() {
   const code = (c, re) => (r) => r.status === c && (!re || re.test(r.data?.message || ''))
   const Q = (qs = '') => `/lots/queue?limit=50${qs}`
 
-  // ═══ Work queue ══════════════════════════════════════════════════════════
+  // Work queue
   const G1 = 'Work queue'
   await is(G1, 'counts per stage (each PR in one; Approved by TWG in none)', 2, 'GET', Q(), undefined,
     (r) => r.status === 200 && same(r.data.counts.stages, { needs_award: 3, awaiting_po: 1, po_issued: 3, cancelled: 1 }))
@@ -99,7 +99,7 @@ async function run() {
     (r) => r.status === 200 && same(r.data.counts.stages, { needs_award: 0, awaiting_po: 1, po_issued: 3, cancelled: 1 }))
   await is(G1, 'a requestor has no queue (403)', 3, 'GET', Q(), undefined, code(403))
 
-  // ═══ Suppliers awarded before ════════════════════════════════════════════
+  // Suppliers awarded before
   const G2 = 'Supplier suggestions'
   const sup = await is(G2, 'one entry per supplier, latest award first', 2, 'GET', '/lots/suppliers', undefined,
     (r) => r.status === 200 && r.data.map(s => s.name).join() === 'Delta Traders,Gamma Co,Acme Trading,Beta Supply')
@@ -111,7 +111,7 @@ async function run() {
   await is(G2, 'supply can\'t list suppliers (403)', 4, 'GET', '/lots/suppliers', undefined, code(403))
   await is(G2, 'nor a requestor (403)', 3, 'GET', '/lots/suppliers', undefined, code(403))
 
-  // ═══ Recording an award by hand, for some of the PR's items ══════════════
+  // Recording an award by hand, for some of the PR's items
   const G3 = 'Record an award'
   await is(G3, 'an amount above the approved budget of its items → 409', 2, 'POST', '/lots',
     { purchase_request_id: 70, awarded_to: 'Acme Trading', awarded_amount: '91000.01', pr_item_ids: [701, 702] }, code(409, /above the approved budget/))
@@ -140,7 +140,7 @@ async function run() {
   await is(G3, 'items not sent as a list → 400', 2, 'POST', '/lots', { purchase_request_id: 71, awarded_to: 'X', awarded_amount: 10, pr_item_ids: 711 }, code(400))
   await is(G3, 'supply can\'t record an award (403)', 4, 'POST', '/lots', { purchase_request_id: 71, awarded_to: 'X', awarded_amount: 10 }, code(403))
 
-  // ═══ A supplier's details: the same on each of their awards ══════════════
+  // A supplier's details: the same on each of their awards
   const G4 = 'Edit a supplier'
   const A = lotA.data?.id, B = lotB.data?.id
   await is(G4, 'change the phone on one award', 2, 'PATCH', `/lots/${A}`, { supplier_phone: '0999-111-2222' }, code(200))
@@ -153,7 +153,7 @@ async function run() {
     (r) => r.status === 200 && Number(r.data.find(l => l.id === A).awarded_amount) === 90000 && Number(r.data.find(l => l.id === B).awarded_amount) === 1000)
   await is(G4, 'an amount above its items\' budget → 409', 2, 'PATCH', `/lots/${B}`, { awarded_amount: '1000.01' }, code(409, /approved budget/))
 
-  // ═══ Cancelling needs a reason ═══════════════════════════════════════════
+  // Cancelling needs a reason
   const G5 = 'Cancel with a reason'
   await is(G5, 'cancel with no reason → 400', 2, 'PATCH', `/lots/${B}`, { status: 'cancelled' }, code(400, /reason/))
   await is(G5, 'a blank reason → 400', 2, 'PATCH', `/lots/${B}`, { status: 'cancelled', reason: '   ' }, code(400, /reason/))

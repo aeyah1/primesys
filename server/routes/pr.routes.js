@@ -10,7 +10,7 @@ const { handle, textRule, moneyRule, quantityRule, dateRule, idRule } = require(
 const { requireAccess } = require('../middleware/scope.middleware')
 const makeUploader = require('../utils/upload')
 
-// ── Field checks, sized to the purchase_requests / pr_items columns ─────────
+// Field checks, sized to the purchase_requests / pr_items columns
 const prFields = (titleRequired) => [
   textRule('title', 'Title', 200, { required: titleRequired }),
   textRule('fund_cluster', 'Fund cluster', 50),
@@ -24,7 +24,7 @@ const prFields = (titleRequired) => [
   dateRule('date_needed', 'Date needed'),
   dateRule('event_date', 'Event date'),
 ]
-// Item fields; `name` words each message ("Quantity …" or "Item 2 quantity …").
+// Item fields; `name` words each message ("Quantity ..." or "Item 2 quantity ...").
 const itemFields = (prefix, name) => [
   textRule(`${prefix}group_label`, name('section name'), 255),
   textRule(`${prefix}item_name`, name('name'), 500),
@@ -39,7 +39,7 @@ const nthItem = (what) => (path) => `Item ${Number(/\[(\d+)\]/.exec(path)?.[1] ?
 // One reminder per PR per hour, keyed by PR id alone (not IP+PR). Reasoning:
 // the audience is procurement staff, and what we're protecting is THEIR inbox.
 // If two requestors could each fire a reminder on the same PR within
-// minutes, procurement gets pinged twice — that's the spam we're stopping.
+// minutes, procurement gets pinged twice - that's the spam we're stopping.
 // Tradeoff: a second person can't independently nudge for an hour, but the
 // first ping is enough to alert procurement.
 const remindLimiter = rateLimit({

@@ -9,7 +9,7 @@ const PHASE  = 'after'
 const SERVER = H.SERVER
 const serverReq = (m) => require(require.resolve(m, { paths: [SERVER] }))
 
-// ── 1. Fixtures ──────────────────────────────────────────────────────────────
+// 1. Fixtures
 function fixtures() {
   const hash = serverReq('bcryptjs').hashSync('Test@1234', 4)
   const U = (id, u, role, active = 1, verified = 1) =>
@@ -54,7 +54,7 @@ function fixtures() {
   `
 }
 
-// ── 2. Checks ─────────────────────────────────────────────────────────────────
+// 2. Checks
 const config = require(path.join(SERVER, 'config.js'))
 const jwt    = serverReq('jsonwebtoken')
 const ROLE   = { 1: 'admin', 2: 'procurement', 3: 'requestor', 4: 'requestor', 5: 'supply', 6: 'twg' }

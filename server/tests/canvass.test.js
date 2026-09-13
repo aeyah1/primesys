@@ -55,7 +55,7 @@ async function run() {
   const code = (c, re) => (r) => r.status === c && (!re || re.test(r.data?.message || ''))
   const Q = (name, prices, extra = {}) => ({ supplier_name: name, quoted_at: '2026-09-10', prices: Object.entries(prices).map(([item, unit_price]) => ({ item: Number(item), unit_price })), ...extra })
 
-  // ═══ Quotations ══════════════════════════════════════════════════════════
+  // Quotations
   const G1 = 'Quotations'
   await is(G1, 'a requestor can\'t record one (403)', 3, 'POST', '/canvass/80/quotations', Q('X', { 801: 1 }), code(403))
   await is(G1, 'nor supply (403)', 4, 'POST', '/canvass/80/quotations', Q('X', { 801: 1 }), code(403))
@@ -80,7 +80,7 @@ async function run() {
   const qx = await is(G1, 'a quotation recorded by mistake', 2, 'POST', '/canvass/80/quotations', Q('Mistake Co', { 801: 1 }), code(201))
   await is(G1, '…can be removed while nothing it prices is awarded', 2, 'DELETE', `/canvass/80/quotations/${qx.data?.id}`, undefined, code(200))
 
-  // ═══ Award from the quotations ═══════════════════════════════════════════
+  // Award from the quotations
   const G2 = 'Award from quotations'
   const pick = (pairs) => ({ picks: pairs.map(([item, q]) => ({ item, quotation: q.data?.id })) })
   await is(G2, 'a higher quotation needs a reason → 400', 2, 'POST', '/canvass/80/award', pick([[801, qb]]), code(400, /reason/))
@@ -110,7 +110,7 @@ async function run() {
   await is(G2, 'supply officers are told of each award', 4, 'GET', '/notifications', undefined,
     (r) => r.status === 200 && r.data.some(n => /awarded to Alpha Computers for PR PR-C-80/.test(n.message)) && r.data.some(n => /Beta Supplies/.test(n.message)))
 
-  // ═══ One PO per supplier ═════════════════════════════════════════════════
+  // One PO per supplier
   const G3 = 'A PO per supplier'
   await is(G3, 'two suppliers waiting: the PO must name one → 409', 2, 'POST', '/po', { purchase_request_id: 80, issued_date: '2026-09-09' }, code(409, /more than one supplier/))
   const poA = await is(G3, 'Alpha\'s PO, while other items are still under canvass', 2, 'POST', '/po',
@@ -133,7 +133,7 @@ async function run() {
   await is(G3, 'the requestor is told of each PO', 3, 'GET', '/notifications', undefined,
     (r) => r.status === 200 && r.data.filter(n => /was issued for PR PR-C-80/.test(n.message)).length === 3)
 
-  // ═══ Deliveries, a PO cancelled, completion ══════════════════════════════
+  // Deliveries, a PO cancelled, completion
   const G4 = 'Completion'
   // Everything still to come on a PO, as a delivery's items.
   const rest = async (poId) => ((await http(2, 'GET', `/po/${poId}`)).data?.items || []).map(l => ({ line: l.id, quantity: l.remaining }))
@@ -155,7 +155,7 @@ async function run() {
   await is(G4, 'the Abstract of Quotations', 2, 'GET', '/lots/pr/80/pdf', undefined, isPDF)
   await is(G4, 'no quotation or award yet: no Abstract (404)', 2, 'GET', '/lots/pr/82/pdf', undefined, code(404))
 
-  // ═══ Dropping items ══════════════════════════════════════════════════════
+  // Dropping items
   const G5 = 'Dropped items'
   await is(G5, 'dropping needs a reason → 400', 2, 'POST', '/canvass/82/items/821/drop', {}, code(400, /reason/))
   await is(G5, 'a requestor can\'t drop (403)', 3, 'POST', '/canvass/82/items/821/drop', { reason: 'x' }, code(403))
@@ -167,7 +167,7 @@ async function run() {
   await is(G5, 'bring the chairs back', 2, 'POST', '/canvass/82/items/821/restore', undefined, code(200))
   await is(G5, '…needs an award again', 2, 'GET', '/canvass/82', undefined, (r) => r.status === 200 && r.data.items.find(i => i.id === 821).state === 'pending')
 
-  // ═══ Suppliers, and a cancelled PR ═══════════════════════════════════════
+  // Suppliers, and a cancelled PR
   const G6 = 'Suggestions and cancelling'
   await is(G6, 'suppliers who only quoted are suggested too', 2, 'GET', '/lots/suppliers', undefined,
     (r) => r.status === 200 && ['Alpha Computers', 'Beta Supplies', 'Gamma Trading'].every(n => r.data.some(s => s.name === n))

@@ -70,7 +70,7 @@ async function run() {
   const line = (r, id) => r.data?.items?.find(l => l.id === id)
   const told = async (who, re) => (await H.sql(TEST_DB, 'SELECT message FROM notifications WHERE user_id = ?', [who])).some(n => re.test(n.message))
 
-  // ═══ PO list: views and counts ═══════════════════════════════════════════
+  // PO list: views and counts
   const G1 = 'PO views'
   await is(G1, 'counts for every view', 2, 'GET', '/po?limit=50', undefined,
     (r) => r.status === 200 && same(r.data.counts, { all: 4, open: 4, overdue: 1, due_week: 1, pending: 4, partial: 0, delivered: 0, cancelled: 1 }))
@@ -86,7 +86,7 @@ async function run() {
   await is(G1, '…and po_status=cancelled', 2, 'GET', '/po?po_status=cancelled', undefined, (r) => r.status === 200 && ids(r).join() === '4')
   await is(G1, 'a requestor sees their own PRs\' POs (C2)', 3, 'GET', '/po?limit=50', undefined, (r) => r.status === 200 && ids(r).sort().join() === '1,2,3')
 
-  // ═══ A PO's detail ═══════════════════════════════════════════════════════
+  // A PO's detail
   const G2 = 'PO detail'
   await is(G2, 'lines with ordered, received, and still to come', 2, 'GET', '/po/1', undefined,
     (r) => r.status === 200 && r.data.has_lines === true && r.data.items.length === 2
@@ -102,7 +102,7 @@ async function run() {
     (r) => r.status === 200 && r.data.has_lines === false && r.data.items[0]?.item_name === 'Paper' && num(r.data.items[0].ordered) === 10)
   await is(G2, 'another requestor\'s PO is not found (C2)', 3, 'GET', '/po/5', undefined, code(404))
 
-  // ═══ Receiving by item ═══════════════════════════════════════════════════
+  // Receiving by item
   const G3 = 'Receive by item'
   const d1 = await is(G3, 'one laptop arrives', 4, 'POST', '/delivery', { po_id: 1, delivered_date: '2026-09-10', items: [{ line: 11, quantity: 1 }] },
     (r) => r.status === 201 && r.data.status === 'partial')
@@ -140,13 +140,13 @@ async function run() {
   await is(G3, '…its PR is completed', 3, 'GET', '/pr/90', undefined, (r) => r.status === 200 && r.data.status === 'completed')
   await is(G3, 'nothing more can be received → 409', 4, 'POST', '/delivery', { po_id: 1, delivered_date: '2026-09-11', items: [{ line: 12, quantity: 1 }] }, code(409))
 
-  // ═══ An older PO without lines ═══════════════════════════════════════════
+  // An older PO without lines
   const G4 = 'Older POs'
   await is(G4, 'marked partial by the record, with a note', 4, 'POST', '/delivery', { po_id: 2, delivered_date: '2026-09-10', status: 'partial', notes: 'Half the reams' },
     (r) => r.status === 201 && r.data.status === 'partial')
   await is(G4, '…the PO is partly delivered', 2, 'GET', '/po/2', undefined, (r) => r.status === 200 && r.data.delivery_status === 'partial')
 
-  // ═══ A new expected delivery date ════════════════════════════════════════
+  // A new expected delivery date
   const G5 = 'Expected date'
   const move = (date, reason) => ({ expected_delivery_date: date, reason })
   await is(G5, 'a requestor can\'t move it (403)', 3, 'PATCH', '/po/3/expected-date', move('2026-09-25', 'x'), code(403))
@@ -161,7 +161,7 @@ async function run() {
   await is(G5, 'a delivered PO keeps its date → 409', 2, 'PATCH', '/po/1/expected-date', move('2026-09-30', 'x'), code(409, /fully delivered/))
   await is(G5, 'a cancelled PO → 409', 2, 'PATCH', '/po/4/expected-date', move('2026-09-30', 'x'), code(409, /cancelled/))
 
-  // ═══ A supply officer's note ═════════════════════════════════════════════
+  // A supply officer's note
   const G6 = 'Supply note'
   const [rec] = await H.sql(TEST_DB, 'SELECT id FROM deliveries WHERE po_id = 2')
   await is(G6, 'send a note on a delivery', 4, 'PATCH', `/delivery/${rec.id}/supply-update`, { notes: 'Two reams were wet' }, code(200))

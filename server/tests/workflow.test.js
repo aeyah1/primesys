@@ -86,7 +86,7 @@ const idsOf = (d) => (Array.isArray(d) ? d : d?.data || []).map(r => r.id).sort(
 const idsEq = (want) => (r) => r.status === 200 && JSON.stringify(idsOf(r.data)) === JSON.stringify(want)
 const NEW = {}   // ids captured during the run
 
-// ── Permissions the UI receives (before anything changes) ───────────────────
+// Permissions the UI receives (before anything changes)
 add('Permissions', 'requestor, own draft',          3, 'GET', '/pr/12', undefined, perms(P_(true, true, ['submitted'])), 'edit, delete, → submitted')
 add('Permissions', 'requestor, own submitted',      3, 'GET', '/pr/13', undefined, perms(P_(false, false, ['draft'])), 'locked, → draft (withdraw)')
 add('Permissions', 'requestor, TWG-approved',       3, 'GET', '/pr/15', undefined, perms(P_(false, false, [])), 'read-only')
@@ -104,7 +104,7 @@ add('Permissions', 'list rows carry permissions',   3, 'GET', '/pr?limit=100', u
   (r) => { const row = (id) => r.data.data.find(x => x.id === id)
            return r.status === 200 && row(15).permissions.edit === false && row(12).permissions.delete === true && !('has_lot' in row(12)) }, 'row 15 read-only, row 12 deletable')
 
-// ── Manual status moves ──────────────────────────────────────────────────────
+// Manual status moves
 add('Status', 'requestor submits own draft',        3, 'PATCH', '/pr/12/status', { status: 'submitted' }, code(200), '200')
 add('Status', '…audit log written',                 3, 'GET',   '/pr/12/logs', undefined, logHas('draft', 'submitted'), 'draft→submitted logged')
 add('Status', 'same move again',                    3, 'PATCH', '/pr/12/status', { status: 'submitted' }, code(409), '409 already')
@@ -128,7 +128,7 @@ add('Status', 'procurement cancels a submitted PR (WF-6)', 2, 'PATCH', '/pr/25/s
 add('Status', 'procurement cancels a returned PR (WF-6)',  2, 'PATCH', '/pr/26/status', { status: 'cancelled' }, code(403), '403 admin only')
 add('Status', 'unknown status',                     2, 'PATCH', '/pr/20/status', { status: 'awarded' }, code(400), '400')
 
-// ── TWG review goes through the same rules ───────────────────────────────────
+// TWG review goes through the same rules
 add('TWG', 'approve submitted PR',                  6, 'POST', '/twg/21/review', { action: 'approve' }, code(200), '200')
 add('TWG', '…status + reviewer saved',              6, 'GET',  '/pr/21', undefined, (r) => r.status === 200 && r.data.status === 'twg_review' && r.data.twg_reviewed_by === 6, 'twg_review, reviewer 6')
 add('TWG', '…audit log written',                    6, 'GET',  '/pr/21/logs', undefined, logHas('submitted', 'twg_review'), 'submitted→twg_review')
@@ -136,7 +136,7 @@ add('TWG', 'second review of same PR',              6, 'POST', '/twg/21/review',
 add('TWG', 'review a draft by ID (TWG never sees drafts)', 6, 'POST', '/twg/13/review', { action: 'approve' }, code(404), '404')
 add('TWG', 'request revision on resubmitted PR',    6, 'POST', '/twg/14/review', { action: 'revise', comment: 'fix specs' }, code(200), '200')
 
-// ── Awards (lots) ────────────────────────────────────────────────────────────
+// Awards (lots)
 add('Award', 'award lot while bidding',             2, 'POST', '/lots', { purchase_request_id: 18, awarded_to: 'S18', awarded_amount: 400 }, code(201), '201')
 add('Award', '…PR moved to for_po',                 2, 'GET',  '/pr/18', undefined, statusIs('for_po'), 'for_po')
 add('Award', '…audit log written (was missing)',    2, 'GET',  '/pr/18/logs', undefined, logHas('bidding', 'for_po'), 'bidding→for_po')
@@ -146,20 +146,20 @@ add('Award', '…nor another supplier',               2, 'POST', '/lots', { purc
 add('Award', 'award before canvass',                2, 'POST', '/lots', { purchase_request_id: 20, awarded_to: 'X', awarded_amount: 100 }, code(409), '409')
 add('Award', '…no lot left behind (rolled back)',   2, 'GET',  '/lots/pr/20', undefined, (r) => r.status === 200 && r.data.length === 0, '[]')
 add('Award', 'award after PO issued',               2, 'POST', '/lots', { purchase_request_id: 19, awarded_to: 'X', awarded_amount: 100 }, code(409), '409')
-// Recanvass (for_po → bidding, above) cancelled PR 22's award (WF-3); a
+// Recanvass (for_po -> bidding, above) cancelled PR 22's award (WF-3); a
 // cancelled award can't be revived (WF-2), so the PR is awarded anew.
 add('Award', 'recanvass cancelled the old award',   2, 'GET',  '/lots/pr/22', undefined, (r) => r.status === 200 && r.data.every(l => l.status === 'cancelled'), 'all cancelled')
 add('Award', 'reviving the cancelled award refused', 2, 'PATCH', '/lots/6', { status: 'awarded', awarded_to: 'S22' }, code(409), '409')
 add('Award', 'a new award instead',                 2, 'POST', '/lots', { purchase_request_id: 22, awarded_to: 'S22-new', awarded_amount: 800 }, code(201), '201')
 add('Award', '…recanvassed PR back to for_po',      2, 'GET',  '/pr/22/logs', undefined, logHas('bidding', 'for_po'), 'bidding→for_po logged')
 
-// ── Completion by delivery ───────────────────────────────────────────────────
+// Completion by delivery
 add('Delivery', 'complete delivery recorded',       2, 'POST', '/delivery', { po_id: 3, delivered_date: '2026-09-10', status: 'complete' }, code(201), '201')
 add('Delivery', '…PR completed + logged (was missing)', 2, 'GET', '/pr/19/logs', undefined, logHas('for_po', 'completed'), 'for_po→completed')
 add('Delivery', 'delivery record set complete',     2, 'PATCH', '/delivery/3', { delivered_date: '2026-09-10', status: 'complete', notes: 'all in' }, code(200), '200')
 add('Delivery', '…PR completed',                    3, 'GET',  '/pr/27', undefined, statusIs('completed'), 'completed')
 
-// ── Edit protection ──────────────────────────────────────────────────────────
+// Edit protection
 add('Edit', 'requestor edits PR under canvass',     3, 'PATCH', '/pr/15', { title: 'x' }, code(409), '409')
 add('Edit', 'requestor edits PR returned for revision', 3, 'PATCH', '/pr/14', { title: 'fixed' }, code(200), '200')
 add('Edit', 'procurement edits completed PR',       2, 'PATCH', '/pr/19', { title: 'x' }, code(409), '409')
@@ -167,7 +167,7 @@ add('Edit', 'procurement edits TWG-approved PR (WF-1)', 2, 'PATCH', '/pr/20', { 
 add('Edit', 'requestor adds item under canvass',    3, 'POST',  '/pr/15/items', { item_name: 'late' }, code(409), '409')
 add('Edit', 'procurement adds item under canvass (WF-1)', 2, 'POST',  '/pr/15/items', { item_name: 'spec' }, code(409), '409 locked')
 
-// ── Deletion rules ───────────────────────────────────────────────────────────
+// Deletion rules
 add('Delete', 'requestor deletes own submitted PR', 3, 'DELETE', '/pr/12', undefined, code(409), '409')
 add('Delete', 'requestor deletes own draft',        3, 'DELETE', '/pr/13', undefined, code(200), '200, file kept (soft delete)')
 add('Delete', 'procurement deletes a returned PR (WF-7)', 2, 'DELETE', '/pr/26', undefined, code(403), '403 admin only')
@@ -178,7 +178,7 @@ add('Delete', 'procurement deletes, has lot',       2, 'DELETE', '/pr/23', undef
 add('Delete', 'admin deletes, has PO',              1, 'DELETE', '/pr/19', undefined, code(409), '409')
 add('Delete', 'deleted PR is gone',                 3, 'DELETE', '/pr/13', undefined, code(404), '404')
 
-// ── Archive: soft delete, final PRs kept ─────────────────────────────────────
+// Archive: soft delete, final PRs kept
 add('Archive', 'requestor deleted view = own deleted',   3, 'GET', '/pr?deleted=only&limit=100', undefined, idsEq([13, 26]), 'ids=[13,26]')
 add('Archive', 'deleted PRs leave the normal list',      3, 'GET', '/pr?limit=100', undefined, (r) => r.status === 200 && !r.data.data.some(p => [13, 26].includes(p.id)), 'no 13 / 26')
 add('Archive', 'deleted PR opens read-only',             3, 'GET', '/pr/13', undefined,
@@ -194,7 +194,7 @@ add('Archive', 'admin deletes a submitted PR',           1, 'DELETE', '/pr/25', 
 add('Archive', '…drops out of the TWG queue',            6, 'GET', '/twg/pending', undefined, (r) => r.status === 200 && !idsOf(r.data).includes(25), 'no 25')
 add('Archive', 'procurement deleted view (no drafts)',   2, 'GET', '/pr?deleted=only&limit=100', undefined, idsEq([20, 25, 26]), 'ids=[20,25,26]')
 
-// ── Lock at submit: PR + items in one step ───────────────────────────────────
+// Lock at submit: PR + items in one step
 add('Submit lock', 'create submitted PR with 2 items',   3, 'POST', '/pr', { title: 'Atomic', status: 'submitted', items: [{ item_name: 'A' }, { item_name: 'B', quantity: 2 }] },
   (r) => { NEW.id = r.data?.id; return r.status === 201 }, '201')
 add('Submit lock', '…both items saved with it',          3, 'GET', () => `/pr/${NEW.id}/items`, undefined, (r) => r.status === 200 && r.data.length === 2, '2 items')
@@ -209,7 +209,7 @@ add('Submit lock', 'resubmit',                           3, 'PATCH', () => `/pr/
 add('Submit lock', '…withdraw + resubmit logged',        3, 'GET', () => `/pr/${NEW.id}/logs`, undefined, (r) => logHas('submitted', 'draft')(r) && logHas('draft', 'submitted')(r), 'both logged')
 add('Submit lock', 'TWG notified of the submission',     6, 'GET', '/notifications', undefined, (r) => r.status === 200 && r.data.some(n => /Atomic/.test(n.message)), 'notice for "Atomic"')
 
-// ── PO cancel and re-award ───────────────────────────────────────────────────
+// PO cancel and re-award
 add('PO cancel', 'requestor has no cancel action',       4, 'GET', '/pr/28', undefined, firstPO(po => po.can_cancel === false), 'can_cancel=false')
 add('PO cancel', 'procurement has cancel action',        2, 'GET', '/pr/28', undefined, firstPO(po => po.can_cancel === true), 'can_cancel=true')
 add('PO cancel', 'reason required',                      2, 'PATCH', '/po/5/cancel', {}, code(400), '400')
@@ -234,7 +234,7 @@ add('PO cancel', 'another PO with no award waiting refused', 2, 'POST', '/po', {
 add('PO cancel', 'requestor notified',                   4, 'GET', '/notifications', undefined, (r) => r.status === 200 && r.data.some(n => /PO-P2-005/.test(n.message) && /cancelled/.test(n.message)), 'cancellation notice')
 add('PO cancel', 'reports skip the cancelled PO',        1, 'GET', '/reports/summary', undefined, (r) => r.status === 200 && r.data.totals.total_spending === 500 + 700 + 300 + 950 + 100 + 200, 'spending 2750 (not +900)')
 
-// ── Priority 3: delivery records drive the PO and the PR ─────────────────────
+// Priority 3: delivery records drive the PO and the PR
 const poIs = (fn) => (r) => r.status === 200 && fn(r.data)
 add('P3 validate', 'missing delivered date',              2, 'POST', '/delivery', { po_id: 7, status: 'complete' }, code(400), '400')
 add('P3 validate', 'impossible date (Feb 30)',            2, 'POST', '/delivery', { po_id: 7, delivered_date: '2026-02-30' }, code(400), '400')
@@ -280,14 +280,14 @@ add('P3 remove',   '…PO 8 back to pending (was stuck)',   2, 'GET', '/po/8', u
 add('P3 remove',   'direct PO status endpoint is gone',   2, 'PATCH', '/po/8/delivery', { delivery_status: 'delivered' }, code(404), '404')
 add('P3 remove',   '…PR 31 not completed by it',          3, 'GET', '/pr/31', undefined, statusIs('for_po'), 'for_po')
 
-// ── Priority 4: removed dead endpoints ───────────────────────────────────────
+// Priority 4: removed dead endpoints
 add('P4', 'lot hard-delete endpoint is gone',            1, 'DELETE', '/lots/12', undefined, code(404), '404')
 add('P4', '…award record still there',                   2, 'GET', '/lots/pr/31', undefined, (r) => r.status === 200 && r.data.length === 1, '1 lot')
 add('P4', 'unused GET /users/:id is gone',               1, 'GET', '/users/1', undefined, code(404), '404')
 add('P4', 'users list still works',                      1, 'GET', '/users?limit=50', undefined, code(200), '200')
 add('P4', 'login token no longer carries supplier_id',   1, 'GET', '/auth/me', undefined, (r) => r.status === 200 && !('supplier_id' in r.data), 'no supplier_id')
 
-// ── Final round: reports, PO-issued notice ───────────────────────────────────
+// Final round: reports, PO-issued notice
 const CATS = ['hardware', 'office_supplies', 'lab_educational', 'furniture', 'food_catering', 'event_supplies']
 add('Reports', 'requestor saves a private draft',        4, 'POST', '/pr', { title: 'Private draft', items: [{ item_name: 'x' }] }, code(201), '201')
 add('Reports', 'procurement totals',                     2, 'GET', '/reports/summary', undefined,
@@ -308,7 +308,7 @@ add('PO notice', 'requestor told too',                   4, 'GET', '/notificatio
 add('PO notice', 'issuer not notified of own action',    2, 'GET', '/notifications', undefined,
   (r) => r.status === 200 && !r.data.some(n => /was issued for PR/.test(n.message)), 'none for proc1')
 
-// ── Item sections: several items under one day ───────────────────────────────
+// Item sections: several items under one day
 const SEC = {}
 add('Sections', 'PR with Day 1 items split around Day 2',  3, 'POST', '/pr', { title: 'DCS Days snacks', status: 'submitted', category: 'food_catering', items: [
     { group_label: 'DCS Days Day 1', item_name: 'AM snacks', quantity: 50, estimated_cost: 70 },
@@ -325,7 +325,7 @@ add('Sections', '…one Day 1 section (server rule, as on screen)', 3, 'GET', ()
            return out === '|Tarpaulin;DCS Days Day 1|AM snacks;DCS Days Day 1|Lunch;DCS Days Day 2|Day 2 snacks' }, 'Tarpaulin, Day 1 ×2, Day 2')
 add('Sections', '…PR form PDF renders',                3, 'GET', () => `/pr/${SEC.id}/pdf`, undefined, code(200), '200')
 
-// ── Requestor form: no procurement terms, drafts ─────────────────────────────
+// Requestor form: no procurement terms, drafts
 const RQ = {}
 add('Requestor form', 'current quarter endpoint',          3, 'GET', '/quarters/current', undefined, (r) => r.status === 200 && r.data?.label === 'Q3' && r.data?.year === 2026, 'Q3 2026')
 add('Requestor form', 'save a draft with no items yet',    3, 'POST', '/pr', { title: 'Draft for later', quarter_id: 2, fund_cluster: 'HACK', responsibility_center_code: 'HACK' },

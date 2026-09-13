@@ -1,7 +1,5 @@
--- ════════════════════════════════════════════════════════════════════════════
 -- PRimeSys: Web-Based Procurement Monitoring System
 -- Complete database for a FRESH local install (XAMPP / MariaDB 10.4+)
--- ════════════════════════════════════════════════════════════════════════════
 --
 -- Import this ONE file, either:
 --   * phpMyAdmin > Import > choose this file > Import, or
@@ -20,14 +18,13 @@
 --
 -- Admin sign-in:  username `admin`  /  password `Admin@1234`
 -- Change the password after the first sign-in (Settings > Security).
--- ════════════════════════════════════════════════════════════════════════════
 
 CREATE DATABASE IF NOT EXISTS `primesys` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE `primesys`;
 
 SET NAMES utf8mb4;
 
--- ─── Users ──────────────────────────────────────────────────────────────────
+-- Users
 -- Public sign-up always creates a requestor; admins assign every other role.
 CREATE TABLE `users` (
   `id`                         INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -52,7 +49,7 @@ CREATE TABLE `users` (
   UNIQUE KEY `uq_username` (`username`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ─── Quarters ───────────────────────────────────────────────────────────────
+-- Quarters
 -- Scope PR numbering (PR-{year}-{Qn}-{nnn}) and quarterly budgets / reports.
 CREATE TABLE `quarters` (
   `id`         INT UNSIGNED  NOT NULL AUTO_INCREMENT,
@@ -67,7 +64,7 @@ CREATE TABLE `quarters` (
   UNIQUE KEY `uq_quarter_year` (`label`, `year`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ─── Organization settings ──────────────────────────────────────────────────
+-- Organization settings
 CREATE TABLE `org_settings` (
   `setting_key`   VARCHAR(100) NOT NULL,
   `setting_value` TEXT         NULL,
@@ -75,7 +72,7 @@ CREATE TABLE `org_settings` (
   PRIMARY KEY (`setting_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ─── Purchase requests ──────────────────────────────────────────────────────
+-- Purchase requests
 -- Status flow and who may change it: server/utils/prWorkflow.js.
 -- A deleted PR is kept (deleted_at / deleted_by) and listed under Archive.
 CREATE TABLE `purchase_requests` (
@@ -180,7 +177,7 @@ CREATE TABLE `pr_reads` (
   CONSTRAINT `fk_pr_reads_pr`   FOREIGN KEY (`pr_id`)   REFERENCES `purchase_requests` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ─── TWG review areas ───────────────────────────────────────────────────────
+-- TWG review areas
 -- Which PR categories each TWG member reviews (set by an admin in User
 -- Management). A submitted PR goes only to the members whose areas include
 -- its category (server/utils/twgAreas.js). Keep the category list in step with
@@ -196,7 +193,7 @@ CREATE TABLE `twg_assignments` (
   CONSTRAINT `fk_twg_assignments_by`   FOREIGN KEY (`assigned_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ─── Canvass: quotations ────────────────────────────────────────────────────
+-- Canvass: quotations
 -- Each supplier's quoted unit price per PR item, for the Abstract of
 -- Quotations and the award. Items a supplier didn't quote have no row.
 CREATE TABLE `quotations` (
@@ -229,7 +226,7 @@ CREATE TABLE `quotation_items` (
   CONSTRAINT `fk_quotation_items_pr_item`   FOREIGN KEY (`pr_item_id`)   REFERENCES `pr_items` (`id`)   ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ─── Lots & awards ──────────────────────────────────────────────────────────
+-- Lots & awards
 -- A lot records the supplier awarded some of a PR's items (lot_items with
 -- pr_item_id; different items may go to different suppliers), maybe from a
 -- quotation, and the purchase order issued for it (po_id, one supplier's POs).
@@ -282,7 +279,7 @@ CREATE TABLE `lot_items` (
   CONSTRAINT `fk_lot_items_pr_item` FOREIGN KEY (`pr_item_id`) REFERENCES `pr_items` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ─── Purchase orders ────────────────────────────────────────────────────────
+-- Purchase orders
 -- One PO per supplier's awards (lots.po_id), so a PR can have several active
 -- POs. A cancelled PO stays on record; its awards are cancelled with it and
 -- their items can be awarded again.
@@ -323,7 +320,7 @@ CREATE TABLE `purchase_orders` (
 ALTER TABLE `lots`
   ADD CONSTRAINT `fk_lots_po` FOREIGN KEY (`po_id`) REFERENCES `purchase_orders` (`id`) ON DELETE SET NULL;
 
--- ─── Deliveries ─────────────────────────────────────────────────────────────
+-- Deliveries
 CREATE TABLE `deliveries` (
   `id`             INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `po_id`          INT UNSIGNED NOT NULL,
@@ -367,7 +364,7 @@ CREATE TABLE `delivery_attachments` (
   CONSTRAINT `fk_delivery_attachments_user`     FOREIGN KEY (`uploaded_by`) REFERENCES `users` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ─── Notifications, reminders, password resets ──────────────────────────────
+-- Notifications, reminders, password resets
 CREATE TABLE `notifications` (
   `id`             INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `user_id`        INT UNSIGNED NOT NULL,
@@ -415,7 +412,7 @@ CREATE TABLE `password_reset_tokens` (
   CONSTRAINT `fk_prt_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- ─── Starting data ──────────────────────────────────────────────────────────
+-- Starting data
 
 -- Admin account: username `admin`, password `Admin@1234`; put your own email here before importing.
 INSERT INTO `users` (`name`, `username`, `email`, `password_hash`, `role`, `is_active`, `is_verified`) VALUES

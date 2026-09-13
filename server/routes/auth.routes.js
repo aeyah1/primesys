@@ -7,7 +7,7 @@ const { handle, passwordRule, textRule } = require('../middleware/validate')
 const securityLog = require('../utils/securityLog')
 const config    = require('../config')
 
-// ── Abuse limits, one per job (all keyed by client IP, all answer 429) ───────
+// Abuse limits, one per job (all keyed by client IP, all answer 429)
 // The global API limiter in index.js still applies on top. Values come from
 // config.auth (.env), so a campus that signs up a whole class from one network
 // can raise them without code changes.

@@ -8,7 +8,7 @@ const {
   awardBlock, budgetBlock, itemStates, recordAward, announceAwards,
 } = require('../utils/awardWorkflow')
 
-// ── The canvass of one PR ───────────────────────────────────────────────────
+// The canvass of one PR
 // Suppliers' quotations (a unit price per PR item they quote), the award from
 // them (each item to one supplier, the lowest unless a reason is given; one
 // award per supplier), and items dropped from the procurement. Recorded while
@@ -34,7 +34,7 @@ async function quotationsOf(db, prId) {
   return { quotes, prices }
 }
 
-// GET /canvass/:prId — the PR's items with their award state, the quotations
+// GET /canvass/:prId - the PR's items with their award state, the quotations
 // with their prices (and whether each is locked), and what this user may do.
 exports.summary = asyncHandler(async (req, res) => {
   const pr = await loadPR(pool, req.params.prId)
@@ -100,7 +100,7 @@ async function openQuotation(conn, prId, quotationId) {
   return { q, items }
 }
 
-// POST /canvass/:prId/quotations — { supplier_name, supplier details, quoted_at, notes, prices: [{ item, unit_price }] }
+// POST /canvass/:prId/quotations - { supplier_name, supplier details, quoted_at, notes, prices: [{ item, unit_price }] }
 exports.createQuotation = asyncHandler(async (req, res) => {
   const id = await withTransaction(async (conn) => {
     const pr = await loadPR(conn, req.params.prId, { lock: true })
@@ -118,7 +118,7 @@ exports.createQuotation = asyncHandler(async (req, res) => {
   res.status(201).json({ id, message: 'Quotation recorded' })
 })
 
-// PATCH /canvass/:prId/quotations/:qid — the same fields; replaces its prices.
+// PATCH /canvass/:prId/quotations/:qid - the same fields; replaces its prices.
 exports.updateQuotation = asyncHandler(async (req, res) => {
   await withTransaction(async (conn) => {
     const pr = await loadPR(conn, req.params.prId, { lock: true })
@@ -145,7 +145,7 @@ exports.deleteQuotation = asyncHandler(async (req, res) => {
   res.json({ message: 'Quotation removed' })
 })
 
-// POST /canvass/:prId/award — { picks: [{ item, quotation }], reason }
+// POST /canvass/:prId/award - { picks: [{ item, quotation }], reason }
 // Each picked item goes to the supplier of its quotation at the quoted unit
 // price: one award per supplier, each within the approved budget of its items.
 // Picking a price above the lowest quotation for an item needs a reason, which
@@ -160,7 +160,7 @@ exports.awardFromQuotes = asyncHandler(async (req, res) => {
     const lowest = (itemId) => Math.min(...prices.filter(p => p.pr_item_id === itemId).map(p => cents(p.unit_price)))
 
     const seen = new Set(), notLowest = new Set()
-    const groups = new Map()   // quotation → [{ item, price }]
+    const groups = new Map()   // quotation -> [{ item, price }]
     for (const pick of picks) {
       const item = items.find(i => i.id === pick.item)
       if (!item) throw httpError(400, 'Some of the chosen items are not on this PR')
@@ -203,7 +203,7 @@ exports.awardFromQuotes = asyncHandler(async (req, res) => {
   res.status(201).json({ lots: created.lots })
 })
 
-// POST /canvass/:prId/items/:itemId/drop — { reason }: an item that can't be
+// POST /canvass/:prId/items/:itemId/drop - { reason }: an item that can't be
 // procured (e.g. no supplier offers it) leaves the procurement, so the PR can
 // go on without it.
 exports.dropItem = asyncHandler(async (req, res) => {
@@ -225,7 +225,7 @@ exports.dropItem = asyncHandler(async (req, res) => {
   res.json({ message: 'Item dropped', status })
 })
 
-// POST /canvass/:prId/items/:itemId/restore — a dropped item needs an award again.
+// POST /canvass/:prId/items/:itemId/restore - a dropped item needs an award again.
 exports.restoreItem = asyncHandler(async (req, res) => {
   const status = await withTransaction(async (conn) => {
     const pr = await loadPR(conn, req.params.prId, { lock: true })

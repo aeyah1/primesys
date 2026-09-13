@@ -1,8 +1,8 @@
 const esc = require('../utils/escapeHtml')
 
 // Builds the "reset your password" email.
-//   name     — recipient display name (untrusted, will be HTML-escaped)
-//   resetUrl — password-reset URL with single-use token
+// name - recipient display name (untrusted, will be HTML-escaped)
+// resetUrl - password-reset URL with single-use token
 module.exports = function resetPasswordEmail({ name, resetUrl }) {
   return `
     <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;color:#111827">

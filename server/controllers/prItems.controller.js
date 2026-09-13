@@ -27,7 +27,7 @@ exports.updateItem = asyncHandler(async (req, res) => {
   const b = req.body
   if ('item_name' in b && !String(b.item_name ?? '').trim()) return res.status(400).json({ message: 'Item name is required' })
 
-  // Verify the item belongs to this PR (404 if not — prevents cross-PR tampering).
+  // Verify the item belongs to this PR (404 if not - prevents cross-PR tampering).
   const [rows] = await pool.execute(
     'SELECT id FROM pr_items WHERE id = ? AND pr_id = ?',
     [req.params.itemId, req.params.id]

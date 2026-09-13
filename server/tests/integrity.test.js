@@ -68,7 +68,7 @@ async function run() {
   const is = async (g, label, who, m, p, body, ok) => { const r = await http(who, m, p, body); t.check(g, label, ok(r), show(r)); return r }
   const code = (c, re) => (r) => r.status === c && (!re || re.test(r.data?.message || ''))
 
-  // ═══ FE-3: paging (before any user is created) ═══════════════════════════
+  // FE-3: paging (before any user is created)
   const G0 = 'Paging (FE-3)'
   const p1 = await is(G0, 'users: page 1 of 3 (2 per page)', 1, 'GET', '/users?limit=2&page=1', undefined,
     (r) => r.status === 200 && r.data.data.length === 2 && r.data.total === 6 && r.data.page === 1 && r.data.totalPages === 3)
@@ -80,7 +80,7 @@ async function run() {
   await is(G0, 'users: page size capped at 200', 1, 'GET', '/users?limit=100000', undefined, (r) => r.status === 200 && r.data.data.length <= 200)
   await is(G0, 'POs: nonsense paging is clamped (was a 500)', 2, 'GET', '/po?limit=abc&page=x', undefined, (r) => r.status === 200 && r.data.page === 1)
 
-  // ═══ WF-4: submitting at creation is logged ══════════════════════════════
+  // WF-4: submitting at creation is logged
   const G1 = 'Submission log (WF-4)'
   const made = await is(G1, 'requestor creates and submits in one step', 3, 'POST', '/pr',
     { title: 'Straight to TWG', status: 'submitted', items: [{ item_name: 'Toner', quantity: 2, estimated_cost: 1800 }] }, code(201))
@@ -88,7 +88,7 @@ async function run() {
     (r) => r.status === 200 && r.data.length === 1 && r.data[0].from_status === 'draft' && r.data[0].to_status === 'submitted' && r.data[0].changed_by_name === 'Req A')
   await is(G1, '…and is in the TWG queue', 6, 'GET', '/twg/pending', undefined, (r) => r.status === 200 && r.data.data.some(p => p.id === made.data?.id))
 
-  // ═══ WF-1: locked from submission; Return for revision ═══════════════════
+  // WF-1: locked from submission; Return for revision
   const G2 = 'Item lock (WF-1)'
   await is(G2, 'procurement adds an item to a submitted PR → 409', 2, 'POST', '/pr/40/items', { item_name: 'x' }, code(409))
   await is(G2, 'procurement edits a submitted PR → 409', 2, 'PATCH', '/pr/40', { title: 'changed' }, code(409))
@@ -120,7 +120,7 @@ async function run() {
   await is(G3, 'a requestor cannot return their own PR (403)', 4, 'PATCH', '/pr/43/status', { status: 'revision_requested', notes: 'x' }, code(403))
   await is(G3, 'no return once Ready for PO (409)', 2, 'PATCH', '/pr/44/status', { status: 'revision_requested', notes: 'x' }, code(409))
 
-  // ═══ WF-2: awards fixed once a PO exists or the PR is closed ═════════════
+  // WF-2: awards fixed once a PO exists or the PR is closed
   const G4 = 'Award guards (WF-2)'
   await is(G4, 'edit an award whose PR has an active PO → 409', 2, 'PATCH', '/lots/10', { awarded_to: 'Someone else', awarded_amount: 1 }, code(409, /purchase order/))
   await is(G4, 'cancel an award whose PR has an active PO → 409', 2, 'PATCH', '/lots/10', { status: 'cancelled', reason: 'Supplier backed out' }, code(409))
@@ -136,7 +136,7 @@ async function run() {
   await is(G4, '…PR is Bidding, move logged', 2, 'GET', '/pr/44/logs', undefined,
     (r) => r.status === 200 && r.data.some(l => l.from_status === 'for_po' && l.to_status === 'bidding' && /LOT-001 cancelled/.test(l.note)))
 
-  // ═══ WF-3: one supplier per PR; the PO comes from the awards ═════════════
+  // WF-3: one supplier per PR; the PO comes from the awards
   const G5 = 'Supplier and PO (WF-3)'
   await is(G5, 'award more on a PR whose items are all awarded → 409', 2, 'POST', '/lots', { purchase_request_id: 51, awarded_to: 'Other Co', awarded_amount: 5 }, code(409, /already awarded/))
   const po46 = await is(G5, 'issue a PO sending a fake supplier and total', 2, 'POST', '/po',
@@ -165,7 +165,7 @@ async function run() {
   await is(G5, '…from the new award only (not the old supplier or a combined total)', 2, 'GET', `/po/${po52.data?.id}`, undefined,
     (r) => r.status === 200 && r.data.supplier_name === 'S52 New' && Number(r.data.total_amount) === 400)
 
-  // ═══ DB-1: times and dates ═══════════════════════════════════════════════
+  // DB-1: times and dates
   const G6 = 'Times and dates (DB-1)'
   await is(G6, 'a PR filed at 5:30 PM keeps its time (was shown 8 h late)', 3, 'GET', '/pr/54', undefined,
     (r) => r.status === 200 && new Date(r.data.created_at).getTime() === new Date(2026, 8, 12, 17, 30).getTime())
@@ -183,7 +183,7 @@ async function run() {
   await is(G6, 'reminder time reads back as the time that was set', 3, 'GET', '/reminders', undefined,
     (r) => r.status === 200 && r.data.some(x => new Date(x.remind_at).getTime() === new Date(remindAt).getTime()))
 
-  // ═══ DB-2: validation and strict SQL mode ════════════════════════════════
+  // DB-2: validation and strict SQL mode
   const G7 = 'Field validation (DB-2)'
   const [[{ mode }]] = await pool.query('SELECT @@SESSION.sql_mode AS mode')
   t.check(G7, 'server connections run in strict SQL mode', /STRICT_TRANS_TABLES/.test(mode), mode)

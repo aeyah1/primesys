@@ -4,17 +4,17 @@ const { M, GRAY, fmtDate, fmtCurrency, pageHeader, pageFooter, hRule, metaField,
 module.exports = function drawInspectionReport(doc, { d, items, priced, brought, iarNumber, statusLabel }) {
   const W = doc.page.width - M * 2
 
-  // ── Header
+  // Header
   let y = pageHeader(doc, 'INSPECTION AND ACCEPTANCE REPORT')
 
-  // ── Meta row
+  // Meta row
   metaField(doc, 'IAR NUMBER',    iarNumber,        M,       y, 140)
   metaField(doc, 'PO NUMBER',     d.po_number,      M + 150, y, 130)
   metaField(doc, 'PR NUMBER',     d.pr_number,      M + 290, y, 130)
   metaField(doc, 'DATE RECEIVED', fmtDate(d.delivered_date), M + 430, y, 90)
   y += 36; hRule(doc, y); y += 12
 
-  // ── Supplier + PR info
+  // Supplier + PR info
   metaField(doc, 'SUPPLIER',         d.supplier_name,                  M,       y, 280)
   metaField(doc, 'EXPECTED DATE',    fmtDate(d.expected_delivery_date), M + 350, y, 160)
   y += 28
@@ -25,7 +25,7 @@ module.exports = function drawInspectionReport(doc, { d, items, priced, brought,
   }
   hRule(doc, y); y += 12
 
-  // ── Items table
+  // Items table
   const sectionLabel = brought.length ? 'ITEMS RECEIVED IN THIS DELIVERY'
     : !items.length ? 'ITEMS RECEIVED (none recorded)'
     : d.status === 'complete' ? 'ITEMS RECEIVED' : 'ITEMS ON THE PURCHASE ORDER (PARTIAL DELIVERY: SEE REMARKS)'
@@ -62,7 +62,7 @@ module.exports = function drawInspectionReport(doc, { d, items, priced, brought,
     y += 16
   }
 
-  // ── Delivery status + notes
+  // Delivery status + notes
   hRule(doc, y); y += 10
   metaField(doc, 'DELIVERY STATUS', statusLabel, M, y, 300)
   if (d.notes) {
@@ -71,7 +71,7 @@ module.exports = function drawInspectionReport(doc, { d, items, priced, brought,
   }
   y += 36
 
-  // ── Signature lines
+  // Signature lines
   const sigY = doc.page.height - 130
   hRule(doc, sigY - 10)
   sigBlock(doc, M,       sigY, 'Received By',   d.received_by_name || '', 'Supply Officer')

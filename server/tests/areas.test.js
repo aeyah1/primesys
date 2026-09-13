@@ -62,7 +62,7 @@ async function run() {
   // Read straight from the table: a deactivated account can't call the API.
   const told = async (who, re) => (await H.sql(TEST_DB, 'SELECT message FROM notifications WHERE user_id = ?', [who])).some(n => re.test(n.message))
 
-  // ═══ Admin: areas and coverage ═══════════════════════════════════════════
+  // Admin: areas and coverage
   const G1 = 'Admin assigns areas'
   await is(G1, 'user list shows each TWG member\'s areas', 1, 'GET', '/users?limit=50', undefined,
     (r) => r.status === 200 && r.data.data.find(u => u.id === 6)?.twg_areas.join() === 'food_catering,event_supplies'
@@ -88,7 +88,7 @@ async function run() {
   t.check(G1, '…none left behind', Number(leftover) === 0, leftover)
   ROLE[made.data?.id] = 'procurement'
 
-  // ═══ Who sees what ═══════════════════════════════════════════════════════
+  // Who sees what
   const G2 = 'TWG sees only its areas'
   await is(G2, 'ICT reviewer: PR list = hardware PRs in TWG stages or reviewed (no drafts)', 5, 'GET', '/pr?limit=100', undefined,
     (r) => r.status === 200 && sorted(ids(r)) === '60,63,65,66,68')
@@ -105,7 +105,7 @@ async function run() {
   await is(G2, 'stats count only the member\'s areas', 5, 'GET', '/twg/stats', undefined,
     (r) => r.status === 200 && r.data.pending === 1 && r.data.areas.join() === 'hardware' && r.data.pending_by_area[0].pending === 1)
 
-  // ═══ Who decides ═════════════════════════════════════════════════════════
+  // Who decides
   const G3 = 'Only the area decides'
   await is(G3, 'events reviewer approves a hardware PR → 404', 6, 'POST', '/twg/60/review', { action: 'approve' }, code(404))
   await is(G3, 'the PR page offers the decision to the area reviewer', 5, 'GET', '/pr/60', undefined, (r) => r.status === 200 && r.data.permissions.twg_review === true)
@@ -123,7 +123,7 @@ async function run() {
     (r) => r.status === 200 && r.data.data.find(p => p.id === 68)?.last_reviewer_name === 'Engr Santos')
   await is(G3, '…and left the old reviewer\'s queue', 5, 'GET', '/twg/pending', undefined, (r) => r.status === 200 && !ids(r).includes(68))
 
-  // ═══ Notifications follow the areas ══════════════════════════════════════
+  // Notifications follow the areas
   const G4 = 'Notifications'
   await is(G4, 'requestor submits a Food & Catering PR', 3, 'POST', '/pr',
     { title: 'Seminar snacks', category: 'food_catering', status: 'submitted', items: [{ item_name: 'Snacks', quantity: 40, estimated_cost: 60 }] }, code(201))
@@ -141,7 +141,7 @@ async function run() {
   await is(G4, 'admin queue flags it as uncovered', 1, 'GET', '/twg/pending?category=furniture', undefined,
     (r) => r.status === 200 && r.data.data.length === 1 && r.data.data[0].uncovered === true)
 
-  // ═══ Procurement: what the TWG approved, by category ═════════════════════
+  // Procurement: what the TWG approved, by category
   const G5 = 'Procurement filters and sorting'
   await is(G5, 'approved by TWG, hardware only', 2, 'GET', '/pr?status=twg_review&category=hardware&limit=100', undefined,
     (r) => r.status === 200 && sorted(ids(r)) === '60,63,65')

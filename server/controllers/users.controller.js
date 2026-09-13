@@ -8,7 +8,7 @@ const { paging }  = require('../middleware/validate')
 const { CATEGORIES } = require('../utils/categories')
 const { setAreas, coverage } = require('../utils/twgAreas')
 
-// GET /users/twg-coverage — every category with its active TWG reviewers and
+// GET /users/twg-coverage - every category with its active TWG reviewers and
 // the PRs waiting in it, so an area nobody reviews stands out.
 exports.twgCoverage = async (req, res) => {
   try { res.json(await coverage(pool)) } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }

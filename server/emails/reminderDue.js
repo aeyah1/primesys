@@ -1,12 +1,12 @@
 const esc = require('../utils/escapeHtml')
 
 // Sent by the cron job when a user-scheduled reminder hits its `remind_at` time.
-//   recipientName — assigned-to user's display name
-//   senderName    — created-by user's display name
-//   title         — reminder title
-//   note          — optional note body
-//   prNumber      — optional linked PR number
-//   lotNumber     — optional linked lot number
+// recipientName - assigned-to user's display name
+// senderName - created-by user's display name
+// title - reminder title
+// note - optional note body
+// prNumber - optional linked PR number
+// lotNumber - optional linked lot number
 module.exports = function reminderDueEmail({ recipientName, senderName, title, note, prNumber, lotNumber }) {
   const linkLine = prNumber
     ? `<p style="margin:0 0 6px;font-size:13px;color:#1E40AF;"><strong>Linked PR:</strong> ${prNumber}${lotNumber ? ` / ${lotNumber}` : ''}</p>`

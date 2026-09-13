@@ -14,7 +14,7 @@ const {
 const { poItems } = require('../utils/awardWorkflow')
 const drawInspectionReport = require('../pdf/inspectionReport')
 
-const qty = (n) => String(Number(n))   // 2.00 → "2"
+const qty = (n) => String(Number(n))   // 2.00 -> "2"
 
 const UPLOAD_DIR = path.join(__dirname, '..', 'uploads', 'delivery')
 
@@ -320,7 +320,7 @@ exports.update = asyncHandler(async (req, res) => {
   res.json({ message: 'Delivery updated' })
 })
 
-// ── Delivery Attachments ──────────────────────────────────────────────────────
+// Delivery Attachments
 
 exports.uploadAttachment = async (req, res) => {
   try {

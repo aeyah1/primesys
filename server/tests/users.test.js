@@ -57,7 +57,7 @@ async function run() {
   const t = H.suite('USER MANAGEMENT')
   const is = async (g, label, p, ok, who = 1) => { const r = await http(who, 'GET', p); t.check(g, label, r.status === 200 && ok(r), show(r)); return r }
 
-  // ═══ Role tabs ═══════════════════════════════════════════════════════════
+  // Role tabs
   const G1 = 'Role tabs'
   await is(G1, 'counts per role, and all', '/users?limit=50',
     (r) => same(r.data.counts.roles, { all: 12, admin: 2, twg: 4, procurement: 1, supply: 1, requestor: 4 }))
@@ -67,7 +67,7 @@ async function run() {
   const denied = await http(3, 'GET', '/users?role=twg')
   t.check(G1, 'only admins list users (403)', denied.status === 403, show(denied))
 
-  // ═══ Status chips ════════════════════════════════════════════════════════
+  // Status chips
   const G2 = 'Status'
   await is(G2, 'inactive accounts', '/users?status=inactive&limit=50', (r) => sorted(ids(r)) === '4,8,12')
   await is(G2, '…tab counts follow the status', '/users?status=inactive&limit=50',
@@ -80,7 +80,7 @@ async function run() {
     (r) => same(r.data.counts.status, { all: 12, active: 9, inactive: 3, unverified: 1 }))
   await is(G2, 'an unknown status is ignored', '/users?status=banned&limit=50', (r) => r.data.total === 12)
 
-  // ═══ TWG review areas ════════════════════════════════════════════════════
+  // TWG review areas
   const G3 = 'Review-area chips'
   await is(G3, 'TWG reviewing Hardware', '/users?role=twg&area=hardware&limit=50', (r) => sorted(ids(r)) === '5,8')
   await is(G3, 'TWG with no areas yet', '/users?role=twg&area=none&limit=50', (r) => ids(r).join() === '7')
@@ -94,7 +94,7 @@ async function run() {
   await is(G3, '…and not on All', '/users?area=hardware&limit=50', (r) => r.data.total === 12 && r.data.counts.areas === undefined)
   await is(G3, 'an unknown area is ignored', '/users?role=twg&area=weapons&limit=50', (r) => r.data.total === 4)
 
-  // ═══ Sort orders ═════════════════════════════════════════════════════════
+  // Sort orders
   const G4 = 'Sorting'
   await is(G4, 'grouped by role: admins, TWG, procurement, supply, requestors', '/users?sort=role&limit=50',
     (r) => r.data.data.map(u => u.role).join() === 'admin,admin,twg,twg,twg,twg,procurement,supply,requestor,requestor,requestor,requestor')
@@ -106,7 +106,7 @@ async function run() {
   await is(G4, 'newest first is the default', '/users?limit=50', (r) => ids(r).join() === '12,11,10,9,8,7,6,5,4,3,2,1')
   await is(G4, 'an unknown sort falls back to newest', '/users?sort=drop_table&limit=50', (r) => ids(r)[0] === 12)
 
-  // ═══ Paging and search with the filters ══════════════════════════════════
+  // Paging and search with the filters
   const G5 = 'Paging and search'
   await is(G5, 'requestors by name, page 2 of 2', '/users?role=requestor&sort=name&limit=2&page=2',
     (r) => names(r).join() === 'Rita Req,Uma Unverified' && r.data.total === 4 && r.data.totalPages === 2)

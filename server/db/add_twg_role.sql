@@ -15,10 +15,10 @@ DROP PROCEDURE _legacy_guard;
 -- Migration: Add Technical Working Group (TWG) role and review workflow.
 --
 -- New flow:
---   draft → submitted (TWG inbox)
---             ├── TWG approves     → twg_review        (procurement inbox)
---             └── TWG requests fix → revision_requested (back to extension; resubmit → submitted)
---   twg_review → bidding → for_po → completed
+-- draft -> submitted (TWG inbox)
+-- +-- TWG approves     -> twg_review        (procurement inbox)
+-- +-- TWG requests fix -> revision_requested (back to extension; resubmit -> submitted)
+-- twg_review -> bidding -> for_po -> completed
 --
 -- 'twg_review' semantically = "Approved by TWG, ready for procurement".
 

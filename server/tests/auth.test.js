@@ -59,7 +59,7 @@ async function http(method, p, body, token) {
 const q = async (s, params = []) => (await pool.execute(s, params))[0]
 let pool
 
-// ── result recording ────────────────────────────────────────────────────────
+// result recording
 let pass = 0, fail = 0, group = ''
 function check(g, label, ok, got = '') {
   if (g !== group) { group = g; print(`\n── ${g} ──`) }
@@ -76,7 +76,7 @@ const reg = (over = {}) => { seq++; return { first_name: 'Test', last_name: `Use
 const wait = (ms) => new Promise(r => setTimeout(r, ms))
 
 async function run() {
-  // ═══ Registration ═══════════════════════════════════════════════════════
+  // Registration
   const G1 = 'Registration'
   const u1 = reg()
   let r = await http('POST', '/auth/register', u1)
@@ -135,7 +135,7 @@ async function run() {
     check(G1, `${label} → 400`, r.status === 400, show(r))
   }
 
-  // ═══ Email verification ═════════════════════════════════════════════════
+  // Email verification
   const G2 = 'Email verification'
   r = await http('POST', '/auth/login', { identifier: u1.username, password: PW })
   check(G2, 'sign-in before verifying (right password) → 403 unverified', r.status === 403 && r.data.type === 'unverified', show(r))
@@ -170,7 +170,7 @@ async function run() {
   r = await http('POST', '/auth/verify-email', { token: v2b })
   check(G2, '…the new link verifies', r.status === 200, show(r))
 
-  // ═══ Login ═══════════════════════════════════════════════════════════════
+  // Login
   const G3 = 'Login'
   r = await http('POST', '/auth/login', { identifier: u1.username, password: PW })
   const u1Token = r.data?.token
@@ -203,7 +203,7 @@ async function run() {
   r = await http('POST', '/auth/login', { identifier: 'proc1', password: FPW })
   check(G3, 'other accounts unaffected by the lock', r.status === 200, show(r))
 
-  // ═══ Password reset ══════════════════════════════════════════════════════
+  // Password reset
   const G4 = 'Password reset'
   r = await http('POST', '/auth/forgot-password', { email: 'req1@auth.invalid' })
   const genericReset = r.data?.message
@@ -240,7 +240,7 @@ async function run() {
   r = await http('POST', '/auth/reset-password', { token: rtB, password: 'Another-Pass-3' })
   check(G4, 'expired token → 400', r.status === 400, show(r))
 
-  // ═══ JWT and authorization ═══════════════════════════════════════════════
+  // JWT and authorization
   const G5 = 'JWT & authorization'
   const valid = tok(3, 'requestor')
   const [h, p, s] = valid.split('.')
@@ -284,7 +284,7 @@ async function run() {
   check(G5, 'deactivation blocks an existing token at once', on.status === 200 && off.status === 403, `${on.status} → ${show(off)}`)
   await http('PATCH', '/users/5/toggle', undefined, tok(1, 'admin'))
 
-  // ═══ Admin role assignment ═══════════════════════════════════════════════
+  // Admin role assignment
   const G6 = 'Admin role assignment'
   const admin = tok(1, 'admin')
   r = await http('PATCH', '/users/1', { name: 'Admin One', role: 'requestor' }, admin)
@@ -306,7 +306,7 @@ async function run() {
   r = await http('POST', '/auth/login', { identifier: 'pend1', password: FPW })
   check(G6, 'a reactivated former pending account signs in', r.status === 200 && r.data.user.role === 'procurement' && !('is_approved' in r.data.user), show(r))
 
-  // ═══ Socket.IO ═══════════════════════════════════════════════════════════
+  // Socket.IO
   const G7 = 'Socket.IO'
   const { io: ioc } = require(require.resolve('socket.io-client', { paths: [CLIENT] }))
   const connect = (token) => new Promise((resolve) => {
@@ -332,7 +332,7 @@ async function run() {
     live.sock.close()
   }
 
-  // ═══ Sessions end when the password changes (audit SEC-1) ═════════════════
+  // Sessions end when the password changes (audit SEC-1)
   const G13 = 'Session revocation (SEC-1)'
   SECRETS.push('Changed-Pass-9', 'Admin-Reset-7', 'Reset-By-Email-5')   // must never reach the logs
   const me = (t) => http('GET', '/auth/me', undefined, t)
@@ -377,7 +377,7 @@ async function run() {
   r = await http('POST', '/auth/reset-password', { token: twgReset, password: 'Reset-By-Email-5' })
   check(G13, 'reset by email link → earlier sessions signed out', r.status === 200 && !!twgBefore && (await me(twgBefore)).status === 401, show(r))
 
-  // ═══ CAPTCHA (enabled in-process, Turnstile reply stubbed) ═══════════════
+  // CAPTCHA (enabled in-process, Turnstile reply stubbed)
   const G8 = 'CAPTCHA'
   const realFetch = global.fetch
   let captchaReply = false, seen = null
@@ -398,7 +398,7 @@ async function run() {
   config.captcha.enabled = false; config.captcha.secretKey = ''
   global.fetch = realFetch
 
-  // ═══ Lock escalation (throttle module, clock shifted in-process) ═════════
+  // Lock escalation (throttle module, clock shifted in-process)
   const G9 = 'Lock escalation'
   const throttle = require(path.join(SERVER, 'utils/loginThrottle.js'))
   const realNow = Date.now
@@ -420,7 +420,7 @@ async function run() {
   Date.now = realNow
   throttle.clear(k)
 
-  // ═══ Timing (unknown account vs wrong password) ══════════════════════════
+  // Timing (unknown account vs wrong password)
   const G10 = 'Timing'
   const t = { unknown: [], wrong: [] }
   for (let i = 0; i < 4; i++) {
@@ -432,7 +432,7 @@ async function run() {
   check(G10, `unknown account takes as long as a wrong password (ratio ${ratio.toFixed(2)})`, ratio > 0.5 && ratio < 2, JSON.stringify(t))
   await http('POST', '/auth/login', { identifier: u2.username, password: PW })   // clear its failures
 
-  // ═══ Rate limits (last: they block this address) ═════════════════════════
+  // Rate limits (last: they block this address)
   const G11 = 'Rate limits'
   const [{ n: usersBefore }] = await q('SELECT COUNT(*) AS n FROM users')
   let hit = 0, sent = 0
@@ -451,7 +451,7 @@ async function run() {
   r = await http('POST', '/auth/login', { identifier: 'admin1', password: FPW })
   check(G11, '…that address is blocked for a while, even with a right password', r.status === 429, show(r))
 
-  // ═══ Security log ════════════════════════════════════════════════════════
+  // Security log
   const G12 = 'Security log'
   const all = LOGS.join('\n')
   const events = new Set([...all.matchAll(/\[security\] \S+ (\w+)/g)].map(m => m[1]))

@@ -4,10 +4,10 @@ const { M, GRAY, fmtDate, fmtCurrency, pageHeader, pageFooter, hRule, metaField,
 module.exports = function drawPRForm(doc, { pr, orgSettings, items }) {
   const W = doc.page.width - M * 2
 
-  // ── Header
+  // Header
   let y = pageHeader(doc, 'PURCHASE REQUEST')
 
-  // ── Meta row 1
+  // Meta row 1
   metaField(doc, 'PR NUMBER',   pr.pr_number,  M,       y, 140)
   metaField(doc, 'DATE',        fmtDate(pr.created_at), M + 150, y, 130)
   metaField(doc, 'QUARTER',
@@ -15,14 +15,14 @@ module.exports = function drawPRForm(doc, { pr, orgSettings, items }) {
   metaField(doc, 'REQUESTED BY', pr.created_by_name, M + 430, y, 120)
   y += 36; hRule(doc, y); y += 10
 
-  // ── Meta row 2 — org codes
+  // Meta row 2 - org codes
   const fc  = pr.fund_cluster                || orgSettings.fund_cluster                || '—'
   const rcc = pr.responsibility_center_code  || orgSettings.responsibility_center_code  || '—'
   metaField(doc, 'FUND CLUSTER',                  fc,  M,       y, 230)
   metaField(doc, 'RESPONSIBILITY CENTER CODE',    rcc, M + 250, y, 260)
   y += 36; hRule(doc, y); y += 10
 
-  // ── Purpose
+  // Purpose
   if (pr.title) {
     doc.fontSize(8).fillColor(GRAY).font('Helvetica').text('PURPOSE / DESCRIPTION', M, y)
     doc.fontSize(10).fillColor('#111827').font('Helvetica').text(pr.title, M, y + 12, { width: W })
@@ -30,7 +30,7 @@ module.exports = function drawPRForm(doc, { pr, orgSettings, items }) {
     hRule(doc, y); y += 10
   }
 
-  // ── Items table
+  // Items table
   doc.fontSize(8).fillColor(GRAY).font('Helvetica-Bold').text('ITEMS REQUESTED', M, y); y += 12
   doc.y = y
 
@@ -65,14 +65,14 @@ module.exports = function drawPRForm(doc, { pr, orgSettings, items }) {
     y = doc.y + 12
   }
 
-  // ── Notes
+  // Notes
   if (pr.notes) {
     y += 10; hRule(doc, y); y += 10
     doc.fontSize(8).fillColor(GRAY).font('Helvetica').text('NOTES', M, y)
     doc.fontSize(9).fillColor('#374151').font('Helvetica').text(pr.notes, M, y + 12, { width: W })
   }
 
-  // ── Signature lines
+  // Signature lines
   const sigY = doc.page.height - 130
   hRule(doc, sigY - 10)
   sigBlock(doc, M,       sigY, 'Requested By', pr.created_by_name, 'Requestor')
