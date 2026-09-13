@@ -167,6 +167,12 @@ async function loadPR(db, prId, { lock = false } = {}) {
   return { ...pr, hasPO: !!has_po, hasAnyPO: !!has_any_po, hasLot: !!has_lot, hasAward: !!has_award, itemCount: Number(item_count) }
 }
 
+// Why this user can't edit the PR's details or items now (null when they can); 404 when it doesn't exist.
+async function editDenied(db, user, prId) {
+  const pr = await loadPR(db, prId)
+  return pr ? editBlock(user, pr) : deny(404, 'PR not found')
+}
+
 // Moves a PR to `to` and writes the audit log in one transaction (pass `conn`
 // to join the caller's). Throws an HTTP error on an illegal move. With
 // `ifAllowed` (side effects such as a delivery completing a PR), an illegal or
@@ -226,4 +232,4 @@ async function syncPRProgress(conn, prId, { user, note = null }) {
   return to
 }
 
-module.exports = { PR_STATUSES, loadPR, editBlock, deleteBlock, fileDeleteBlock, poCancelBlock, prPermissions, changePRStatus, syncPRProgress }
+module.exports = { PR_STATUSES, loadPR, editBlock, editDenied, deleteBlock, fileDeleteBlock, poCancelBlock, prPermissions, changePRStatus, syncPRProgress }
