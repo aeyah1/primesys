@@ -6,4 +6,4 @@ const toDate = (d) => (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) ? 
 // "September 12, 2026", or an em dash when there is no date.
 const fmtLongDate = (d) => (d ? toDate(d).toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' }) : '—')
 
-module.exports = { toDate, fmtLongDate }
+module.exports = { fmtLongDate }
