@@ -37,6 +37,7 @@ function fixtures() {
       ${rows.join(',\n      ')};
     ${H.twgAreas([5, 8], ['hardware'])}
     ${H.twgAreas([6], ['event_supplies', 'food_catering'])}
+    INSERT INTO purchase_requests (id, pr_number, title, status, category, created_by) VALUES (1, 'PR-U-1', 'Has history', 'submitted', 'office_supplies', 9);
     SET FOREIGN_KEY_CHECKS = 1;
   `
 }
@@ -116,6 +117,17 @@ async function run() {
   await is(G5, 'a blank search is ignored', '/users?search=%20%20&limit=50', (r) => r.data.total === 12)
   await is(G5, 'rows still carry the TWG areas', '/users?role=twg&limit=50',
     (r) => r.data.data.find(u => u.id === 6)?.twg_areas.join() === 'food_catering,event_supplies')
+
+  // Delete runs last because it changes the counts above.
+  const G6 = 'Delete'
+  let r = await http(1, 'DELETE', '/users/9')
+  t.check(G6, 'a user named on a PR is kept (409, was 500)', r.status === 409 && /Deactivate them instead/.test(r.data?.message), show(r))
+  r = await http(1, 'GET', '/users?limit=50')
+  t.check(G6, '…and is still listed', ids(r).includes(9), show(r))
+  r = await http(1, 'DELETE', '/users/11')
+  t.check(G6, 'a user with no records is deleted', r.status === 200, show(r))
+  r = await http(1, 'DELETE', '/users/1')
+  t.check(G6, 'an admin can\'t delete their own account', r.status === 400, show(r))
 
   return t.summary()
 }

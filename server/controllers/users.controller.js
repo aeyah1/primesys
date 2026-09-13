@@ -247,7 +247,15 @@ exports.remove = async (req, res) => {
     }
     const [rows] = await pool.execute('SELECT id FROM users WHERE id = ?', [req.params.id])
     if (!rows.length) return res.status(404).json({ message: 'User not found' })
-    await pool.execute('DELETE FROM users WHERE id = ?', [req.params.id])
+    try {
+      await pool.execute('DELETE FROM users WHERE id = ?', [req.params.id])
+    } catch (err) {
+      // Users named on procurement records stay so the history keeps who did what.
+      if (err.code === 'ER_ROW_IS_REFERENCED_2') {
+        return res.status(409).json({ message: 'This user is named on procurement records, so they can\'t be deleted. Deactivate them instead.' })
+      }
+      throw err
+    }
     invalidateUserCache(rows[0].id)
     securityLog('user_deleted', { userId: rows[0].id, by: req.user.id })
     res.json({ message: 'User deleted' })
