@@ -50,8 +50,8 @@ SET FOREIGN_KEY_CHECKS = 1;
 
 -- Default admin, same as database/schema.sql:
 -- username `admin` / password `Admin@1234`; put your own email here before running.
-INSERT INTO `users` (`name`, `username`, `email`, `password_hash`, `role`, `is_active`, `is_verified`, `is_approved`) VALUES
-  ('System Administrator', 'admin', 'admin@example.com','$2a$10$6M98Da8LCoGWN.6XMDRC8ueqg77kil5.cSOEoQjbDMg8EyF0/RHKu', 'admin', 1, 1, 1);
+INSERT INTO `users` (`name`, `username`, `email`, `password_hash`, `role`, `is_active`, `is_verified`) VALUES
+  ('System Administrator', 'admin', 'admin@example.com','$2a$10$6M98Da8LCoGWN.6XMDRC8ueqg77kil5.cSOEoQjbDMg8EyF0/RHKu', 'admin', 1, 1);
 
 -- quarters and org_settings are kept (reference/config, not user data).
 -- Uploaded files in server/uploads/ are not touched; delete them by hand if needed.

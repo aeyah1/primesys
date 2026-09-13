@@ -16,12 +16,12 @@ const tok  = (id) => jwt.sign({ id, role: ROLE[id] }, config.jwt.secret, { expir
 
 function fixtures() {
   const hash = serverReq('bcryptjs').hashSync('Test@1234', 4)
-  const U = (id, name, username) => `(${id}, '${name}', '${username}', '${username}@int.invalid', '${hash}', '${ROLE[id]}', 1, 1, 1)`
+  const U = (id, name, username) => `(${id}, '${name}', '${username}', '${username}@int.invalid', '${hash}', '${ROLE[id]}', 1, 1)`
   const P = (id, status, owner) => `(${id}, 'PR-I-${id}', 'Integrity ${id}', '${status}', ${owner})`
   const L = (id, pr, n, status, to, amount) => `(${id}, ${pr}, 'LOT-00${n}', '${status}', ${to === null ? 'NULL' : `'${to}'`}, ${amount === null ? 'NULL' : amount}, 2)`
   return `
     SET FOREIGN_KEY_CHECKS = 0;
-    INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified, is_approved) VALUES
+    INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified) VALUES
       ${U(1, 'Admin One', 'admin1')}, ${U(2, 'Proc One', 'proc1')}, ${U(3, 'Req A', 'reqa')},
       ${U(4, 'Req B', 'reqb')}, ${U(5, 'Sup One', 'sup1')}, ${U(6, 'Teresa Guevarra', 'twg1')};
     INSERT INTO purchase_requests (id, pr_number, title, status, created_by) VALUES

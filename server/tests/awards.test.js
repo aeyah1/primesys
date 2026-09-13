@@ -17,14 +17,14 @@ const LONG = 'Desktop computer set with 24-inch monitor, keyboard, mouse and UPS
 
 function fixtures() {
   const hash = serverReq('bcryptjs').hashSync('Test@1234', 4)
-  const U = (id, name) => `(${id}, '${name}', '${name.toLowerCase().replace(/\W/g, '')}', 'u${id}@awards.invalid', '${hash}', '${ROLE[id]}', 1, 1, 1)`
+  const U = (id, name) => `(${id}, '${name}', '${name.toLowerCase().replace(/\W/g, '')}', 'u${id}@awards.invalid', '${hash}', '${ROLE[id]}', 1, 1)`
   const P = (id, status, owner, category) => `(${id}, 'PR-W-${id}', 'Awards ${id}', '${status}', ${owner}, '${category}', 'ICT Office')`
   const LOG = (pr, to, at) => `(${pr}, 2, NULL, '${to}', NULL, '${at}')`
   const L = (id, pr, n, status, to, amount, at, d = {}) =>
     `(${id}, ${pr}, 'LOT-00${n}', '${status}', '${to}', ${amount}, ${[d.contact, d.phone, d.email, d.address, d.tin, d.notes].map(v => (v ? `'${v}'` : 'NULL')).join(', ')}, 2, '${at}')`
   return `
     SET FOREIGN_KEY_CHECKS = 0;
-    INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified, is_approved) VALUES
+    INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified) VALUES
       ${U(1, 'Admin One')}, ${U(2, 'Proc One')}, ${U(3, 'Req A')}, ${U(4, 'Sup One')}, ${U(5, 'Req B')};
     INSERT INTO purchase_requests (id, pr_number, title, status, created_by, category, department) VALUES
       ${P(70, 'bidding', 3, 'hardware')}, ${P(71, 'bidding', 5, 'event_supplies')}, ${P(72, 'for_po', 3, 'hardware')},

@@ -29,11 +29,11 @@ const tok = (id) => jwt.sign({ id, role: PEOPLE[id][1] }, config.jwt.secret, { e
 function fixtures() {
   const hash = serverReq('bcryptjs').hashSync('Test@1234', 4)
   const rows = Object.entries(PEOPLE).map(([id, [name, role, active, verified]]) =>
-    `(${id}, '${name}', '${name.toLowerCase().replace(/\W/g, '')}', 'u${id}@users.invalid', '${hash}', '${role}', ${active}, ${verified}, 1,
+    `(${id}, '${name}', '${name.toLowerCase().replace(/\W/g, '')}', 'u${id}@users.invalid', '${hash}', '${role}', ${active}, ${verified},
       '2026-01-01 08:00:00' + INTERVAL ${id} DAY)`)
   return `
     SET FOREIGN_KEY_CHECKS = 0;
-    INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified, is_approved, created_at) VALUES
+    INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified, created_at) VALUES
       ${rows.join(',\n      ')};
     ${H.twgAreas([5, 8], ['hardware'])}
     ${H.twgAreas([6], ['event_supplies', 'food_catering'])}

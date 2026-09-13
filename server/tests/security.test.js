@@ -19,10 +19,10 @@ let mailDelay = 0   // How long each stubbed email takes, in ms, to let cron run
 
 function fixtures() {
   const hash = serverReq('bcryptjs').hashSync('Test@1234', 4)
-  const U = (id, name, active = 1) => `(${id}, '${name}', '${name}', '${name}@sec.invalid', '${hash}', '${ROLE[id]}', ${active}, 1, 1)`
+  const U = (id, name, active = 1) => `(${id}, '${name}', '${name}', '${name}@sec.invalid', '${hash}', '${ROLE[id]}', ${active}, 1)`
   return `
     SET FOREIGN_KEY_CHECKS = 0;
-    INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified, is_approved) VALUES
+    INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified) VALUES
       ${U(1, 'admin1')}, ${U(2, 'proc1')}, ${U(3, 'reqA')}, ${U(4, 'reqB')}, ${U(5, 'sup1')}, ${U(6, 'twg1')}, ${U(7, 'gonestaff', 0)};
     INSERT INTO purchase_requests (id, pr_number, title, status, created_by) VALUES
       (1, 'PR-S-001', 'A submitted', 'submitted', 3),

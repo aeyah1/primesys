@@ -19,13 +19,13 @@ const MAILS = []
 
 function fixtures() {
   const hash = serverReq('bcryptjs').hashSync('Test@1234', 4)
-  const U = (id) => `(${id}, '${NAME[id]}', 'u${id}', 'u${id}@deliveries.invalid', '${hash}', '${ROLE[id]}', 1, 1, 1)`
+  const U = (id) => `(${id}, '${NAME[id]}', 'u${id}', 'u${id}@deliveries.invalid', '${hash}', '${ROLE[id]}', 1, 1)`
   const P = (id, status, owner) => `(${id}, 'PR-D-${id}', 'Deliveries ${id}', '${status}', ${owner}, 'hardware')`
   const PO = (id, pr, supplier, expected, total, status = 'active') =>
     `(${id}, 'PO-D-00${id}', ${pr}, '${supplier}', '2026-09-01', ${expected}, ${total}, 2, '${status}')`
   return `
     SET FOREIGN_KEY_CHECKS = 0;
-    INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified, is_approved) VALUES
+    INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified) VALUES
       ${[1, 2, 3, 4, 5, 6].map(U).join(', ')};
     INSERT INTO purchase_requests (id, pr_number, title, status, created_by, category) VALUES
       ${P(90, 'for_po', 3)}, ${P(91, 'for_po', 3)}, ${P(92, 'for_po', 3)}, ${P(93, 'cancelled', 3)}, ${P(94, 'for_po', 6)};

@@ -28,14 +28,14 @@ const bcrypt = serverReq('bcryptjs')
 function fixtures() {
   const h = bcrypt.hashSync(FPW, 10)
   return `
-    INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified, is_approved) VALUES
-      (1, 'Admin One', 'admin1', 'admin1@auth.invalid', '${h}', 'admin',       1, 1, 1),
-      (2, 'Proc One',  'proc1',  'proc1@auth.invalid',  '${h}', 'procurement', 1, 1, 1),
-      (3, 'Req One',   'req1',   'req1@auth.invalid',   '${h}', 'requestor',   1, 1, 1),
-      (4, 'Sup One',   'sup1',   'sup1@auth.invalid',   '${h}', 'supply',      1, 1, 1),
-      (5, 'Twg One',   'twg1',   'twg1@auth.invalid',   '${h}', 'twg',         1, 1, 1),
-      (6, 'Gone User', 'gone1',  'gone1@auth.invalid',  '${h}', 'requestor',   0, 1, 1),
-      (7, 'Legacy Pending', 'pend1', 'pend1@auth.invalid', '${h}', 'procurement', 1, 1, 0);
+    INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified) VALUES
+      (1, 'Admin One', 'admin1', 'admin1@auth.invalid', '${h}', 'admin',       1, 1),
+      (2, 'Proc One',  'proc1',  'proc1@auth.invalid',  '${h}', 'procurement', 1, 1),
+      (3, 'Req One',   'req1',   'req1@auth.invalid',   '${h}', 'requestor',   1, 1),
+      (4, 'Sup One',   'sup1',   'sup1@auth.invalid',   '${h}', 'supply',      1, 1),
+      (5, 'Twg One',   'twg1',   'twg1@auth.invalid',   '${h}', 'twg',         1, 1),
+      (6, 'Gone User', 'gone1',  'gone1@auth.invalid',  '${h}', 'requestor',   0, 1),
+      (7, 'Legacy Pending', 'pend1', 'pend1@auth.invalid', '${h}', 'procurement', 0, 1);
     INSERT INTO purchase_requests (id, pr_number, title, status, created_by) VALUES (1, 'PR-AUTH-001', 'Auth fixture', 'submitted', 3);
   `
 }
@@ -82,8 +82,8 @@ async function run() {
   let r = await http('POST', '/auth/register', u1)
   check(G1, 'normal registration → 201', r.status === 201, show(r))
   const firstReply = r.data?.message
-  let [row] = await q('SELECT role, is_verified, is_active, is_approved, verify_token, TIMESTAMPDIFF(MINUTE, NOW(), verify_expires) AS mins FROM users WHERE username = ?', [u1.username])
-  check(G1, '…created as requestor, unverified, active', row && row.role === 'requestor' && row.is_verified === 0 && row.is_active === 1 && row.is_approved === 1, JSON.stringify(row))
+  let [row] = await q('SELECT role, is_verified, is_active, verify_token, TIMESTAMPDIFF(MINUTE, NOW(), verify_expires) AS mins FROM users WHERE username = ?', [u1.username])
+  check(G1, '…created as requestor, unverified, active', row && row.role === 'requestor' && row.is_verified === 0 && row.is_active === 1, JSON.stringify(row))
   check(G1, '…verification link lasts 24 h (was ~16 h: UTC/local mix)', row && row.mins >= 1435 && row.mins <= 1440, `mins=${row?.mins}`)
   check(G1, '…token stored hashed (64 hex), not the raw link token', row && /^[a-f0-9]{64}$/.test(row.verify_token) && !mailsTo(u1.email)[0]?.html.includes(row.verify_token), row?.verify_token)
   check(G1, '…one verification email sent', mailsTo(u1.email).length === 1, mailsTo(u1.email).length)
@@ -190,7 +190,7 @@ async function run() {
   r = await http('POST', '/auth/login', { identifier: 'gone1', password: FPW })
   check(G3, 'deactivated + right password → 403 inactive, no token', r.status === 403 && r.data.type === 'inactive' && !r.data.token, show(r))
   r = await http('POST', '/auth/login', { identifier: 'pend1', password: FPW })
-  check(G3, 'legacy unapproved account + right password → 403 pending', r.status === 403 && r.data.type === 'pending_approval', show(r))
+  check(G3, 'former pending account (deactivated by DB-5) + right password → 403 inactive', r.status === 403 && r.data.type === 'inactive', show(r))
 
   await http('POST', '/auth/login', { identifier: 'req1', password: FPW })   // clears the earlier failure
   for (let i = 0; i < 5; i++) await http('POST', '/auth/login', { identifier: 'req1', password: `wrong-${i}` })
@@ -302,9 +302,9 @@ async function run() {
   r = await http('PATCH', '/users/7/approve', undefined, admin)
   const r2 = await http('PATCH', '/users/7/decline', undefined, admin)
   check(G6, 'role-request approve/decline endpoints are gone → 404', r.status === 404 && r2.status === 404, `${r.status} ${r2.status}`)
-  await http('PATCH', '/users/7', { name: 'Legacy Pending', role: 'procurement' }, admin)
+  await http('PATCH', '/users/7/toggle', undefined, admin)
   r = await http('POST', '/auth/login', { identifier: 'pend1', password: FPW })
-  check(G6, 'saving a legacy unapproved user approves it', r.status === 200 && r.data.user.role === 'procurement', show(r))
+  check(G6, 'a reactivated former pending account signs in', r.status === 200 && r.data.user.role === 'procurement' && !('is_approved' in r.data.user), show(r))
 
   // ═══ Socket.IO ═══════════════════════════════════════════════════════════
   const G7 = 'Socket.IO'

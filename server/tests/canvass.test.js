@@ -17,11 +17,11 @@ const tok  = (id) => jwt.sign({ id, role: ROLE[id] }, config.jwt.secret, { expir
 
 function fixtures() {
   const hash = serverReq('bcryptjs').hashSync('Test@1234', 4)
-  const U = (id, name) => `(${id}, '${name}', '${name.toLowerCase().replace(/\W/g, '')}', 'u${id}@canvass.invalid', '${hash}', '${ROLE[id]}', 1, 1, 1)`
+  const U = (id, name) => `(${id}, '${name}', '${name.toLowerCase().replace(/\W/g, '')}', 'u${id}@canvass.invalid', '${hash}', '${ROLE[id]}', 1, 1)`
   const P = (id, status) => `(${id}, 'PR-C-${id}', 'Canvass ${id}', '${status}', 3, 'hardware')`
   return `
     SET FOREIGN_KEY_CHECKS = 0;
-    INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified, is_approved) VALUES
+    INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified) VALUES
       ${U(1, 'Admin One')}, ${U(2, 'Proc One')}, ${U(3, 'Req A')}, ${U(4, 'Sup One')}, ${U(5, 'Twg One')};
     INSERT INTO purchase_requests (id, pr_number, title, status, created_by, category) VALUES
       ${P(80, 'bidding')}, ${P(81, 'twg_review')}, ${P(82, 'bidding')}, ${P(83, 'bidding')};
