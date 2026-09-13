@@ -240,7 +240,7 @@ export default function OnboardingModal({ forceShow = false, onClose }) {
         >
           {/* Icon */}
           {slide.logo ? (
-            <div className="mb-6 flex size-24 items-center justify-center rounded-2xl bg-white border border-[--color-border] shadow-lg animate-scale-in-fast">
+            <div className="mb-6 flex size-24 items-center justify-center animate-scale-in-fast">
               <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-20 object-contain" />
             </div>
           ) : (

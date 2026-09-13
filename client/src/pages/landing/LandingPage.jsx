@@ -176,7 +176,7 @@ export default function LandingPage() {
         }>
         <div className="max-w-7xl mx-auto px-6 sm:px-8 h-16 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-3" style={{ animation: 'fade-in-right 0.45s ease-out both' }}>
-            <div className={`flex size-10 items-center justify-center rounded-xl transition-all duration-300 ${scrolled ? 'bg-white border border-[--color-border] shadow-sm' : 'bg-white/95 shadow-md'}`}>
+            <div className="flex size-10 items-center justify-center">
               <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-8 object-contain" />
             </div>
             <div>
@@ -436,7 +436,7 @@ export default function LandingPage() {
                 style={{ background: 'radial-gradient(circle, hsl(222,58%,40%) 0%, transparent 70%)', animation: 'float 10s ease-in-out infinite reverse' }} />
 
               <div className="relative px-8 py-20 text-center">
-                <div className="flex size-20 items-center justify-center rounded-2xl bg-white/95 shadow-2xl shadow-black/30 mx-auto mb-7">
+                <div className="flex size-20 items-center justify-center mx-auto mb-7">
                   <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-16 object-contain" />
                 </div>
                 <h2 className="font-bold text-white tracking-tight mb-5"
@@ -470,7 +470,7 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-6 sm:px-8 py-10">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-6">
             <div className="flex items-center gap-3">
-              <div className="flex size-9 items-center justify-center rounded-xl bg-white border border-[--color-border] shadow-sm">
+              <div className="flex size-9 items-center justify-center">
                 <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-7 object-contain" />
               </div>
               <div>

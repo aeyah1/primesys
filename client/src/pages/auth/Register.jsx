@@ -89,7 +89,7 @@ export default function Register() {
         <div className="pointer-events-none absolute top-1/3 right-0 w-px h-64 bg-gradient-to-b from-transparent via-white/10 to-transparent" />
 
         <div className="relative flex items-center gap-3" style={{ animation: 'fade-in-down 0.4s 0.1s ease-out both' }}>
-          <div className="flex size-11 items-center justify-center rounded-xl bg-white/95 shadow-md">
+          <div className="flex size-11 items-center justify-center">
             <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-9 object-contain" />
           </div>
           <div>
@@ -143,7 +143,7 @@ export default function Register() {
 
           {/* Mobile logo */}
           <div className="flex items-center gap-2.5 mb-8 lg:hidden">
-            <div className="flex size-9 items-center justify-center rounded-xl bg-white border border-[--color-border] shadow-sm">
+            <div className="flex size-9 items-center justify-center">
               <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-7 object-contain" />
             </div>
             <div>
