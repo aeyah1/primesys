@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Bell, Plus, CheckCircle2, Trash2, Clock, Link2, Pencil } from 'lucide-react'
 import { toast } from 'sonner'
@@ -19,8 +19,16 @@ const TABS = [
 ]
 
 function toDateObj(dateStr) {
-  // MySQL returns "2025-05-09 14:30:00" — replace space with T so browsers parse it correctly
+  // The API sends an ISO timestamp; older "YYYY-MM-DD HH:mm:ss" values parse too.
   return new Date(String(dateStr).replace(' ', 'T'))
+}
+
+// The date-and-time field works in this device's local time ("YYYY-MM-DDTHH:mm").
+function toLocalInput(value) {
+  const d = toDateObj(value)
+  if (isNaN(d)) return ''
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
 function isPast(dateStr) {
@@ -28,6 +36,7 @@ function isPast(dateStr) {
 }
 
 function ReminderForm({ initial, onSubmit, isPending, onCancel }) {
+  const { user } = useAuth()
   const [form, setForm] = useState(initial || {
     title: '', note: '', remind_at: '', assigned_to: '', pr_id: '', lot_id: '',
   })
@@ -50,6 +59,17 @@ function ReminderForm({ initial, onSubmit, isPending, onCancel }) {
   const filteredLots = form.pr_id
     ? lots.filter(l => String(l.purchase_request_id) === String(form.pr_id))
     : []
+
+  // The server lists only the people this user may remind. A requestor can also
+  // be reminded about a PR they filed, so that PR's requestor is offered once
+  // the PR is linked. Someone who may only remind themselves gets it preselected.
+  const linkedPR   = prList.find(p => String(p.id) === String(form.pr_id))
+  const recipients = linkedPR && !users.some(u => u.id === linkedPR.created_by)
+    ? [...users, { id: linkedPR.created_by, name: linkedPR.created_by_name, role: 'requestor' }]
+    : users
+  useEffect(() => {
+    if (!form.assigned_to && users.length === 1) setF('assigned_to', String(users[0].id))
+  }, [users])
 
   const handleSubmit = (e) => {
     e.preventDefault()
@@ -90,13 +110,18 @@ function ReminderForm({ initial, onSubmit, isPending, onCancel }) {
           <Select value={String(form.assigned_to)} onValueChange={v => setF('assigned_to', v)}>
             <SelectTrigger><SelectValue placeholder="Pick a user" /></SelectTrigger>
             <SelectContent>
-              {users.map(u => (
+              {recipients.map(u => (
                 <SelectItem key={u.id} value={String(u.id)}>
                   {u.name} <span className="text-[--color-text-muted] ml-1 text-xs capitalize">({u.role})</span>
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
+          {user?.role === 'requestor' && (
+            <p className="text-[10px] text-[--color-text-muted]">
+              Reminders you create are sent to you. To nudge Procurement about a PR, use Remind Procurement on the PR.
+            </p>
+          )}
         </div>
 
         <div className="space-y-1.5">
@@ -185,7 +210,7 @@ function ReminderCard({ r, tab }) {
         <div className="flex items-start gap-3">
           <div className="mt-0.5 shrink-0">
             {r.is_done
-              ? <CheckCircle2 className="size-5 text-emerald-500" />
+              ? <CheckCircle2 className="size-5 text-blue-500" />
               : overdue
                 ? <Clock className="size-5 text-red-500" />
                 : <Bell className="size-5 text-[--color-brand]" />
@@ -224,7 +249,7 @@ function ReminderCard({ r, tab }) {
               )}
 
               {r.is_sent && !r.is_done && (
-                <span className="text-[10px] text-emerald-600 font-medium">Email sent</span>
+                <span className="text-[10px] text-blue-600 font-medium">Email sent</span>
               )}
             </div>
           </div>
@@ -238,7 +263,7 @@ function ReminderCard({ r, tab }) {
             )}
             {!r.is_done && (
               <button onClick={() => markDone()} disabled={marking}
-                className="p-1.5 rounded-lg text-[--color-text-muted] hover:text-emerald-600 hover:bg-emerald-50 transition-colors">
+                className="p-1.5 rounded-lg text-[--color-text-muted] hover:text-blue-600 hover:bg-blue-50 transition-colors">
                 <CheckCircle2 className="size-3.5" />
               </button>
             )}
@@ -261,7 +286,7 @@ function ReminderCard({ r, tab }) {
           <ReminderForm
             initial={{
               title: r.title, note: r.note || '',
-              remind_at: String(r.remind_at || '').replace(' ', 'T').slice(0, 16),
+              remind_at: r.remind_at ? toLocalInput(r.remind_at) : '',
               assigned_to: String(r.assigned_to), pr_id: String(r.pr_id || ''), lot_id: String(r.lot_id || ''),
             }}
             onSubmit={update}
@@ -276,6 +301,7 @@ function ReminderCard({ r, tab }) {
 
 export default function RemindersPage() {
   const qc = useQueryClient()
+  const { user } = useAuth()
   const [tab, setTab] = useState('mine')
   const [showCreate, setShowCreate] = useState(false)
 
@@ -305,7 +331,9 @@ export default function RemindersPage() {
             <Bell className="size-5" /> Reminders
           </h2>
           <p className="text-ui-sm text-[--color-text-secondary] mt-0.5">
-            Schedule email reminders for yourself or any team member
+            {user?.role === 'requestor'
+              ? 'Schedule email reminders for yourself'
+              : 'Schedule email reminders for yourself or a colleague'}
           </p>
         </div>
         <Button onClick={() => setShowCreate(true)} className="gap-2">

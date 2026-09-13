@@ -62,7 +62,7 @@ export default function GlobalLoadingBar() {
         className="h-full ease-out"
         style={{
           width: `${progress}%`,
-          background: 'linear-gradient(90deg, hsl(145,62%,45%), hsl(160,72%,60%))',
+          background: 'linear-gradient(90deg, hsl(222,62%,45%), hsl(222,72%,60%))',
           boxShadow: '0 0 8px rgba(52,211,153,0.55)',
           transition: 'width 200ms ease-out',
         }}

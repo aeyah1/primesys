@@ -27,10 +27,17 @@ function validate() {
   if (process.env.JWT_SECRET.length < 32) {
     throw new Error('JWT_SECRET must be at least 32 characters long')
   }
+  if (config.captcha.enabled && !config.captcha.secretKey) {
+    throw new Error('CAPTCHA_ENABLED is true but CAPTCHA_SECRET_KEY is not set')
+  }
+}
+
+const int = (name, fallback) => {
+  const n = parseInt(optional(name, String(fallback)), 10)
+  return Number.isFinite(n) && n > 0 ? n : fallback
 }
 
 const config = {
-  env:         optional('NODE_ENV', 'development'),
   port:        parseInt(optional('PORT', '5000'), 10),
   clientUrl:   optional('CLIENT_URL', 'http://localhost:5173'),
 
@@ -45,7 +52,9 @@ const config = {
     user:     optional('DB_USER',     'root'),
     password: optional('DB_PASSWORD', ''),
     database: optional('DB_NAME',     'primesys_db'),
-    ssl:      optional('DB_SSL', 'false').toLowerCase() === 'true',
+    // Zone the database's clock runs in: 'local' (this computer's, right for
+    // XAMPP on the same machine) or an offset such as '+08:00'.
+    timezone: optional('DB_TIMEZONE', 'local'),
   },
 
   mail: {
@@ -53,7 +62,40 @@ const config = {
     pass: optional('MAIL_PASS', ''),
   },
 
-  isProduction: optional('NODE_ENV', 'development') === 'production',
+  // Authentication abuse limits. Windows are in minutes. Defaults suit a
+  // campus where many people may share one network address; raise the
+  // registration limit if a whole class signs up from one lab.
+  auth: {
+    registrationLimit:       int('REGISTRATION_RATE_LIMIT', 10),      // registrations per IP per window
+    registrationWindowMin:   int('REGISTRATION_RATE_WINDOW', 60),
+    loginIpLimit:            int('LOGIN_IP_RATE_LIMIT', 30),          // failed sign-ins per IP per window
+    loginIpWindowMin:        int('LOGIN_IP_RATE_WINDOW', 15),
+    loginMaxAttempts:        int('LOGIN_MAX_ATTEMPTS', 5),            // failures before an account is locked
+    loginLockoutMin:         int('LOGIN_LOCKOUT_MINUTES', 2),         // first lock; doubles on repeat
+    loginLockoutMaxMin:      int('LOGIN_LOCKOUT_MAX_MINUTES', 30),    // longest lock
+    emailLimit:              int('AUTH_EMAIL_RATE_LIMIT', 5),         // verification/reset requests per IP per hour
+    emailCooldownMin:        int('AUTH_EMAIL_COOLDOWN_MINUTES', 2),   // per address, between emails
+    // Public sign-up is for NEMSU faculty and staff: only these email domains
+    // may register (comma-separated, exact match). "*" allows any domain, e.g.
+    // while testing locally. Admin-created accounts are not restricted.
+    emailDomains: optional('ALLOWED_EMAIL_DOMAINS', 'nemsu.edu.ph').trim() === '*'
+      ? []
+      : optional('ALLOWED_EMAIL_DOMAINS', 'nemsu.edu.ph').split(',').map(d => d.trim().toLowerCase().replace(/^@/, '')).filter(Boolean),
+  },
+
+  // Optional bot challenge on registration (Cloudflare Turnstile). Off unless
+  // CAPTCHA_ENABLED=true; the matching site key goes in client/.env.
+  captcha: {
+    enabled:   optional('CAPTCHA_ENABLED', 'false') === 'true',
+    secretKey: optional('CAPTCHA_SECRET_KEY', ''),
+  },
+
+  // Reminders are emailed from the PRimeSys address, so each user may create
+  // only this many in 24 hours.
+  reminders: {
+    dailyLimit: int('REMINDER_DAILY_LIMIT', 20),
+  },
+
 }
 
 module.exports        = config

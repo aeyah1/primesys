@@ -1,11 +1,10 @@
 import { useState, useEffect, useRef, Fragment } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  ArrowLeft, FileText, Truck, ShoppingCart, Clock, Gavel,
-  Trophy, Paperclip, History, BellRing, CheckCircle2,
-  Package, Plus, Trash2, ClipboardList, RotateCcw, Eye, Info,
-  Building2, Phone, MapPin, ChevronRight, FileDown,
+  ArrowLeft, FileText, Gavel, Paperclip, History, BellRing, CheckCircle2,
+  Package, Plus, Trash2, ClipboardList, RotateCcw, Eye,
+  FileDown, XCircle, Pencil, Send, Undo2, Archive,
 } from 'lucide-react'
 
 import { toast } from 'sonner'
@@ -16,25 +15,19 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
-import { PRStatusBadge, DeliveryStatusBadge, LotStatusBadge, POStatusBadge } from '@/components/shared/StatusBadge'
+import { PRStatusBadge, DeliveryStatusBadge, CategoryBadge } from '@/components/shared/StatusBadge'
 import AttachmentsPanel from '@/components/shared/AttachmentsPanel'
-import { fmtDate, fmtCurrency, PR_STATUS_LABELS } from '@/lib/utils'
+import { fmtDate, fmtCurrency, PR_STATUS_LABELS, CATEGORY_FORM, buildItemNotes, groupItemsBySection } from '@/lib/utils'
+import { SectionNameInput, SectionHeaderRow } from '@/components/shared/ItemSections'
+import RequestProgress from '@/components/shared/RequestProgress'
+import CategorySpecFields from '@/components/shared/CategorySpecFields'
+import UnitInput from '@/components/shared/UnitInput'
+import RequestContextDisplay from '@/components/shared/RequestContextDisplay'
+import CanvassPanel from '@/components/awards/CanvassPanel'
+import PurchaseOrders from './PurchaseOrders'
 import { useAuth } from '@/context/AuthContext'
+import { openPdf, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
-
-const PR_STATUSES = ['draft', 'submitted', 'bidding', 'for_po', 'completed', 'cancelled']
-const UNITS = ['pax', 'pc', 'set', 'lot', 'pair', 'ream', 'box', 'unit', 'kg', 'L', 'roll', 'pack', 'bottle', 'can', 'sheet', 'bag', 'sack', 'bundle']
-
-function groupBySection(items) {
-  const groups = []
-  for (const item of items) {
-    const label = item.group_label || ''
-    const last = groups[groups.length - 1]
-    if (last && last.label === label) last.items.push(item)
-    else groups.push({ label, items: [item] })
-  }
-  return groups
-}
 
 const ITH = ({ children, className = '' }) => (
   <th className={`px-4 py-3 text-xs font-bold text-[--color-text-secondary] uppercase tracking-wider bg-[--color-canvas] border-b border-[--color-border] ${className}`}>
@@ -47,93 +40,18 @@ const ITD = ({ children, className = '' }) => (
   </td>
 )
 
-function LotsSection({ prId, canManage }) {
-  const { data: lots = [], isLoading } = useQuery({
-    queryKey: ['lots', prId],
-    queryFn: () => api.get(`/lots/pr/${prId}`).then(r => r.data),
-  })
+const EMPTY_ITEM = { group_label: '', item_name: '', quantity: '1', unit: 'pax', estimated_cost: '', specs: {} }
 
-  return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between pb-3">
-        <div className="flex items-center gap-2">
-          <Gavel className="size-4 text-[--color-text-muted]" />
-          <CardTitle>Lots & Awards</CardTitle>
-          {lots.length > 0 && (
-            <span className="text-xs text-[--color-text-muted] font-normal">
-              ({lots.filter(l => l.status === 'awarded').length}/{lots.length} awarded)
-            </span>
-          )}
-        </div>
-        {canManage && (
-          <Link
-            to="/bidding"
-            className="flex items-center gap-1.5 text-xs font-medium text-[--color-brand] hover:underline"
-          >
-            <Gavel className="size-3.5" /> Manage in Lots & Awards →
-          </Link>
-        )}
-      </CardHeader>
-
-      <CardContent className="p-0">
-        {isLoading
-          ? <div className="p-6 space-y-2">{Array(2).fill(0).map((_, i) => <Skeleton key={i} className="h-12" />)}</div>
-          : !lots.length
-            ? (
-              <div className="px-6 py-10 text-center">
-                <Gavel className="size-8 text-[--color-text-muted] mx-auto mb-2" />
-                <p className="text-ui-xs text-[--color-text-muted]">
-                  {canManage ? 'No lots yet. Create lots from the Lots & Awards page.' : 'No lots have been created yet.'}
-                </p>
-                {canManage && (
-                  <Link to="/bidding" className="mt-2 inline-block text-xs font-medium text-[--color-brand] hover:underline">
-                    Go to Lots & Awards →
-                  </Link>
-                )}
-              </div>
-            )
-            : lots.map(lot => (
-              <div key={lot.id} className="px-6 py-3.5 border-b border-[--color-border] last:border-0">
-                <div className="flex items-start gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-mono text-xs font-bold text-[--color-brand]">{lot.lot_number}</span>
-                      {lot.title && <span className="text-ui-sm font-semibold text-[--color-text-primary]">{lot.title}</span>}
-                      <LotStatusBadge status={lot.status} />
-                    </div>
-                    {lot.awarded_to && (
-                      <div className="flex items-center gap-1 mt-0.5 text-ui-xs text-emerald-700 font-medium">
-                        <Trophy className="size-3" /> {lot.awarded_to}
-                        {lot.awarded_amount ? ` — ${fmtCurrency(lot.awarded_amount)}` : ''}
-                      </div>
-                    )}
-                    {lot.items?.length > 0 && (
-                      <div className="mt-2 space-y-1">
-                        {lot.items.map(item => (
-                          <div key={item.id} className="flex items-center gap-2 text-[10px] text-[--color-text-muted] pl-2 border-l-2 border-[--color-border]">
-                            <span className="flex-1 truncate">{item.item_name}</span>
-                            <span className="shrink-0">{item.quantity} {item.unit}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))
-        }
-      </CardContent>
-    </Card>
-  )
-}
-
-const EMPTY_ITEM = { group_label: '', item_name: '', quantity: '1', unit: 'pax', estimated_cost: '' }
-
-function PRItemsSection({ prId, canEdit }) {
+function PRItemsSection({ prId, canEdit, category, plain = false }) {
   const [itemToDelete, setItemToDelete] = useState(null)
+  const [editingItem, setEditingItem]   = useState(null)
+  const [editDraft, setEditDraft]       = useState(null)
   const qc = useQueryClient()
-  const [draft, setDraft] = useState(EMPTY_ITEM)
-  const setD = (k, v) => setDraft(p => ({ ...p, [k]: v }))
+  const categoryForm = CATEGORY_FORM[category] || CATEGORY_FORM.office_supplies
+  const [draft, setDraft] = useState({ ...EMPTY_ITEM, unit: categoryForm.defaultUnit })
+  const itemRef = useRef(null)
+  const setD  = (k, v) => setDraft(p => ({ ...p, [k]: v }))
+  const setED = (k, v) => setEditDraft(p => ({ ...p, [k]: v }))
 
   const { data: items = [], isLoading } = useQuery({
     queryKey: ['pr-items', prId],
@@ -144,7 +62,7 @@ function PRItemsSection({ prId, canEdit }) {
     mutationFn: (body) => api.post(`/pr/${prId}/items`, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['pr-items', prId] })
-      setDraft(p => ({ ...p, item_name: '', quantity: '1', estimated_cost: '' }))
+      setDraft(p => ({ ...EMPTY_ITEM, unit: p.unit, group_label: p.group_label }))   // the section stays for the next item
       toast.success('Item added')
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to add item'),
@@ -159,23 +77,69 @@ function PRItemsSection({ prId, canEdit }) {
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to remove item'),
   })
 
+  const { mutate: updateItemReq, isPending: savingEdit } = useMutation({
+    mutationFn: ({ itemId, body }) => api.patch(`/pr/${prId}/items/${itemId}`, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pr-items', prId] })
+      setEditingItem(null)
+      setEditDraft(null)
+      toast.success('Item updated')
+    },
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed to update item'),
+  })
+
+  const openEdit = (item) => {
+    setEditingItem(item)
+    setEditDraft({
+      group_label:    item.group_label    || '',
+      item_name:      item.item_name      || '',
+      quantity:       String(item.quantity ?? '1'),
+      unit:           item.unit           || categoryForm.defaultUnit,
+      estimated_cost: item.estimated_cost != null ? String(item.estimated_cost) : '',
+      notes:          item.notes          || '',
+    })
+  }
+
+  const handleSaveEdit = () => {
+    if (!editDraft.item_name.trim()) return toast.error('Item description is required')
+    updateItemReq({
+      itemId: editingItem.id,
+      body: {
+        group_label:    editDraft.group_label?.trim() || null,
+        item_name:      editDraft.item_name.trim(),
+        quantity:       editDraft.quantity,
+        unit:           editDraft.unit?.trim() || null,
+        estimated_cost: editDraft.estimated_cost,
+        notes:          editDraft.notes?.trim() || null,
+      },
+    })
+  }
+
   const handleAdd = () => {
     if (!draft.item_name.trim()) return toast.error('Item description is required')
+    const notes = buildItemNotes(category, draft.specs)
     addItem({
       group_label:    draft.group_label    || undefined,
       item_name:      draft.item_name.trim(),
       quantity:       parseFloat(draft.quantity)       || 1,
       unit:           draft.unit           || undefined,
       estimated_cost: draft.estimated_cost ? parseFloat(draft.estimated_cost) : undefined,
+      notes:          notes || undefined,
     })
   }
 
-  const processed = items.map((item, i) => ({
+  // "Add item" on a section heading: point the add form at that section.
+  const addToSection = (label) => {
+    setD('group_label', label)
+    itemRef.current?.focus()
+  }
+
+  const processed = items.map((item) => ({
     ...item,
-    rowNum:    i + 1,
     totalCost: (parseFloat(item.estimated_cost) || 0) * (parseFloat(item.quantity) || 1),
   }))
-  const grouped    = groupBySection(processed)
+  const grouped    = groupItemsBySection(processed)
+  const sectionNames = grouped.map(g => g.label).filter(Boolean)
   const grandTotal = processed.reduce((s, it) => s + it.totalCost, 0)
   const draftTotal = draft.estimated_cost && draft.quantity
     ? parseFloat(draft.estimated_cost) * (parseFloat(draft.quantity) || 1)
@@ -193,7 +157,7 @@ function PRItemsSection({ prId, canEdit }) {
           )}
         </div>
         {grandTotal > 0 && (
-          <span className="text-sm font-bold text-emerald-700">Grand Total: {fmtCurrency(grandTotal)}</span>
+          <span className="text-sm font-bold text-blue-700">Grand Total: {fmtCurrency(grandTotal)}</span>
         )}
       </CardHeader>
 
@@ -206,11 +170,11 @@ function PRItemsSection({ prId, canEdit }) {
               <table className="w-full border-separate border-spacing-0">
                 <thead>
                   <tr>
-                    <ITH className="text-center w-14">Stock / Property No.</ITH>
+                    <ITH className="text-center w-14">{plain ? 'No.' : 'Stock / Property No.'}</ITH>
                     <ITH className="text-center w-20">Unit</ITH>
-                    <ITH className="text-left">Item Description</ITH>
+                    <ITH className="text-left">{categoryForm.itemLabel}</ITH>
                     <ITH className="text-center w-16">Qty</ITH>
-                    <ITH className="text-right w-32">Unit Cost</ITH>
+                    <ITH className="text-right w-32">Estimated Cost</ITH>
                     <ITH className="text-right w-32">Total Cost</ITH>
                     {canEdit && <th className="w-10 bg-[--color-canvas] border-b border-[--color-border]" />}
                   </tr>
@@ -228,17 +192,20 @@ function PRItemsSection({ prId, canEdit }) {
                       return (
                         <Fragment key={gi}>
                           {group.label && (
-                            <tr className="bg-emerald-50 border-y border-emerald-200">
-                              <td colSpan={cols} className="px-6 py-3 text-center text-sm font-bold text-emerald-800 tracking-wide uppercase">
-                                {group.label}
-                              </td>
-                            </tr>
+                            <SectionHeaderRow label={group.label} colSpan={cols} onAddItem={canEdit ? () => addToSection(group.label) : undefined} />
                           )}
                           {group.items.map((item) => (
                             <tr key={item.id} className="border-b border-[--color-border] hover:bg-[--color-canvas]">
                               <ITD className="text-center text-[--color-text-muted] font-medium">{item.rowNum}</ITD>
                               <ITD className="text-center font-semibold text-[--color-text-primary]">{item.unit || '—'}</ITD>
-                              <ITD className="text-left font-medium text-[--color-text-primary] leading-relaxed">{item.item_name}</ITD>
+                              <ITD className="text-left font-medium text-[--color-text-primary] leading-relaxed">
+                                {item.item_name}
+                                {item.notes && (
+                                  <div className="mt-2 text-sm text-[--color-text-secondary] whitespace-pre-wrap leading-relaxed">
+                                    {item.notes}
+                                  </div>
+                                )}
+                              </ITD>
                               <ITD className="text-center tabular-nums font-medium">{item.quantity}</ITD>
                               <ITD className="text-right tabular-nums text-[--color-text-secondary]">
                                 {item.estimated_cost ? fmtCurrency(parseFloat(item.estimated_cost)) : '—'}
@@ -247,10 +214,18 @@ function PRItemsSection({ prId, canEdit }) {
                                 {item.totalCost > 0 ? fmtCurrency(item.totalCost) : '—'}
                               </td>
                               {canEdit && (
-                                <td className="px-3 text-center">
+                                <td className="px-3 text-center whitespace-nowrap">
+                                  <button
+                                    onClick={() => openEdit(item)}
+                                    title="Edit item"
+                                    className="p-1.5 rounded text-[--color-text-muted] hover:text-[--color-brand] hover:bg-[--color-overlay] transition-colors"
+                                  >
+                                    <Pencil className="size-4" />
+                                  </button>
                                   <button
                                     onClick={() => setItemToDelete(item)}
-                                    className="p-1.5 rounded text-[--color-text-muted] hover:text-red-600 hover:bg-red-50 transition-colors"
+                                    title="Remove item"
+                                    className="p-1.5 ml-1 rounded text-[--color-text-muted] hover:text-red-600 hover:bg-red-50 transition-colors"
                                   >
                                     <Trash2 className="size-4" />
                                   </button>
@@ -274,11 +249,11 @@ function PRItemsSection({ prId, canEdit }) {
                     })
                   )}
                   {grandTotal > 0 && (
-                    <tr className="bg-emerald-50">
-                      <td colSpan={5} className="px-6 py-3.5 text-right text-sm font-bold text-emerald-800">
+                    <tr className="bg-blue-50">
+                      <td colSpan={5} className="px-6 py-3.5 text-right text-sm font-bold text-blue-800">
                         Grand Total
                       </td>
-                      <td className="px-4 py-3.5 text-right text-base font-bold tabular-nums text-emerald-700">
+                      <td className="px-4 py-3.5 text-right text-base font-bold tabular-nums text-blue-700">
                         {fmtCurrency(grandTotal)}
                       </td>
                       {canEdit && <td />}
@@ -293,20 +268,23 @@ function PRItemsSection({ prId, canEdit }) {
                 <p className="text-xs font-semibold text-[--color-text-muted] uppercase tracking-wide">Add Item</p>
                 <div className="space-y-1.5">
                   <Label className="text-xs">
-                    Section / Project Name
+                    {categoryForm.sectionLabel}
                     <span className="ml-1 font-normal text-[--color-text-muted]">(optional)</span>
                   </Label>
-                  <Input
-                    placeholder="e.g. PROJECT 1: COMMUNITY-BASED TOURISM"
+                  <SectionNameInput
+                    id="pr-detail-section"
+                    placeholder={categoryForm.sectionPlaceholder}
                     value={draft.group_label}
-                    onChange={e => setD('group_label', e.target.value)}
+                    onChange={v => setD('group_label', v)}
+                    sections={sectionNames}
                   />
                 </div>
                 <div className="grid grid-cols-12 gap-2 items-end">
                   <div className="col-span-5 space-y-1">
-                    <Label className="text-xs">Item Description <span className="text-[--color-brand]">*</span></Label>
+                    <Label className="text-xs">{categoryForm.itemLabel} <span className="text-[--color-brand]">*</span></Label>
                     <Input
-                      placeholder="e.g. Snacks Day 1 - AM: (Ham and cheese & softdrinks)"
+                      ref={itemRef}
+                      placeholder={categoryForm.itemPlaceholder}
                       value={draft.item_name}
                       onChange={e => setD('item_name', e.target.value)}
                       onKeyDown={e => e.key === 'Enter' && handleAdd()}
@@ -314,12 +292,13 @@ function PRItemsSection({ prId, canEdit }) {
                   </div>
                   <div className="col-span-2 space-y-1">
                     <Label className="text-xs">Unit</Label>
-                    <Select value={draft.unit} onValueChange={v => setD('unit', v)}>
-                      <SelectTrigger className="text-sm"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {UNITS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+                    <UnitInput
+                      value={draft.unit}
+                      onChange={v => setD('unit', v)}
+                      options={categoryForm.units}
+                      placeholder={categoryForm.defaultUnit}
+                      className="text-sm"
+                    />
                   </div>
                   <div className="col-span-1 space-y-1">
                     <Label className="text-xs">Qty</Label>
@@ -331,14 +310,14 @@ function PRItemsSection({ prId, canEdit }) {
                     />
                   </div>
                   <div className="col-span-2 space-y-1">
-                    <Label className="text-xs">Unit Cost (₱)</Label>
+                    <Label className="text-xs">Price each (₱, estimate)</Label>
                     <Input
                       type="number" min="0" step="any" placeholder="0.00"
                       value={draft.estimated_cost}
                       onChange={e => setD('estimated_cost', e.target.value)}
                     />
                   </div>
-                  <div className="col-span-1 text-right text-sm font-bold tabular-nums text-emerald-700 self-end pb-2">
+                  <div className="col-span-1 text-right text-sm font-bold tabular-nums text-blue-700 self-end pb-2">
                     {draftTotal > 0 ? fmtCurrency(draftTotal) : ''}
                   </div>
                   <div className="col-span-1 self-end">
@@ -351,6 +330,13 @@ function PRItemsSection({ prId, canEdit }) {
                     </Button>
                   </div>
                 </div>
+
+                {/* Per-category structured spec fields */}
+                <CategorySpecFields
+                  category={category}
+                  specs={draft.specs}
+                  onChange={(next) => setD('specs', next)}
+                />
               </div>
             )}
           </>
@@ -373,211 +359,94 @@ function PRItemsSection({ prId, canEdit }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Edit Item dialog — pre-populated with the current row's values.
+          Specifications field is a single textarea here (the saved `notes`
+          string is opaque text), letting the requester surgically edit it
+          during revision without losing the existing structure. */}
+      <Dialog open={!!editingItem} onOpenChange={o => { if (!o) { setEditingItem(null); setEditDraft(null) } }}>
+        <DialogContent title="Edit Item" className="max-w-xl">
+          {editDraft && (
+            <div className="space-y-3 pt-2">
+              <div className="space-y-1">
+                <Label className="text-xs">
+                  {categoryForm.sectionLabel}
+                  <span className="ml-1 font-normal text-[--color-text-muted]">(optional)</span>
+                </Label>
+                <Input
+                  list="pr-detail-section-options"
+                  autoComplete="off"
+                  placeholder={categoryForm.sectionPlaceholder}
+                  value={editDraft.group_label}
+                  onChange={e => setED('group_label', e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs">{categoryForm.itemLabel} <span className="text-[--color-brand]">*</span></Label>
+                <Input
+                  placeholder={categoryForm.itemPlaceholder}
+                  value={editDraft.item_name}
+                  onChange={e => setED('item_name', e.target.value)}
+                  autoFocus
+                />
+              </div>
+
+              <div className="grid grid-cols-12 gap-2 items-end">
+                <div className="col-span-3 space-y-1">
+                  <Label className="text-xs">Unit</Label>
+                  <UnitInput
+                    value={editDraft.unit}
+                    onChange={v => setED('unit', v)}
+                    options={categoryForm.units}
+                    placeholder={categoryForm.defaultUnit}
+                    className="text-sm"
+                  />
+                </div>
+                <div className="col-span-3 space-y-1">
+                  <Label className="text-xs">Qty</Label>
+                  <Input
+                    type="number" min="0.01" step="any" placeholder="1"
+                    value={editDraft.quantity}
+                    onChange={e => setED('quantity', e.target.value)}
+                    className="text-center"
+                  />
+                </div>
+                <div className="col-span-6 space-y-1">
+                  <Label className="text-xs">Price each (₱, estimate)</Label>
+                  <Input
+                    type="number" min="0" step="any" placeholder="0.00"
+                    value={editDraft.estimated_cost}
+                    onChange={e => setED('estimated_cost', e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs">
+                  Specifications
+                  <span className="ml-1 font-normal text-[--color-text-muted]">(brand, model, technical specs, etc.)</span>
+                </Label>
+                <textarea
+                  rows={5}
+                  value={editDraft.notes}
+                  onChange={e => setED('notes', e.target.value)}
+                  className="w-full rounded-md border border-[--color-border] bg-[--color-surface] px-3 py-2 text-sm text-[--color-text-primary] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent resize-y min-h-[100px]"
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setEditingItem(null); setEditDraft(null) }} disabled={savingEdit}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveEdit} disabled={savingEdit}>
+              {savingEdit ? 'Saving…' : 'Save Changes'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
-  )
-}
-
-function IssuePOForm({ prId, onSuccess }) {
-  const qc = useQueryClient()
-  const navigate = useNavigate()
-
-  const [form, setForm] = useState({
-    issued_date: new Date().toISOString().slice(0, 10),
-    expected_delivery_date: '',
-    notes: '',
-  })
-  const setF = (k, v) => setForm(p => ({ ...p, [k]: v }))
-
-  const { data: lots = [], isLoading: lotsLoading } = useQuery({
-    queryKey: ['lots', prId],
-    queryFn: () => api.get(`/lots/pr/${prId}`).then(r => r.data),
-  })
-
-  const awarded = lots.filter(l => l.status === 'awarded')
-  const totalAmount = awarded.reduce((sum, l) => sum + parseFloat(l.awarded_amount || 0), 0)
-  const supplierNames = [...new Set(awarded.map(l => l.awarded_to).filter(Boolean))]
-  const primarySupplier = supplierNames.length === 1
-    ? awarded.find(l => l.awarded_to === supplierNames[0])
-    : null
-
-  const { mutate, isPending } = useMutation({
-    mutationFn: (body) => api.post('/po', body),
-    onSuccess: ({ data }) => {
-      toast.success(`PO ${data.po_number} issued successfully`)
-      qc.invalidateQueries({ queryKey: ['pr', prId] })
-      qc.invalidateQueries({ queryKey: ['pr-list'] })
-      qc.invalidateQueries({ queryKey: ['pr-stats'] })
-      onSuccess?.()
-    },
-    onError: (err) => toast.error(err.response?.data?.message || 'Failed to issue PO'),
-  })
-
-  const handleSubmit = (e) => {
-    e.preventDefault()
-    if (!primarySupplier && !supplierNames.length) return
-    mutate({
-      purchase_request_id:  prId,
-      supplier_name:        primarySupplier?.awarded_to    || supplierNames[0],
-      supplier_contact:     primarySupplier?.supplier_contact || undefined,
-      supplier_address:     primarySupplier?.supplier_address || undefined,
-      total_amount:         totalAmount,
-      issued_date:          form.issued_date,
-      expected_delivery_date: form.expected_delivery_date || undefined,
-      notes:                form.notes || undefined,
-    })
-  }
-
-  if (lotsLoading) return null
-
-  // No awarded lots yet — direct procurement to the Lots tab
-  if (!awarded.length) {
-    return (
-      <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-5 space-y-3">
-        <div className="flex items-start gap-3">
-          <Gavel className="size-5 text-amber-600 shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-semibold text-amber-900">No supplier awarded yet</p>
-            <p className="text-sm text-amber-700 mt-0.5">
-              Go to Lots &amp; Awards and award a supplier to this PR first.
-              Once a lot is awarded, the PO details will be filled in automatically.
-            </p>
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={() => navigate('/bidding')}
-          className="flex items-center gap-1.5 text-sm font-semibold text-amber-800 hover:text-amber-900 transition-colors"
-        >
-          Go to Lots &amp; Awards <ChevronRight className="size-4" />
-        </button>
-      </div>
-    )
-  }
-
-  // Awarded — show read-only supplier card + minimal date inputs
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-
-      {/* Read-only supplier info pulled from the awarded lot */}
-      <div className="rounded-xl border border-[--color-border] bg-[--color-canvas] divide-y divide-[--color-border]">
-        <div className="px-4 py-3 flex items-center gap-2">
-          <Trophy className="size-4 text-emerald-600 shrink-0" />
-          <p className="text-xs font-bold text-[--color-text-secondary] uppercase tracking-wide">
-            Awarded Supplier — auto-filled from lot
-          </p>
-        </div>
-        <div className="px-4 py-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="sm:col-span-2 flex items-start gap-3">
-            <Building2 className="size-4 text-[--color-text-muted] shrink-0 mt-0.5" />
-            <div>
-              <p className="text-[11px] font-semibold text-[--color-text-muted] uppercase tracking-wide">Supplier Name</p>
-              <p className="text-sm font-bold text-[--color-text-primary] mt-0.5">
-                {primarySupplier?.awarded_to || supplierNames.join(', ')}
-              </p>
-            </div>
-          </div>
-          {primarySupplier?.supplier_contact && (
-            <div className="flex items-start gap-3">
-              <Phone className="size-4 text-[--color-text-muted] shrink-0 mt-0.5" />
-              <div>
-                <p className="text-[11px] font-semibold text-[--color-text-muted] uppercase tracking-wide">Contact</p>
-                <p className="text-sm text-[--color-text-primary] mt-0.5">{primarySupplier.supplier_contact}</p>
-              </div>
-            </div>
-          )}
-          {primarySupplier?.supplier_address && (
-            <div className="flex items-start gap-3">
-              <MapPin className="size-4 text-[--color-text-muted] shrink-0 mt-0.5" />
-              <div>
-                <p className="text-[11px] font-semibold text-[--color-text-muted] uppercase tracking-wide">Address</p>
-                <p className="text-sm text-[--color-text-primary] mt-0.5">{primarySupplier.supplier_address}</p>
-              </div>
-            </div>
-          )}
-          <div className="sm:col-span-2 flex items-center gap-2 rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2">
-            <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">Total Amount:</p>
-            <p className="text-sm font-bold text-emerald-800 tabular-nums">{fmtCurrency(totalAmount)}</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Only ask for what lots don't provide */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="space-y-1.5">
-          <Label>Issued Date *</Label>
-          <Input type="date" value={form.issued_date} onChange={e => setF('issued_date', e.target.value)} required />
-        </div>
-        <div className="space-y-1.5">
-          <Label>Expected Delivery Date</Label>
-          <Input type="date" value={form.expected_delivery_date} onChange={e => setF('expected_delivery_date', e.target.value)} />
-        </div>
-        <div className="space-y-1.5 sm:col-span-2">
-          <Label>Notes <span className="text-[--color-text-muted] font-normal text-xs">(optional)</span></Label>
-          <Input placeholder="Any additional notes for this PO" value={form.notes} onChange={e => setF('notes', e.target.value)} />
-        </div>
-      </div>
-
-      <div className="flex justify-end">
-        <Button type="submit" disabled={isPending} className="gap-2">
-          <ShoppingCart className="size-4" />
-          {isPending ? 'Issuing…' : 'Issue Purchase Order'}
-        </Button>
-      </div>
-    </form>
-  )
-}
-
-function UpdateDeliveryForm({ po, onSuccess }) {
-  const qc = useQueryClient()
-  const [form, setForm] = useState({
-    delivery_status: po.delivery_status,
-    delivery_date:   po.delivery_date || '',
-    delivery_notes:  po.delivery_notes || '',
-  })
-  const setF = (k, v) => setForm(p => ({ ...p, [k]: v }))
-
-  const { mutate, isPending } = useMutation({
-    mutationFn: (body) => api.patch(`/po/${po.id}/delivery`, body),
-    onSuccess: () => {
-      toast.success('Delivery status updated')
-      qc.invalidateQueries({ queryKey: ['pr', po.purchase_request_id] })
-      qc.invalidateQueries({ queryKey: ['pr-list'] })
-      qc.invalidateQueries({ queryKey: ['pr-stats'] })
-      onSuccess?.()
-    },
-    onError: (err) => toast.error(err.response?.data?.message || 'Failed to update delivery'),
-  })
-
-  return (
-    <div className="space-y-4 pt-2">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="space-y-1.5">
-          <Label>Delivery Status *</Label>
-          <Select value={form.delivery_status} onValueChange={v => setF('delivery_status', v)}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="pending">Pending Delivery</SelectItem>
-              <SelectItem value="partial">Partial Delivery</SelectItem>
-              <SelectItem value="delivered">Delivered</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1.5">
-          <Label>Delivery Date</Label>
-          <Input type="date" value={form.delivery_date} onChange={e => setF('delivery_date', e.target.value)} />
-        </div>
-        <div className="space-y-1.5">
-          <Label>Delivery Notes</Label>
-          <Input placeholder="Optional notes" value={form.delivery_notes} onChange={e => setF('delivery_notes', e.target.value)} />
-        </div>
-      </div>
-      <div className="flex justify-end">
-        <Button onClick={() => mutate(form)} disabled={isPending} className="gap-2">
-          <Truck className="size-4" />
-          {isPending ? 'Saving…' : 'Update Delivery'}
-        </Button>
-      </div>
-    </div>
   )
 }
 
@@ -605,7 +474,23 @@ export default function PRDetail() {
   })
 
   const canManage   = ['admin', 'procurement'].includes(user?.role)
-  const isExtension = user?.role === 'extension'
+  const isRequestor = user?.role === 'requestor'
+  const isSupply    = user?.role === 'supply'
+  // The canvass and awards: from canvass on (supply sees them once awarded).
+  const showCanvass = (canManage || isSupply) && !!pr && ['bidding', 'for_po', 'completed', 'cancelled'].includes(pr.status)
+  // One delivery status over every PO: delivered once all are, partial once any delivery is in.
+  const pos = pr?.pos || []
+  const deliveryStatus = !pos.length ? null
+    : pos.every(p => p.delivery_status === 'delivered') ? 'delivered'
+    : pos.some(p => p.delivery_status !== 'pending') ? 'partial' : 'pending'
+
+  // "Issue PO" links elsewhere open this page at the purchase orders.
+  const location = useLocation()
+  useEffect(() => {
+    if (pr && location.hash === '#purchase-order') {
+      document.getElementById('purchase-order')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }, [pr?.id, location.hash])
 
   const [showDeletePR, setShowDeletePR] = useState(false)
   const { mutate: deletePR, isPending: deletingPR } = useMutation({
@@ -615,12 +500,8 @@ export default function PRDetail() {
   })
 
   const openPDF = async (endpoint, label) => {
-    try {
-      const res = await api.get(endpoint, { responseType: 'blob' })
-      const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }))
-      window.open(url, '_blank')
-      setTimeout(() => URL.revokeObjectURL(url), 10000)
-    } catch { toast.error(`Failed to open ${label}`) }
+    try { await openPdf(endpoint) }
+    catch (err) { toast.error(await blobErrorMessage(err, `Failed to open ${label}`)) }
   }
 
   const downloadPRForm   = () => openPDF(`/pr/${id}/pdf`,       'PR Form')
@@ -654,15 +535,9 @@ export default function PRDetail() {
     if (canManage && user && pr?.id) markReadOnServer()
   }, [pr?.id])
 
-  const { mutate: approvePO, isPending: approving } = useMutation({
-    mutationFn: () => api.patch(`/po/${pr?.po?.id}/approve`),
-    onSuccess: () => {
-      toast.success('PO approved')
-      qc.invalidateQueries({ queryKey: ['pr', id] })
-      qc.invalidateQueries({ queryKey: ['po-list'] })
-    },
-    onError: (err) => toast.error(err.response?.data?.message || 'Failed to approve PO'),
-  })
+  // Return for revision (Procurement): a reason is required and shown to the requestor.
+  const [returnOpen, setReturnOpen]     = useState(false)
+  const [returnReason, setReturnReason] = useState('')
 
   // Cooldown matches the server-side limiter (1 reminder per PR per hour) and
   // persists in localStorage so refreshing the page doesn't reset the button.
@@ -712,17 +587,97 @@ export default function PRDetail() {
   return (
     <div className="space-y-5">
 
-      {/* New submission banner — only shown if procurement had not yet viewed this PR */}
-      {isNewForProcurement && pr.status === 'submitted' && (
-        <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+      {/* Archived: a deleted PR stays viewable, read-only */}
+      {pr.deleted_at && (
+        <div className="flex items-center gap-3 rounded-xl border border-slate-300 bg-slate-50 px-4 py-3">
+          <Archive className="size-4 text-slate-600 shrink-0" />
+          <p className="text-sm text-slate-700">
+            Deleted {fmtDate(pr.deleted_at)}{pr.deleted_by_name ? ` by ${pr.deleted_by_name}` : ''}. It is kept in the Archive and can no longer be changed.
+          </p>
+        </div>
+      )}
+
+      {/* New TWG approval: Procurement's new work, shown until they first open it */}
+      {isNewForProcurement && pr.status === 'twg_review' && (
+        <div className="flex items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
           <span className="size-2.5 rounded-full bg-amber-500 shrink-0" />
           <div className="flex-1">
-            <p className="text-sm font-semibold text-amber-800">New submission — not yet reviewed</p>
+            <p className="text-sm font-semibold text-amber-800">New TWG approval: ready to canvass</p>
             <p className="text-xs text-amber-700 mt-0.5">
-              Submitted by <strong>{pr.created_by_name}</strong> on {fmtDate(pr.created_at)}
+              Approved{pr.twg_reviewer_name ? <> by <strong>{pr.twg_reviewer_name}</strong></> : ''} on {fmtDate(pr.twg_reviewed_at)}
             </p>
           </div>
           <Eye className="size-4 text-amber-500 shrink-0" />
+        </div>
+      )}
+
+      {/* Revision-requested notice: who sent it back (the TWG, or Procurement
+          returning an approved PR) and why. Owner (or admin) also gets a
+          Resubmit button so they can send it back once they're done editing. */}
+      {pr.status === 'revision_requested' && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-5 py-4">
+          <div className="flex items-start gap-3">
+            <RotateCcw className="size-4 text-amber-700 mt-0.5 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-amber-900">
+                {pr.revision && pr.revision.from_status !== 'submitted'
+                  ? `Returned for revision by ${pr.revision.by_name} (Procurement)`
+                  : 'TWG requested revisions'}
+              </p>
+              {(pr.revision?.note || pr.twg_comment) ? (
+                <p className="text-ui-sm text-amber-900/90 mt-1.5 whitespace-pre-wrap">{pr.revision?.note || pr.twg_comment}</p>
+              ) : (
+                <p className="text-ui-xs text-amber-800/80 mt-1">No comment was provided.</p>
+              )}
+              <p className="text-[10px] text-amber-700/80 mt-2">
+                Edit the items or specifications above, then re-submit to send it back to TWG.
+              </p>
+              {pr.permissions?.next_statuses?.includes('submitted') && (
+                <Button
+                  size="sm"
+                  className="mt-3 gap-1.5 bg-amber-600 hover:bg-amber-700 text-white border-0"
+                  onClick={() => updateStatus({ status: 'submitted' })}
+                  disabled={isPending}
+                >
+                  <Send className="size-4" />
+                  {isPending ? 'Resubmitting…' : 'Resubmit to TWG'}
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TWG rejection notice — terminal state, shows TWG's reason */}
+      {pr.status === 'rejected' && (
+        <div className="rounded-xl border border-red-300 bg-red-50 px-5 py-4">
+          <div className="flex items-start gap-3">
+            <XCircle className="size-4 text-red-700 mt-0.5 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-red-900">Rejected by TWG</p>
+              {pr.twg_comment ? (
+                <p className="text-ui-sm text-red-900/90 mt-1.5 whitespace-pre-wrap">{pr.twg_comment}</p>
+              ) : (
+                <p className="text-ui-xs text-red-800/80 mt-1">No reason was provided.</p>
+              )}
+              <p className="text-[10px] text-red-700/80 mt-2">
+                This PR will not move forward to Procurement. Create a new PR if you want to try again.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TWG approval breadcrumb — visible to all once approved, so procurement sees TWG's note */}
+      {pr.status === 'twg_review' && pr.twg_comment && (
+        <div className="rounded-xl border border-cyan-300 bg-cyan-50 px-5 py-3.5">
+          <div className="flex items-start gap-3">
+            <CheckCircle2 className="size-4 text-cyan-700 mt-0.5 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-cyan-900">Approved by TWG</p>
+              <p className="text-ui-sm text-cyan-900/90 mt-1 whitespace-pre-wrap">{pr.twg_comment}</p>
+            </div>
+          </div>
         </div>
       )}
 
@@ -735,7 +690,8 @@ export default function PRDetail() {
           <div className="flex items-center gap-3 flex-wrap">
             <h2 className="text-ui-xl font-bold text-[--color-text-primary] font-mono">{pr.pr_number}</h2>
             <PRStatusBadge status={pr.status} />
-            {pr.po && <DeliveryStatusBadge status={pr.po.delivery_status} />}
+            <CategoryBadge category={pr.category} />
+            {deliveryStatus && <DeliveryStatusBadge status={deliveryStatus} />}
           </div>
           {pr.title && <p className="text-ui-sm text-[--color-text-secondary] mt-0.5">{pr.title}</p>}
           <p className="text-ui-xs text-[--color-text-muted] mt-0.5">
@@ -743,7 +699,8 @@ export default function PRDetail() {
             Created by {pr.created_by_name} · {fmtDate(pr.created_at)}
           </p>
         </div>
-        {isExtension && (
+        {/* Only while Procurement has the PR (the reminder goes to them) */}
+        {isRequestor && !pr.deleted_at && ['twg_review', 'bidding', 'for_po'].includes(pr.status) && (
           <Button
             variant="outline" size="sm"
             className="gap-2 shrink-0 border-amber-300 text-amber-700 hover:bg-amber-50"
@@ -754,7 +711,30 @@ export default function PRDetail() {
             {reminded ? 'Reminder Sent' : reminding ? 'Sending…' : 'Remind Procurement'}
           </Button>
         )}
-        {(canManage || (isExtension && pr.created_by === user?.id)) && (
+        {/* Edit / Submit / Withdraw: shown to whoever the server allows (permissions) */}
+        {pr.permissions?.edit && (
+          <Button asChild variant="outline" size="sm" className="gap-2 shrink-0">
+            <Link to={`/pr/${pr.id}/edit`}><Pencil className="size-4" /> Edit PR</Link>
+          </Button>
+        )}
+        {pr.status === 'draft' && pr.permissions?.next_statuses?.includes('submitted') && (
+          <Button size="sm" className="gap-2 shrink-0" onClick={() => updateStatus({ status: 'submitted' })} disabled={isPending}>
+            <Send className="size-4" />
+            {isPending ? 'Submitting…' : 'Submit to TWG'}
+          </Button>
+        )}
+        {pr.status === 'submitted' && pr.permissions?.next_statuses?.includes('draft') && (
+          <Button
+            variant="outline" size="sm" className="gap-2 shrink-0"
+            onClick={() => updateStatus({ status: 'draft' })}
+            disabled={isPending}
+            title="Pull this PR back from TWG review to edit it, then submit it again"
+          >
+            <Undo2 className="size-4" />
+            {isPending ? 'Withdrawing…' : 'Withdraw to edit'}
+          </Button>
+        )}
+        {pr.permissions?.delete && (
           <Button
             variant="outline" size="sm"
             className="gap-2 shrink-0 border-red-300 text-red-600 hover:bg-red-50"
@@ -763,7 +743,7 @@ export default function PRDetail() {
             <Trash2 className="size-4" /> Delete PR
           </Button>
         )}
-        {canManage && pr.status === 'submitted' && (
+        {pr.status === 'twg_review' && pr.permissions?.next_statuses?.includes('bidding') && (
           <Button
             size="sm"
             className="gap-2 shrink-0 bg-blue-600 hover:bg-blue-700"
@@ -774,17 +754,34 @@ export default function PRDetail() {
             {isPending ? 'Processing…' : 'Canvass PR'}
           </Button>
         )}
-        {canManage && pr.status === 'for_po' && (
+        {pr.status === 'for_po' && pr.permissions?.next_statuses?.includes('bidding') && (
           <Button
             variant="outline"
             size="sm"
             className="gap-2 shrink-0 border-amber-300 text-amber-700 hover:bg-amber-50"
-            onClick={() => updateStatus({ status: 'bidding', notes: 'Recanvass initiated by procurement' })}
+            onClick={() => {
+              if (window.confirm('Return this PR to canvassing? Its awards are cancelled, and every item must be awarded again before a PO can be issued.')) {
+                updateStatus({ status: 'bidding', notes: 'Recanvass initiated by procurement' })
+              }
+            }}
             disabled={isPending}
-            title="Return to canvassing — awarded lots will be cleared manually in Lots & Awards"
+            title="Return to canvassing: its awards are cancelled"
           >
             <RotateCcw className="size-4" />
             {isPending ? 'Processing…' : 'Recanvass'}
+          </Button>
+        )}
+        {/* Items are locked once submitted; Procurement sends an approved PR
+            back to the requestor instead, and it returns through the TWG. */}
+        {canManage && pr.permissions?.next_statuses?.includes('revision_requested') && (
+          <Button
+            variant="outline" size="sm"
+            className="gap-2 shrink-0 border-amber-300 text-amber-700 hover:bg-amber-50"
+            onClick={() => setReturnOpen(true)}
+            disabled={isPending}
+            title="Send it back to the requestor to change; it goes through the TWG again"
+          >
+            <Undo2 className="size-4" /> Return for revision
           </Button>
         )}
         {/* Download buttons */}
@@ -795,7 +792,7 @@ export default function PRDetail() {
         >
           <FileDown className="size-3.5" /> PR Form
         </button>
-        {pr.status !== 'draft' && pr.status !== 'submitted' && (
+        {!isRequestor && pr.status !== 'draft' && pr.status !== 'submitted' && (
           <button
             onClick={downloadAbstract}
             title="Download Abstract of Quotations"
@@ -805,14 +802,18 @@ export default function PRDetail() {
           </button>
         )}
 
-        {canManage && (
+        {canManage && pr.permissions?.next_statuses?.length > 0 && (
           <div className="shrink-0 w-44">
             <Select value={pr.status} onValueChange={(status) => updateStatus({ status })} disabled={isPending}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                {PR_STATUSES.map(s => (
+                {/* Current status + the moves the server allows this user (prWorkflow).
+                    Return for revision (needs a reason) and Recanvass (cancels the
+                    award, asks first) have their own buttons. */}
+                {[pr.status, ...pr.permissions.next_statuses.filter(s =>
+                  s !== 'revision_requested' && !(pr.status === 'for_po' && s === 'bidding'))].map(s => (
                   <SelectItem key={s} value={s}>
-                    {s.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                    {PR_STATUS_LABELS[s] || s}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -821,18 +822,21 @@ export default function PRDetail() {
         )}
       </div>
 
-      {/* PR Details */}
-      {(pr.fund_cluster || pr.responsibility_center_code || pr.notes) && (
+      {/* Plain-language "where is my request" for the person who filed it */}
+      {isRequestor && !pr.deleted_at && <RequestProgress pr={pr} />}
+
+      {/* PR Details (fund codes are procurement's business, not shown to requestors) */}
+      {((!isRequestor && (pr.fund_cluster || pr.responsibility_center_code)) || pr.notes) && (
         <Card>
           <CardHeader><CardTitle>PR Details</CardTitle></CardHeader>
           <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {pr.fund_cluster && (
+            {!isRequestor && pr.fund_cluster && (
               <div>
                 <p className="text-ui-xs text-[--color-text-muted] font-medium uppercase tracking-wide">Fund Cluster</p>
                 <p className="text-ui-sm text-[--color-text-primary] font-medium mt-0.5">{pr.fund_cluster}</p>
               </div>
             )}
-            {pr.responsibility_center_code && (
+            {!isRequestor && pr.responsibility_center_code && (
               <div>
                 <p className="text-ui-xs text-[--color-text-muted] font-medium uppercase tracking-wide">Responsibility Center Code</p>
                 <p className="text-ui-sm text-[--color-text-primary] font-medium mt-0.5">{pr.responsibility_center_code}</p>
@@ -848,153 +852,25 @@ export default function PRDetail() {
         </Card>
       )}
 
+      {/* Request Context — only renders if the PR has any context fields filled */}
+      <RequestContextDisplay pr={pr} />
+
       {/* Items Requested */}
-      <PRItemsSection prId={id} canEdit={['admin', 'procurement', 'extension'].includes(user?.role)} />
+      <PRItemsSection prId={id} canEdit={!!pr.permissions?.edit} category={pr.category} plain={isRequestor} />
 
-      {/* Lots & Bidding */}
-      <LotsSection prId={id} canManage={canManage} />
-
-      {/* PO Section */}
-      {(canManage || isExtension) && (
+      {/* Canvass & awards: quotations, awards by supplier (procurement, admin; supply once awarded) */}
+      {showCanvass && (
         <Card>
           <CardHeader className="flex flex-row items-center gap-2">
-            <ShoppingCart className="size-4 text-[--color-text-muted]" />
-            <CardTitle>Purchase Order</CardTitle>
-            {pr.po?.po_status && <POStatusBadge status={pr.po.po_status} />}
+            <Gavel className="size-4 text-[--color-text-muted]" />
+            <CardTitle>Canvass & Awards</CardTitle>
           </CardHeader>
-          <CardContent>
-            {pr.po ? (
-              <div className="space-y-5">
-
-                {/* Pending banner — extension view */}
-                {pr.po.po_status === 'pending_approval' && isExtension && (
-                  <div className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
-                    <Clock className="size-4 text-amber-600 shrink-0" />
-                    <p className="text-sm text-amber-800">
-                      The PO has been submitted and is <strong>awaiting procurement approval</strong>.
-                    </p>
-                  </div>
-                )}
-
-                {/* Approve action — procurement view */}
-                {pr.po.po_status === 'pending_approval' && canManage && (
-                  <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 gap-4 flex-wrap">
-                    <div className="flex items-center gap-2">
-                      <Clock className="size-4 text-amber-600 shrink-0" />
-                      <p className="text-sm text-amber-800">
-                        This PO is <strong>pending your approval</strong>.
-                      </p>
-                    </div>
-                    <Button
-                      size="sm"
-                      className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 shrink-0"
-                      disabled={approving}
-                      onClick={() => approvePO()}
-                    >
-                      <CheckCircle2 className="size-3.5" />
-                      {approving ? 'Approving…' : 'Approve PO'}
-                    </Button>
-                  </div>
-                )}
-
-                {/* PO Info grid */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 rounded-xl border border-[--color-border] bg-[--color-surface] p-4">
-                  <div>
-                    <p className="text-ui-xs text-[--color-text-muted] font-medium uppercase tracking-wide">PO Number</p>
-                    <p className="text-ui-sm font-bold text-[--color-brand] font-mono mt-0.5">{pr.po.po_number}</p>
-                  </div>
-                  <div>
-                    <p className="text-ui-xs text-[--color-text-muted] font-medium uppercase tracking-wide">Supplier</p>
-                    <p className="text-ui-sm font-semibold text-[--color-text-primary] mt-0.5">{pr.po.supplier_name}</p>
-                  </div>
-                  <div>
-                    <p className="text-ui-xs text-[--color-text-muted] font-medium uppercase tracking-wide">Total Amount</p>
-                    <p className="text-ui-sm font-bold text-emerald-700 mt-0.5">{fmtCurrency(pr.po.total_amount)}</p>
-                  </div>
-                  <div>
-                    <p className="text-ui-xs text-[--color-text-muted] font-medium uppercase tracking-wide">Issued Date</p>
-                    <p className="text-ui-sm font-medium text-[--color-text-primary] mt-0.5">{fmtDate(pr.po.issued_date)}</p>
-                  </div>
-                  {pr.po.expected_delivery_date && (
-                    <div>
-                      <p className="text-ui-xs text-[--color-text-muted] font-medium uppercase tracking-wide">Expected Delivery</p>
-                      <p className="text-ui-sm font-medium text-[--color-text-primary] mt-0.5">{fmtDate(pr.po.expected_delivery_date)}</p>
-                    </div>
-                  )}
-                  {pr.po.supplier_contact && (
-                    <div>
-                      <p className="text-ui-xs text-[--color-text-muted] font-medium uppercase tracking-wide">Supplier Contact</p>
-                      <p className="text-ui-sm font-medium text-[--color-text-primary] mt-0.5">{pr.po.supplier_contact}</p>
-                    </div>
-                  )}
-                  {pr.po.delivery_date && (
-                    <div>
-                      <p className="text-ui-xs text-[--color-text-muted] font-medium uppercase tracking-wide">Delivery Date</p>
-                      <p className="text-ui-sm font-medium text-[--color-text-primary] mt-0.5">{fmtDate(pr.po.delivery_date)}</p>
-                    </div>
-                  )}
-                  <div>
-                    <p className="text-ui-xs text-[--color-text-muted] font-medium uppercase tracking-wide">Delivery Status</p>
-                    <div className="mt-1"><DeliveryStatusBadge status={pr.po.delivery_status} /></div>
-                  </div>
-                </div>
-                {pr.po.delivery_notes && (
-                  <p className="text-ui-xs text-[--color-text-secondary] leading-relaxed">{pr.po.delivery_notes}</p>
-                )}
-
-                {/* Delivery update — procurement only, after approval */}
-                {canManage && pr.po.po_status === 'approved' && (
-                  <div className="border-t border-[--color-border] pt-4">
-                    <p className="text-ui-sm font-semibold text-[--color-text-primary] mb-3 flex items-center gap-2">
-                      <Truck className="size-4 text-[--color-text-muted]" /> Update Delivery
-                    </p>
-                    <UpdateDeliveryForm po={pr.po} />
-                  </div>
-                )}
-              </div>
-            ) : canManage ? (
-              <div>
-                <IssuePOForm prId={parseInt(id)} />
-              </div>
-            ) : (
-              <div className="flex items-center gap-3 rounded-lg border border-[--color-border] bg-[--color-canvas] px-4 py-4">
-                <Clock className="size-4 text-[--color-text-muted] shrink-0" />
-                <p className="text-ui-sm text-[--color-text-secondary]">
-                  No purchase order has been issued for this PR yet. Procurement will issue the PO after all lots are awarded.
-                </p>
-              </div>
-            )}
-          </CardContent>
+          <CardContent><CanvassPanel pr={pr} /></CardContent>
         </Card>
       )}
 
-      {/* Delivery info for supply officers */}
-      {user?.role === 'supply' && pr.po && pr.po.po_status === 'approved' && (
-        <Card>
-          <CardHeader className="flex flex-row items-center gap-2">
-            <Truck className="size-4 text-[--color-text-muted]" />
-            <CardTitle>Delivery Status</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-4 flex-wrap">
-              <DeliveryStatusBadge status={pr.po.delivery_status} />
-              {pr.po.delivery_date && (
-                <span className="text-ui-sm text-[--color-text-secondary]">
-                  Delivered on {fmtDate(pr.po.delivery_date)}
-                </span>
-              )}
-              {pr.po.expected_delivery_date && pr.po.delivery_status !== 'delivered' && (
-                <span className="flex items-center gap-1 text-ui-xs text-[--color-text-muted]">
-                  <Clock className="size-3" /> Expected {fmtDate(pr.po.expected_delivery_date)}
-                </span>
-              )}
-            </div>
-            {pr.po.delivery_notes && (
-              <p className="text-ui-sm text-[--color-text-secondary] mt-2 leading-relaxed">{pr.po.delivery_notes}</p>
-            )}
-          </CardContent>
-        </Card>
-      )}
+      {/* Purchase orders: one per supplier awarded */}
+      {(canManage || isRequestor || isSupply) && <PurchaseOrders pr={pr} canManage={canManage} />}
 
       {/* Attachments */}
       <Card>
@@ -1006,8 +882,8 @@ export default function PRDetail() {
           <AttachmentsPanel
             endpoint={`/pr/${id}`}
             queryKey={`pr-attachments-${id}`}
-            canUpload={true}
-            canDelete={canManage}
+            canUpload={!pr.deleted_at}
+            canDelete={canManage && !pr.deleted_at}
           />
         </CardContent>
       </Card>
@@ -1020,11 +896,8 @@ export default function PRDetail() {
         <DialogContent title="Delete Purchase Request">
           <div className="pt-1 space-y-3">
             <p className="text-sm text-[--color-text-secondary]">
-              Permanently delete <strong>{pr?.pr_number}</strong>? This will also remove all items, attachments, and activity logs. This cannot be undone.
+              Delete <strong>{pr?.pr_number}</strong>? It will be removed from active lists and kept, with its items, attachments, and history, in the Archive under Deleted.
             </p>
-            <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-xs text-red-700">
-              All data associated with this PR will be lost.
-            </div>
           </div>
           <DialogFooter>
             <Button variant="secondary" onClick={() => setShowDeletePR(false)} disabled={deletingPR}>Cancel</Button>
@@ -1038,6 +911,42 @@ export default function PRDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Return for revision: a reason is required; the requestor edits and resubmits to the TWG */}
+      <Dialog open={returnOpen} onOpenChange={o => { if (!o) setReturnOpen(false) }}>
+        <DialogContent title="Return for Revision">
+          <div className="pt-1 space-y-3">
+            <p className="text-sm text-[--color-text-secondary]">
+              Send <strong>{pr.pr_number}</strong> back to {pr.created_by_name} to change. Its items stay locked for
+              everyone else; once it is fixed and submitted again, the TWG reviews it again.
+            </p>
+            <div className="space-y-1.5">
+              <Label>What needs to change</Label>
+              <textarea
+                rows={3}
+                value={returnReason}
+                onChange={e => setReturnReason(e.target.value)}
+                placeholder="e.g. Please add the laptop model and warranty period"
+                className="w-full rounded-md border border-[--color-border] bg-[--color-surface] px-3 py-2 text-sm text-[--color-text-primary] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent resize-y"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setReturnOpen(false)} disabled={isPending}>Cancel</Button>
+            <Button
+              className="bg-amber-600 hover:bg-amber-700 text-white border-0"
+              disabled={isPending || !returnReason.trim()}
+              onClick={() => updateStatus(
+                { status: 'revision_requested', notes: returnReason.trim() },
+                { onSuccess: () => { setReturnOpen(false); setReturnReason('') } },
+              )}
+            >
+              {isPending ? 'Returning…' : 'Return for revision'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </div>
   )
 }

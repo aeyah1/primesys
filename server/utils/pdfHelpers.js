@@ -1,12 +1,12 @@
+const { fmtLongDate } = require('./dates')
+
 const BRAND  = '#166534'
 const GRAY   = '#6b7280'
 const LIGHT  = '#f0fdf4'
 const BORDER = '#e5e7eb'
 const M      = 56  // page margin
 
-const fmtDate = (d) => d
-  ? new Date(d).toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' })
-  : '—'
+const fmtDate = fmtLongDate
 
 const fmtCurrency = (v) =>
   `PHP ${parseFloat(v || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`
@@ -56,7 +56,8 @@ function sigBlock(doc, x, y, label, name, role) {
 
 // Draws a table.
 //   columns : [{ header, width, align }]
-//   rows    : arrays of cell strings, OR { _group: 'label' } for group headers
+//   rows    : arrays of cells, OR { _group: 'label' } for group headers.
+//             A cell is a string, or { text, bold: true } to bold that one cell.
 //             Set row._total = true to style as a totals row.
 // Returns Y after last row.
 function drawTable(doc, columns, rows) {
@@ -108,11 +109,12 @@ function drawTable(doc, columns, rows) {
 
     let cx = x + PAD
     for (let ci = 0; ci < columns.length; ci++) {
-      const col = columns[ci]
-      const val = row[ci] != null ? String(row[ci]) : '—'
+      const col  = columns[ci]
+      const cell = row[ci] && typeof row[ci] === 'object' ? row[ci] : { text: row[ci] }
+      const val  = cell.text != null ? String(cell.text) : '—'
       doc.fontSize(9)
          .fillColor(isTotal ? BRAND : '#111827')
-         .font(isTotal ? 'Helvetica-Bold' : 'Helvetica')
+         .font(isTotal || cell.bold ? 'Helvetica-Bold' : 'Helvetica')
          .text(val, cx, y + 7, { width: col.width - PAD * 2, align: col.align || 'left', lineBreak: false })
       cx += col.width
     }

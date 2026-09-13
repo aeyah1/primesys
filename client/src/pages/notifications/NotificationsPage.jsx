@@ -1,27 +1,28 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Bell, CheckCheck, FileText, Package, Truck, Trophy, RotateCcw } from 'lucide-react'
+import { Bell, CheckCheck, CheckCircle2, FileText, Truck, AlertTriangle, XCircle, Clock } from 'lucide-react'
 import { toast } from 'sonner'
 import { Link } from 'react-router-dom'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { fmtDatetime } from '@/lib/utils'
 import api from '@/lib/axios'
 
+// Keyed by notifications.type, as the server sends it.
 const TYPE_ICON = {
-  pr:           FileText,
-  pr_status:    FileText,
-  bid_winner:   Trophy,
-  recanvass:    RotateCcw,
-  po_issued:    Package,
-  delivered:    Truck,
+  info:      FileText,
+  success:   CheckCircle2,
+  warning:   AlertTriangle,
+  error:     XCircle,
+  reminder:  Clock,
+  delivered: Truck,
 }
 
+// Keyed by notifications.reference_type: the page a notice opens.
 const TYPE_LINK = {
-  purchase_request: (id) => `/pr/${id}`,
-  lot:              (id) => `/lots/${id}`,
-  purchase_order:   (id) => `/po`,
-  delivery:         (id) => `/delivery`,
+  pr:       (id) => `/pr/${id}`,
+  delivery: () => '/delivery',
+  user:     () => '/users',
 }
 
 function NotifIcon({ type }) {
@@ -95,8 +96,8 @@ export default function NotificationsPage() {
         ) : (
           <CardContent className="p-0 divide-y divide-[--color-border]">
             {notifications.map(n => {
-              const linkFn = TYPE_LINK[n.entity_type]
-              const to = linkFn ? linkFn(n.entity_id) : null
+              const linkFn = TYPE_LINK[n.reference_type]
+              const to = linkFn ? linkFn(n.reference_id) : null
               const content = (
                 <div
                   className={`flex items-start gap-3 px-5 py-4 transition-colors hover:bg-overlay/50 cursor-pointer ${!n.is_read ? 'bg-brand-light/30' : ''}`}

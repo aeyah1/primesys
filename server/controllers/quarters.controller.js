@@ -1,4 +1,12 @@
 const pool = require('../db/pool')
+const { currentQuarter } = require('../utils/quarters')
+
+// The quarter new PRs are filed under (null when none is active).
+exports.current = async (req, res) => {
+  try {
+    res.json(await currentQuarter(pool))
+  } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
+}
 
 exports.list = async (req, res) => {
   try {
