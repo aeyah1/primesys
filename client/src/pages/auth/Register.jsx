@@ -347,10 +347,17 @@ export default function Register() {
             <MailCheck className="size-7 text-blue-600" />
           </div>
           <h2 className="text-lg font-bold text-[--color-text-primary]">Check your inbox</h2>
+          {/* Same text for new and existing emails: the server reply is identical on purpose. */}
           <p className="text-sm text-[--color-text-secondary] leading-relaxed">
-            We sent a verification link to{' '}
+            We sent an email to{' '}
             <strong className="text-[--color-text-primary] break-all">{done}</strong>.
-            Click it to activate your account. The link expires in 24 hours.
+            Follow it to finish signing up. Verification links expire in 24 hours.
+          </p>
+          <p className="text-xs text-[--color-text-secondary]">
+            Already have an account?{' '}
+            <Link to="/login" className="text-[--color-brand] font-medium hover:underline">Sign in</Link>
+            , or{' '}
+            <Link to="/forgot-password" className="text-[--color-brand] font-medium hover:underline">reset your password</Link>.
           </p>
           <p className="text-xs text-[--color-text-muted]">
             Didn't receive it? Check your spam folder, or{' '}
