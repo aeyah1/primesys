@@ -1,3 +1,4 @@
+-- LEGACY: only for databases created before May 2026, applied in the README order.
 -- PR Attachments
 CREATE TABLE IF NOT EXISTS `pr_attachments` (
   `id`            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,

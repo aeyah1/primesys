@@ -1,3 +1,4 @@
+-- LEGACY: only for databases created before May 2026, applied in the README order.
 -- Run this in phpMyAdmin to add department code columns to the users table
 -- Safe to re-run: uses the same IF NOT EXISTS procedure pattern
 
