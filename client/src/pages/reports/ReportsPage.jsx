@@ -95,12 +95,15 @@ export default function ReportsPage() {
     setTimeout(() => downloadCSV(`PRimeSys-Status-${date}.csv`, statusRows), 600)
   }
 
-  const quarterChartData = byQuarter.slice(0, 8).map(q => ({
-    name: `${q.label} ${q.year}`,
-    spending: parseFloat(q.total_spending),
-    budget: q.budget ? parseFloat(q.budget) : null,
-    prs: q.pr_count,
-  })).reverse()
+  // Oldest quarter on the left, whatever order the server sends.
+  const quarterChartData = [...byQuarter.slice(0, 8)]
+    .sort((a, b) => a.year - b.year || a.label.localeCompare(b.label))
+    .map(q => ({
+      name: `${q.label} ${q.year}`,
+      spending: parseFloat(q.total_spending),
+      budget: q.budget ? parseFloat(q.budget) : null,
+      prs: q.pr_count,
+    }))
 
   const categoryChartData = byCategory.map(c => ({
     name: CATEGORY_LABELS[c.category] || c.category,
