@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
-  Leaf, Eye, EyeOff, AtSign, Lock,
+  Eye, EyeOff, AtSign, Lock,
   AlertCircle, Clock, ShieldAlert,
   FileText, Gavel, Package, BarChart3,
 } from 'lucide-react'
@@ -17,6 +17,8 @@ const FEATURES = [
   { icon: Package,   label: 'Purchase Orders',   sub: 'Issuance, approval & tracking' },
   { icon: BarChart3, label: 'Reports',           sub: 'Quarterly analytics & exports' },
 ]
+
+const LOCKOUT_PAUSE_S = 30
 
 export default function Login() {
   const { login } = useAuth()
@@ -56,19 +58,18 @@ export default function Login() {
       const res  = err.response
       const data = res?.data || {}
       if (res?.status === 429) {
-        const secs = data.secondsLeft || 60
-        setCountdown(secs)
-        setError({ type: 'lockout', message: data.message, secondsLeft: secs })
+        // The server doesn't say how long; pause the form briefly so a retry
+        // isn't instant, then let the person try again.
+        setCountdown(LOCKOUT_PAUSE_S)
+        setError({ type: 'lockout', message: data.message })
       } else if (res?.status === 403 && data.type === 'unverified') {
-        setError({ type: 'unverified', message: data.message, email: form.identifier })
+        setError({ type: 'unverified', message: data.message, identifier: form.identifier })
+      } else if (res?.status === 403 && data.type === 'pending_approval') {
+        setError({ type: 'pending', message: data.message })
       } else if (res?.status === 403) {
         setError({ type: 'inactive', message: data.message })
       } else if (res?.status === 401) {
-        setError({
-          type: 'credentials',
-          message: data.message || 'Incorrect username or password.',
-          attemptsLeft: data.attemptsLeft ?? null,
-        })
+        setError({ type: 'credentials', message: data.message || 'Invalid username/email or password.' })
       } else {
         setError({ type: 'server', message: 'Something went wrong. Please try again.' })
       }
@@ -85,42 +86,42 @@ export default function Login() {
       {/* ── Brand panel ── */}
       <div
         className="hidden lg:flex flex-col justify-between w-[44%] p-10 relative overflow-hidden"
-        style={{ background: 'linear-gradient(160deg, hsl(145,70%,11%) 0%, hsl(145,60%,19%) 100%)', animation: 'fade-in-right 0.45s ease-out both' }}
+        style={{ background: 'linear-gradient(160deg, hsl(225,75%,10%) 0%, hsl(222,65%,22%) 100%)', animation: 'fade-in-right 0.45s ease-out both' }}
       >
         <div className="pointer-events-none absolute -top-24 -right-24 size-80 rounded-full bg-white/[0.03]" />
         <div className="pointer-events-none absolute -bottom-32 -left-16 size-96 rounded-full bg-white/[0.03]" />
         <div className="pointer-events-none absolute top-1/3 right-0 w-px h-64 bg-gradient-to-b from-transparent via-white/10 to-transparent" />
 
         <div className="relative flex items-center gap-3" style={{ animation: 'fade-in-down 0.4s 0.1s ease-out both' }}>
-          <div className="flex size-10 items-center justify-center rounded-xl bg-white/15 backdrop-blur-sm">
-            <Leaf className="size-5 text-emerald-300 animate-float" />
+          <div className="flex size-11 items-center justify-center rounded-xl bg-white/95 shadow-md">
+            <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-9 object-contain" />
           </div>
           <div>
             <p className="text-white font-bold text-lg leading-none tracking-tight">PRimeSys</p>
-            <p className="text-emerald-300/70 text-xs mt-0.5">Procurement Management</p>
+            <p className="text-[#ECB22E]/85 text-xs mt-0.5">Procurement Management</p>
           </div>
         </div>
 
         <div className="relative space-y-8" style={{ animation: 'fade-in-up 0.45s 0.2s ease-out both' }}>
           <div>
             <div className="inline-flex items-center gap-2 rounded-full bg-white/10 border border-white/20 px-3 py-1 mb-5">
-              <div className="size-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-emerald-300 text-xs font-medium tracking-wide">NEMSU Cantilan Campus</span>
+              <div className="size-1.5 rounded-full bg-[#ECB22E] animate-pulse" />
+              <span className="text-[#ECB22E] text-xs font-medium tracking-wide">NEMSU Cantilan Campus</span>
             </div>
             <h2 className="text-white font-bold leading-[1.15] mb-3 text-4xl">
               From request<br />to delivery.
             </h2>
-            <p className="text-emerald-100/50 leading-relaxed text-sm max-w-xs">
+            <p className="text-white/60 leading-relaxed text-sm max-w-xs">
               One platform for purchase requests, bidding, purchase orders, and delivery monitoring.
             </p>
           </div>
 
           <div className="space-y-1">
             {FEATURES.map(({ icon: Icon, label, sub }, i) => (
-              <div key={label} className="flex items-center gap-3 py-2.5 border-b border-white/8 last:border-0"
+              <div key={label} className="flex items-center gap-3 py-2.5 border-b border-white/10 last:border-0"
                 style={{ animation: `fade-in-left 0.35s ${0.3 + i * 0.07}s ease-out both` }}>
                 <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-white/10">
-                  <Icon className="size-4 text-emerald-300/80" />
+                  <Icon className="size-4 text-[#ECB22E]/90" />
                 </div>
                 <div>
                   <p className="text-white text-sm font-semibold leading-none">{label}</p>
@@ -131,7 +132,7 @@ export default function Login() {
           </div>
         </div>
 
-        <p className="relative text-white/20 text-xs">&copy; {new Date().getFullYear()} NEMSU Cantilan Campus</p>
+        <p className="relative text-white/30 text-xs">&copy; {new Date().getFullYear()} NEMSU Cantilan Campus</p>
       </div>
 
       {/* ── Form panel ── */}
@@ -140,8 +141,8 @@ export default function Login() {
 
           {/* Mobile logo */}
           <div className="flex items-center gap-2.5 mb-8 lg:hidden">
-            <div className="flex size-9 items-center justify-center rounded-xl bg-[--color-brand]">
-              <Leaf className="size-4 text-emerald-200" />
+            <div className="flex size-9 items-center justify-center rounded-xl bg-white border border-[--color-border] shadow-sm">
+              <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-7 object-contain" />
             </div>
             <span className="font-bold text-xl text-[--color-text-primary] tracking-tight">PRimeSys</span>
           </div>
@@ -215,11 +216,9 @@ export default function Login() {
               <div className="flex gap-3 items-start rounded-xl border border-amber-200 bg-amber-50 p-3.5">
                 <Clock className="size-4 text-amber-600 shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-sm font-semibold text-amber-800">Too many failed attempts</p>
+                  <p className="text-sm font-semibold text-amber-800">Too many sign-in attempts</p>
                   <p className="text-xs text-amber-700 mt-0.5">
-                    Please wait{' '}
-                    <span className="font-bold tabular-nums">{countdown}s</span>
-                    {' '}before trying again.
+                    Please wait a few minutes before trying again. Forgot your password? You can reset it.
                   </p>
                 </div>
               </div>
@@ -229,15 +228,8 @@ export default function Login() {
               <div className="flex gap-3 items-start rounded-xl border border-red-200 bg-red-50 p-3.5">
                 <AlertCircle className="size-4 text-red-600 shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-sm font-semibold text-red-800">Incorrect credentials</p>
-                  <p className="text-xs text-red-700 mt-0.5">
-                    {error.attemptsLeft != null && error.attemptsLeft > 0
-                      ? <>The username or password you entered is wrong.{' '}
-                          <span className="font-semibold">{error.attemptsLeft} attempt{error.attemptsLeft === 1 ? '' : 's'} left</span>
-                          {' '}before a 2-minute lockout.</>
-                      : 'The username or password you entered is wrong.'
-                    }
-                  </p>
+                  <p className="text-sm font-semibold text-red-800">Couldn't sign you in</p>
+                  <p className="text-xs text-red-700 mt-0.5">{error.message}</p>
                 </div>
               </div>
             )}
@@ -247,22 +239,27 @@ export default function Login() {
                 <ShieldAlert className="size-4 text-blue-600 shrink-0 mt-0.5" />
                 <div>
                   <p className="text-sm font-semibold text-blue-800">Email not verified</p>
-                  <p className="text-xs text-blue-700 mt-0.5">
-                    Check your inbox for the verification link.{' '}
-                    <button
-                      type="button"
-                      className="font-semibold underline hover:no-underline"
-                      onClick={async () => {
-                        try {
-                          await api.post('/auth/resend-verification', { email: error.email })
-                          setError(null)
-                          window.alert('A new verification link has been sent to your email.')
-                        } catch { /* silent */ }
-                      }}
-                    >
-                      Resend link
-                    </button>
-                  </p>
+                  {error.resent ? (
+                    <p className="text-xs text-blue-700 mt-0.5">{error.resent}</p>
+                  ) : (
+                    <p className="text-xs text-blue-700 mt-0.5">
+                      Your account requires email verification. Check your inbox for the link.{' '}
+                      <button
+                        type="button"
+                        className="font-semibold underline hover:no-underline"
+                        onClick={async () => {
+                          try {
+                            const { data } = await api.post('/auth/resend-verification', { identifier: error.identifier })
+                            setError(e => ({ ...e, resent: data.message }))
+                          } catch (err) {
+                            setError(e => ({ ...e, resent: err.response?.data?.message || 'Could not resend. Please try again.' }))
+                          }
+                        }}
+                      >
+                        Resend link
+                      </button>
+                    </p>
+                  )}
                 </div>
               </div>
             )}
@@ -273,6 +270,16 @@ export default function Login() {
                 <div>
                   <p className="text-sm font-semibold text-orange-800">Account deactivated</p>
                   <p className="text-xs text-orange-700 mt-0.5">Your account has been deactivated. Contact your administrator.</p>
+                </div>
+              </div>
+            )}
+
+            {error?.type === 'pending' && (
+              <div className="flex gap-3 items-start rounded-xl border border-amber-200 bg-amber-50 p-3.5">
+                <Clock className="size-4 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-semibold text-amber-800">Waiting for approval</p>
+                  <p className="text-xs text-amber-700 mt-0.5">An administrator must approve your account before you can sign in.</p>
                 </div>
               </div>
             )}
@@ -294,7 +301,7 @@ export default function Login() {
               size="lg"
             >
               {isLocked
-                ? `Locked — wait ${countdown}s`
+                ? 'Please wait…'
                 : loading
                   ? 'Signing in…'
                   : 'Sign in'

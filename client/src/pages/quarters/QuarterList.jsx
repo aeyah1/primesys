@@ -154,7 +154,7 @@ export default function QuarterList() {
                       </TableCell>
                       <TableCell>
                         <Badge className={q.is_active
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                          ? 'bg-blue-50 text-blue-700 border-blue-300'
                           : 'bg-slate-50 text-slate-600 border-slate-300'}>
                           {q.is_active ? 'Active' : 'Inactive'}
                         </Badge>

@@ -3,34 +3,50 @@ const { body }  = require('express-validator')
 const c         = require('../controllers/po.controller')
 const auth      = require('../middleware/auth.middleware')
 const authorize = require('../middleware/authorize.middleware')
-const { handle } = require('../middleware/validate')
+const { handle, textRule, dateRule, idRule } = require('../middleware/validate')
+const { requireAccess } = require('../middleware/scope.middleware')
 
 router.use(auth)
 
 router.get('/',        c.list)
-router.get('/:id/pdf', c.generatePDF)
-router.get('/:id',     c.getById)
+// Every /:id route is scoped: 404 unless this user may see the PO's PR (C2).
+const poAccess = requireAccess('po')
 
+router.get('/:id/pdf', poAccess, c.generatePDF)
+router.get('/:id',     poAccess, c.getById)
+
+// The supplier's details and the total are taken from the PR's awards on the
+// server; the form names the supplier (when several are waiting) and gives
+// the dates and notes.
 router.post('/',
   authorize('procurement', 'admin'),
-  body('purchase_request_id').isInt({ min: 1 }).withMessage('A valid PR is required'),
-  body('supplier_name').trim().notEmpty().withMessage('Supplier name is required'),
-  body('issued_date').isDate().withMessage('A valid issued date is required'),
-  body('total_amount').isFloat({ min: 0.01 }).withMessage('Total amount must be greater than 0'),
+  idRule('purchase_request_id', 'A valid PR is required', { required: true }),
+  textRule('supplier', 'Supplier', 200),
+  dateRule('issued_date', 'Issued date', { required: true }),
+  dateRule('expected_delivery_date', 'Expected delivery date'),
+  body('expected_delivery_date').if(v => !!v)
+    .custom((v, { req }) => v >= req.body.issued_date).withMessage('The expected delivery date can\'t be before the issued date'),
+  textRule('notes', 'Notes', 2000),
   handle,
   c.create
 )
 
-router.patch('/:id/approve',
+// The supplier's new delivery date, with the reason (procurement or admin).
+router.patch('/:id/expected-date',
   authorize('procurement', 'admin'),
-  c.approve
+  poAccess,
+  dateRule('expected_delivery_date', 'Expected delivery date', { required: true }),
+  textRule('reason', 'Reason', 500, { required: true }),
+  handle,
+  c.reschedule
 )
 
-router.patch('/:id/delivery',
+router.patch('/:id/cancel',
   authorize('procurement', 'admin'),
-  body('delivery_status').notEmpty().withMessage('Delivery status is required'),
+  poAccess,
+  textRule('reason', 'A reason', 1000),
   handle,
-  c.updateDelivery
+  c.cancel
 )
 
 module.exports = router

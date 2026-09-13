@@ -1,7 +1,7 @@
 import axios from 'axios'
 
-// In dev, VITE_SERVER_URL is unset and Vite's proxy forwards /api to localhost:5000.
-// In production, VITE_SERVER_URL is set to the deployed backend URL.
+// VITE_SERVER_URL (client/.env) is the local API origin, e.g. http://localhost:5000.
+// When it's unset, Vite's dev proxy forwards /api to localhost:5000.
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || ''
 const api = axios.create({ baseURL: `${SERVER_URL}/api` })
 

@@ -2,7 +2,7 @@
 import { Link } from 'react-router-dom'
 import {
   FileText, Users, Settings, CalendarDays, CheckCircle2,
-  TrendingUp, Wallet, ShieldCheck, ChevronRight, AlertCircle,
+  TrendingUp, Wallet, ShieldCheck, AlertCircle, AlertTriangle,
 } from 'lucide-react'
 import {
   AreaChart, Area, BarChart, Bar,
@@ -13,13 +13,12 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { StatsCard } from '@/components/shared/StatsCard'
 import { PRStatusBadge } from '@/components/shared/StatusBadge'
-import { RoleBadge } from '@/components/shared/StatusBadge'
 import { fmtDate, fmtCurrency } from '@/lib/utils'
 import api from '@/lib/axios'
 
 const ROLE_META = [
   { key: 'procurement', label: 'Procurement',    color: 'bg-blue-500' },
-  { key: 'extension',   label: 'Extension',       color: 'bg-teal-500' },
+  { key: 'requestor',   label: 'Requestor',       color: 'bg-teal-500' },
   { key: 'supply',      label: 'Supply Officer',  color: 'bg-orange-500' },
   { key: 'admin',       label: 'Admin',           color: 'bg-purple-500' },
 ]
@@ -77,6 +76,13 @@ export default function AdminDashboard() {
     queryKey: ['pr-list', 'admin-dashboard'],
     queryFn: () => api.get('/pr?limit=8').then(r => r.data),
   })
+
+  const { data: coverage = [] } = useQuery({
+    queryKey: ['twg-coverage'],
+    queryFn: () => api.get('/users/twg-coverage').then(r => r.data),
+  })
+  // Categories no active TWG member reviews: their PRs cannot be reviewed.
+  const uncovered = coverage.filter(c => !c.reviewers.length)
 
   const users    = usersRes?.data ?? []
   const totalUsers = usersRes?.total ?? users.length
@@ -137,6 +143,33 @@ export default function AdminDashboard() {
         </div>
       </div>
 
+      {uncovered.length > 0 && (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
+          <AlertTriangle className="size-4 text-amber-700 mt-0.5 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-amber-800">
+              {uncovered.length === 1 ? 'A review area has' : `${uncovered.length} review areas have`} no TWG reviewer
+            </p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              PRs in these categories cannot be reviewed until an active TWG member is assigned to them.
+            </p>
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {uncovered.map(c => (
+                <span key={c.category}
+                  className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+                    c.waiting ? 'border-red-300 bg-red-50 text-red-700' : 'border-amber-300 bg-white text-amber-800'
+                  }`}>
+                  {c.label}{c.waiting ? `: ${c.waiting} waiting` : ''}
+                </span>
+              ))}
+            </div>
+          </div>
+          <Button asChild variant="secondary" size="sm" className="shrink-0">
+            <Link to="/users">Assign reviewers</Link>
+          </Button>
+        </div>
+      )}
+
       {/* Stat cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 card-grid">
         <StatsCard
@@ -192,8 +225,8 @@ export default function AdminDashboard() {
                   <AreaChart data={monthlyData}>
                     <defs>
                       <linearGradient id="spendGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="10%" stopColor="hsl(145,62%,24%)" stopOpacity={0.18} />
-                        <stop offset="95%" stopColor="hsl(145,62%,24%)" stopOpacity={0} />
+                        <stop offset="10%" stopColor="hsl(222,62%,24%)" stopOpacity={0.18} />
+                        <stop offset="95%" stopColor="hsl(222,62%,24%)" stopOpacity={0} />
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
@@ -207,11 +240,11 @@ export default function AdminDashboard() {
                     <Area
                       type="monotone"
                       dataKey="spending"
-                      stroke="hsl(145,62%,24%)"
+                      stroke="hsl(222,62%,24%)"
                       strokeWidth={2}
                       fill="url(#spendGrad)"
                       dot={false}
-                      activeDot={{ r: 5, fill: 'hsl(145,62%,24%)' }}
+                      activeDot={{ r: 5, fill: 'hsl(222,62%,24%)' }}
                     />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -370,7 +403,7 @@ export default function AdminDashboard() {
                 contentStyle={{ borderRadius: 8, border: '1px solid var(--color-border)', fontSize: 13 }}
                 cursor={{ fill: 'rgba(0,0,0,0.04)' }}
               />
-              <Bar dataKey="value" radius={[4, 4, 0, 0]} fill="hsl(145,62%,24%)" />
+              <Bar dataKey="value" radius={[4, 4, 0, 0]} fill="hsl(222,62%,24%)" />
             </BarChart>
           </ResponsiveContainer>
         </CardContent>

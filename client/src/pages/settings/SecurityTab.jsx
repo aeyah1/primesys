@@ -6,23 +6,27 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { useAuth } from '@/context/AuthContext'
 import api from '@/lib/axios'
 
 export default function SecurityTab() {
+  const { replaceToken } = useAuth()
   const [form, setForm] = useState({ current: '', next: '', confirm: '' })
   const [show, setShow] = useState({ current: false, next: false, confirm: false })
 
   const matches  = form.next.length > 0 && form.next === form.confirm
   const noMatch  = form.confirm.length > 0 && form.next !== form.confirm
-  const tooShort = form.next.length > 0 && form.next.length < 6
+  const tooShort = form.next.length > 0 && form.next.length < 8
 
   const { mutate: submit, isPending } = useMutation({
     mutationFn: () => api.patch('/auth/password', {
       current_password: form.current,
       new_password:     form.next,
     }),
-    onSuccess: () => {
-      toast.success('Password changed. Use the new one next time you sign in.')
+    onSuccess: ({ data }) => {
+      // The change signs out every other session; this one continues on the fresh token.
+      if (data?.token) replaceToken(data.token)
+      toast.success('Password changed. Other devices were signed out.')
       setForm({ current: '', next: '', confirm: '' })
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to change password'),
@@ -30,7 +34,7 @@ export default function SecurityTab() {
 
   function handleSubmit(e) {
     e.preventDefault()
-    if (tooShort) return toast.error('New password must be at least 6 characters')
+    if (tooShort) return toast.error('New password must be at least 8 characters')
     if (!matches) return toast.error('New passwords do not match')
     submit()
   }
@@ -41,7 +45,7 @@ export default function SecurityTab() {
     <Card>
       <CardHeader>
         <CardTitle>Change password</CardTitle>
-        <CardDescription>You'll stay signed in on this device after changing it</CardDescription>
+        <CardDescription>You'll stay signed in on this device; any other device is signed out</CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -62,7 +66,7 @@ export default function SecurityTab() {
             show={show.next}
             onToggle={() => setShow(p => ({ ...p, next: !p.next }))}
             autoComplete="new-password"
-            hint="Minimum 6 characters"
+            hint="Minimum 8 characters"
           />
           <PasswordField
             id="sec-confirm"
@@ -82,7 +86,7 @@ export default function SecurityTab() {
             </p>
           )}
           {matches && !tooShort && (
-            <p className="flex items-center gap-1.5 text-ui-xs text-emerald-600 font-medium">
+            <p className="flex items-center gap-1.5 text-ui-xs text-blue-600 font-medium">
               <CheckCircle className="size-3.5" /> Passwords match
             </p>
           )}
@@ -110,7 +114,7 @@ function PasswordField({ id, label, value, onChange, show, onToggle, autoComplet
           value={value}
           onChange={e => onChange(e.target.value)}
           autoComplete={autoComplete}
-          className={`pr-10 ${invalid ? 'border-red-400 focus-visible:ring-red-300' : valid ? 'border-emerald-400 focus-visible:ring-emerald-200' : ''}`}
+          className={`pr-10 ${invalid ? 'border-red-400 focus-visible:ring-red-300' : valid ? 'border-blue-400 focus-visible:ring-blue-200' : ''}`}
         />
         <button
           type="button"

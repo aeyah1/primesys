@@ -1,2 +1,0 @@
--- This migration file is intentionally empty.
--- The event_request_items table it previously referenced has been removed.

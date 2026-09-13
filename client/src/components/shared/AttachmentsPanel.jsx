@@ -5,7 +5,10 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { fmtDate } from '@/lib/utils'
+import { downloadFile, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
+
+const MAX_BYTES = 10 * 1024 * 1024   // the server's limit (utils/upload.js)
 
 function fileIcon(mimetype) {
   if (mimetype?.startsWith('image/')) return <FileImage className="size-4 text-blue-500 shrink-0" />
@@ -38,6 +41,11 @@ export default function AttachmentsPanel({ endpoint, queryKey, canDelete, canUpl
   async function handleUpload(e) {
     const file = e.target.files?.[0]
     if (!file) return
+    if (file.size > MAX_BYTES) {
+      toast.error(`${file.name} is larger than 10 MB`)
+      e.target.value = ''
+      return
+    }
     const formData = new FormData()
     formData.append('file', file)
     setUploading(true)
@@ -55,19 +63,12 @@ export default function AttachmentsPanel({ endpoint, queryKey, canDelete, canUpl
     }
   }
 
-  function download(att) {
-    const url = `${import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}${endpoint}/attachments/${att.id}/download`
-    const token = localStorage.getItem('primesys_token')
-    fetch(url, { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.blob())
-      .then(blob => {
-        const link = document.createElement('a')
-        link.href = URL.createObjectURL(blob)
-        link.download = att.original_name
-        link.click()
-        URL.revokeObjectURL(link.href)
-      })
-      .catch(() => toast.error('Download failed'))
+  async function download(att) {
+    try {
+      await downloadFile(`${endpoint}/attachments/${att.id}/download`, att.original_name)
+    } catch (err) {
+      toast.error(await blobErrorMessage(err, 'Download failed'))
+    }
   }
 
   return (
