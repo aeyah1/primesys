@@ -28,8 +28,7 @@ USE `primesys`;
 SET NAMES utf8mb4;
 
 -- ─── Users ──────────────────────────────────────────────────────────────────
--- Public sign-up may request procurement / supply / twg; those accounts start
--- with is_approved = 0 until an admin approves them. Everyone else is approved.
+-- Public sign-up always creates a requestor; admins assign every other role.
 CREATE TABLE `users` (
   `id`                         INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `name`                       VARCHAR(100) NOT NULL,
@@ -39,7 +38,6 @@ CREATE TABLE `users` (
   `role`                       ENUM('admin','procurement','requestor','supply','twg') NOT NULL DEFAULT 'requestor',
   `is_active`                  TINYINT(1)   NOT NULL DEFAULT 1,
   `is_verified`                TINYINT(1)   NOT NULL DEFAULT 0,
-  `is_approved`                TINYINT(1)   NOT NULL DEFAULT 1,
   -- Sign-in tokens carry this number; changing or resetting the password
   -- raises it, so every token issued before stops working.
   `token_version`              INT UNSIGNED NOT NULL DEFAULT 0,
@@ -420,8 +418,8 @@ CREATE TABLE `password_reset_tokens` (
 -- ─── Starting data ──────────────────────────────────────────────────────────
 
 -- Admin account: username `admin`, password `Admin@1234`; put your own email here before importing.
-INSERT INTO `users` (`name`, `username`, `email`, `password_hash`, `role`, `is_active`, `is_verified`, `is_approved`) VALUES
-  ('System Administrator', 'admin', 'admin@example.com','$2a$10$6M98Da8LCoGWN.6XMDRC8ueqg77kil5.cSOEoQjbDMg8EyF0/RHKu', 'admin', 1, 1, 1);
+INSERT INTO `users` (`name`, `username`, `email`, `password_hash`, `role`, `is_active`, `is_verified`) VALUES
+  ('System Administrator', 'admin', 'admin@example.com','$2a$10$6M98Da8LCoGWN.6XMDRC8ueqg77kil5.cSOEoQjbDMg8EyF0/RHKu', 'admin', 1, 1);
 
 -- 2026 quarters with their real date ranges; Q3 is the current one.
 INSERT INTO `quarters` (`label`, `year`, `start_date`, `end_date`, `is_active`) VALUES

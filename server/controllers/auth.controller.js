@@ -82,8 +82,8 @@ exports.register = async (req, res) => {
     let userId
     try {
       const [result] = await pool.execute(
-        `INSERT INTO users (name, username, email, password_hash, role, is_verified, is_approved, verify_token, verify_expires)
-         VALUES (?, ?, ?, ?, 'requestor', 0, 1, ?, NOW() + INTERVAL 24 HOUR)`,
+        `INSERT INTO users (name, username, email, password_hash, role, is_verified, verify_token, verify_expires)
+         VALUES (?, ?, ?, ?, 'requestor', 0, ?, NOW() + INTERVAL 24 HOUR)`,
         [name, username, email, passwordHash, tokenHash]
       )
       userId = result.insertId
@@ -174,7 +174,7 @@ exports.login = async (req, res) => {
   try {
     const { identifier, password } = req.body   // shape checked in the route
     const [rows] = await pool.execute(
-      `SELECT id, name, username, email, password_hash, token_version, role, is_active, is_verified, is_approved
+      `SELECT id, name, username, email, password_hash, token_version, role, is_active, is_verified
          FROM users WHERE LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?) LIMIT 1`,
       [identifier, identifier]
     )
@@ -200,11 +200,6 @@ exports.login = async (req, res) => {
     }
     if (!user.is_verified) {
       return res.status(403).json({ message: 'Your account requires email verification.', type: 'unverified' })
-    }
-    // Only accounts made by the retired role-request sign-up can be unapproved;
-    // saving the user in User Management approves it.
-    if (!user.is_approved) {
-      return res.status(403).json({ message: 'Your account is waiting for administrator approval.', type: 'pending_approval' })
     }
 
     securityLog('login', { userId: user.id, ip: req.ip })

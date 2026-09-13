@@ -12,16 +12,16 @@ const serverReq = (m) => require(require.resolve(m, { paths: [SERVER] }))
 // ── 1. Fixtures ──────────────────────────────────────────────────────────────
 function fixtures() {
   const hash = serverReq('bcryptjs').hashSync('Test@1234', 4)
-  const U = (id, u, role, active = 1, verified = 1, approved = 1) =>
-    `(${id}, '${u}', '${u}', '${u}@c2.invalid', '${hash}', '${role}', ${active}, ${verified}, ${approved})`
+  const U = (id, u, role, active = 1, verified = 1) =>
+    `(${id}, '${u}', '${u}', '${u}@c2.invalid', '${hash}', '${role}', ${active}, ${verified})`
   return `
     SET FOREIGN_KEY_CHECKS = 0;
-    INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified, is_approved) VALUES
+    INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified) VALUES
       ${U(1, 'admin1', 'admin')}, ${U(2, 'proc1', 'procurement')}, ${U(3, 'reqA', 'requestor')},
       ${U(4, 'reqB', 'requestor')}, ${U(5, 'sup1', 'supply')}, ${U(6, 'twg1', 'twg')},
-      ${U(7, 'pendProc', 'procurement', 1, 1, 0)}, ${U(8, 'inactReq', 'requestor', 0)},
-      ${U(9, 'unverReq', 'requestor', 1, 0)}, ${U(10, 'pendSup', 'supply', 1, 0, 0)},
-      ${U(11, 'pendTwg', 'twg', 1, 1, 0)};
+      ${U(7, 'pendProc', 'procurement', 0)}, ${U(8, 'inactReq', 'requestor', 0)},
+      ${U(9, 'unverReq', 'requestor', 1, 0)}, ${U(10, 'pendSup', 'supply', 0, 0)},
+      ${U(11, 'pendTwg', 'twg', 0)};
     INSERT INTO purchase_requests (id, pr_number, title, status, created_by, twg_reviewed_by) VALUES
       (1,  'PR-T-001', 'A draft',        'draft',              3, NULL),
       (2,  'PR-T-002', 'A submitted',    'submitted',          3, NULL),
@@ -163,26 +163,25 @@ add('TWG', 'review queue unchanged',                   6, 'GET', '/twg/pending',
 add('Admin', 'PR list = everything',                   1, 'GET', '/pr?limit=100', undefined, sameIds([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]), 'ids=[1..11]')
 add('Admin', "requestor's draft by ID",                1, 'GET', '/pr/8', undefined, code(200), '200')
 
-// Phase 1: login order, username, approve / decline
+// Phase 1: login order and username; the former pending accounts are deactivated by drop_user_approval.sql (DB-5).
 const login = (u, pw) => ({ identifier: u, password: pw })
-add('Login', 'pending + right password',   null, 'POST', '/auth/login', login('pendProc', 'Test@1234'), (r) => r.status === 403 && r.data.type === 'pending_approval', '403 pending_approval')
-add('Login', 'pending + wrong password',   null, 'POST', '/auth/login', login('pendProc', 'nope'),      code(401), '401')
+add('Login', 'former pending + right password', null, 'POST', '/auth/login', login('pendProc', 'Test@1234'), (r) => r.status === 403 && r.data.type === 'inactive', '403 deactivated')
+add('Login', 'former pending + wrong password', null, 'POST', '/auth/login', login('pendProc', 'nope'),      code(401), '401')
 add('Login', 'deactivated + wrong password', null, 'POST', '/auth/login', login('inactReq', 'nope'),    code(401), '401 (no status leak)')
 add('Login', 'deactivated + right password', null, 'POST', '/auth/login', login('inactReq', 'Test@1234'), code(403, 'deactivated'), '403 deactivated')
 add('Login', 'unverified + wrong password', null, 'POST', '/auth/login', login('unverReq', 'nope'),     code(401), '401 (no status leak)')
 add('Login', 'unverified + right password', null, 'POST', '/auth/login', login('unverReq', 'Test@1234'), (r) => r.status === 403 && r.data.type === 'unverified', '403 unverified')
 add('Login', 'normal account',             null, 'POST', '/auth/login', login('reqA', 'Test@1234'),     (r) => r.status === 200 && !!r.data.token, '200 token')
 add('Users', 'list includes usernames',    1, 'GET', '/users?limit=50', undefined, (r) => r.status === 200 && r.data.data.length === 11 && r.data.data.every(u => u.username), 'all 11 have username')
-// Role requests are retired (public sign-up is requestor-only); roles are
-// assigned only by an admin in User Management, which also approves.
+// Role requests are retired (public sign-up is requestor-only); roles are assigned only by an admin in User Management.
 add('Users', 'role-request approve endpoint gone', 1, 'PATCH', '/users/7/approve', undefined, code(404), '404')
 add('Users', 'role-request decline endpoint gone', 1, 'PATCH', '/users/10/decline', undefined, code(404), '404')
-add('Users', 'admin assigns the role (approves)', 1, 'PATCH', '/users/7', { name: 'pendProc', role: 'procurement' }, code(200), '200')
+add('Users', 'admin reactivates a former pending account', 1, 'PATCH', '/users/7/toggle', undefined, code(200), '200')
 add('Users', '…account can now sign in as procurement', null, 'POST', '/auth/login', login('pendProc', 'Test@1234'), (r) => r.status === 200 && r.data.user.role === 'procurement', '200 procurement')
 add('Users', 'admin assigns requestor instead', 1, 'PATCH', '/users/10', { name: 'pendSup', role: 'requestor' }, code(200), '200')
 add('Users', '…list shows the assigned role', 1, 'GET', '/users?limit=50', undefined, (r) => r.status === 200 && r.data.data.find(x => x.id === 10)?.role === 'requestor', 'role requestor')
-add('Users', 'pending → edited to requestor', 1, 'PATCH', '/users/11', { name: 'pendTwg', role: 'requestor' }, code(200), '200')
-add('Users', '…and can now sign in',     null, 'POST', '/auth/login', login('pendTwg', 'Test@1234'), code(200), '200 (not stuck pending)')
+add('Users', 'editing a deactivated account', 1, 'PATCH', '/users/11', { name: 'pendTwg', role: 'requestor' }, code(200), '200')
+add('Users', '…does not reactivate it',  null, 'POST', '/auth/login', login('pendTwg', 'Test@1234'), (r) => r.status === 403 && r.data.type === 'inactive', '403 still deactivated')
 add('Users', 'non-admin cannot approve',   3, 'PATCH', '/users/7/approve', undefined, code(403), '403')
 
 async function run() {

@@ -15,13 +15,13 @@ const tempPath = path.join(UPLOADS, TEMP_FILE)
 
 function fixtures() {
   const hash = serverReq('bcryptjs').hashSync('Test@1234', 4)
-  const U = (id, u, role) => `(${id}, '${u}', '${u}', '${u}@p2.invalid', '${hash}', '${role}', 1, 1, 1)`
+  const U = (id, u, role) => `(${id}, '${u}', '${u}', '${u}@p2.invalid', '${hash}', '${role}', 1, 1)`
   const P = (id, status, owner, twg = 'NULL') => `(${id}, 'PR-P2-${String(id).padStart(3, '0')}', 'P2 fixture ${id}', '${status}', ${owner}, ${twg})`
   fs.mkdirSync(UPLOADS, { recursive: true })
   fs.writeFileSync(tempPath, '%PDF-1.4 p2 delete test')
   return `
     SET FOREIGN_KEY_CHECKS = 0;
-    INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified, is_approved) VALUES
+    INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified) VALUES
       ${U(1, 'admin1', 'admin')}, ${U(2, 'proc1', 'procurement')}, ${U(3, 'reqA', 'requestor')},
       ${U(4, 'reqB', 'requestor')}, ${U(5, 'sup1', 'supply')}, ${U(6, 'twg1', 'twg')};
     INSERT INTO purchase_requests (id, pr_number, title, status, created_by, twg_reviewed_by) VALUES

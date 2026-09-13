@@ -16,12 +16,12 @@ const tok  = (id) => jwt.sign({ id, role: ROLE[id] }, config.jwt.secret, { expir
 
 function fixtures() {
   const hash = serverReq('bcryptjs').hashSync('Test@1234', 4)
-  const U = (id, name, active = 1) => `(${id}, '${name}', '${name.toLowerCase().replace(/\W/g, '')}', 'u${id}@areas.invalid', '${hash}', '${ROLE[id]}', ${active}, 1, 1)`
+  const U = (id, name, active = 1) => `(${id}, '${name}', '${name.toLowerCase().replace(/\W/g, '')}', 'u${id}@areas.invalid', '${hash}', '${ROLE[id]}', ${active}, 1)`
   const P = (id, status, owner, category, extra = {}) =>
     `(${id}, 'PR-A-${id}', 'Areas ${id}', '${status}', ${owner}, '${category}', ${extra.reviewer ?? 'NULL'}, ${extra.at ? `'${extra.at}'` : 'NULL'}, ${extra.needed ? `'${extra.needed}'` : 'NULL'})`
   return `
     SET FOREIGN_KEY_CHECKS = 0;
-    INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified, is_approved) VALUES
+    INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified) VALUES
       ${U(1, 'Admin One')}, ${U(2, 'Proc One')}, ${U(3, 'Req A')}, ${U(4, 'Req B')}, ${U(5, 'Engr Santos')},
       ${U(6, 'Ms Reyes')}, ${U(7, 'Dr Cruz')}, ${U(8, 'New Member')}, ${U(9, 'Gone Reviewer', 0)}, ${U(10, 'Sup One')};
     INSERT INTO purchase_requests (id, pr_number, title, status, created_by, category, twg_reviewed_by, twg_reviewed_at, date_needed) VALUES

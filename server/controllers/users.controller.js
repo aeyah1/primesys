@@ -137,7 +137,7 @@ exports.update = async (req, res) => {
     }
     const areasSaved = await withTransaction(async (conn) => {
       await conn.execute(
-        'UPDATE users SET name = ?, role = ?, is_approved = 1' + (username ? ', username = ?' : '') + ' WHERE id = ?',
+        'UPDATE users SET name = ?, role = ?' + (username ? ', username = ?' : '') + ' WHERE id = ?',
         username
           ? [name.trim(), role, username.trim(), current[0].id]
           : [name.trim(), role, current[0].id]
