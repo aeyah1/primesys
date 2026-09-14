@@ -53,7 +53,9 @@ async function run() {
   const t = H.suite('CANVASS')
   const is = async (g, label, who, m, p, body, ok) => { const r = await http(who, m, p, body); t.check(g, label, ok(r), show(r)); return r }
   const code = (c, re) => (r) => r.status === c && (!re || re.test(r.data?.message || ''))
-  const Q = (name, prices, extra = {}) => ({ supplier_name: name, quoted_at: '2026-09-10', prices: Object.entries(prices).map(([item, unit_price]) => ({ item: Number(item), unit_price })), ...extra })
+  // A quotation needs the supplier's contact details (TIN optional).
+  const CONTACT = { supplier_contact: 'Sales Desk', supplier_phone: '0917-000-0000', supplier_email: 'sales@supplier.invalid', supplier_address: 'Tandag City' }
+  const Q = (name, prices, extra = {}) => ({ supplier_name: name, quoted_at: '2026-09-10', ...CONTACT, prices: Object.entries(prices).map(([item, unit_price]) => ({ item: Number(item), unit_price })), ...extra })
 
   // Quotations
   const G1 = 'Quotations'
@@ -67,14 +69,21 @@ async function run() {
   await is(G1, 'a zero price → 400', 2, 'POST', '/canvass/80/quotations', Q('X', { 801: 0 }), code(400))
   await is(G1, 'an item of another PR → 400', 2, 'POST', '/canvass/80/quotations', Q('X', { 811: 100 }), code(400, /not on this PR/))
   await is(G1, 'an item twice → 400', 2, 'POST', '/canvass/80/quotations',
-    { supplier_name: 'X', prices: [{ item: 801, unit_price: 1 }, { item: 801, unit_price: 2 }] }, code(400, /twice/))
+    { supplier_name: 'X', ...CONTACT, prices: [{ item: 801, unit_price: 1 }, { item: 801, unit_price: 2 }] }, code(400, /twice/))
   await is(G1, 'a bad email → 400', 2, 'POST', '/canvass/80/quotations', Q('X', { 801: 1 }, { supplier_email: 'nope' }), code(400))
+  for (const [field, label] of [['supplier_contact', 'Contact person'], ['supplier_phone', 'Phone number'], ['supplier_email', 'Email address'], ['supplier_address', 'Business address']]) {
+    await is(G1, `no ${label.toLowerCase()} → 400`, 2, 'POST', '/canvass/80/quotations', Q('X', { 801: 1 }, { [field]: '   ' }), code(400, new RegExp(`${label} is required`)))
+  }
+  await is(G1, 'details left out entirely → 400', 2, 'POST', '/canvass/80/quotations',
+    { supplier_name: 'X', prices: [{ item: 801, unit_price: 1 }] }, code(400, /Contact person is required/))
   await is(G1, 'a PR not under canvass → 409', 2, 'POST', '/canvass/81/quotations', Q('X', { 811: 100 }), code(409, /under canvass/))
   await is(G1, 'the canvass: every item still needs an award, three open quotations', 2, 'GET', '/canvass/80', undefined,
     (r) => r.status === 200 && r.data.items.every(i => i.state === 'pending') && r.data.quotations.length === 3
            && r.data.quotations.every(q => !q.locked) && num(r.data.quotations[1].prices[804]) === 29000 && r.data.permissions.canvass === true)
   await is(G1, 'supply doesn\'t see a PR with no award yet (404, C2)', 4, 'GET', '/canvass/80', undefined, code(404))
   await is(G1, 'a requestor may not look (403)', 3, 'GET', '/canvass/80', undefined, code(403))
+  await is(G1, 'an edit must keep the contact details → 400', 2, 'PATCH', `/canvass/80/quotations/${qc.data?.id}`,
+    Q('Gamma Trading', { 804: 27500, 802: 420 }, { supplier_phone: '' }), code(400, /Phone number is required/))
   await is(G1, 'edit Gamma\'s price', 2, 'PATCH', `/canvass/80/quotations/${qc.data?.id}`, Q('Gamma Trading', { 804: 27500, 802: 420 }), code(200))
   await is(G1, '…saved', 2, 'GET', '/canvass/80', undefined, (r) => r.status === 200 && num(r.data.quotations[2].prices[804]) === 27500)
   const qx = await is(G1, 'a quotation recorded by mistake', 2, 'POST', '/canvass/80/quotations', Q('Mistake Co', { 801: 1 }), code(201))
