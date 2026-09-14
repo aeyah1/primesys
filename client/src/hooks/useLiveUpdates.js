@@ -67,7 +67,7 @@ export function useLiveUpdates() {
         case 'delivered':
           qc.invalidateQueries({ queryKey: ['pr-list'] })
           qc.invalidateQueries({ queryKey: ['pr-stats'] })
-          qc.invalidateQueries({ queryKey: ['history-pr'] })
+          qc.invalidateQueries({ queryKey: ['archive'] })
           break
       }
     }

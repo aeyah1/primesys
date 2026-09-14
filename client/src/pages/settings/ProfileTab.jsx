@@ -14,7 +14,7 @@ import api from '@/lib/axios'
 const ROLE_LABELS = {
   admin:       'Administrator',
   procurement: 'Procurement Officer',
-  extension:   'Extension Officer',
+  requestor:   'Requestor',
   supply:      'Supply Officer',
 }
 

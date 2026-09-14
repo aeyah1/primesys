@@ -1,15 +1,15 @@
 const esc = require('../utils/escapeHtml')
 
-// Formal letter sent to the extension officer when their PR cycle closes
+// Formal letter sent to the requestor when their PR cycle closes
 // (supply officer marks the delivery as complete).
-//   recipientName — extension officer's display name
-//   prNumber      — system-generated PR identifier (safe)
-//   updaterName   — supply officer's display name (untrusted)
+// recipientName - requestor's display name
+// prNumber - system-generated PR identifier (safe)
+// updaterName - supply officer's display name (untrusted)
 module.exports = function deliveryCompleteEmail({ recipientName, prNumber, updaterName }) {
   return `
     <div style="font-family:Georgia,'Times New Roman',serif;max-width:620px;margin:auto;padding:40px 48px;border:1px solid #d1d5db;background:#fff;color:#111827;line-height:1.8;font-size:14px;">
       <div style="margin-bottom:28px;">
-        <p style="margin:0;font-size:16px;font-weight:700;color:#14532d;font-family:Inter,Arial,sans-serif;">PRimeSys</p>
+        <p style="margin:0;font-size:16px;font-weight:700;color:#1E3A8A;font-family:Inter,Arial,sans-serif;">PRimeSys</p>
         <p style="margin:2px 0 0;font-size:11px;color:#6b7280;font-family:Inter,Arial,sans-serif;">Procurement Management System · NEMSU Cantilan Campus</p>
       </div>
       <hr style="border:none;border-top:1px solid #e5e7eb;margin-bottom:28px;" />

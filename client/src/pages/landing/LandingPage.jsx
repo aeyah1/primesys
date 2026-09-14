@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  Leaf, FileText, Gavel, Package, ArrowRight,
+  FileText, Gavel, Package, ArrowRight,
   Clock, Users, BarChart3, ChevronDown,
   CheckCircle2, Zap, ShieldCheck, Bell,
 } from 'lucide-react'
@@ -25,12 +25,12 @@ const FEATURES = [
     accent: 'from-amber-500 to-orange-500',
     badge: 'bg-amber-100 text-amber-700',
     glow: 'hover:shadow-amber-100',
-    label: 'Bidding Module',
-    desc: 'Transparent supplier canvassing with bid logging, winner selection, and a full audit trail.',
+    label: 'Canvass & Award',
+    desc: 'Supplier canvassing with recorded awards, supplier details, and a status history for every PR.',
   },
   {
     icon: Package,
-    accent: 'from-teal-500 to-emerald-500',
+    accent: 'from-teal-500 to-blue-500',
     badge: 'bg-teal-100 text-teal-700',
     glow: 'hover:shadow-teal-100',
     label: 'Delivery Monitor',
@@ -48,22 +48,22 @@ const FEATURES = [
 ]
 
 const STEPS = [
-  { num: '01', label: 'Event Request',    desc: 'Extension officer submits an event request with items and estimated costs.' },
-  { num: '02', label: 'Purchase Request', desc: 'Procurement consolidates requests into a formal purchase request.' },
-  { num: '03', label: 'Lot & Award',      desc: 'Items grouped into lots, bids evaluated, winner recorded.' },
-  { num: '04', label: 'Issue PO',         desc: 'Purchase order issued to the awarded contractor.' },
+  { num: '01', label: 'Purchase Request', desc: 'A requestor submits a purchase request with items and estimated costs.' },
+  { num: '02', label: 'TWG Review',       desc: 'The Technical Working Group reviews the request and approves it for procurement.' },
+  { num: '03', label: 'Canvass & Award',  desc: 'Procurement canvasses suppliers and records the award.' },
+  { num: '04', label: 'Issue PO',         desc: 'Purchase order issued to the awarded supplier.' },
   { num: '05', label: 'Delivery',         desc: 'Goods received and confirmed — the cycle closes with an IAR.' },
 ]
 
 const BENEFITS = [
-  { icon: Zap,         label: 'Real-time updates',   desc: 'Every status change triggers instant in-app and email notifications to all stakeholders.' },
-  { icon: ShieldCheck, label: 'Complete audit trail', desc: 'Every action is timestamped and tied to a user. Nothing gets lost or changed silently.' },
-  { icon: Bell,        label: 'Smart reminders',      desc: 'Set deadline reminders on lots, POs, and deliveries. Get pinged before anything goes overdue.' },
+  { icon: Zap,         label: 'Real-time updates',   desc: 'Status changes reach the people involved instantly in the app, with email for key events like deliveries and reminders.' },
+  { icon: ShieldCheck, label: 'Complete audit trail', desc: 'Every status change is timestamped and tied to a user, and finished PRs are archived, never erased.' },
+  { icon: Bell,        label: 'Smart reminders',      desc: 'Set reminders on PRs and lots for yourself or a colleague. Due reminders arrive by email.' },
 ]
 
 const METRICS = [
   { value: 5,   suffix: '',   label: 'Workflow stages',      icon: CheckCircle2 },
-  { value: 4,   suffix: '',   label: 'User roles supported', icon: Users },
+  { value: 5,   suffix: '',   label: 'User roles supported', icon: Users },
   { value: 100, suffix: '%',  label: 'Digital — no paper',  icon: ShieldCheck },
   { value: 0,   suffix: '',   label: 'Manual follow-ups',   icon: Zap },
 ]
@@ -142,7 +142,7 @@ function MetricCounter({ value, suffix, label, icon: Icon, delay }) {
     <div ref={ref} className="flex flex-col items-center text-center"
       style={visible ? { animation: `fade-in-up 0.5s ${delay}ms ease-out both` } : { opacity: 0 }}>
       <div className="flex size-12 items-center justify-center rounded-2xl bg-white/10 mb-4">
-        <Icon className="size-5 text-emerald-300" />
+        <Icon className="size-5 text-blue-300" />
       </div>
       <div className="text-4xl font-bold text-white tabular-nums mb-1">
         {started
@@ -150,7 +150,7 @@ function MetricCounter({ value, suffix, label, icon: Icon, delay }) {
           : <span>0{suffix}</span>
         }
       </div>
-      <p className="text-emerald-200/60 text-sm font-medium">{label}</p>
+      <p className="text-blue-200/60 text-sm font-medium">{label}</p>
     </div>
   )
 }
@@ -166,24 +166,24 @@ export default function LandingPage() {
 
       {/* scroll progress */}
       <div className="fixed top-0 left-0 h-[3px] z-[100] pointer-events-none"
-        style={{ width: `${progress}%`, background: 'linear-gradient(90deg, hsl(145,62%,45%), hsl(160,70%,60%))' }} />
+        style={{ width: `${progress}%`, background: 'linear-gradient(90deg, hsl(222,62%,45%), hsl(222,70%,60%))' }} />
 
       {/* ── Nav ── */}
       <header className="sticky top-0 z-50 transition-all duration-300"
         style={scrolled
-          ? { background: 'rgba(255,255,255,0.93)', backdropFilter: 'blur(16px)', borderBottom: '1px solid var(--color-border)', boxShadow: '0 2px 16px rgba(15,74,34,0.07)' }
-          : { background: 'transparent', borderBottom: '1px solid rgba(255,255,255,0.07)' }
+          ? { background: 'rgba(255,255,255,0.93)', backdropFilter: 'blur(16px)', borderBottom: '1px solid var(--color-border)', boxShadow: '0 2px 16px rgba(18,42,107,0.10)' }
+          : { background: 'hsl(225, 75%, 12%)', borderBottom: '1px solid rgba(255,255,255,0.10)', boxShadow: '0 2px 16px rgba(0,0,0,0.20)' }
         }>
         <div className="max-w-7xl mx-auto px-6 sm:px-8 h-16 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-3" style={{ animation: 'fade-in-right 0.45s ease-out both' }}>
-            <div className={`flex size-9 items-center justify-center rounded-xl transition-all duration-300 ${scrolled ? 'bg-[--color-brand]' : 'bg-white/12'}`}>
-              <Leaf className={`size-4 animate-float transition-colors duration-300 ${scrolled ? 'text-emerald-200' : 'text-emerald-300'}`} />
+            <div className="flex size-10 items-center justify-center">
+              <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-8 object-contain" />
             </div>
             <div>
               <p className={`font-bold text-base leading-none tracking-tight transition-colors duration-300 ${scrolled ? 'text-[--color-text-primary]' : 'text-white'}`}>
                 PRimeSys
               </p>
-              <p className={`text-[10px] mt-0.5 leading-none transition-colors duration-300 ${scrolled ? 'text-[--color-text-muted]' : 'text-emerald-300/50'}`}>
+              <p className={`text-[11px] mt-0.5 leading-none font-medium transition-colors duration-300 ${scrolled ? 'text-[--color-text-muted]' : 'text-[#ECB22E]'}`}>
                 Alleah Carmel and Friends
               </p>
             </div>
@@ -191,11 +191,11 @@ export default function LandingPage() {
 
           <div className="flex items-center gap-2" style={{ animation: 'fade-in-left 0.45s 0.05s ease-out both' }}>
             <Button asChild variant="ghost" size="sm"
-              className={scrolled ? '' : 'text-white/75 hover:text-white hover:bg-white/10'}>
+              className={scrolled ? '' : 'text-white font-semibold hover:text-white hover:bg-white/15'}>
               <Link to="/login">Sign in</Link>
             </Button>
             <Button asChild size="sm"
-              className={scrolled ? '' : 'bg-white text-[hsl(145,62%,18%)] hover:bg-white/92 font-bold shadow-lg shadow-black/20'}>
+              className={scrolled ? '' : 'bg-white text-[hsl(222,62%,18%)] hover:bg-white/92 font-bold shadow-lg shadow-black/20'}>
               <Link to="/register">Get started</Link>
             </Button>
           </div>
@@ -205,29 +205,29 @@ export default function LandingPage() {
       {/* ── Hero ── */}
       <section
         className="relative flex flex-col items-center justify-center min-h-[calc(100vh-4rem)] overflow-hidden px-6"
-        style={{ background: 'linear-gradient(155deg, hsl(145,75%,8%) 0%, hsl(145,62%,15%) 55%, hsl(150,55%,20%) 100%)' }}
+        style={{ background: 'linear-gradient(155deg, hsl(222,75%,8%) 0%, hsl(222,62%,15%) 55%, hsl(222,55%,20%) 100%)' }}
       >
         {/* dot grid */}
         <div className="pointer-events-none absolute inset-0 opacity-[0.07]"
-          style={{ backgroundImage: 'radial-gradient(circle, hsl(145,70%,70%) 1px, transparent 1px)', backgroundSize: '30px 30px' }} />
+          style={{ backgroundImage: 'radial-gradient(circle, hsl(222,70%,70%) 1px, transparent 1px)', backgroundSize: '30px 30px' }} />
 
         {/* orbs */}
         <div className="pointer-events-none absolute -top-40 -left-40 size-[700px] rounded-full opacity-[0.13]"
-          style={{ background: 'radial-gradient(circle, hsl(145,62%,45%) 0%, transparent 65%)', animation: 'float 9s ease-in-out infinite' }} />
+          style={{ background: 'radial-gradient(circle, hsl(222,62%,45%) 0%, transparent 65%)', animation: 'float 9s ease-in-out infinite' }} />
         <div className="pointer-events-none absolute -bottom-48 -right-32 size-[600px] rounded-full opacity-[0.09]"
-          style={{ background: 'radial-gradient(circle, hsl(160,58%,38%) 0%, transparent 65%)', animation: 'float 12s ease-in-out infinite reverse' }} />
+          style={{ background: 'radial-gradient(circle, hsl(222,58%,38%) 0%, transparent 65%)', animation: 'float 12s ease-in-out infinite reverse' }} />
         <div className="pointer-events-none absolute top-1/3 left-1/4 size-[350px] rounded-full opacity-[0.06]"
-          style={{ background: 'radial-gradient(circle, hsl(145,50%,55%) 0%, transparent 65%)', animation: 'float 7s ease-in-out infinite 2s' }} />
+          style={{ background: 'radial-gradient(circle, hsl(222,50%,55%) 0%, transparent 65%)', animation: 'float 7s ease-in-out infinite 2s' }} />
 
         {/* content */}
         <div className="relative z-10 text-center max-w-4xl mx-auto py-16">
           <div className="inline-flex items-center gap-2.5 rounded-full border border-white/15 bg-white/[0.07] px-5 py-2 mb-10"
             style={{ animation: 'fade-in-down 0.5s ease-out both' }}>
             <span className="relative flex size-2">
-              <span className="animate-ping absolute size-full rounded-full bg-emerald-400 opacity-70" />
-              <span className="relative size-2 rounded-full bg-emerald-400" />
+              <span className="animate-ping absolute size-full rounded-full bg-blue-400 opacity-70" />
+              <span className="relative size-2 rounded-full bg-blue-400" />
             </span>
-            <span className="text-emerald-300/90 text-[11px] font-semibold tracking-[0.12em] uppercase">NEMSU Cantilan Campus</span>
+            <span className="text-blue-300/90 text-[11px] font-semibold tracking-[0.12em] uppercase">NEMSU Cantilan Campus</span>
           </div>
 
           <h1 className="font-bold text-white leading-[1.06] tracking-tight mb-7"
@@ -235,12 +235,12 @@ export default function LandingPage() {
             Procurement,
             <br />
             <span style={{
-              background: 'linear-gradient(105deg, hsl(145,68%,70%) 0%, hsl(162,62%,78%) 50%, hsl(145,62%,62%) 100%)',
+              background: 'linear-gradient(105deg, hsl(222,68%,70%) 0%, hsl(222,62%,78%) 50%, hsl(222,62%,62%) 100%)',
               WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text',
             }}>Start to Finish.</span>
           </h1>
 
-          <p className="text-emerald-100/45 leading-relaxed mx-auto mb-10"
+          <p className="text-blue-100/45 leading-relaxed mx-auto mb-10"
             style={{ fontSize: 'clamp(1rem, 2vw, 1.15rem)', maxWidth: '34rem', animation: 'fade-in-up 0.5s 0.24s cubic-bezier(0.22,1,0.36,1) both' }}>
             One platform for purchase requests, supplier bidding, purchase orders,
             and delivery monitoring — built for NEMSU.
@@ -249,7 +249,7 @@ export default function LandingPage() {
           <div className="flex items-center justify-center gap-3 flex-wrap mb-12"
             style={{ animation: 'fade-in-up 0.5s 0.36s cubic-bezier(0.22,1,0.36,1) both' }}>
             <Button asChild size="lg"
-              className="h-12 px-8 text-[15px] bg-white text-[hsl(145,62%,16%)] hover:bg-white/94 font-bold shadow-2xl shadow-black/35">
+              className="h-12 px-8 text-[15px] bg-white text-[hsl(222,62%,16%)] hover:bg-white/94 font-bold shadow-2xl shadow-black/35">
               <Link to="/register">
                 <span className="flex items-center gap-2">Get started free <ArrowRight className="size-4" /></span>
               </Link>
@@ -267,13 +267,13 @@ export default function LandingPage() {
               { icon: Gavel,       label: 'Bidding' },
               { icon: Package,     label: 'Delivery' },
               { icon: BarChart3,   label: 'Reports' },
-              { icon: Users,       label: '4 Roles' },
+              { icon: Users,       label: '5 Roles' },
               { icon: Clock,       label: 'Real-time' },
               { icon: ShieldCheck, label: 'Audit Trail' },
             ].map(({ icon: Icon, label }) => (
               <div key={label}
                 className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-3.5 py-1.5 hover:bg-white/12 hover:border-white/18 transition-all duration-200">
-                <Icon className="size-3 text-emerald-400/75 shrink-0" />
+                <Icon className="size-3 text-blue-400/75 shrink-0" />
                 <span className="text-white/55 text-xs font-medium">{label}</span>
               </div>
             ))}
@@ -286,12 +286,12 @@ export default function LandingPage() {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-white/[0.08] rounded-t-2xl overflow-hidden border border-white/[0.09] border-b-0">
             {[
               { label: 'Workflow Stages', value: '5',    icon: CheckCircle2 },
-              { label: 'User Roles',      value: '4',    icon: Users },
+              { label: 'User Roles',      value: '5',    icon: Users },
               { label: 'Live Updates',    value: '∞',    icon: Zap },
               { label: 'Audit Trail',     value: '100%', icon: ShieldCheck },
             ].map(({ label, value, icon: Icon }) => (
               <div key={label} className="bg-white/[0.05] px-6 py-5 text-center hover:bg-white/[0.09] transition-colors duration-200">
-                <Icon className="size-4 text-emerald-400/65 mx-auto mb-1.5" />
+                <Icon className="size-4 text-blue-400/65 mx-auto mb-1.5" />
                 <p className="text-white font-bold text-xl">{value}</p>
                 <p className="text-white/40 text-xs mt-0.5 font-medium">{label}</p>
               </div>
@@ -343,7 +343,7 @@ export default function LandingPage() {
 
       {/* ── Metrics ── */}
       <section className="py-24 px-6"
-        style={{ background: 'linear-gradient(135deg, hsl(145,75%,8%) 0%, hsl(145,62%,15%) 100%)' }}>
+        style={{ background: 'linear-gradient(135deg, hsl(222,75%,8%) 0%, hsl(222,62%,15%) 100%)' }}>
         <div className="max-w-5xl mx-auto">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-10">
             {METRICS.map(({ value, suffix, label, icon }, i) => (
@@ -427,29 +427,29 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto">
           <Reveal from="scale">
             <div className="relative rounded-3xl overflow-hidden"
-              style={{ background: 'linear-gradient(150deg, hsl(145,78%,7%) 0%, hsl(145,65%,14%) 50%, hsl(150,55%,18%) 100%)' }}>
+              style={{ background: 'linear-gradient(150deg, hsl(222,78%,7%) 0%, hsl(222,65%,14%) 50%, hsl(222,55%,18%) 100%)' }}>
               <div className="absolute inset-0 pointer-events-none opacity-[0.06]"
-                style={{ backgroundImage: 'radial-gradient(circle, hsl(145,70%,70%) 1px, transparent 1px)', backgroundSize: '26px 26px' }} />
+                style={{ backgroundImage: 'radial-gradient(circle, hsl(222,70%,70%) 1px, transparent 1px)', backgroundSize: '26px 26px' }} />
               <div className="pointer-events-none absolute -top-20 -right-16 size-72 rounded-full opacity-[0.12]"
-                style={{ background: 'radial-gradient(circle, hsl(145,62%,45%) 0%, transparent 70%)', animation: 'float 8s ease-in-out infinite' }} />
+                style={{ background: 'radial-gradient(circle, hsl(222,62%,45%) 0%, transparent 70%)', animation: 'float 8s ease-in-out infinite' }} />
               <div className="pointer-events-none absolute -bottom-20 -left-12 size-80 rounded-full opacity-[0.09]"
-                style={{ background: 'radial-gradient(circle, hsl(160,58%,40%) 0%, transparent 70%)', animation: 'float 10s ease-in-out infinite reverse' }} />
+                style={{ background: 'radial-gradient(circle, hsl(222,58%,40%) 0%, transparent 70%)', animation: 'float 10s ease-in-out infinite reverse' }} />
 
               <div className="relative px-8 py-20 text-center">
-                <div className="flex size-16 items-center justify-center rounded-2xl bg-white/12 mx-auto mb-7">
-                  <Leaf className="size-8 text-emerald-300 animate-float" />
+                <div className="flex size-20 items-center justify-center mx-auto mb-7">
+                  <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-16 object-contain" />
                 </div>
                 <h2 className="font-bold text-white tracking-tight mb-5"
                   style={{ fontSize: 'clamp(1.8rem, 4vw, 3rem)' }}>
                   Ready to get started?
                 </h2>
-                <p className="text-emerald-100/45 text-base mb-10 max-w-lg mx-auto leading-relaxed">
+                <p className="text-blue-100/45 text-base mb-10 max-w-lg mx-auto leading-relaxed">
                   Create your account and start managing procurement with full transparency,
                   accountability, and zero paperwork.
                 </p>
                 <div className="flex items-center justify-center gap-4 flex-wrap">
                   <Button asChild size="lg"
-                    className="h-12 px-10 text-[15px] bg-white text-[hsl(145,62%,16%)] hover:bg-white/94 font-bold shadow-2xl shadow-black/35">
+                    className="h-12 px-10 text-[15px] bg-white text-[hsl(222,62%,16%)] hover:bg-white/94 font-bold shadow-2xl shadow-black/35">
                     <Link to="/register">
                       <span className="flex items-center gap-2">Create free account <ArrowRight className="size-4" /></span>
                     </Link>
@@ -470,8 +470,8 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-6 sm:px-8 py-10">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-6">
             <div className="flex items-center gap-3">
-              <div className="flex size-9 items-center justify-center rounded-xl bg-[--color-brand]">
-                <Leaf className="size-4 text-emerald-200" />
+              <div className="flex size-9 items-center justify-center">
+                <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-7 object-contain" />
               </div>
               <div>
                 <p className="font-bold text-[--color-text-primary] leading-tight">PRimeSys</p>

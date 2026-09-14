@@ -7,26 +7,13 @@ import { Download } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { fmtCurrency } from '@/lib/utils'
+import { fmtCurrency, PR_STATUS_LABELS, CATEGORY_LABELS } from '@/lib/utils'
 import api from '@/lib/axios'
-
-const CATEGORY_LABELS = {
-  food: 'Food & Supplies', hardware: 'Hardware / Equipment',
-  technical: 'Technical Equipment', office: 'Office Supplies',
-  tarpaulin: 'Tarpaulin / Signage', token: 'Token / Gift', other: 'Other',
-}
 
 const CATEGORY_COLORS = [
   '#166534', '#15803d', '#16a34a', '#b45309',
   '#d97706', '#0f766e', '#7c3aed', '#be123c',
 ]
-
-const STATUS_LABELS = {
-  submitted: 'Submitted',
-  for_bidding: 'For Bidding', bidding_done: 'Bidding Done', awarded: 'Awarded',
-  po_issued: 'PO Issued', waiting_delivery: 'Waiting Delivery',
-  delivered: 'Delivered', cancelled: 'Cancelled',
-}
 
 function StatCard({ label, value, sub }) {
   return (
@@ -101,19 +88,22 @@ export default function ReportsPage() {
     // Status breakdown
     const statusRows = [
       ['Status', 'Count'],
-      ...byStatus.map(s => [STATUS_LABELS[s.status] || s.status, s.count]),
+      ...byStatus.map(s => [PR_STATUS_LABELS[s.status] || s.status, s.count]),
     ]
     downloadCSV(`PRimeSys-Quarterly-${date}.csv`, quarterRows)
     setTimeout(() => downloadCSV(`PRimeSys-Categories-${date}.csv`, categoryRows), 300)
     setTimeout(() => downloadCSV(`PRimeSys-Status-${date}.csv`, statusRows), 600)
   }
 
-  const quarterChartData = byQuarter.slice(0, 8).map(q => ({
-    name: `${q.label} ${q.year}`,
-    spending: parseFloat(q.total_spending),
-    budget: q.budget ? parseFloat(q.budget) : null,
-    prs: q.pr_count,
-  })).reverse()
+  // Oldest quarter on the left, whatever order the server sends.
+  const quarterChartData = [...byQuarter.slice(0, 8)]
+    .sort((a, b) => a.year - b.year || a.label.localeCompare(b.label))
+    .map(q => ({
+      name: `${q.label} ${q.year}`,
+      spending: parseFloat(q.total_spending),
+      budget: q.budget ? parseFloat(q.budget) : null,
+      prs: q.pr_count,
+    }))
 
   const categoryChartData = byCategory.map(c => ({
     name: CATEGORY_LABELS[c.category] || c.category,
@@ -127,9 +117,11 @@ export default function ReportsPage() {
     prs: m.pr_count,
   }))
 
-  const statusChartData = byStatus
-    .filter(s => s.status !== 'cancelled')
-    .map(s => ({ name: STATUS_LABELS[s.status] || s.status, value: parseInt(s.count) }))
+  // Statuses in pipeline order (the order of PR_STATUS_LABELS), only those with PRs.
+  const statusCounts = Object.fromEntries(byStatus.map(s => [s.status, parseInt(s.count)]))
+  const statusChartData = Object.keys(PR_STATUS_LABELS)
+    .filter(s => s !== 'cancelled' && statusCounts[s])
+    .map(s => ({ name: PR_STATUS_LABELS[s], value: statusCounts[s] }))
 
   return (
     <div className="space-y-5">
@@ -150,7 +142,7 @@ export default function ReportsPage() {
         <StatCard label="Total PRs" value={totals.total_prs ?? 0} />
         <StatCard label="Total Spending" value={fmtCurrency(totals.total_spending)} />
         <StatCard label="In Progress" value={totals.in_progress ?? 0} sub="bidding → delivery" />
-        <StatCard label="Delivered" value={totals.delivered ?? 0} sub="completed PRs" />
+        <StatCard label="Completed" value={totals.completed ?? 0} sub="fully delivered PRs" />
       </div>
 
       {/* Quarterly Spending Bar Chart */}
@@ -166,9 +158,9 @@ export default function ReportsPage() {
                   <XAxis dataKey="name" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
                   <YAxis tickFormatter={fmtK} tick={{ fontSize: 11 }} width={60} axisLine={false} tickLine={false} />
                   <Tooltip formatter={(v, name) => [fmtCurrency(v), name === 'spending' ? 'Spending' : 'Budget']} />
-                  <Bar dataKey="spending" fill="hsl(145,62%,24%)" radius={[4, 4, 0, 0]} name="spending" />
+                  <Bar dataKey="spending" fill="hsl(222,62%,24%)" radius={[4, 4, 0, 0]} name="spending" />
                   {quarterChartData.some(d => d.budget) && (
-                    <Bar dataKey="budget" fill="hsl(145,55%,85%)" radius={[4, 4, 0, 0]} name="budget" />
+                    <Bar dataKey="budget" fill="hsl(222,55%,85%)" radius={[4, 4, 0, 0]} name="budget" />
                   )}
                 </BarChart>
               </ResponsiveContainer>
@@ -180,7 +172,10 @@ export default function ReportsPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {/* Category Pie Chart */}
         <Card>
-          <CardHeader><CardTitle>Spending by Category</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle>Spending by Category</CardTitle>
+            <p className="text-ui-xs text-[--color-text-muted]">Active purchase orders, by PR category</p>
+          </CardHeader>
           <CardContent>
             {categoryChartData.length === 0
               ? <p className="text-center text-ui-sm text-[--color-text-muted] py-10">No data yet</p>
@@ -218,15 +213,15 @@ export default function ReportsPage() {
                   <AreaChart data={monthlyChartData} margin={{ top: 4, right: 16, left: 0, bottom: 4 }}>
                     <defs>
                       <linearGradient id="spendGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="hsl(145,62%,24%)" stopOpacity={0.18} />
-                        <stop offset="95%" stopColor="hsl(145,62%,24%)" stopOpacity={0} />
+                        <stop offset="5%" stopColor="hsl(222,62%,24%)" stopOpacity={0.18} />
+                        <stop offset="95%" stopColor="hsl(222,62%,24%)" stopOpacity={0} />
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
                     <XAxis dataKey="name" tick={{ fontSize: 10 }} />
                     <YAxis tickFormatter={fmtK} tick={{ fontSize: 11 }} width={60} />
                     <Tooltip formatter={(v) => fmtCurrency(v)} />
-                    <Area type="monotone" dataKey="spending" stroke="hsl(145,62%,24%)" strokeWidth={2}
+                    <Area type="monotone" dataKey="spending" stroke="hsl(222,62%,24%)" strokeWidth={2}
                       fill="url(#spendGrad)" name="Spending" />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -280,7 +275,7 @@ export default function ReportsPage() {
                       {pct !== null ? (
                         <div className="flex items-center justify-end gap-2">
                           <div className="w-16 h-1.5 rounded-full bg-[--color-overlay] overflow-hidden">
-                            <div className={`h-full rounded-full ${pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                            <div className={`h-full rounded-full ${pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-amber-500' : 'bg-blue-500'}`}
                               style={{ width: `${pct}%` }} />
                           </div>
                           <span className="text-xs text-[--color-text-secondary]">{pct.toFixed(0)}%</span>

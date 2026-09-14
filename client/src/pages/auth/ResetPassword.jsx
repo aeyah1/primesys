@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
-import { Leaf, Lock, Eye, EyeOff, CheckCircle2, AlertCircle } from 'lucide-react'
+import { Lock, Eye, EyeOff, CheckCircle2, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -39,8 +39,8 @@ export default function ResetPassword() {
       setError('Passwords do not match.')
       return
     }
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters.')
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters.')
       return
     }
     setLoading(true)
@@ -59,17 +59,17 @@ export default function ResetPassword() {
     <div className="min-h-screen flex flex-col justify-center bg-[--color-canvas] p-6">
       <div className="w-full max-w-sm mx-auto py-8">
         <div className="flex items-center gap-2.5 mb-8">
-          <div className="flex size-9 items-center justify-center rounded-xl bg-[--color-brand]">
-            <Leaf className="size-4 text-emerald-200" />
+          <div className="flex size-9 items-center justify-center">
+            <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-7 object-contain" />
           </div>
           <span className="font-bold text-xl text-[--color-text-primary] tracking-tight">PRimeSys</span>
         </div>
 
         {done ? (
-          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-6 text-center space-y-3">
-            <CheckCircle2 className="size-10 text-emerald-600 mx-auto" />
-            <h2 className="font-bold text-lg text-emerald-900">Password reset!</h2>
-            <p className="text-sm text-emerald-800">
+          <div className="rounded-2xl border border-blue-200 bg-blue-50 p-6 text-center space-y-3">
+            <CheckCircle2 className="size-10 text-blue-600 mx-auto" />
+            <h2 className="font-bold text-lg text-blue-900">Password reset!</h2>
+            <p className="text-sm text-blue-800">
               Your password has been updated. Redirecting you to sign in…
             </p>
           </div>
@@ -90,7 +90,7 @@ export default function ResetPassword() {
                   <Input
                     id="password"
                     type={show ? 'text' : 'password'}
-                    placeholder="At least 6 characters"
+                    placeholder="At least 8 characters"
                     value={password}
                     onChange={e => { setPassword(e.target.value); setError('') }}
                     required

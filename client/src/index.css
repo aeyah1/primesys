@@ -5,44 +5,46 @@
 @tailwind utilities;
 
 /* ============================================================
-   DESIGN TOKENS — NEMSU Green & Gold colorway
+   DESIGN TOKENS — NEMSU Royal Blue & Gold colorway
+   Sourced from the NEMSU seal: royal blue ring/shield + gold
+   wheat sprigs. Replaces the prior forest-green palette.
    ============================================================ */
 :root {
-  /* Brand — NEMSU Forest Green */
-  --brand:       145 62% 24%;
-  --brand-light: 145 55% 93%;
-  --brand-dark:  145 62% 15%;
+  /* Brand — NEMSU Royal Blue */
+  --brand:       222 65% 35%;
+  --brand-light: 222 60% 95%;
+  --brand-dark:  222 72% 20%;
 
   /* Full HSL values for direct use */
-  --color-brand:       hsl(145, 62%, 24%);
-  --color-brand-light: hsl(145, 55%, 93%);
-  --color-brand-dark:  hsl(145, 62%, 15%);
+  --color-brand:       hsl(222, 65%, 35%);
+  --color-brand-light: hsl(222, 60%, 95%);
+  --color-brand-dark:  hsl(222, 72%, 20%);
 
-  /* Gold accent */
-  --color-gold:        hsl(43, 90%, 44%);
-  --color-gold-light:  hsl(43, 90%, 93%);
+  /* Gold accent — matches the wheat sprigs in the seal */
+  --color-gold:        hsl(42, 85%, 50%);
+  --color-gold-light:  hsl(42, 90%, 93%);
 
   /* Surfaces (60% canvas, 30% secondary) */
-  --canvas:  140 30% 97%;
-  --overlay: 145 25% 94%;
+  --canvas:  220 30% 98%;
+  --overlay: 222 30% 95%;
 
-  --color-canvas:        hsl(140, 30%, 97%);
-  --color-overlay:       hsl(145, 25%, 94%);
+  --color-canvas:        hsl(220, 30%, 98%);
+  --color-overlay:       hsl(222, 30%, 95%);
   --color-surface:       hsl(0, 0%, 100%);
-  --color-surface-raised: hsl(140, 20%, 96%);
+  --color-surface-raised: hsl(220, 25%, 97%);
 
-  /* Sidebar */
-  --sidebar-bg-top:    hsl(145, 70%, 11%);
-  --sidebar-bg-bottom: hsl(145, 58%, 20%);
+  /* Sidebar — navy at top, royal at bottom */
+  --sidebar-bg-top:    hsl(225, 75%, 10%);
+  --sidebar-bg-bottom: hsl(222, 65%, 22%);
 
   /* Text */
-  --color-text-primary:   hsl(145, 35%, 10%);
-  --color-text-secondary: hsl(145, 18%, 32%);
-  --color-text-muted:     hsl(145, 12%, 52%);
+  --color-text-primary:   hsl(222, 35%, 12%);
+  --color-text-secondary: hsl(222, 18%, 32%);
+  --color-text-muted:     hsl(222, 12%, 52%);
 
   /* Borders */
-  --color-border:        hsl(145, 22%, 87%);
-  --color-border-strong: hsl(145, 22%, 72%);
+  --color-border:        hsl(222, 22%, 88%);
+  --color-border-strong: hsl(222, 22%, 72%);
 
   /* Status colors — referenced by badges/borders that need to shift in dark mode */
   --color-input-bg:      hsl(0, 0%, 100%);
@@ -57,11 +59,11 @@
   --radius-lg: 1.375rem;  /* 22px */
   --radius-xl: 1.75rem;   /* 28px */
 
-  /* Shadows — green-tinted, soft, wide enough to pair with the larger radii */
+  /* Shadows — royal-blue-tinted, soft, wide enough to pair with the larger radii */
   --shadow-xs: 0 1px 3px 0 rgba(0,0,0,0.04);
-  --shadow-sm: 0 2px 12px 0 rgba(15,74,34,0.07), 0 1px 3px 0 rgba(0,0,0,0.03);
-  --shadow-md: 0 6px 24px 0 rgba(15,74,34,0.10), 0 2px 8px 0 rgba(0,0,0,0.04);
-  --shadow-lg: 0 12px 40px 0 rgba(15,74,34,0.13), 0 4px 14px 0 rgba(0,0,0,0.06);
+  --shadow-sm: 0 2px 12px 0 rgba(18,42,107,0.08), 0 1px 3px 0 rgba(0,0,0,0.03);
+  --shadow-md: 0 6px 24px 0 rgba(18,42,107,0.12), 0 2px 8px 0 rgba(0,0,0,0.04);
+  --shadow-lg: 0 12px 40px 0 rgba(18,42,107,0.16), 0 4px 14px 0 rgba(0,0,0,0.06);
 
   /* Typography scale */
   --text-xs:   0.75rem;    /* 12px */
@@ -77,37 +79,37 @@
 /* ============================================================
    DARK MODE — applied via `data-theme="dark"` on <html>.
    AppearanceTab in Settings flips this attribute and persists
-   the choice to localStorage. The Sidebar keeps its green
+   the choice to localStorage. The Sidebar keeps its navy/royal
    gradient intentionally so the brand stays consistent.
    ============================================================ */
 [data-theme="dark"] {
-  --brand:       145 50% 55%;
-  --brand-light: 145 30% 20%;
-  --brand-dark:  145 50% 65%;
+  --brand:       222 70% 62%;
+  --brand-light: 222 30% 22%;
+  --brand-dark:  222 70% 72%;
 
-  --color-brand:       hsl(145, 50%, 55%);
-  --color-brand-light: hsl(145, 30%, 20%);
-  --color-brand-dark:  hsl(145, 50%, 65%);
+  --color-brand:       hsl(222, 70%, 62%);
+  --color-brand-light: hsl(222, 30%, 22%);
+  --color-brand-dark:  hsl(222, 70%, 72%);
 
-  --color-gold:        hsl(43, 75%, 60%);
-  --color-gold-light:  hsl(43, 30%, 22%);
+  --color-gold:        hsl(42, 80%, 62%);
+  --color-gold-light:  hsl(42, 30%, 22%);
 
-  --canvas:  145 12% 9%;
-  --overlay: 145 14% 14%;
+  --canvas:  222 14% 9%;
+  --overlay: 222 14% 14%;
 
-  --color-canvas:        hsl(145, 12%, 9%);
-  --color-overlay:       hsl(145, 14%, 14%);
-  --color-surface:       hsl(145, 12%, 13%);
-  --color-surface-raised: hsl(145, 13%, 17%);
+  --color-canvas:        hsl(222, 14%, 9%);
+  --color-overlay:       hsl(222, 14%, 14%);
+  --color-surface:       hsl(222, 12%, 13%);
+  --color-surface-raised: hsl(222, 13%, 17%);
 
   --color-text-primary:   hsl(0, 0%, 96%);
-  --color-text-secondary: hsl(145, 8%, 72%);
-  --color-text-muted:     hsl(145, 6%, 52%);
+  --color-text-secondary: hsl(222, 8%, 72%);
+  --color-text-muted:     hsl(222, 6%, 52%);
 
-  --color-border:        hsl(145, 12%, 24%);
-  --color-border-strong: hsl(145, 14%, 36%);
+  --color-border:        hsl(222, 12%, 24%);
+  --color-border-strong: hsl(222, 14%, 36%);
 
-  --color-input-bg:      hsl(145, 14%, 16%);
+  --color-input-bg:      hsl(222, 14%, 16%);
 }
 
 /* ============================================================
@@ -162,8 +164,8 @@ body {
    ============================================================ */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: hsl(145, 20%, 78%); border-radius: 99px; }
-::-webkit-scrollbar-thumb:hover { background: hsl(145, 22%, 62%); }
+::-webkit-scrollbar-thumb { background: hsl(222, 20%, 78%); border-radius: 99px; }
+::-webkit-scrollbar-thumb:hover { background: hsl(222, 22%, 62%); }
 
 /* ============================================================
    PRINT — make any in-app view (PR detail, lists) print as a

@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils'
 export function StatsCard({ title, value, sub, icon: Icon, color = 'brand', className }) {
   const colorMap = {
     brand:   'bg-[--color-brand-light] text-[--color-brand]',
-    green:   'bg-emerald-50 text-emerald-600',
+    green:   'bg-blue-50 text-blue-600',
     amber:   'bg-amber-50 text-amber-600',
     red:     'bg-red-50 text-red-600',
     violet:  'bg-violet-50 text-violet-600',

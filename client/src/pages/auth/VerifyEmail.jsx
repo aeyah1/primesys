@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { Loader2, XCircle, Leaf } from 'lucide-react'
+import { Loader2, XCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Link } from 'react-router-dom'
@@ -26,8 +26,8 @@ export default function VerifyEmail() {
     <div className="min-h-screen flex flex-col justify-center bg-[--color-canvas] p-8">
       <div className="w-full max-w-sm mx-auto py-8 text-center space-y-5">
 
-        <div className="flex size-10 items-center justify-center rounded-xl bg-[--color-brand] mx-auto">
-          <Leaf className="size-5 text-emerald-200" />
+        <div className="flex size-12 items-center justify-center mx-auto">
+          <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-9 object-contain" />
         </div>
 
         {state === 'loading' && (
