@@ -12,13 +12,13 @@ router.use(auth)
 const prAccess = requireAccess('pr', 'prId')
 const staff    = authorize('procurement', 'admin')
 
-// Fields sized to the quotations columns.
+// Fields sized to the quotations columns; a quotation needs the supplier's contact details, TIN stays optional.
 const quotationRules = [
   textRule('supplier_name', 'Supplier name', 200, { required: true }),
-  textRule('supplier_contact', 'Contact person', 100),
-  textRule('supplier_address', 'Business address', 500),
-  textRule('supplier_phone', 'Phone number', 50),
-  textRule('supplier_email', 'Email address', 150),
+  textRule('supplier_contact', 'Contact person', 100, { required: true }),
+  textRule('supplier_address', 'Business address', 500, { required: true }),
+  textRule('supplier_phone', 'Phone number', 50, { required: true }),
+  textRule('supplier_email', 'Email address', 150, { required: true }),
   body('supplier_email').if(v => !!v).isEmail().withMessage('Email address is not valid'),
   textRule('supplier_tin', 'TIN', 50),
   dateRule('quoted_at', 'Quotation date'),
