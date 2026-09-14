@@ -33,6 +33,10 @@ function validate() {
   if (config.db.timezone !== 'local' && !/^[+-]\d{2}:\d{2}$/.test(config.db.timezone)) {
     throw new Error('DB_TIMEZONE must be "local" or an offset such as +08:00')
   }
+  const { storage } = config
+  if (storage.url && (!/^(https:\/\/|http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$)/.test(storage.url) || !storage.key || !/^[\w.-]+$/.test(storage.bucket))) {
+    throw new Error('SUPABASE_URL must start with https:// (http:// only for localhost) and needs SUPABASE_SECRET_KEY and a valid SUPABASE_BUCKET')
+  }
 }
 
 const int = (name, fallback) => {
@@ -103,6 +107,13 @@ const config = {
   // only this many in 24 hours.
   reminders: {
     dailyLimit: int('REMINDER_DAILY_LIMIT', 20),
+  },
+
+  // Uploaded files go to this private Supabase Storage bucket when SUPABASE_URL is set, else to server/uploads.
+  storage: {
+    url:    optional('SUPABASE_URL', '').trim().replace(/\/+$/, ''),
+    key:    optional('SUPABASE_SECRET_KEY', '').trim(),
+    bucket: optional('SUPABASE_BUCKET', 'uploads').trim(),
   },
 
 }
