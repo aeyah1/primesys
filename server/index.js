@@ -17,6 +17,8 @@ const { sendDueReminders } = require('./controllers/reminders.controller')
 const { loadUserState, tokenRevoked } = require('./middleware/auth.middleware')
 
 const app    = express()
+// Behind a hosting proxy, req.ip must be the visitor's address so rate limits apply per visitor.
+if (config.trustProxy) app.set('trust proxy', config.trustProxy)
 const server = http.createServer(app)
 const io     = new Server(server, {
   cors: { origin: config.clientUrl, credentials: true }
@@ -26,6 +28,9 @@ app.use(helmet())
 app.use(cors({ origin: config.clientUrl, credentials: true }))
 app.use(express.json({ limit: '2mb' }))
 app.use(express.urlencoded({ extended: true, limit: '2mb' }))
+
+// Uptime monitors ping this to keep a free host from sleeping; it reveals nothing.
+app.get('/api/health', (_req, res) => res.json({ ok: true }))
 
 // Key requests by user ID when a valid JWT is present, else by IP.
 // Per-user buckets stop co-located teammates (same office NAT) from

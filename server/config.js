@@ -40,6 +40,8 @@ const int = (name, fallback) => {
 const config = {
   port:        parseInt(optional('PORT', '5000'), 10),
   clientUrl:   optional('CLIENT_URL', 'http://localhost:5173'),
+  // Proxies in front of the server (1 on Render); 0 locally, so a forged X-Forwarded-For is ignored.
+  trustProxy:  int('TRUST_PROXY', 0),
 
   jwt: {
     secret:    process.env.JWT_SECRET || '',
