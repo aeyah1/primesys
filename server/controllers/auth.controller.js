@@ -2,123 +2,104 @@ const bcrypt   = require('bcryptjs')
 const jwt      = require('jsonwebtoken')
 const crypto   = require('crypto')
 const pool     = require('../db/pool')
+const withTransaction = require('../db/transaction')
 const sendMail = require('../utils/mailer')
 const config   = require('../config')
+const throttle = require('../utils/loginThrottle')
+const securityLog = require('../utils/securityLog')
+const { verifyCaptcha } = require('../utils/captcha')
+const { endSessions, invalidateUserCache } = require('../middleware/auth.middleware')
 const verifyAccountEmail = require('../emails/verifyAccount')
 const resetPasswordEmail = require('../emails/resetPassword')
+const accountExistsEmail = require('../emails/accountExists')
 
-// ── Per-user login attempt tracker ───────────────────────
-// Keyed by lowercase username/email — not IP — so one user's
-// failed attempts never lock out anyone else on the same network.
-//
-// Bounded LRU + idle-eviction so the map can't grow without limit
-// (e.g. an attacker rotating through thousands of fake usernames).
-const MAX_ATTEMPTS    = 5
-const LOCKOUT_MS      = 2 * 60 * 1000   // 2 minutes
-const ATTEMPTS_TTL_MS = 60 * 60 * 1000  // forget partial-attempt records after 1h of silence
-const MAX_ENTRIES     = 10_000
-const loginAttempts   = new Map()
+const BCRYPT_COST = 10
+// Compared against when no account matches, so an unknown username takes as
+// long to reject as a wrong password: response time doesn't reveal accounts.
+const DUMMY_HASH = bcrypt.hashSync('no-such-account-placeholder', BCRYPT_COST)
 
-// Periodic sweep: drop expired lockouts AND stale partial-attempt entries.
-setInterval(() => {
-  const now = Date.now()
-  for (const [key, entry] of loginAttempts) {
-    if (entry.lockedUntil && now >= entry.lockedUntil) { loginAttempts.delete(key); continue }
-    if (!entry.lockedUntil && entry.lastAttemptAt && now - entry.lastAttemptAt > ATTEMPTS_TTL_MS) {
-      loginAttempts.delete(key)
-    }
-  }
-}, 5 * 60 * 1000)
+const INVALID_LOGIN = 'Invalid username/email or password.'
+const TOO_MANY      = 'Too many sign-in attempts. Please wait a few minutes before trying again.'
+const REGISTERED    = 'Check your email to finish signing up.'
+const LINK_SENT     = 'If an unverified account matches, a new verification link has been sent.'
+const RESET_SENT    = 'If an account matches the information provided, reset instructions will be sent.'
 
-function rlKey(identifier) { return identifier.toLowerCase().trim() }
-
-function rlPut(key, entry) {
-  if (loginAttempts.has(key)) loginAttempts.delete(key)   // touch — move to tail
-  loginAttempts.set(key, entry)
-  if (loginAttempts.size > MAX_ENTRIES) {
-    const oldest = loginAttempts.keys().next().value
-    loginAttempts.delete(oldest)
-  }
-}
-
-function rlCheck(identifier) {
-  const key   = rlKey(identifier)
-  const entry = loginAttempts.get(key)
-  if (!entry) return { locked: false, attempts: 0 }
-  const now = Date.now()
-  if (entry.lockedUntil && now < entry.lockedUntil) {
-    return { locked: true, secondsLeft: Math.ceil((entry.lockedUntil - now) / 1000) }
-  }
-  loginAttempts.delete(key)
-  return { locked: false, attempts: 0 }
-}
-
-function rlFail(identifier) {
-  const key   = rlKey(identifier)
-  const entry = loginAttempts.get(key) || { attempts: 0, lockedUntil: null }
-  entry.attempts++
-  entry.lastAttemptAt = Date.now()
-  if (entry.attempts >= MAX_ATTEMPTS) entry.lockedUntil = Date.now() + LOCKOUT_MS
-  rlPut(key, entry)
-  return {
-    locked:       entry.attempts >= MAX_ATTEMPTS,
-    attemptsLeft: Math.max(0, MAX_ATTEMPTS - entry.attempts),
-    secondsLeft:  entry.lockedUntil ? Math.ceil((entry.lockedUntil - Date.now()) / 1000) : null,
-  }
-}
-
-function rlClear(identifier) { loginAttempts.delete(rlKey(identifier)) }
-// ─────────────────────────────────────────────────────────
-
-const sign = (user) => jwt.sign(
-  { id: user.id, name: user.name, username: user.username, email: user.email, role: user.role, supplier_id: user.supplier_id || null },
+// Tokens carry only the account id and token_version (tv); the rest is read from the database per request (audit SEC-8).
+const sign = (user, tokenVersion) => jwt.sign(
+  { id: user.id, tv: tokenVersion },
   config.jwt.secret,
-  { expiresIn: config.jwt.expiresIn }
+  { expiresIn: config.jwt.expiresIn, algorithm: 'HS256' }
 )
 
+// A fresh single-use token: the raw value goes in the emailed link, and only
+// its SHA-256 hash is stored.
+function newToken() {
+  const token = crypto.randomBytes(32).toString('hex')
+  return { token, hash: hashToken(token) }
+}
+function hashToken(token) { return crypto.createHash('sha256').update(String(token)).digest('hex') }
 
+// Fire-and-forget: the user shouldn't wait on SMTP; they can ask for a new link.
+function sendVerification(user, token) {
+  const link = `${config.clientUrl}/verify-email?token=${token}`
+  sendMail({ to: user.email, subject: 'Verify your PRimeSys account', html: verifyAccountEmail({ name: user.name, link }) })
+    .catch(err => console.error('[mailer] verification email failed:', err.message))
+}
+
+// Public sign-up. Always creates an unverified Requestor: the role and the
+// account state are fixed here, never taken from the request (auth.routes.js
+// refuses any field beyond the sign-up form's). Other roles are assigned by an
+// admin in User Management. Token expiries use the database clock (NOW()), the
+// same clock that checks them.
 exports.register = async (req, res) => {
   try {
-    const { name, username, email, password, role } = req.body
-    if (!name || !username || !email || !password) {
-      return res.status(400).json({ message: 'Full name, username, email, and password are required' })
+    const { first_name, last_name, username, email, password, website, captcha_token } = req.body
+
+    // Honeypot: `website` is hidden from people, so a value means a bot. It gets
+    // the normal reply, but nothing is created and no email is sent.
+    if (website) {
+      securityLog('register_rejected', { reason: 'honeypot', ip: req.ip })
+      return res.status(201).json({ message: REGISTERED })
     }
-    if (password.length < 6) {
-      return res.status(400).json({ message: 'Password must be at least 6 characters' })
-    }
-    if (!/^[a-zA-Z0-9_]+$/.test(username.trim())) {
-      return res.status(400).json({ message: 'Username may only contain letters, numbers, and underscores' })
+    if (!await verifyCaptcha(captcha_token, req.ip)) {
+      securityLog('register_rejected', { reason: 'captcha', ip: req.ip })
+      return res.status(400).json({ message: 'Please complete the verification challenge.' })
     }
 
-    const [usernameCheck] = await pool.execute(
-      'SELECT id FROM users WHERE LOWER(username) = LOWER(?)', [username.trim()]
-    )
+    const [usernameCheck] = await pool.execute('SELECT id FROM users WHERE LOWER(username) = LOWER(?)', [username])
     if (usernameCheck.length) return res.status(409).json({ message: 'That username is already taken' })
+    // Hashing before the email check makes both replies below take the same time.
+    const passwordHash = await bcrypt.hash(password, BCRYPT_COST)
+    const [emailCheck] = await pool.execute('SELECT id, name, email, is_verified FROM users WHERE LOWER(email) = LOWER(?)', [email])
+    if (emailCheck.length) {
+      // Same reply as a new sign-up so the form doesn't reveal which emails have accounts (audit SEC-7).
+      await tellOwner(emailCheck[0], req.ip)
+      return res.status(201).json({ message: REGISTERED })
+    }
 
-    const [emailCheck] = await pool.execute('SELECT id FROM users WHERE LOWER(email) = LOWER(?)', [email.trim()])
-    if (emailCheck.length) return res.status(409).json({ message: 'Email already registered' })
+    const name = `${first_name} ${last_name}`   // both trimmed by the route's validators
+    const { token, hash: tokenHash } = newToken()
+    let userId
+    try {
+      const [result] = await pool.execute(
+        `INSERT INTO users (name, username, email, password_hash, role, is_verified, verify_token, verify_expires)
+         VALUES (?, ?, ?, ?, 'requestor', 0, ?, NOW() + INTERVAL 24 HOUR)`,
+        [name, username, email, passwordHash, tokenHash]
+      )
+      userId = result.insertId
+    } catch (err) {
+      // Another sign-up took the same username or email between the checks and the insert.
+      if (err.code === 'ER_DUP_ENTRY') {
+        return /uq_email/.test(err.message)
+          ? res.status(201).json({ message: REGISTERED })
+          : res.status(409).json({ message: 'That username is already taken' })
+      }
+      throw err
+    }
 
-    const hash     = await bcrypt.hash(password, 10)
-    const allowed  = ['procurement', 'extension', 'supply']
-    const userRole = allowed.includes(role) ? role : 'extension'
-
-    const token      = crypto.randomBytes(32).toString('hex')
-    const tokenHash  = crypto.createHash('sha256').update(token).digest('hex')
-    const expires    = new Date(Date.now() + 24 * 60 * 60 * 1000)
-    const expiresStr = expires.toISOString().slice(0, 19).replace('T', ' ')
-
-    await pool.execute(
-      'INSERT INTO users (name, username, email, password_hash, role, is_verified, verify_token, verify_expires) VALUES (?, ?, ?, ?, ?, 0, ?, ?)',
-      [name.trim(), username.trim(), email.trim(), hash, userRole, tokenHash, expiresStr]
-    )
-
-    const link = `${config.clientUrl}/verify-email?token=${token}`
-    // Fire-and-forget: don't make the user wait 10–30s for SMTP. If it fails,
-    // they can use "resend verification" from the post-register dialog.
-    sendMail({ to: email.trim(), subject: 'Verify your PRimeSys account', html: verifyAccountEmail({ name: name.trim(), link }) })
-      .catch(err => console.error('[mailer] register verification email failed:', err.message))
-
-    res.status(201).json({ message: 'Account created. Check your email to verify before signing in.' })
+    securityLog('register', { userId, ip: req.ip })
+    sendVerification({ name, email }, token)
+    res.status(201).json({ message: REGISTERED })
   } catch (err) {
     console.error(err); res.status(500).json({ message: 'Internal server error' })
   }
@@ -126,107 +107,104 @@ exports.register = async (req, res) => {
 
 exports.verifyEmail = async (req, res) => {
   try {
-    const { token } = req.body
-    if (!token) return res.status(400).json({ message: 'Token is required' })
-
-    const hash = crypto.createHash('sha256').update(token).digest('hex')
     const [rows] = await pool.execute(
       'SELECT id FROM users WHERE verify_token = ? AND verify_expires > NOW() AND is_verified = 0',
-      [hash]
+      [hashToken(req.body.token)]
     )
     if (!rows.length) {
       return res.status(400).json({ message: 'This link has expired or was already used.' })
     }
+    // Single use: the token is cleared as the account is verified.
     await pool.execute(
       'UPDATE users SET is_verified = 1, verify_token = NULL, verify_expires = NULL WHERE id = ?',
       [rows[0].id]
     )
+    securityLog('email_verified', { userId: rows[0].id })
     res.json({ message: 'Email verified. You can now sign in.' })
   } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
 }
 
+// Sends a new verification link to an unverified account, found by username or
+// email. At most one email per account per cooldown (the last link was sent at
+// verify_expires - 24 h). The reply is the same whatever happened, so it
+// reveals nothing about the account.
 exports.resendVerification = async (req, res) => {
   try {
-    const { email } = req.body
-    if (!email) return res.status(400).json({ message: 'Email is required' })
-
-    const [rows] = await pool.execute(
-      'SELECT id, name, email FROM users WHERE LOWER(email) = LOWER(?) AND is_verified = 0',
-      [email.trim()]
-    )
-    const ok = { message: 'If your account exists and is unverified, a new link has been sent.' }
-    if (!rows.length) return res.json(ok)
-
-    const user     = rows[0]
-    const token    = crypto.randomBytes(32).toString('hex')
-    const hash     = crypto.createHash('sha256').update(token).digest('hex')
-    const expires  = new Date(Date.now() + 24 * 60 * 60 * 1000)
-    const expStr   = expires.toISOString().slice(0, 19).replace('T', ' ')
-
-    await pool.execute('UPDATE users SET verify_token = ?, verify_expires = ? WHERE id = ?', [hash, expStr, user.id])
-
-    const link = `${config.clientUrl}/verify-email?token=${token}`
-    sendMail({ to: user.email, subject: 'Verify your PRimeSys account', html: verifyAccountEmail({ name: user.name, link }) })
-      .catch(err => console.error('[mailer] resend verification email failed:', err.message))
-
-    res.json(ok)
+    await resendLink(req.body.identifier, req.ip)
+    res.json({ message: LINK_SENT })
   } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
 }
 
+// Sends a new link to the unverified account matching `identifier`, at most once per cooldown.
+async function resendLink(identifier, ip) {
+  const [rows] = await pool.execute(
+    `SELECT id, name, email FROM users
+      WHERE (LOWER(email) = LOWER(?) OR LOWER(username) = LOWER(?)) AND is_verified = 0
+        AND (verify_expires IS NULL OR verify_expires <= NOW() + INTERVAL 24 HOUR - INTERVAL ? MINUTE)
+      LIMIT 1`,
+    [identifier, identifier, config.auth.emailCooldownMin]
+  )
+  if (!rows.length) return
+  const { token, hash } = newToken()
+  await pool.execute('UPDATE users SET verify_token = ?, verify_expires = NOW() + INTERVAL 24 HOUR WHERE id = ?', [hash, rows[0].id])
+  securityLog('verification_resent', { userId: rows[0].id, ip })
+  sendVerification(rows[0], token)
+}
+
+// When each account last got an "account exists" email, so repeated sign-ups can't flood its inbox.
+const existsNoticeAt = new Map()
+
+// Tells the owner of an email someone signed up with: a new link if unverified, else a notice.
+async function tellOwner(user, ip) {
+  securityLog('register_existing_email', { userId: user.id, ip })
+  if (!user.is_verified) return resendLink(user.email, ip)
+  if (Date.now() - (existsNoticeAt.get(user.id) || 0) < config.auth.emailCooldownMin * 60_000) return
+  existsNoticeAt.set(user.id, Date.now())
+  sendMail({
+    to: user.email,
+    subject: 'Your PRimeSys account',
+    html: accountExistsEmail({ name: user.name, loginUrl: `${config.clientUrl}/login`, resetUrl: `${config.clientUrl}/forgot-password` }),
+  }).catch(err => console.error('[mailer] account-exists email failed:', err.message))
+}
+
+// Sign-in. Nothing about an account (whether it exists, is active, verified,
+// or its role) is revealed until the password is proven: unknown accounts and
+// wrong passwords get the same reply in the same time.
 exports.login = async (req, res) => {
   try {
-    const { identifier, password } = req.body
-    if (!identifier || !password) return res.status(400).json({ message: 'Username and password are required' })
-
-    // Check per-user lockout before touching the DB
-    const rl = rlCheck(identifier)
-    if (rl.locked) {
-      return res.status(429).json({
-        message:    `Too many failed attempts for this account. Try again in ${rl.secondsLeft} second${rl.secondsLeft === 1 ? '' : 's'}.`,
-        secondsLeft: rl.secondsLeft,
-      })
-    }
-
+    const { identifier, password } = req.body   // shape checked in the route
     const [rows] = await pool.execute(
-      `SELECT id, name, username, email, password_hash, role, supplier_id, is_active, is_verified FROM users
-       WHERE LOWER(username) = LOWER(?)
-          OR LOWER(email)    = LOWER(?)`,
-      [identifier.trim(), identifier.trim()]
+      `SELECT id, name, username, email, password_hash, token_version, role, is_active, is_verified
+         FROM users WHERE LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?) LIMIT 1`,
+      [identifier, identifier]
     )
+    const user = rows[0] || null
+    const key  = throttle.keyFor(user, identifier)
 
-    // Wrong username — treat same as wrong password (don't reveal which)
-    if (!rows.length) {
-      const result = rlFail(identifier)
-      return res.status(401).json({
-        message:     'Incorrect username or password.',
-        attemptsLeft: result.attemptsLeft,
-        ...(result.locked && { secondsLeft: result.secondsLeft }),
-      })
+    if (throttle.isLocked(key)) {
+      securityLog('login_throttled', { userId: user?.id ?? null, ip: req.ip })
+      return res.status(429).json({ message: TOO_MANY })
     }
 
-    const user = rows[0]
+    const passwordOk = await bcrypt.compare(password, user ? user.password_hash : DUMMY_HASH)
+    if (!user || !passwordOk) {
+      const locked = throttle.recordFailure(key)
+      securityLog(locked ? 'login_locked' : 'login_failed', { userId: user?.id ?? null, ip: req.ip })
+      return res.status(401).json({ message: INVALID_LOGIN })
+    }
+    throttle.clear(key)
 
+    // Account state only matters, and is only revealed, once the password is proven.
     if (!user.is_active) {
-      return res.status(403).json({ message: 'Your account has been deactivated. Contact your administrator.' })
+      return res.status(403).json({ message: 'Your account has been deactivated. Contact your administrator.', type: 'inactive' })
     }
-
     if (!user.is_verified) {
-      return res.status(403).json({ message: 'Please verify your email before signing in.', type: 'unverified' })
+      return res.status(403).json({ message: 'Your account requires email verification.', type: 'unverified' })
     }
 
-    if (!await bcrypt.compare(password, user.password_hash)) {
-      const result = rlFail(identifier)
-      return res.status(401).json({
-        message:     'Incorrect username or password.',
-        attemptsLeft: result.attemptsLeft,
-        ...(result.locked && { secondsLeft: result.secondsLeft }),
-      })
-    }
-
-    // Success — clear this user's lockout counter
-    rlClear(identifier)
-    const { password_hash, ...safe } = user
-    res.json({ token: sign(safe), user: safe })
+    securityLog('login', { userId: user.id, ip: req.ip })
+    const { password_hash, token_version, ...safe } = user
+    res.json({ token: sign(safe, token_version), user: safe })
   } catch (err) {
     console.error(err); res.status(500).json({ message: 'Internal server error' })
   }
@@ -235,7 +213,7 @@ exports.login = async (req, res) => {
 exports.me = async (req, res) => {
   try {
     const [rows] = await pool.execute(
-      'SELECT id, name, username, email, role, supplier_id, is_active, created_at, fund_cluster, responsibility_center_code FROM users WHERE id = ?', [req.user.id]
+      'SELECT id, name, username, email, role, is_active, created_at, fund_cluster, responsibility_center_code FROM users WHERE id = ?', [req.user.id]
     )
     if (!rows.length) return res.status(404).json({ message: 'User not found' })
     if (!rows[0].is_active) return res.status(403).json({ message: 'Account deactivated' })
@@ -253,96 +231,93 @@ exports.updateProfile = async (req, res) => {
       'UPDATE users SET name = ?, fund_cluster = COALESCE(?, fund_cluster), responsibility_center_code = COALESCE(?, responsibility_center_code) WHERE id = ?',
       [name.trim(), fund_cluster || null, responsibility_center_code || null, req.user.id]
     )
+    invalidateUserCache(req.user.id)   // the next request carries the new name
     res.json({ message: 'Profile updated' })
   } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
 }
 
+// Changing the password ends every other session: the token version goes up,
+// so tokens issued before stop working. This device gets a fresh token in the
+// reply and stays signed in.
 exports.changePassword = async (req, res) => {
   try {
-    const { current_password, new_password } = req.body
-    if (!current_password || !new_password) {
-      return res.status(400).json({ message: 'Current and new password are required' })
-    }
-    if (new_password.length < 6) {
-      return res.status(400).json({ message: 'New password must be at least 6 characters' })
-    }
-    const [rows] = await pool.execute('SELECT password_hash FROM users WHERE id = ?', [req.user.id])
+    const { current_password, new_password } = req.body   // new password checked in the route
+    const [rows] = await pool.execute('SELECT id, name, username, email, role, password_hash FROM users WHERE id = ?', [req.user.id])
     if (!rows.length) return res.status(404).json({ message: 'User not found' })
     if (!await bcrypt.compare(current_password, rows[0].password_hash)) {
       return res.status(401).json({ message: 'Current password is incorrect' })
     }
-    const hash = await bcrypt.hash(new_password, 10)
-    await pool.execute('UPDATE users SET password_hash = ? WHERE id = ?', [hash, req.user.id])
-    res.json({ message: 'Password changed successfully' })
+    const hash = await bcrypt.hash(new_password, BCRYPT_COST)
+    const tokenVersion = await withTransaction(async (conn) => {
+      await conn.execute('UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?', [hash, rows[0].id])
+      const [[{ token_version }]] = await conn.execute('SELECT token_version FROM users WHERE id = ?', [rows[0].id])
+      return token_version
+    })
+    endSessions(req.io, rows[0].id)
+    securityLog('password_changed', { userId: rows[0].id })
+    const { password_hash, ...user } = rows[0]
+    res.json({ message: 'Password changed. Other devices have been signed out.', token: sign(user, tokenVersion) })
   } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
 }
 
+// Emails a reset link. At most one per account per cooldown; the reply is the
+// same whether or not the email matches an account.
 exports.forgotPassword = async (req, res) => {
   try {
-    const { email } = req.body
-    if (!email) return res.status(400).json({ message: 'Email is required' })
-
-    const [rows] = await pool.execute(
-      'SELECT id, name, email FROM users WHERE LOWER(email) = LOWER(?)', [email.trim()]
-    )
-
-    // Always return the same message to prevent email enumeration
-    const ok = { message: 'If that email is registered, a reset link has been sent.' }
-    if (!rows.length || !rows[0].email) return res.json(ok)
-
+    const [rows] = await pool.execute('SELECT id, name, email FROM users WHERE LOWER(email) = LOWER(?)', [req.body.email])
     const user = rows[0]
-
-    // Invalidate any existing unused tokens for this user
-    await pool.execute(
-      'UPDATE password_reset_tokens SET used = 1 WHERE user_id = ? AND used = 0',
-      [user.id]
-    )
-
-    const token     = crypto.randomBytes(32).toString('hex')
-    const tokenHash = crypto.createHash('sha256').update(token).digest('hex')
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000) // 1 hour
-
-    await pool.execute(
-      'INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)',
-      [user.id, tokenHash, expiresAt]
-    )
-
-    const resetUrl = `${config.clientUrl}/reset-password?token=${token}`
-
-    sendMail({
-      to: user.email,
-      subject: 'PRimeSys — Reset Your Password',
-      html: resetPasswordEmail({ name: user.name, resetUrl }),
-    }).catch(err => console.error('[mailer] password reset email failed:', err.message))
-
-    res.json(ok)
+    if (user) {
+      const [[recent]] = await pool.execute(
+        'SELECT COUNT(*) AS n FROM password_reset_tokens WHERE user_id = ? AND created_at > NOW() - INTERVAL ? MINUTE',
+        [user.id, config.auth.emailCooldownMin]
+      )
+      if (!recent.n) {
+        const { token, hash } = newToken()
+        await withTransaction(async (conn) => {
+          // Only the newest link works: earlier unused ones are retired.
+          await conn.execute('UPDATE password_reset_tokens SET used = 1 WHERE user_id = ? AND used = 0', [user.id])
+          await conn.execute(
+            'INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES (?, ?, NOW() + INTERVAL 1 HOUR)',
+            [user.id, hash]
+          )
+        })
+        securityLog('password_reset_requested', { userId: user.id, ip: req.ip })
+        sendMail({
+          to: user.email,
+          subject: 'PRimeSys — Reset Your Password',
+          html: resetPasswordEmail({ name: user.name, resetUrl: `${config.clientUrl}/reset-password?token=${token}` }),
+        }).catch(err => console.error('[mailer] password reset email failed:', err.message))
+      }
+    }
+    res.json({ message: RESET_SENT })
   } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
 }
 
 exports.resetPassword = async (req, res) => {
   try {
-    const { token, password } = req.body
-    if (!token || !password) return res.status(400).json({ message: 'Token and password are required' })
-    if (password.length < 6) return res.status(400).json({ message: 'Password must be at least 6 characters' })
-
-    const tokenHash = crypto.createHash('sha256').update(token).digest('hex')
-
-    const [rows] = await pool.execute(
-      `SELECT id, user_id FROM password_reset_tokens
-       WHERE token_hash = ? AND used = 0 AND expires_at > NOW()`,
-      [tokenHash]
-    )
-
-    if (!rows.length) {
+    const { token, password } = req.body   // password checked in the route
+    // One transaction with the token row locked, so a link can't be used twice
+    // even by two requests at the same moment.
+    const userId = await withTransaction(async (conn) => {
+      const [rows] = await conn.execute(
+        'SELECT id, user_id FROM password_reset_tokens WHERE token_hash = ? AND used = 0 AND expires_at > NOW() FOR UPDATE',
+        [hashToken(token)]
+      )
+      if (!rows.length) return null
+      const uid = rows[0].user_id
+      await conn.execute('UPDATE password_reset_tokens SET used = 1 WHERE user_id = ? AND used = 0', [uid])
+      // Raising the token version signs out every existing session.
+      await conn.execute('UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?', [await bcrypt.hash(password, BCRYPT_COST), uid])
+      return uid
+    })
+    if (!userId) {
       return res.status(400).json({ message: 'This reset link is invalid or has expired.' })
     }
-
-    const record = rows[0]
-    const hash   = await bcrypt.hash(password, 10)
-
-    await pool.execute('UPDATE users SET password_hash = ? WHERE id = ?', [hash, record.user_id])
-    await pool.execute('UPDATE password_reset_tokens SET used = 1 WHERE id = ?', [record.id])
-
+    endSessions(req.io, userId)
+    // The owner proved control of the email: other people's failed guesses
+    // must not keep them locked out.
+    throttle.clearUser(userId)
+    securityLog('password_reset_completed', { userId })
     res.json({ message: 'Password reset successfully. You can now sign in.' })
   } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
 }

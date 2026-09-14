@@ -1,9 +1,54 @@
-const pool      = require('../db/pool')
-const notify    = require('../utils/notify')
-const advancePR = require('../utils/prStatus')
-const sendMail  = require('../utils/mailer')
+const fs              = require('fs')
+const pool            = require('../db/pool')
+const withTransaction = require('../db/transaction')
+const asyncHandler    = require('../utils/asyncHandler')
+const httpError       = require('../utils/httpError')
+const notify          = require('../utils/notify')
+const sendMail        = require('../utils/mailer')
+const fileStore       = require('../utils/fileStore')
 const deliveryStatusEmail   = require('../emails/deliveryStatus')
-const deliveryCompleteEmail = require('../emails/deliveryComplete')
+const { prScope } = require('../middleware/scope.middleware')
+const {
+  hundredths, poLines, deliveryLocked, recordBlock, changeBlock, removeBlock, fileDeleteBlock, lockPO, lockDelivery, syncPODelivery,
+} = require('../utils/deliveryWorkflow')
+const { poItems } = require('../utils/awardWorkflow')
+const drawInspectionReport = require('../pdf/inspectionReport')
+
+const qty = (n) => String(Number(n))   // 2.00 -> "2"
+
+// PO, PR and requestor details for notices and emails. With `scope`, a PO whose
+// PR this user can't see is not found (C2).
+async function poContext(poId, scope = null) {
+  const [rows] = await pool.execute(`
+    SELECT po.id, po.po_number, po.supplier_name, po.expected_delivery_date,
+           pr.id AS pr_id, pr.pr_number, pr.title AS pr_title,
+           pr.created_by AS requestor_id, u.name AS requestor_name, u.email AS requestor_email
+    FROM purchase_orders po
+    JOIN purchase_requests pr ON po.purchase_request_id = pr.id
+    JOIN users u              ON pr.created_by = u.id
+    WHERE po.id = ?${scope ? ` AND ${scope.sql}` : ''}
+  `, [poId ?? null, ...(scope ? scope.params : [])])
+  return rows[0] || null
+}
+
+// In-app notice to every active procurement officer and admin except `exceptId`.
+async function notifyStaff(io, exceptId, message, deliveryId) {
+  const [staff] = await pool.execute(
+    "SELECT id FROM users WHERE role IN ('procurement','admin') AND is_active = 1 AND id <> ?", [exceptId]
+  )
+  await Promise.all(staff.map(u => notify(io, u.id, message, 'delivered', deliveryId, 'delivery')))
+}
+
+// One email per distinct address; a failed send is logged, not fatal.
+async function emailEach(recipients, subject, html) {
+  const seen = new Set()
+  for (const r of recipients) {
+    if (!r.email || seen.has(r.email)) continue
+    seen.add(r.email)
+    try { await sendMail({ to: r.email, subject, html: html(r) }) }
+    catch (err) { console.error('Delivery email failed:', err.message) }
+  }
+}
 
 exports.list = async (req, res) => {
   try {
@@ -12,18 +57,20 @@ exports.list = async (req, res) => {
     const offset = (page - 1) * limit
     const { search } = req.query
 
-    let where = [], params = []
+    const scope = prScope(req.user)   // C2: only deliveries on PRs this user may see
+    let where = [scope.sql], params = [...scope.params]
     if (search) {
       where.push('(po.po_number LIKE ? OR pr.pr_number LIKE ? OR po.supplier_name LIKE ?)')
       params.push(`%${search}%`, `%${search}%`, `%${search}%`)
     }
-    const w = where.length ? `WHERE ${where.join(' AND ')}` : ''
+    const w = `WHERE ${where.join(' AND ')}`   // never empty: the scope filter is always present
 
     const [rows] = await pool.execute(`
       SELECT d.*, po.po_number, po.expected_delivery_date,
-             po.supplier_name,
-             pr.pr_number, pr.title AS project_name, pr.created_by,
-             u.name AS received_by_name
+             po.supplier_name, po.delivery_status AS po_delivery_status,
+             pr.id AS pr_id, pr.pr_number, pr.title AS project_name, pr.created_by,
+             u.name AS received_by_name,
+             (SELECT COUNT(*) FROM lot_items li JOIN lots l ON l.id = li.lot_id WHERE l.po_id = po.id) AS line_count
       FROM deliveries d
       JOIN purchase_orders po   ON d.po_id = po.id
       JOIN purchase_requests pr ON po.purchase_request_id = pr.id
@@ -32,6 +79,12 @@ exports.list = async (req, res) => {
       ORDER BY d.created_at DESC
       LIMIT ${limit} OFFSET ${offset}
     `, params)
+    // What each delivery brought (POs whose lines are its awards' items).
+    const ids = rows.map(r => r.id)
+    const [brought] = ids.length ? await pool.execute(
+      `SELECT di.delivery_id, di.quantity, li.item_name, li.unit FROM delivery_items di
+         JOIN lot_items li ON li.id = di.lot_item_id
+        WHERE di.delivery_id IN (${ids.map(() => '?').join(',')}) ORDER BY li.id`, ids) : [[]]
 
     const [cnt] = await pool.execute(`
       SELECT COUNT(*) AS total
@@ -41,7 +94,13 @@ exports.list = async (req, res) => {
       ${w}
     `, params)
 
-    res.json({ data: rows, total: cnt[0].total, page, totalPages: Math.ceil(cnt[0].total / limit) })
+    // `locked`: the PO is fully delivered, so this record can't change status or be removed.
+    const data = rows.map(({ po_delivery_status, ...d }) => ({
+      ...d,
+      locked: deliveryLocked({ delivery_status: po_delivery_status }),
+      items: brought.filter(b => b.delivery_id === d.id).map(({ delivery_id, ...b }) => b),
+    }))
+    res.json({ data, total: cnt[0].total, page, totalPages: Math.ceil(cnt[0].total / limit) })
   } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
 }
 
@@ -53,178 +112,131 @@ exports.getById = async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
 }
 
+// Records goods received against a PO (procurement, admin, or supply): for a
+// PO with lines, how much of each line arrived (`items`: [{ line, quantity }],
+// at most what is still to come), and the record is complete when it brings
+// the last of them; for an older PO without lines, `status` says so.
+exports.create = asyncHandler(async (req, res) => {
+  const { po_id, delivered_date } = req.body   // shape checked in the route
+  const notes = req.body.notes?.trim() || null
 
-exports.create = async (req, res) => {
-  try {
-    const { po_id, delivered_date, status, notes, expected_date } = req.body
-    const deliveryStatus = status || 'complete'
+  const ctx = await poContext(po_id, prScope(req.user))
+  if (!ctx) return res.status(404).json({ message: 'Purchase order not found' })
 
-    const [poRows] = await pool.execute(`
-      SELECT po.id, po.po_number, po.supplier_name, po.expected_delivery_date,
-             po.purchase_request_id AS pr_id,
-             pr.created_by AS uploaded_by, pr.pr_number, pr.title AS pr_title,
-             u.email AS submitter_email, u.name AS submitter_name
-      FROM purchase_orders po
-      JOIN purchase_requests pr ON po.purchase_request_id = pr.id
-      JOIN users u              ON pr.created_by = u.id
-      WHERE po.id = ?
-    `, [po_id])
+  // The record, its items, the PO's delivery summary, and (when complete) the PR's completion, atomically.
+  const { deliveryId, status } = await withTransaction(async (conn) => {
+    const po = await lockPO(conn, ctx.id)
+    const denied = recordBlock(req.user, po)
+    if (denied) throw httpError(denied.status, denied.message)
 
-    if (!poRows.length) return res.status(404).json({ message: 'Purchase order not found' })
-
-    const [result] = await pool.execute(
-      'INSERT INTO deliveries (po_id, delivered_date, received_by, status, notes) VALUES (?, ?, ?, ?, ?)',
-      [po_id, delivered_date, req.user.id, deliveryStatus, notes || null]
-    )
-
-    const { pr_id, uploaded_by, pr_number, pr_title, po_number, supplier_name,
-            submitter_email, submitter_name } = poRows[0]
-
-    // Update expected_delivery_date on PO if provided
-    const effectiveExpected = expected_date || poRows[0].expected_delivery_date
-    if (expected_date) {
-      await pool.execute(
-        'UPDATE purchase_orders SET expected_delivery_date = ? WHERE id = ?',
-        [expected_date, po_id]
-      )
-    }
-
-    if (deliveryStatus === 'complete') {
-      await pool.execute(
-        "UPDATE purchase_orders SET delivery_status = 'delivered', delivery_date = ? WHERE id = ?",
-        [delivered_date, po_id]
-      )
-      await advancePR(pr_id, 'completed', req.user.id, 'Delivery confirmed')
-      await notify(req.io, uploaded_by,
-        `Delivery confirmed for PR ${pr_number}. All items received successfully.`,
-        'delivered', result.insertId, 'delivery'
-      )
-    } else if (deliveryStatus === 'partial') {
-      await pool.execute(
-        "UPDATE purchase_orders SET delivery_status = 'partial' WHERE id = ?",
-        [po_id]
-      )
-      await notify(req.io, uploaded_by,
-        `Partial delivery received for PR ${pr_number}. Awaiting remaining items.`,
-        'delivered', result.insertId, 'delivery'
-      )
-    }
-
-    // Email all active supply officers + the extension officer who created the PR
-    const [supplyUsers] = await pool.execute(
-      "SELECT email, name FROM users WHERE role = 'supply' AND is_active = 1 AND email IS NOT NULL AND email != ''"
-    )
-    const emailPayload = { poNumber: po_number, prNumber: pr_number, prTitle: pr_title,
-                           supplierName: supplier_name, deliveredDate: delivered_date,
-                           expectedDate: effectiveExpected, deliveryStatus, notes }
-    const recipients = [
-      { name: submitter_name, email: submitter_email },
-      ...supplyUsers.map(u => ({ name: u.name, email: u.email })),
-    ]
-    const seen = new Set()
-    for (const r of recipients) {
-      if (!r.email || seen.has(r.email)) continue
-      seen.add(r.email)
-      try {
-        await sendMail({
-          to: r.email,
-          subject: `${deliveryStatus === 'complete' ? 'Delivery Confirmed' : 'Partial Delivery Recorded'} — ${pr_number}`,
-          html: deliveryStatusEmail({ recipientName: r.name, ...emailPayload }),
-        })
-      } catch (mailErr) { console.error('Delivery email failed:', mailErr.message) }
-    }
-
-    res.status(201).json({ id: result.insertId })
-  } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
-}
-
-exports.supplyUpdate = async (req, res) => {
-  try {
-    const { status, notes } = req.body
-    if (!notes?.trim()) return res.status(400).json({ message: 'Notes are required to send an update' })
-
-    const [rows] = await pool.execute(`
-      SELECT d.*, po.po_number, po.supplier_name, po.expected_delivery_date,
-             po.purchase_request_id AS pr_id,
-             pr.pr_number, pr.title AS pr_title, pr.created_by AS extension_user_id,
-             ext.name AS extension_name, ext.email AS extension_email
-      FROM deliveries d
-      JOIN purchase_orders po   ON d.po_id = po.id
-      JOIN purchase_requests pr ON po.purchase_request_id = pr.id
-      JOIN users ext            ON pr.created_by = ext.id
-      WHERE d.id = ?
-    `, [req.params.id])
-
-    if (!rows.length) return res.status(404).json({ message: 'Delivery not found' })
-    const d = rows[0]
-
-    // Update delivery record
-    if (status) {
-      await pool.execute(
-        'UPDATE deliveries SET status = ?, notes = ? WHERE id = ?',
-        [status, notes.trim(), req.params.id]
-      )
-    } else {
-      await pool.execute('UPDATE deliveries SET notes = ? WHERE id = ?', [notes.trim(), req.params.id])
-    }
-
-    const statusLabel = status === 'complete' ? 'Complete — all items received'
-      : status === 'partial' ? 'Partial — some items still pending'
-      : 'Pending — not yet received'
-
-    const updaterName = req.user.name || 'Supply Officer'
-    const subject = `Delivery Completed — PR ${d.pr_number}`
-    const html = deliveryCompleteEmail({
-      recipientName: d.extension_name,
-      prNumber:      d.pr_number,
-      updaterName,
-    })
-
-    // Notify extension officer (in-app) — always
-    await notify(req.io, d.extension_user_id,
-      `Supply Officer update for PR ${d.pr_number}: ${statusLabel}. "${notes.trim()}"`,
-      'delivered', d.id, 'delivery'
-    )
-
-    // Email only when marked complete
-    if (status === 'complete') {
-      const [procurementUsers] = await pool.execute(
-        "SELECT email, name FROM users WHERE role IN ('procurement','admin') AND is_active = 1 AND email IS NOT NULL AND email != ''"
-      )
-      const recipients = [
-        { name: d.extension_name, email: d.extension_email },
-        ...procurementUsers.map(u => ({ name: u.name, email: u.email })),
-      ]
-      const seen = new Set()
-      for (const r of recipients) {
-        if (!r.email || seen.has(r.email)) continue
-        seen.add(r.email)
-        try { await sendMail({ to: r.email, subject, html }) } catch (e) { console.error('Update email failed:', e.message) }
+    const lines = await poLines(conn, po.id)
+    let status = req.body.status || 'complete'
+    const received = []
+    if (lines.length) {
+      const items = Array.isArray(req.body.items) ? req.body.items : []
+      if (!items.length) throw httpError(400, 'Enter how many of each item arrived')
+      for (const it of items) {
+        const line = lines.find(l => l.id === it.line)
+        if (!line) throw httpError(400, 'Some of the items are not on this purchase order')
+        if (received.some(r => r.line.id === line.id)) throw httpError(400, `"${line.item_name}" is entered twice`)
+        if (hundredths(it.quantity) > hundredths(line.remaining)) {
+          throw httpError(409, `Only ${qty(line.remaining)} ${line.unit || ''} of "${line.item_name}" ${line.remaining === 1 ? 'is' : 'are'} still to come`.replace(/\s+/g, ' '))
+        }
+        received.push({ line, quantity: it.quantity })
       }
+      // Complete when every line is in full after this delivery.
+      status = lines.every(l => hundredths(l.received) + hundredths(received.find(r => r.line.id === l.id)?.quantity) >= hundredths(l.ordered))
+        ? 'complete' : 'partial'
     }
 
-    res.json({ message: 'Update sent' })
-  } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
-}
+    const [result] = await conn.execute(
+      'INSERT INTO deliveries (po_id, delivered_date, received_by, status, notes) VALUES (?, ?, ?, ?, ?)',
+      [po.id, delivered_date, req.user.id, status, notes]
+    )
+    if (received.length) {
+      await conn.execute(
+        `INSERT INTO delivery_items (delivery_id, lot_item_id, quantity) VALUES ${received.map(() => '(?, ?, ?)').join(', ')}`,
+        received.flatMap(r => [result.insertId, r.line.id, r.quantity])
+      )
+    }
+    await syncPODelivery(conn, po, req.user)
+    return { deliveryId: result.insertId, status }
+  })
+
+  // After commit: tell the requestor (the notice opens their PR), and
+  // procurement when supply recorded it.
+  await notify(req.io, ctx.requestor_id,
+    status === 'complete'
+      ? `Delivery confirmed for PR ${ctx.pr_number}. All items received successfully.`
+      : `Partial delivery received for PR ${ctx.pr_number}. Awaiting remaining items.`,
+    'delivered', ctx.pr_id, 'pr'
+  )
+  if (req.user.role === 'supply') {
+    await notifyStaff(req.io, req.user.id,
+      `${req.user.name || 'Supply Officer'} recorded a ${status} delivery for ${ctx.po_number} (PR ${ctx.pr_number}).`,
+      deliveryId
+    )
+  }
+
+  // Email the requestor and the other active supply officers (not whoever recorded it).
+  const [supplyUsers] = await pool.execute(
+    "SELECT email, name FROM users WHERE role = 'supply' AND is_active = 1 AND email IS NOT NULL AND email != '' AND id <> ?",
+    [req.user.id]
+  )
+  const emailPayload = { poNumber: ctx.po_number, prNumber: ctx.pr_number, prTitle: ctx.pr_title,
+                         supplierName: ctx.supplier_name, deliveredDate: delivered_date,
+                         expectedDate: ctx.expected_delivery_date, deliveryStatus: status, notes }
+  await emailEach(
+    [{ name: ctx.requestor_name, email: ctx.requestor_email }, ...supplyUsers],
+    `${status === 'complete' ? 'Delivery Confirmed' : 'Partial Delivery Recorded'} — ${ctx.pr_number}`,
+    (r) => deliveryStatusEmail({ recipientName: r.name, ...emailPayload })
+  )
+
+  res.status(201).json({ id: deliveryId, status })
+})
+
+// A supply officer's note on a delivery (e.g. an item arrived damaged): kept
+// on the record and sent to the requestor and procurement. It doesn't change
+// what was delivered; goods that arrive are recorded as a delivery.
+exports.supplyUpdate = asyncHandler(async (req, res) => {
+  const notes = req.body.notes.trim()   // required; checked in the route
+
+  const { id, poId } = await withTransaction(async (conn) => {
+    const { po, delivery } = await lockDelivery(conn, req.params.id)
+    if (req.body.status && req.body.status !== delivery.status) {
+      throw httpError(409, 'A note doesn\'t change a delivery. Record the goods that arrived as a delivery instead.')
+    }
+    const [[by]] = await conn.execute('SELECT name FROM users WHERE id = ?', [req.user.id])
+    await conn.execute("UPDATE deliveries SET notes = CONCAT_WS('\\n', notes, ?) WHERE id = ?",
+      [`Note from ${by?.name || 'Supply Officer'}: ${notes}`, delivery.id])
+    await syncPODelivery(conn, po, req.user)
+    return { id: delivery.id, poId: po.id }
+  })
+
+  // After commit: in-app notice to the requestor and procurement.
+  const ctx = await poContext(poId)
+  const message = `Supply Officer note on ${ctx.po_number} (PR ${ctx.pr_number}): "${notes}"`
+  await notify(req.io, ctx.requestor_id, message, 'delivered', ctx.pr_id, 'pr')
+  await notifyStaff(req.io, req.user.id, message, id)
+  res.json({ message: 'Note sent' })
+})
 
 exports.generateIAR = async (req, res) => {
   try {
     const PDFDocument = require('pdfkit')
-    const { M, BRAND, GRAY, LIGHT, BORDER, fmtDate, fmtCurrency,
-            pageHeader, pageFooter, hRule, metaField, sigBlock, drawTable } = require('../utils/pdfHelpers')
+    const { M } = require('../utils/pdfHelpers')
 
     const [rows] = await pool.execute(`
       SELECT d.*,
              po.po_number, po.supplier_name, po.expected_delivery_date,
              po.purchase_request_id AS pr_id,
              pr.pr_number, pr.title AS pr_title, pr.fund_cluster,
-             pr.created_by AS ext_user_id,
-             ext.name AS ext_name,
+             requestor.name AS requestor_name,
              recv.name AS received_by_name
       FROM deliveries d
       JOIN purchase_orders po   ON d.po_id = po.id
       JOIN purchase_requests pr ON po.purchase_request_id = pr.id
-      JOIN users ext            ON pr.created_by = ext.id
+      JOIN users requestor      ON pr.created_by = requestor.id
       LEFT JOIN users recv      ON d.received_by = recv.id
       WHERE d.id = ?
     `, [req.params.id])
@@ -232,146 +244,81 @@ exports.generateIAR = async (req, res) => {
     if (!rows.length) return res.status(404).json({ message: 'Delivery not found' })
     const d = rows[0]
 
-    const [items] = await pool.execute(
-      'SELECT item_name, quantity, unit, estimated_cost, group_label FROM pr_items WHERE pr_id = ? ORDER BY group_label, id',
-      [d.pr_id]
-    )
+    // What this delivery brought (a PO with lines), at the awarded prices when
+    // every line has one. An older PO without lines lists the PO's items.
+    const [brought] = await pool.execute(`
+      SELECT li.item_name, li.unit, li.unit_price, li.estimated_cost, di.quantity, pi.group_label
+        FROM delivery_items di
+        JOIN lot_items li ON li.id = di.lot_item_id
+        LEFT JOIN pr_items pi ON pi.id = li.pr_item_id
+       WHERE di.delivery_id = ?
+       ORDER BY li.pr_item_id IS NULL, li.pr_item_id, li.id`, [d.id])
+    const items  = brought.length ? brought : await poItems(pool, d.po_id, d.pr_id)
+    const priced = items.length > 0 && items.every(i => i.unit_price != null)
 
     const iarNumber = `IAR-${String(d.id).padStart(5, '0')}`
-    const statusLabel = d.status === 'complete' ? 'Complete — all items received' : 'Partial — some items still pending'
+    const statusLabel = d.status === 'complete' ? 'Complete: every item of the PO is in' : 'Partial: some items are still to come'
 
     const doc = new PDFDocument({ size: 'LETTER', margin: M })
     res.setHeader('Content-Type', 'application/pdf')
     res.setHeader('Content-Disposition', `attachment; filename="${iarNumber}.pdf"`)
     doc.pipe(res)
 
-    const W = doc.page.width - M * 2
-
-    // ── Header
-    let y = pageHeader(doc, 'INSPECTION AND ACCEPTANCE REPORT')
-
-    // ── Meta row
-    metaField(doc, 'IAR NUMBER',    iarNumber,        M,       y, 140)
-    metaField(doc, 'PO NUMBER',     d.po_number,      M + 150, y, 130)
-    metaField(doc, 'PR NUMBER',     d.pr_number,      M + 290, y, 130)
-    metaField(doc, 'DATE RECEIVED', fmtDate(d.delivered_date), M + 430, y, 90)
-    y += 36; hRule(doc, y); y += 12
-
-    // ── Supplier + PR info
-    metaField(doc, 'SUPPLIER',         d.supplier_name,                  M,       y, 280)
-    metaField(doc, 'EXPECTED DATE',    fmtDate(d.expected_delivery_date), M + 350, y, 160)
-    y += 28
-    if (d.pr_title) {
-      doc.fontSize(8).fillColor(GRAY).font('Helvetica').text('DESCRIPTION / PURPOSE', M, y)
-      doc.fontSize(10).fillColor('#111827').font('Helvetica').text(d.pr_title, M, y + 12, { width: W })
-      y += 30
-    }
-    hRule(doc, y); y += 12
-
-    // ── Items table
-    const sectionLabel = items.length ? 'ITEMS RECEIVED' : 'ITEMS RECEIVED (none recorded)'
-    doc.fontSize(8).fillColor(GRAY).font('Helvetica-Bold').text(sectionLabel, M, y); y += 12
-    doc.y = y
-
-    if (items.length) {
-      const cols = [
-        { header: '#',           width: 28,  align: 'center' },
-        { header: 'DESCRIPTION', width: 213, align: 'left'   },
-        { header: 'UNIT',        width: 55,  align: 'center' },
-        { header: 'QTY',         width: 50,  align: 'right'  },
-        { header: 'UNIT COST',   width: 77,  align: 'right'  },
-        { header: 'TOTAL',       width: 77,  align: 'right'  },
-      ]
-      const tableRows = []
-      let currentGroup = null
-      let grandTotal   = 0
-      let lineNo       = 1
-      for (const item of items) {
-        if (item.group_label && item.group_label !== currentGroup) {
-          currentGroup = item.group_label
-          tableRows.push({ _group: item.group_label })
-        }
-        const total = parseFloat(item.quantity || 0) * parseFloat(item.estimated_cost || 0)
-        grandTotal += total
-        tableRows.push([lineNo++, item.item_name, item.unit || '—', item.quantity, fmtCurrency(item.estimated_cost), fmtCurrency(total)])
-      }
-      const totalRow = ['', '', '', '', 'TOTAL AMOUNT', fmtCurrency(grandTotal)]
-      totalRow._total = true
-      tableRows.push(totalRow)
-      y = drawTable(doc, cols, tableRows)
-      y += 16
-    }
-
-    // ── Delivery status + notes
-    hRule(doc, y); y += 10
-    metaField(doc, 'DELIVERY STATUS', statusLabel, M, y, 300)
-    if (d.notes) {
-      doc.fontSize(8).fillColor(GRAY).font('Helvetica').text('REMARKS', M + 320, y, { width: 200 })
-      doc.fontSize(9).fillColor('#374151').font('Helvetica').text(d.notes, M + 320, y + 12, { width: 200 })
-    }
-    y += 36
-
-    // ── Signature lines
-    const sigY = doc.page.height - 130
-    hRule(doc, sigY - 10)
-    sigBlock(doc, M,       sigY, 'Received By',   d.received_by_name || '', 'Supply Officer')
-    sigBlock(doc, M + 310, sigY, 'Inspected By',  d.ext_name || '',         'Extension Officer')
-
-    pageFooter(doc)
+    drawInspectionReport(doc, { d, items, priced, brought, iarNumber, statusLabel })
     doc.end()
   } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
 }
 
-exports.remove = async (req, res) => {
-  try {
-    const [rows] = await pool.execute('SELECT id FROM deliveries WHERE id = ?', [req.params.id])
-    if (!rows.length) return res.status(404).json({ message: 'Delivery not found' })
-    await pool.execute('DELETE FROM deliveries WHERE id = ?', [req.params.id])
-    res.json({ message: 'Delivery record removed' })
-  } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
-}
+// Removes a mistaken record while the PO is not yet fully delivered; the PO's
+// delivery status is recalculated from the records that remain.
+exports.remove = asyncHandler(async (req, res) => {
+  const files = await withTransaction(async (conn) => {
+    const { po, delivery } = await lockDelivery(conn, req.params.id)
+    const denied = removeBlock(po)
+    if (denied) throw httpError(denied.status, denied.message)
+    const [files] = await conn.execute('SELECT filename FROM delivery_attachments WHERE delivery_id = ?', [delivery.id])
+    await conn.execute('DELETE FROM deliveries WHERE id = ?', [delivery.id])   // its attachment rows cascade
+    await syncPODelivery(conn, po, req.user)
+    return files
+  })
+  // After commit: the attachment files go with their rows.
+  for (const f of files) fileStore.remove('delivery', f.filename)
+  res.json({ message: 'Delivery record removed' })
+})
 
-exports.update = async (req, res) => {
-  try {
-    const { delivered_date, status, notes } = req.body
-    const [existing] = await pool.execute(`
-      SELECT d.*, po.purchase_request_id AS pr_id, po.id AS po_id
-      FROM deliveries d
-      JOIN purchase_orders po ON d.po_id = po.id
-      WHERE d.id = ?
-    `, [req.params.id])
+// Corrects a delivery's date and notes; on an older PO without lines, also
+// its partial / complete status (on a PO with lines that follows the
+// quantities received: to change those, remove the record and record again).
+exports.update = asyncHandler(async (req, res) => {
+  const { delivered_date } = req.body   // checked in the route
+  const notes = req.body.notes?.trim() || null
 
-    if (!existing.length) return res.status(404).json({ message: 'Delivery not found' })
-
-    await pool.execute(
-      'UPDATE deliveries SET delivered_date = ?, status = ?, notes = ? WHERE id = ?',
-      [delivered_date, status, notes || null, req.params.id]
-    )
-
-    if (status && status !== existing[0].status) {
-      const { pr_id, po_id } = existing[0]
-      if (status === 'complete') {
-        await pool.execute(
-          "UPDATE purchase_orders SET delivery_status = 'delivered', delivery_date = ? WHERE id = ?",
-          [delivered_date, po_id]
-        )
-        await advancePR(pr_id, 'completed', req.user.id, 'Delivery updated to complete')
-      } else if (status === 'partial') {
-        await pool.execute(
-          "UPDATE purchase_orders SET delivery_status = 'partial' WHERE id = ?",
-          [po_id]
-        )
-      }
+  const { id, poId, sync } = await withTransaction(async (conn) => {
+    const { po, delivery } = await lockDelivery(conn, req.params.id)
+    const status = req.body.status || delivery.status
+    const denied = changeBlock(po, delivery, status)
+    if (denied) throw httpError(denied.status, denied.message)
+    if (status !== delivery.status && (await poLines(conn, po.id)).length) {
+      throw httpError(409, 'This delivery\'s status follows the quantities received. To change them, remove the record and record the delivery again.')
     }
+    await conn.execute(
+      'UPDATE deliveries SET delivered_date = ?, status = ?, notes = ? WHERE id = ?',
+      [delivered_date, status, notes, delivery.id]
+    )
+    return { id: delivery.id, poId: po.id, sync: await syncPODelivery(conn, po, req.user) }
+  })
 
-    res.json({ message: 'Delivery updated' })
-  } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
-}
+  if (sync.prCompleted) {
+    const ctx = await poContext(poId)
+    await notify(req.io, ctx.requestor_id,
+      `Delivery confirmed for PR ${ctx.pr_number}. All items received successfully.`,
+      'delivered', ctx.pr_id, 'pr'
+    )
+  }
+  res.json({ message: 'Delivery updated' })
+})
 
-// ── Delivery Attachments ──────────────────────────────────────────────────────
-
-const path = require('path')
-const fs   = require('fs')
+// Delivery Attachments
 
 exports.uploadAttachment = async (req, res) => {
   try {
@@ -381,6 +328,8 @@ exports.uploadAttachment = async (req, res) => {
       fs.unlink(req.file.path, () => {})
       return res.status(404).json({ message: 'Delivery not found' })
     }
+    // The file is stored before its row, so a row never points at a missing file.
+    await fileStore.keep('delivery', req.file)
     const [result] = await pool.execute(
       'INSERT INTO delivery_attachments (delivery_id, filename, original_name, mimetype, size, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)',
       [req.params.id, req.file.filename, req.file.originalname, req.file.mimetype, req.file.size, req.user.id]
@@ -410,22 +359,26 @@ exports.downloadAttachment = async (req, res) => {
       [req.params.attachId, req.params.id]
     )
     if (!rows.length) return res.status(404).json({ message: 'Attachment not found' })
-    const filePath = path.join(__dirname, '..', 'uploads', 'delivery', rows[0].filename)
-    if (!fs.existsSync(filePath)) return res.status(404).json({ message: 'File not found on disk' })
-    res.download(filePath, rows[0].original_name)
+    await fileStore.send(res, 'delivery', rows[0].filename, rows[0].original_name)
   } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
 }
 
 exports.deleteAttachment = async (req, res) => {
   try {
     const [rows] = await pool.execute(
-      'SELECT * FROM delivery_attachments WHERE id = ? AND delivery_id = ?',
+      `SELECT a.filename, po.delivery_status
+         FROM delivery_attachments a
+         JOIN deliveries d       ON d.id = a.delivery_id
+         JOIN purchase_orders po ON po.id = d.po_id
+        WHERE a.id = ? AND a.delivery_id = ?`,
       [req.params.attachId, req.params.id]
     )
     if (!rows.length) return res.status(404).json({ message: 'Attachment not found' })
-    const filePath = path.join(__dirname, '..', 'uploads', 'delivery', rows[0].filename)
-    fs.unlink(filePath, () => {})
+    const denied = fileDeleteBlock(rows[0])
+    if (denied) return res.status(denied.status).json({ message: denied.message })
     await pool.execute('DELETE FROM delivery_attachments WHERE id = ?', [req.params.attachId])
+    // The file goes after its row, so a failed delete never leaves a row without its file.
+    fileStore.remove('delivery', rows[0].filename)
     res.json({ message: 'Attachment deleted' })
   } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
 }

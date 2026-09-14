@@ -1,9 +1,5 @@
 const esc = require('../utils/escapeHtml')
-
-function fmtDateLong(d) {
-  if (!d) return '—'
-  return new Date(d).toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' })
-}
+const { fmtLongDate: fmtDateLong } = require('../utils/dates')
 
 // Status-change notification sent to procurement when a delivery is recorded.
 // Used for both 'complete' and 'partial' statuses.
@@ -12,14 +8,14 @@ module.exports = function deliveryStatusEmail({
   deliveredDate, expectedDate, deliveryStatus, notes,
 }) {
   const isComplete   = deliveryStatus === 'complete'
-  const statusColor  = isComplete ? '#166534' : '#92400e'
-  const statusBg     = isComplete ? '#f0fdf4' : '#fffbeb'
-  const statusBorder = isComplete ? '#bbf7d0' : '#fde68a'
+  const statusColor  = isComplete ? '#1E40AF' : '#92400e'
+  const statusBg     = isComplete ? '#EFF6FF' : '#fffbeb'
+  const statusBorder = isComplete ? '#BFDBFE' : '#fde68a'
   const statusLabel  = isComplete ? 'Complete — all items received' : 'Partial — some items still pending'
 
   return `
     <div style="font-family:Inter,Arial,sans-serif;max-width:600px;margin:auto;padding:32px;border:1px solid #e5e7eb;border-radius:12px;background:#fff;">
-      <h2 style="color:#14532d;font-size:20px;margin:0 0 2px;font-weight:800;">PRimeSys</h2>
+      <h2 style="color:#1E3A8A;font-size:20px;margin:0 0 2px;font-weight:800;">PRimeSys</h2>
       <p style="color:#6b7280;font-size:12px;margin:0 0 24px;">Procurement Management System · NEMSU Cantilan Campus</p>
       <hr style="border:none;border-top:1px solid #e5e7eb;margin-bottom:24px;" />
       <p style="margin:0 0 8px;font-size:15px;color:#111827;">Hello <strong>${esc(recipientName)}</strong>,</p>

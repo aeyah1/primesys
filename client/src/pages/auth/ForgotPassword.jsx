@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Leaf, AtSign, CheckCircle2, AlertCircle } from 'lucide-react'
+import { AtSign, CheckCircle2, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -30,19 +30,19 @@ export default function ForgotPassword() {
     <div className="min-h-screen flex flex-col justify-center bg-[--color-canvas] p-6">
       <div className="w-full max-w-sm mx-auto py-8">
         <div className="flex items-center gap-2.5 mb-8">
-          <div className="flex size-9 items-center justify-center rounded-xl bg-[--color-brand]">
-            <Leaf className="size-4 text-emerald-200" />
+          <div className="flex size-9 items-center justify-center">
+            <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-7 object-contain" />
           </div>
           <span className="font-bold text-xl text-[--color-text-primary] tracking-tight">PRimeSys</span>
         </div>
 
         {sent ? (
-          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-6 text-center space-y-3">
-            <CheckCircle2 className="size-10 text-emerald-600 mx-auto" />
-            <h2 className="font-bold text-lg text-emerald-900">Check your email</h2>
-            <p className="text-sm text-emerald-800 leading-relaxed">
-              If <strong>{email}</strong> is registered, you'll receive a password reset link shortly.
-              The link expires in 1 hour.
+          <div className="rounded-2xl border border-blue-200 bg-blue-50 p-6 text-center space-y-3">
+            <CheckCircle2 className="size-10 text-blue-600 mx-auto" />
+            <h2 className="font-bold text-lg text-blue-900">Check your email</h2>
+            <p className="text-sm text-blue-800 leading-relaxed">
+              If an account matches <strong className="break-all">{email}</strong>, reset instructions will be sent.
+              The link expires in 1 hour. Nothing arrived? Check your spam folder, or wait a few minutes and try again.
             </p>
             <Link
               to="/login"

@@ -23,11 +23,13 @@ const Bidding           = lazy(() => import('@/pages/bidding/Bidding'))
 const ReportsPage       = lazy(() => import('@/pages/reports/ReportsPage'))
 const UserList          = lazy(() => import('@/pages/users/UserList'))
 const QuarterList       = lazy(() => import('@/pages/quarters/QuarterList'))
-const HistoryPage       = lazy(() => import('@/pages/history/HistoryPage'))
+const ArchivePage       = lazy(() => import('@/pages/archive/ArchivePage'))
 const RemindersPage     = lazy(() => import('@/pages/reminders/RemindersPage'))
 const NotificationsPage = lazy(() => import('@/pages/notifications/NotificationsPage'))
 const SettingsPage      = lazy(() => import('@/pages/settings/Settings'))
 const GuidePage         = lazy(() => import('@/pages/guide/GuidePage'))
+const TwgReviewList     = lazy(() => import('@/pages/twg/TwgReviewList'))
+const TwgReviewDetail   = lazy(() => import('@/pages/twg/TwgReviewDetail'))
 
 function ProtectedRoute({ children, roles }) {
   const { user, loading } = useAuth()
@@ -59,14 +61,15 @@ export default function App() {
           <Route path="dashboard" element={<Dashboard />} />
 
           <Route path="pr"          element={<PRList />} />
-          <Route path="pr/create"  element={<ProtectedRoute roles={['procurement','admin','extension']}><PRCreate /></ProtectedRoute>} />
+          <Route path="pr/create"  element={<ProtectedRoute roles={['procurement','admin','requestor']}><PRCreate /></ProtectedRoute>} />
           <Route path="pr/:id"     element={<PRDetail />} />
-          <Route path="pr/:id/edit" element={<ProtectedRoute roles={['procurement','admin','extension']}><PREdit /></ProtectedRoute>} />
+          <Route path="pr/:id/edit" element={<ProtectedRoute roles={['procurement','admin','requestor']}><PREdit /></ProtectedRoute>} />
 
-          <Route path="po"         element={<ProtectedRoute roles={['procurement','admin','supply','extension']}><POList /></ProtectedRoute>} />
-          <Route path="delivery"   element={<ProtectedRoute roles={['procurement','admin','supply','extension']}><DeliveryList /></ProtectedRoute>} />
-          <Route path="bidding"    element={<ProtectedRoute roles={['procurement','admin','extension','supply']}><Bidding /></ProtectedRoute>} />
-          <Route path="history"       element={<HistoryPage />} />
+          <Route path="po"         element={<ProtectedRoute roles={['procurement','admin','supply','requestor']}><POList /></ProtectedRoute>} />
+          <Route path="delivery"   element={<ProtectedRoute roles={['procurement','admin','supply','requestor']}><DeliveryList /></ProtectedRoute>} />
+          <Route path="bidding"    element={<ProtectedRoute roles={['procurement','admin','requestor','supply']}><Bidding /></ProtectedRoute>} />
+          <Route path="archive"       element={<ArchivePage />} />
+          <Route path="history"       element={<Navigate to="/archive" replace />} />
           <Route path="reminders"     element={<RemindersPage />} />
           <Route path="notifications" element={<NotificationsPage />} />
           <Route path="settings"      element={<SettingsPage />} />
@@ -75,6 +78,9 @@ export default function App() {
           <Route path="reports"       element={<ProtectedRoute roles={['admin','procurement']}><ReportsPage /></ProtectedRoute>} />
           <Route path="users"         element={<ProtectedRoute roles={['admin']}><UserList /></ProtectedRoute>} />
           <Route path="quarters"      element={<ProtectedRoute roles={['admin']}><QuarterList /></ProtectedRoute>} />
+
+          <Route path="twg/reviews"     element={<ProtectedRoute roles={['twg','admin']}><TwgReviewList /></ProtectedRoute>} />
+          <Route path="twg/reviews/:id" element={<ProtectedRoute roles={['twg','admin']}><TwgReviewDetail /></ProtectedRoute>} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

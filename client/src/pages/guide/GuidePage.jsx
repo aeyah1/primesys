@@ -2,24 +2,27 @@ import { useState } from 'react'
 import {
   BookOpen, FileText, Gavel, ShoppingCart, Truck,
   Users, CheckCircle, ArrowRight, ChevronDown, ChevronUp,
-  ClipboardList, Trophy, Package, Send, Eye, Pencil,
-  Trash2, Bell, Clock, Download, Shield,
+  ClipboardList, ClipboardCheck, Package, Send, Eye, Pencil,
+  Trash2, Bell, Clock, Download, Shield, RotateCcw, XCircle, Archive, Building2,
 } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
+import { PRStatusBadge } from '@/components/shared/StatusBadge'
 import { useAuth } from '@/context/AuthContext'
 
 const ROLE_LABELS = {
   admin:       'Administrator',
   procurement: 'Procurement Officer',
-  extension:   'Extension Officer',
+  requestor:   'Requestor',
   supply:      'Supply Officer',
+  twg:         'Technical Working Group',
 }
 
 const ROLE_COLORS = {
   admin:       'bg-purple-50 border-purple-200 text-purple-800',
   procurement: 'bg-blue-50 border-blue-200 text-blue-800',
-  extension:   'bg-amber-50 border-amber-200 text-amber-800',
-  supply:      'bg-emerald-50 border-emerald-200 text-emerald-800',
+  requestor:   'bg-teal-50 border-teal-200 text-teal-800',
+  supply:      'bg-blue-50 border-blue-200 text-blue-800',
+  twg:         'bg-cyan-50 border-cyan-200 text-cyan-800',
 }
 
 function Section({ icon: Icon, title, children, defaultOpen = true }) {
@@ -89,37 +92,54 @@ function Feature({ icon: Icon, title, description }) {
 }
 
 function RoleGuide({ role }) {
-  if (role === 'extension') return (
+  if (role === 'requestor') return (
     <div className="space-y-4 pt-3">
       <p className="text-sm text-[--color-text-secondary] leading-relaxed">
-        As an <strong>Extension Officer</strong>, your job is to create and submit Purchase Requests for your projects or events.
-        Once submitted, procurement takes over. You can track your PR's progress at any time.
+        As a <strong>Requestor</strong>, you file Purchase Requests for your personal, event, office, or project needs.
+        The Technical Working Group (TWG) checks each one before Procurement takes over, and you can track it at any time.
       </p>
       <div className="space-y-1">
-        <Step number={1} icon={Pencil}   title="Create a Purchase Request"        description="Go to Purchase Requests → New Purchase Request. Fill in the title, select a quarter, then add your items (description, quantity, unit, estimated cost per item)." />
-        <Step number={2} icon={Send}     title="Submit the PR"                    description="Once your items are complete, click Submit inside the PR detail page. This sends it to Procurement for review. You will not be able to edit it after submission." />
-        <Step number={3} icon={Eye}      title="Track your PR"                    description="Visit Purchase Requests anytime to see the status of your PR: Submitted → Bidding → Ready for PO → Completed." />
-        <Step number={4} icon={Bell}     title="Send a Reminder (optional)"       description="Inside your PR, click Remind Procurement if it has been sitting too long. There is a 1-hour cooldown between reminders." />
-        <Step number={5} icon={CheckCircle} title="PR Completed"                  description="When the goods are delivered and accepted, your PR will be marked as Completed automatically." />
+        <Step number={1} icon={Pencil}      title="Create a Purchase Request" description="Go to Purchase Requests → New Purchase Request. Say what it is for and why, then list your items with a rough price for each. You can save it as a draft and finish later." />
+        <Step number={2} icon={Send}        title="It goes to the TWG"        description="Click Submit to TWG when it is ready. It is locked while they review it. To change something, open the PR, click Withdraw to edit, then click Submit to TWG again." />
+        <Step number={3} icon={RotateCcw}   title="Respond to the TWG"        description="The TWG approves your PR, asks for a revision, or rejects it, with a comment. If they ask for a revision, click Edit PR, make the changes, and click Submit to TWG." />
+        <Step number={4} icon={Eye}         title="Track your PR"             description="Your PR moves from Submitted to Approved by TWG, Bidding, Ready for PO, and Completed, with a notification at every step. The progress box on your PR shows where it is, who has it, and what happens next. If Procurement has had it a while, click Remind Procurement (once per PR per hour)." />
+        <Step number={5} icon={CheckCircle} title="PR Completed"              description="You are told as the goods arrive, and if a supplier's delivery date changes, with the new date and why. When everything is delivered, your PR is marked Completed automatically and moves to the Archive." />
       </div>
-      <Tip>You can only edit or delete a PR before you submit it. Once submitted, contact Procurement if changes are needed.</Tip>
+      <Tip>You can delete a PR only while it is a draft or returned for revision. Deleted, completed, rejected, and cancelled PRs stay in the Archive.</Tip>
+    </div>
+  )
+
+  if (role === 'twg') return (
+    <div className="space-y-4 pt-3">
+      <p className="text-sm text-[--color-text-secondary] leading-relaxed">
+        As a member of the <strong>Technical Working Group (TWG)</strong>, you check the specifications of every
+        Purchase Request before it reaches Procurement.
+      </p>
+      <div className="space-y-1">
+        <Step number={1} icon={ClipboardCheck} title="Open your review queue" description="Submitted PRs in your review areas land in TWG Reviews. The admin sets your areas, for example Hardware & Equipment or Event Supplies. Open a PR to see every item, quantity, unit cost, and attachment." />
+        <Step number={2} icon={CheckCircle}    title="Approve & Forward"      description="If the specifications are right, click Approve & Forward. The PR becomes Approved by TWG and moves to Procurement's queue." />
+        <Step number={3} icon={RotateCcw}      title="Request a Revision"     description="If something needs to change, click Request Revision and explain what to fix (a comment is required). The requestor edits the PR and submits it to you again." />
+        <Step number={4} icon={XCircle}        title="Reject"                 description="If the request can't go ahead, click Reject and give the reason. A rejected PR is final and stays in the Archive." />
+        <Step number={5} icon={ClipboardList}  title="Follow your decisions"  description="Your dashboard shows how many PRs are waiting, your weekly activity, and your recent decisions." />
+      </div>
+      <Tip>The TWG reviews but doesn't edit PRs. When something needs to change, request a revision so the requestor can fix it. If a PR was filed under the wrong category, request a revision and ask the requestor to change the category.</Tip>
     </div>
   )
 
   if (role === 'procurement') return (
     <div className="space-y-4 pt-3">
       <p className="text-sm text-[--color-text-secondary] leading-relaxed">
-        As a <strong>Procurement Officer</strong>, you manage the full lifecycle of Purchase Requests — from reviewing submissions
-        all the way to issuing Purchase Orders and tracking deliveries.
+        As a <strong>Procurement Officer</strong>, you take TWG-approved Purchase Requests through canvassing, the award,
+        and the Purchase Order, and follow them until the goods are delivered.
       </p>
       <div className="space-y-1">
-        <Step number={1} icon={Eye}           title="Review submitted PRs"           description="New submissions are highlighted in the PR list. Open the PR to review items, then click Canvass PR to move it to Bidding." />
-        <Step number={2} icon={Gavel}         title="Create Lots & Award Suppliers"  description="Go to Lots & Awards. Create lots for the PR, fill in the supplier details, and mark each lot as Awarded. Once all lots are awarded, the PR automatically moves to Ready for PO." />
-        <Step number={3} icon={ShoppingCart}  title="Issue a Purchase Order"         description="Inside the PR (now in Ready for PO status), fill in the issued date and expected delivery date, then click Issue Purchase Order." />
-        <Step number={4} icon={Truck}         title="Track Delivery"                 description="Monitor delivery status in the Deliveries section. You can also update delivery status directly from the PR detail page." />
-        <Step number={5} icon={CheckCircle}   title="PR is Completed"                description="When the supply officer confirms full delivery, the PR status changes to Completed automatically." />
+        <Step number={1} icon={Eye}          title="Canvass approved PRs"    description="PRs approved by the TWG show as Approved by TWG. The Ready to Canvass card on your dashboard groups them by category, and Purchase Requests has category filters and a sort for the oldest approvals. Open one and click Canvass PR to move it to Bidding." />
+        <Step number={2} icon={Gavel}        title="Record the award"        description="Under Canvass & Awards on the PR (or in Lots & Awards), click Add Quotation for each supplier's prices, then Award from Quotations: each item goes to the lowest price, and different items can go to different suppliers. Without quotations, use Record Award by Hand. An award can't exceed the approved budget of its items. Once every item is awarded (or dropped, with a reason), the PR is Ready for PO." />
+        <Step number={3} icon={ShoppingCart} title="Issue a Purchase Order"  description="Each supplier awarded gets its own PO. Under Purchase Orders on the PR, set the dates and click Issue PO for each supplier. A supplier's PO can go out while other items are still being canvassed. Supply and the requestor are notified." />
+        <Step number={4} icon={Truck}        title="Track delivery"          description="Supply records how many of each item arrived, and you can record a delivery from the PR page or the Purchase Orders page too. The Overdue tab on Purchase Orders lists every PO past its expected date. If the supplier gives a new date, click Change Expected Date on the PO and give the reason; the requestor and supply are told. Once every PO is fully delivered, and no item is left to award, the PR is Completed automatically." />
+        <Step number={5} icon={XCircle}      title="If a supplier backs out" description="Before anything is delivered, click Cancel PO on that supplier's PO, with a reason. Only its items go back to canvass for a new award; other suppliers' POs stay." />
       </div>
-      <Tip>Use Reports for analytics and trends. Reminders let you schedule follow-up tasks for yourself or other users.</Tip>
+      <Tip>Once the TWG has approved a PR, it can be deleted while it has no award or PO; otherwise cancel it instead. While the TWG still has it, only an admin can cancel or delete it. Use Reports for spending and pipeline analytics, and Reminders to schedule follow-ups.</Tip>
     </div>
   )
 
@@ -129,29 +149,29 @@ function RoleGuide({ role }) {
         As a <strong>Supply Officer</strong>, you receive goods and record deliveries against Purchase Orders.
       </p>
       <div className="space-y-1">
-        <Step number={1} icon={Bell}         title="Get notified of new POs"        description="When a PO is issued, you receive a real-time notification. You can also check the Deliveries page for all pending deliveries." />
-        <Step number={2} icon={Package}      title="Check Lots & Awards"            description="Visit Lots & Awards to see which suppliers were awarded and what items to expect in the delivery." />
-        <Step number={3} icon={Truck}        title="Record the delivery"            description="Go to Deliveries → Record Delivery. Select the PO, set the delivered date, choose Complete or Partial, and add notes." />
-        <Step number={4} icon={Send}         title="Send a delivery update"         description="Use the Update button on any delivery to notify Procurement and the Extension Officer of the current delivery status (Pending, Partial, or Complete)." />
-        <Step number={5} icon={Download}     title="Download the IAR"               description="After recording a delivery, you can download the Inspection and Acceptance Report (IAR) PDF from the Deliveries page." />
+        <Step number={1} icon={Bell}     title="Get notified of new POs" description="When a PO is issued, you get a notification. Your dashboard counts the POs that are overdue, due this week, and partly delivered, and lists what is still to receive, soonest due first." />
+        <Step number={2} icon={Package}  title="Open the PO"             description="Click a PO on the Purchase Orders page to see its items, how many of each have arrived and are still to come, and its deliveries so far." />
+        <Step number={3} icon={Truck}    title="Record the delivery"     description="Click Receive on the PO (or Deliveries → Record Delivery, then pick the PO). Enter how many of each item arrived; everything still to come is filled in for you. Set the delivered date, then attach the invoice with the paperclip button." />
+        <Step number={4} icon={Send}     title="Send a note"             description="Use Note on a delivery to tell Procurement and the Requestor something about it, such as an item that arrived damaged. A note doesn't change what was delivered." />
+        <Step number={5} icon={Download} title="Download the IAR"        description="Each delivery has its own Inspection and Acceptance Report (IAR) PDF listing the items it brought, on the Deliveries page and in the PO's details." />
       </div>
-      <Tip>If only some items arrived, record it as Partial. You can record another delivery later for the remaining items.</Tip>
+      <Tip>If only some items arrived, enter just those: the rest stays on the PO until it arrives. When every item is in, the PO is Delivered, and the PR is Completed once all its POs are. After that, its delivery records can only have their dates and notes corrected.</Tip>
     </div>
   )
 
   if (role === 'admin') return (
     <div className="space-y-4 pt-3">
       <p className="text-sm text-[--color-text-secondary] leading-relaxed">
-        As an <strong>Administrator</strong>, you have full access to the system — you can manage users, quarters, and oversee all procurement activity.
+        As an <strong>Administrator</strong>, you manage users, quarters, and organization settings, and you can see all procurement activity.
       </p>
       <div className="space-y-1">
-        <Step number={1} icon={Users}        title="Manage Users"                   description="Go to User Management to create accounts, assign roles (Admin, Procurement, Extension, Supply), and activate or deactivate users." />
-        <Step number={2} icon={Clock}        title="Manage Quarters"                description="Go to Quarters to create fiscal quarters (Q1–Q4) and set the active quarter. PRs are tied to a quarter for reporting purposes." />
-        <Step number={3} icon={Shield}       title="Oversee all PRs and POs"        description="You have full access to read, edit, and delete any PR or PO in the system regardless of who created it." />
-        <Step number={4} icon={ClipboardList} title="View Reports"                  description="Go to Reports for system-wide analytics: PR counts by status, PO trends, delivery performance, and more." />
-        <Step number={5} icon={Bell}         title="System Notifications"           description="All real-time events (new submissions, deliveries, reminders) are surfaced through the notification bell in the header." />
+        <Step number={1} icon={Users}         title="Manage Users"           description="Go to User Management to create accounts, assign roles (Admin, Procurement, Requestor, Supply, TWG), and activate or deactivate users. For a TWG member, tick the review areas (categories) they check; your dashboard warns you when an area has no reviewer. Public sign-up always creates Requestors." />
+        <Step number={2} icon={Clock}         title="Manage Quarters"        description="Go to Quarters to create fiscal quarters (Q1–Q4), set each quarter's budget, and mark the active one. Reports compare spending against each budget." />
+        <Step number={3} icon={Shield}        title="Oversee all PRs and POs" description="You can see every PR, PO, and delivery. Finished PRs (completed, rejected, or cancelled) stay in the Archive and can't be deleted." />
+        <Step number={4} icon={ClipboardList} title="View Reports"           description="Go to Reports for spending by quarter and category, budget use, and PR counts by status." />
+        <Step number={5} icon={Building2}     title="Organization settings"  description="Set the fund cluster and responsibility center code in Settings → Organization. They are filled in on every new PR." />
       </div>
-      <Tip>Create at least one active Quarter before Extension Officers can submit PRs — the quarter field is required on every PR.</Tip>
+      <Tip>New PRs are filed under the active quarter automatically, so keep the current quarter marked active.</Tip>
     </div>
   )
 
@@ -164,9 +184,9 @@ export default function GuidePage() {
 
   const modules = [
     { icon: FileText,     label: 'Purchase Requests', color: 'text-amber-600',   bg: 'bg-amber-50'   },
-    { icon: Gavel,        label: 'Lots & Bidding',    color: 'text-blue-600',    bg: 'bg-blue-50'    },
+    { icon: Gavel,        label: 'Lots & Awards',     color: 'text-blue-600',    bg: 'bg-blue-50'    },
     { icon: ShoppingCart, label: 'Purchase Orders',   color: 'text-purple-600',  bg: 'bg-purple-50'  },
-    { icon: Truck,        label: 'Delivery Tracking', color: 'text-emerald-600', bg: 'bg-emerald-50' },
+    { icon: Truck,        label: 'Delivery Tracking', color: 'text-blue-600', bg: 'bg-blue-50' },
   ]
 
   const sections = [
@@ -177,9 +197,9 @@ export default function GuidePage() {
       content: (
         <>
           <p className="text-sm text-[--color-text-secondary] leading-relaxed mt-3">
-            <strong>PRimeSys</strong> is a web-based procurement management system for NEMSU Cantilan Campus.
-            It digitizes and tracks the entire procurement process — from Purchase Request (PR) creation
-            all the way to delivery confirmation — replacing manual paper-based workflows.
+            <strong>PRimeSys</strong> is a web-based procurement monitoring system for NEMSU Cantilan Campus.
+            It tracks the entire procurement process, from Purchase Request (PR) creation through TWG review,
+            award, and Purchase Order, all the way to delivery, replacing manual paper-based workflows.
           </p>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
             {modules.map(({ icon: Icon, label, color, bg }, i) => (
@@ -213,13 +233,13 @@ export default function GuidePage() {
           </p>
           <div className="space-y-0">
             {[
-              { number: 1, role: 'Extension',   color: 'bg-amber-500',   icon: Pencil,        title: 'Extension creates a PR',        desc: 'Extension Officer creates a new Purchase Request, fills in items with descriptions, quantities, units, and estimated costs.' },
-              { number: 2, role: 'Extension',   color: 'bg-amber-500',   icon: Send,          title: 'Extension submits the PR',       desc: 'The PR is submitted to Procurement. Status changes from Draft → Submitted.' },
-              { number: 3, role: 'Procurement', color: 'bg-blue-600',    icon: ClipboardList, title: 'Procurement canvasses the PR',   desc: 'Procurement reviews the PR and clicks "Canvass PR". Status changes from Submitted → Bidding.' },
-              { number: 4, role: 'Procurement', color: 'bg-blue-600',    icon: Gavel,         title: 'Lots are created and awarded',   desc: 'Procurement creates lots in Lots & Awards and assigns suppliers. Once all lots are awarded, PR moves to Ready for PO automatically.' },
-              { number: 5, role: 'Procurement', color: 'bg-blue-600',    icon: ShoppingCart,  title: 'Purchase Order is issued',       desc: 'Procurement issues a PO from the PR detail page with the supplier, amount, and expected delivery date.' },
-              { number: 6, role: 'Supply',      color: 'bg-emerald-600', icon: Truck,         title: 'Supply records delivery',        desc: 'Supply Officer receives the goods and records the delivery (Full or Partial). Supply can also send delivery status updates.' },
-              { number: 7, role: 'System',      color: 'bg-gray-500',    icon: CheckCircle,   title: 'PR is marked Completed',         desc: 'Once all items are fully delivered, the PR status automatically becomes Completed.' },
+              { number: 1, role: 'Requestor',   color: 'bg-amber-500', icon: Pencil,         title: 'Requestor files the PR',         desc: 'The requestor lists the items with quantities, units, and estimated costs. Saving sends the PR to the TWG (Submitted).' },
+              { number: 2, role: 'TWG',         color: 'bg-cyan-600',  icon: ClipboardCheck, title: 'TWG reviews the specifications', desc: 'The TWG approves the PR (Approved by TWG), asks for a revision (the requestor edits and resubmits), or rejects it (final).' },
+              { number: 3, role: 'Procurement', color: 'bg-blue-600',  icon: ClipboardList,  title: 'Procurement canvasses the PR',   desc: 'Procurement clicks Canvass PR on an approved PR. Status changes to Bidding.' },
+              { number: 4, role: 'Procurement', color: 'bg-blue-600',  icon: Gavel,          title: 'The award is recorded',          desc: "Procurement records the suppliers' quotations and awards each item to the lowest price. One PR can go to several suppliers." },
+              { number: 5, role: 'Procurement', color: 'bg-blue-600',  icon: ShoppingCart,   title: 'Purchase Order is issued',       desc: 'Procurement issues the PO from the PR page with the supplier, amount, and expected delivery date. Supply and the requestor are notified.' },
+              { number: 6, role: 'Supply',      color: 'bg-blue-600',  icon: Truck,          title: 'Supply records the delivery',    desc: 'Supply receives the goods and records how many of each item arrived, with an Inspection and Acceptance Report (IAR) for each delivery.' },
+              { number: 7, role: 'System',      color: 'bg-gray-500',  icon: CheckCircle,    title: 'PR is marked Completed',         desc: 'When every PO is fully delivered, the PR is marked Completed automatically. It then stays in the Archive with its full history.' },
             ].map(step => (
               <Step key={step.number} number={step.number} icon={step.icon} title={`[${step.role}] ${step.title}`} description={step.desc} color={step.color} />
             ))}
@@ -234,15 +254,18 @@ export default function GuidePage() {
       content: (
         <div className="mt-3 space-y-0 divide-y divide-[--color-border]">
           {[
-            { status: 'Draft',        color: 'bg-gray-100 text-gray-700',       desc: 'PR has been created but not yet submitted. Only the creator can see and edit it.' },
-            { status: 'Submitted',    color: 'bg-amber-100 text-amber-800',     desc: 'PR has been submitted to Procurement and is awaiting review.' },
-            { status: 'Bidding',      color: 'bg-blue-100 text-blue-800',       desc: 'Procurement is canvassing — creating lots and selecting suppliers.' },
-            { status: 'Ready for PO', color: 'bg-purple-100 text-purple-800',   desc: 'All lots have been awarded. Procurement can now issue a Purchase Order.' },
-            { status: 'Completed',    color: 'bg-emerald-100 text-emerald-800', desc: 'The goods have been fully delivered and accepted.' },
-            { status: 'Cancelled',    color: 'bg-red-100 text-red-800',         desc: 'The PR was cancelled and will not proceed further.' },
-          ].map(({ status, color, desc }, i) => (
+            ['draft',              'Not submitted yet. Only its creator can see and edit it.'],
+            ['submitted',          'Waiting for the Technical Working Group (TWG) to review it. Locked while under review.'],
+            ['revision_requested', 'The TWG asked for changes. The requestor edits the PR and submits it again.'],
+            ['twg_review',         'The TWG approved the specifications. Waiting for Procurement to canvass it.'],
+            ['rejected',           'The TWG rejected the request. Final, and kept in the Archive.'],
+            ['bidding',            'Procurement is canvassing suppliers.'],
+            ['for_po',             'A supplier has been awarded. Procurement issues the Purchase Order, then the PR waits for delivery.'],
+            ['completed',          'The goods were fully delivered. Final, and kept in the Archive.'],
+            ['cancelled',          'Procurement cancelled the PR while it had no active Purchase Order. Final, and kept in the Archive.'],
+          ].map(([status, desc], i) => (
             <div key={status} className="flex items-start gap-3 py-3 animate-fade-in-up" style={{ animationDelay: `${i * 60}ms` }}>
-              <span className={`inline-block shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold mt-0.5 ${color}`}>{status}</span>
+              <span className="shrink-0 mt-0.5"><PRStatusBadge status={status} /></span>
               <p className="text-sm text-[--color-text-secondary] leading-relaxed">{desc}</p>
             </div>
           ))}
@@ -256,16 +279,18 @@ export default function GuidePage() {
       content: (
         <div className="mt-2">
           {[
-            { icon: FileText,      title: 'Purchase Requests',  description: 'Create, submit, and track PRs. Supports item grouping by project/section, file attachments, and activity logs.' },
-            { icon: Gavel,         title: 'Lots & Awards',      description: 'Group PR items into lots for RA 9184 bidding compliance. Assign supplier details and award amounts per lot.' },
-            { icon: ShoppingCart,  title: 'Purchase Orders',    description: 'Automatically generated from awarded lots. Tracks supplier info, amounts, and delivery status.' },
-            { icon: Truck,         title: 'Deliveries',         description: 'Record full or partial deliveries. Download Inspection and Acceptance Reports (IAR) as PDF.' },
-            { icon: Bell,          title: 'Notifications',      description: 'Real-time in-app notifications for status changes, new POs, deliveries, and reminders.' },
-            { icon: Clock,         title: 'Reminders',          description: 'Schedule reminders for yourself or others. Overdue reminders are sent via email automatically.' },
-            { icon: Download,      title: 'PDF Export',         description: 'Download PR Forms, Abstract of Quotations, and IAR documents for printing or filing.' },
-            { icon: ClipboardList, title: 'Reports',            description: 'Dashboard analytics showing PR counts by status, PO trends, and delivery performance (Procurement & Admin only).' },
-            { icon: Users,         title: 'User Management',    description: 'Admin can create accounts, assign roles, and activate or deactivate users.' },
-            { icon: Trash2,        title: 'Delete & Edit',      description: 'Extension Officers can edit or delete their own PRs from the list or detail page. Procurement can delete any PR.' },
+            { icon: FileText,       title: 'Purchase Requests', description: 'Create, submit, and track PRs with items, file attachments, and a full activity log.' },
+            { icon: ClipboardCheck, title: 'TWG Review',        description: 'The Technical Working Group checks every PR\'s specifications before Procurement acts on it.' },
+            { icon: Gavel,          title: 'Lots & Awards',     description: "Record suppliers' quotations, award each item (one PR can go to several suppliers), and see each supplier's purchase order." },
+            { icon: ShoppingCart,   title: 'Purchase Orders',   description: 'Issued by Procurement for awarded PRs, one per supplier. Tracks the supplier, amount, what has arrived of each item, and which POs are overdue. A PO can be cancelled before delivery so its items can be awarded again.' },
+            { icon: Truck,          title: 'Deliveries',        description: 'Record how many of each item arrived, attach invoices, and download Inspection and Acceptance Reports (IAR) as PDF.' },
+            { icon: Archive,        title: 'Archive',           description: 'Completed, cancelled, rejected, and deleted PRs, grouped by quarter. Nothing is permanently erased.' },
+            { icon: Bell,           title: 'Notifications',     description: 'Real-time in-app notifications for status changes, new POs, deliveries, and reminders.' },
+            { icon: Clock,          title: 'Reminders',         description: 'Schedule reminders for yourself or others. Due reminders are emailed automatically.' },
+            { icon: Download,       title: 'PDF Export',        description: 'Download PR Forms, Abstract of Quotations, Purchase Orders, and IAR documents for printing or filing.' },
+            { icon: ClipboardList,  title: 'Reports',           description: 'Spending by quarter and category, budget use, and PR counts by status (Procurement & Admin only).' },
+            { icon: Users,          title: 'User Management',   description: 'Admin creates accounts, assigns roles, and activates or deactivates users. Public sign-up always creates Requestors; every other role is assigned here.' },
+            { icon: Trash2,         title: 'Delete & Edit',     description: 'Requestors edit or delete their PRs while they are drafts or returned for revision. Procurement can delete a PR that has no award or PO; otherwise it is cancelled. Deleted PRs go to the Archive.' },
           ].map((f, i) => (
             <div key={f.title} className="animate-fade-in-up" style={{ animationDelay: `${i * 50}ms` }}>
               <Feature icon={f.icon} title={f.title} description={f.description} />
@@ -281,11 +306,11 @@ export default function GuidePage() {
       content: (
         <div className="mt-3 space-y-3">
           {[
-            'The active Quarter must be set by an Admin before PRs can be submitted. Contact your admin if you see a quarter error.',
+            'New PRs are filed under the current active quarter automatically. If no quarter is active, the PR is numbered by year instead.',
             'All notifications appear in the bell icon (top right). Click "View all" to see the full notification history.',
-            'You can download the PR Form PDF at any point from the PR detail page. The Abstract of Quotations is available once the PR reaches Bidding stage.',
-            'If your email or password needs to be changed, go to Settings → Security.',
-            'Reminders can be set for any date — the system will email you automatically when they are due.',
+            'You can download the PR Form PDF at any time from the PR page. The Abstract of Quotations is available once the TWG has approved the PR.',
+            'To change your password, go to Settings → Security.',
+            'Reminders can be set for any date. The system emails you automatically when they are due.',
           ].map((tip, i) => (
             <div key={i} className="animate-fade-in-up" style={{ animationDelay: `${i * 80}ms` }}>
               <Tip>{tip}</Tip>
@@ -295,7 +320,6 @@ export default function GuidePage() {
       ),
     },
   ]
-
   return (
     <div className="space-y-4">
 

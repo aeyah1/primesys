@@ -13,7 +13,7 @@ const TITLES = {
   '/bidding':         'Lots & Awards',
   '/po':              'Purchase Orders',
   '/delivery':        'Deliveries',
-  '/history':         'History',
+  '/archive':         'Archive',
   '/notifications':   'Notifications',
   '/reports':         'Reports & Analytics',
   '/users':           'User Management',

@@ -4,41 +4,41 @@ import { Button } from '@/components/ui/button'
 import {
   X, ArrowRight, ArrowLeft, CheckCircle,
   FileText, Gavel, ShoppingCart, Truck,
-  Users, Bell, Calendar, BookOpen, Send, Eye,
-  Package, Download, Shield,
+  Users, Bell, Calendar, Send, Eye,
+  Package, Download, Shield, ClipboardCheck, RotateCcw,
 } from 'lucide-react'
 
 const ONBOARDING_KEY = (id) => `primesys_onboarded_${id}`
 
 const SLIDES = {
-  extension: [
+  requestor: [
     {
-      icon: '👋',
+      logo: true,
       color: 'from-amber-400 to-orange-400',
       title: 'Welcome to PRimeSys!',
-      body:  'You\'re logged in as an Extension Officer. This quick tour will show you exactly what you can do here. It\'ll only take a minute.',
+      body:  'You\'re logged in as a Requestor. This quick tour shows you how to file purchase requests for personal, event, office, or project needs.',
     },
     {
       Icon:  FileText,
       color: 'from-amber-400 to-yellow-400',
       title: 'Create a Purchase Request',
-      body:  'When your office needs supplies, go to Purchase Requests → New Purchase Request. Fill in your items — description, quantity, unit, and estimated cost.',
+      body:  'Go to Purchase Requests → New Purchase Request. Pick a purpose (personal, event, office, or project), set your department, and list the items you need.',
     },
     {
       Icon:  Send,
       color: 'from-orange-400 to-red-400',
-      title: 'Submit to Procurement',
-      body:  'Once your items are complete, open the PR and click Submit. Procurement will take over from there. You won\'t be able to edit it after submitting.',
+      title: 'Submit to TWG',
+      body:  'Once your items are complete, click Submit to TWG, or Save as draft to finish later. The Technical Working Group reviews your specs first. They\'ll approve, request a revision, or reject, and you\'ll be notified. To change a submitted PR, open it and click Withdraw to edit.',
     },
     {
       Icon:  Eye,
       color: 'from-blue-400 to-indigo-400',
       title: 'Track Your PR',
-      body:  'Watch your PR move through: Submitted → Bidding → Ready for PO → Completed. You\'ll get a notification at every stage.',
+      body:  'Watch your PR move through: Submitted → Approved by TWG → Bidding → Ready for PO → Completed. You\'ll get a notification at every stage.',
     },
     {
       Icon:  CheckCircle,
-      color: 'from-emerald-400 to-teal-400',
+      color: 'from-blue-600 to-indigo-500',
       title: 'You\'re all set!',
       body:  'Head to Purchase Requests to create your first PR. If you ever get lost, check the User Guide in the sidebar — it has everything you need.',
     },
@@ -46,7 +46,7 @@ const SLIDES = {
 
   procurement: [
     {
-      icon: '👋',
+      logo: true,
       color: 'from-blue-400 to-indigo-400',
       title: 'Welcome to PRimeSys!',
       body:  'You\'re logged in as a Procurement Officer. You manage the full lifecycle of every purchase — from review to delivery. Here\'s a quick overview.',
@@ -54,24 +54,24 @@ const SLIDES = {
     {
       Icon:  FileText,
       color: 'from-amber-400 to-orange-400',
-      title: 'Review Submitted PRs',
-      body:  'New submissions appear highlighted in the PR list. Open a PR and click Canvass PR to begin the bidding process. Status moves to Bidding.',
+      title: 'Canvass TWG-Approved PRs',
+      body:  'PRs reach you once the Technical Working Group approves them (Approved by TWG). Open one and click Canvass PR to begin canvassing. Status moves to Bidding.',
     },
     {
       Icon:  Gavel,
       color: 'from-purple-400 to-pink-400',
-      title: 'Create Lots & Award Suppliers',
-      body:  'Go to Lots & Awards to group PR items into lots and assign suppliers. Once all lots are awarded, the PR automatically moves to Ready for PO.',
+      title: 'Record the Award',
+      body:  'On the PR, add each supplier\'s quotation, then click Award from Quotations: each item goes to the lowest price, and different items can go to different suppliers. Each supplier then gets its own purchase order.',
     },
     {
       Icon:  ShoppingCart,
-      color: 'from-emerald-400 to-teal-400',
+      color: 'from-blue-600 to-indigo-500',
       title: 'Issue a Purchase Order',
-      body:  'Open the PR (now Ready for PO) and issue the PO with supplier info and expected delivery date. The Supply Officer will be notified automatically.',
+      body:  'Open the PR (now Ready for PO) and issue the PO with supplier info and expected delivery date. The Supply Officer and the requestor are notified automatically.',
     },
     {
       Icon:  CheckCircle,
-      color: 'from-emerald-400 to-green-400',
+      color: 'from-amber-500 to-yellow-400',
       title: 'You\'re all set!',
       body:  'Check Reports for analytics and use Reminders to schedule follow-ups. The User Guide in the sidebar covers every feature in detail.',
     },
@@ -79,8 +79,8 @@ const SLIDES = {
 
   supply: [
     {
-      icon: '👋',
-      color: 'from-emerald-400 to-teal-400',
+      logo: true,
+      color: 'from-blue-600 to-indigo-500',
       title: 'Welcome to PRimeSys!',
       body:  'You\'re logged in as a Supply Officer. Your job is to receive goods and record deliveries against Purchase Orders. Here\'s how it works.',
     },
@@ -88,31 +88,64 @@ const SLIDES = {
       Icon:  Bell,
       color: 'from-amber-400 to-orange-400',
       title: 'Get Notified of New POs',
-      body:  'When a Purchase Order is issued, you\'ll get a real-time notification. You can also check the Deliveries page anytime for all pending deliveries.',
+      body:  'When a Purchase Order is issued, you\'ll get a real-time notification. Your dashboard lists what is still to receive, soonest due first, and counts the overdue POs.',
     },
     {
       Icon:  Package,
       color: 'from-blue-400 to-indigo-400',
-      title: 'Check Lots & Awards',
-      body:  'Visit Lots & Awards to see which suppliers were awarded and what items to expect. This helps you verify what\'s coming in.',
+      title: 'Open the PO',
+      body:  'Click a PO on the Purchase Orders page to see its items and how many of each have arrived and are still to come.',
     },
     {
       Icon:  Truck,
       color: 'from-purple-400 to-pink-400',
       title: 'Record the Delivery',
-      body:  'Go to Deliveries → Record Delivery. Select the PO, set the date, choose Complete or Partial, and add notes. Download the IAR PDF for filing.',
+      body:  'Click Receive on the PO, enter how many of each item arrived, and set the date. Download the IAR PDF for filing.',
+    },
+    {
+      Icon:  CheckCircle,
+      color: 'from-blue-600 to-indigo-500',
+      title: 'You\'re all set!',
+      body:  'If only some items arrived, enter just those: the rest stays on the PO until it arrives. Check the User Guide in the sidebar for more details.',
+    },
+  ],
+
+  twg: [
+    {
+      logo: true,
+      color: 'from-cyan-400 to-blue-400',
+      title: 'Welcome to PRimeSys!',
+      body:  'You\'re logged in as a member of the Technical Working Group. You review the specifications of every Purchase Request before it reaches Procurement. Here\'s how it works.',
+    },
+    {
+      Icon:  ClipboardCheck,
+      color: 'from-amber-400 to-orange-400',
+      title: 'Your Review Queue',
+      body:  'When a Requestor submits a PR, it lands in your TWG Reviews queue. Open it to see every item, quantity, unit cost, and attachment.',
     },
     {
       Icon:  CheckCircle,
       color: 'from-emerald-400 to-teal-400',
+      title: 'Approve & Forward',
+      body:  'If the specifications are correct, click Approve & Forward. The PR moves to Procurement\'s queue and they can start canvassing suppliers.',
+    },
+    {
+      Icon:  RotateCcw,
+      color: 'from-amber-500 to-yellow-400',
+      title: 'Request a Revision',
+      body:  'If something needs to change, click Request Revision and explain what the Requestor should fix. They get notified and can resubmit after editing. If the request can\'t go ahead, click Reject and give the reason.',
+    },
+    {
+      Icon:  CheckCircle,
+      color: 'from-cyan-500 to-blue-500',
       title: 'You\'re all set!',
-      body:  'If only some items arrived, record it as Partial and record again when the rest arrive. Check the User Guide in the sidebar for more details.',
+      body:  'Head to TWG Reviews to start. Your dashboard shows pending count, weekly activity, and your recent decisions. The User Guide has more details.',
     },
   ],
 
   admin: [
     {
-      icon: '👋',
+      logo: true,
       color: 'from-purple-400 to-pink-400',
       title: 'Welcome to PRimeSys!',
       body:  'You\'re logged in as Administrator. You have full access to the system — users, quarters, PRs, POs, and reports. Here\'s a quick overview.',
@@ -121,23 +154,23 @@ const SLIDES = {
       Icon:  Users,
       color: 'from-blue-400 to-indigo-400',
       title: 'Manage Users',
-      body:  'Go to User Management to create accounts, assign roles (Admin, Procurement, Extension, Supply), and activate or deactivate users.',
+      body:  'Go to User Management to create accounts, assign roles (Admin, Procurement, Requestor, Supply, TWG), and activate or deactivate users. Public sign-up always creates Requestors.',
     },
     {
       Icon:  Calendar,
       color: 'from-amber-400 to-orange-400',
       title: 'Set Up Quarters',
-      body:  'Go to Quarters to create fiscal quarters (Q1–Q4) and set the active one. Extension Officers need an active quarter before they can submit PRs.',
+      body:  'Go to Quarters to create fiscal quarters (Q1–Q4) and set the active one. New PRs are filed under the active quarter automatically.',
     },
     {
       Icon:  Shield,
-      color: 'from-emerald-400 to-teal-400',
-      title: 'Full System Access',
-      body:  'You can read, edit, and delete any PR or PO in the system. Use Reports for system-wide analytics and trends across all procurement activity.',
+      color: 'from-blue-600 to-indigo-500',
+      title: 'Full System View',
+      body:  'You can see every PR, PO, and delivery. Finished PRs (completed, rejected, or cancelled) are kept in the Archive and can\'t be deleted. Use Reports for system-wide analytics.',
     },
     {
       Icon:  CheckCircle,
-      color: 'from-emerald-400 to-green-400',
+      color: 'from-amber-500 to-yellow-400',
       title: 'You\'re all set!',
       body:  'Start by creating user accounts and setting the active quarter. Everything else is in the User Guide — accessible from the sidebar anytime.',
     },
@@ -206,14 +239,15 @@ export default function OnboardingModal({ forceShow = false, onClose }) {
           style={{ minHeight: '300px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}
         >
           {/* Icon */}
-          <div className={`mb-6 flex size-20 items-center justify-center rounded-2xl bg-gradient-to-br ${slide.color} shadow-lg animate-scale-in-fast`}>
-            {slide.icon
-              ? <span className="text-4xl">{slide.icon}</span>
-              : slide.Icon
-                ? <slide.Icon className="size-10 text-white" />
-                : null
-            }
-          </div>
+          {slide.logo ? (
+            <div className="mb-6 flex size-24 items-center justify-center animate-scale-in-fast">
+              <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-20 object-contain" />
+            </div>
+          ) : (
+            <div className={`mb-6 flex size-20 items-center justify-center rounded-2xl bg-gradient-to-br ${slide.color} shadow-lg animate-scale-in-fast`}>
+              {slide.Icon ? <slide.Icon className="size-10 text-white" /> : null}
+            </div>
+          )}
 
           {/* Title */}
           <h2 className="text-2xl font-bold text-[--color-text-primary] mb-3 leading-tight">

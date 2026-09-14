@@ -2,29 +2,22 @@ import { useState, useRef, Fragment } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Package, Plus, Trash2, Info } from 'lucide-react'
+import ItemCategorySelector from '@/components/shared/ItemCategorySelector'
+import UnitInput from '@/components/shared/UnitInput'
+import RequestContextForm from '@/components/shared/RequestContextForm'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { fmtCurrency } from '@/lib/utils'
+import { fmtCurrency, CATEGORY_FORM, buildItemNotes, groupItemsBySection } from '@/lib/utils'
+import { SectionNameInput, SectionHeaderRow } from '@/components/shared/ItemSections'
+import CategorySpecFields from '@/components/shared/CategorySpecFields'
 import { useAuth } from '@/context/AuthContext'
 import api from '@/lib/axios'
 
-const UNITS = ['pax', 'pc', 'set', 'lot', 'pair', 'ream', 'box', 'unit', 'kg', 'L', 'roll', 'pack', 'bottle', 'can', 'sheet', 'bag', 'sack', 'bundle']
-const EMPTY_DRAFT = { group_label: '', item_name: '', quantity: '1', unit: 'pax', estimated_cost: '' }
-
-function groupBySection(items) {
-  const groups = []
-  for (const item of items) {
-    const label = item.group_label || ''
-    const last = groups[groups.length - 1]
-    if (last && last.label === label) last.items.push(item)
-    else groups.push({ label, items: [item] })
-  }
-  return groups
-}
+const EMPTY_DRAFT = { group_label: '', item_name: '', quantity: '1', unit: 'ream', estimated_cost: '', specs: {} }
 
 const TH = ({ children, className = '' }) => (
   <th className={`px-4 py-3 text-xs font-bold text-[--color-text-secondary] uppercase tracking-wider bg-[--color-canvas] ${className}`}>
@@ -60,47 +53,75 @@ export default function PRCreate() {
   const itemRef   = useRef(null)
   const { user }  = useAuth()
 
-  const isExtension = user?.role === 'extension'
+  const isRequestor = user?.role === 'requestor'
 
   const [form, setForm] = useState({
     quarter_id: '',
     title: '',
+    category: 'office_supplies',
+    // Request Context (the new end-user-centric fields)
+    department: '',
+    purpose_type: 'personal',
+    purpose: '',
+    date_needed: '',
+    recommended_by: '',
+    event_name: '',
+    event_date: '',
+    project_name: '',
   })
   const setF = (k, v) => setForm(p => ({ ...p, [k]: v }))
+
+  // Context fields are managed as a sub-object by RequestContextForm. This
+  // helper merges its onChange payload back into the flat form state.
+  const setContext = (next) => setForm(p => ({ ...p, ...next }))
 
   const [items, setItems] = useState([])
   const [draft, setDraft] = useState(EMPTY_DRAFT)
   const setD = (k, v) => setDraft(p => ({ ...p, [k]: v }))
 
+  const categoryForm = CATEGORY_FORM[form.category] || CATEGORY_FORM.office_supplies
+
+  // Switch category — swap unit to category default if current unit is invalid,
+  // AND clear any structured spec values (those are category-scoped).
+  const setCategory = (next) => {
+    const nextForm = CATEGORY_FORM[next] || CATEGORY_FORM.office_supplies
+    setF('category', next)
+    setDraft(p => ({
+      ...p,
+      unit:  nextForm.units.includes(p.unit) ? p.unit : nextForm.defaultUnit,
+      specs: {},
+    }))
+  }
+
+  // Staff pick the quarter and see the fund codes; a requestor's PR goes under
+  // the current quarter and gets the fund codes on the server.
   const { data: quarters = [] } = useQuery({
     queryKey: ['quarters'],
     queryFn: () => api.get('/quarters').then(r => r.data),
+    enabled: !isRequestor,
+  })
+
+  const { data: currentQuarter } = useQuery({
+    queryKey: ['quarters', 'current'],
+    queryFn: () => api.get('/quarters/current').then(r => r.data),
+    enabled: isRequestor,
   })
 
   const { data: orgSettings = {} } = useQuery({
     queryKey: ['org-settings'],
     queryFn: () => api.get('/settings').then(r => r.data),
+    enabled: !isRequestor,
   })
 
   const { mutate: create, isPending } = useMutation({
     mutationFn: (body) => api.post('/pr', body),
-    onSuccess: async ({ data }) => {
-      const prId = data.id
-      for (const item of items) {
-        try {
-          await api.post(`/pr/${prId}/items`, {
-            group_label:    item.group_label    || undefined,
-            item_name:      item.item_name,
-            quantity:       parseFloat(item.quantity)       || 1,
-            unit:           item.unit           || undefined,
-            estimated_cost: item.estimated_cost ? parseFloat(item.estimated_cost) : undefined,
-          })
-        } catch { /* non-fatal — item can be added on the detail page */ }
-      }
-      toast.success(`${data.pr_number} created`)
+    onSuccess: ({ data }, body) => {
+      toast.success(body.status === 'submitted'
+        ? `${data.pr_number} sent to the TWG`
+        : `${data.pr_number} saved as a draft. Submit it when it's ready.`)
       qc.invalidateQueries({ queryKey: ['pr-list'] })
       qc.invalidateQueries({ queryKey: ['pr-stats'] })
-      navigate(`/pr/${prId}`)
+      navigate(`/pr/${data.id}`)
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to create PR'),
   })
@@ -115,12 +136,29 @@ export default function PRCreate() {
       return
     }
     if (!draft.estimated_cost || parseFloat(draft.estimated_cost) <= 0) {
-      toast.error('Unit cost is required')
+      toast.error('Enter the price of one item (a rough estimate is fine)')
       return
     }
-    setItems(p => [...p, { ...draft, item_name: draft.item_name.trim() }])
-    setDraft(EMPTY_DRAFT)
+    // Bake the structured spec values into a single notes string before storing.
+    // The local list keeps `notes` as the canonical form; `specs` is UI-only.
+    const notes = buildItemNotes(form.category, draft.specs)
+    const newItem = {
+      group_label:    draft.group_label,
+      item_name:      draft.item_name.trim(),
+      quantity:       draft.quantity,
+      unit:           draft.unit,
+      estimated_cost: draft.estimated_cost,
+      notes,
+    }
+    setItems(p => [...p, newItem])
+    setDraft(p => ({ ...EMPTY_DRAFT, unit: p.unit, group_label: p.group_label }))   // the section stays for the next item
     itemRef.current?.focus({ preventScroll: true })
+  }
+
+  // "Add item" on a section heading: point the add form at that section.
+  const addToSection = (label) => {
+    setD('group_label', label)
+    itemRef.current?.focus()
   }
 
   const handleRemoveItem = (idx) => setItems(p => p.filter((_, i) => i !== idx))
@@ -128,35 +166,50 @@ export default function PRCreate() {
   const processed = items.map((item, i) => ({
     ...item,
     globalIdx: i,
-    rowNum:    i + 1,
     totalCost: (parseFloat(item.estimated_cost) || 0) * (parseFloat(item.quantity) || 1),
   }))
-  const grouped     = groupBySection(processed)
+  const grouped     = groupItemsBySection(processed)
   const grandTotal  = processed.reduce((s, it) => s + it.totalCost, 0)
   const draftTotal  = draft.estimated_cost && draft.quantity
     ? parseFloat(draft.estimated_cost) * (parseFloat(draft.quantity) || 1)
     : 0
 
-  const handleSubmit = (e) => {
+  // The PR is either sent to the TWG or saved as a draft to finish later
+  // (drafts may have no items yet). Only the buttons do this, never Enter.
+  const handleSubmit = (e, { asDraft = false } = {}) => {
     e.preventDefault()
     if (!form.title.trim()) {
-      toast.error('Title is required')
+      toast.error('Give your request a short title')
       return
     }
-    if (isExtension && !form.quarter_id) {
-      toast.error('Quarter is required')
-      return
-    }
-    if (isExtension && items.length === 0) {
-      toast.error('At least one item is required before submitting')
+    const submitNow = !asDraft
+    if (submitNow && items.length === 0) {
+      toast.error('Add at least one item before submitting, or save it as a draft')
       return
     }
     create({
       title:                      form.title.trim(),
-      quarter_id:                 form.quarter_id ? parseInt(form.quarter_id) : null,
-      fund_cluster:               orgSettings.fund_cluster               || undefined,
-      responsibility_center_code: orgSettings.responsibility_center_code || undefined,
-      ...(isExtension ? { status: 'submitted' } : {}),
+      ...(!isRequestor && form.quarter_id ? { quarter_id: parseInt(form.quarter_id) } : {}),
+      category:                   form.category,
+      // Request Context fields — only sent if the requestor filled them
+      department:                 form.department?.trim()     || undefined,
+      purpose_type:               form.purpose_type,
+      purpose:                    form.purpose?.trim()        || undefined,
+      date_needed:                form.date_needed            || undefined,
+      recommended_by:             form.recommended_by?.trim() || undefined,
+      event_name:                 form.purpose_type === 'event'   ? (form.event_name?.trim() || undefined) : undefined,
+      event_date:                 form.purpose_type === 'event'   ? (form.event_date || undefined)        : undefined,
+      project_name:               form.purpose_type === 'project' ? (form.project_name?.trim() || undefined) : undefined,
+      ...(submitNow ? { status: 'submitted' } : {}),
+      // Items go with the PR in the same request, so they're saved together.
+      items: items.map(item => ({
+        group_label:    item.group_label    || undefined,
+        item_name:      item.item_name,
+        quantity:       parseFloat(item.quantity)       || 1,
+        unit:           item.unit           || undefined,
+        estimated_cost: item.estimated_cost ? parseFloat(item.estimated_cost) : undefined,
+        notes:          item.notes?.trim() || undefined,
+      })),
     })
   }
 
@@ -168,50 +221,90 @@ export default function PRCreate() {
         </Button>
         <div>
           <h2 className="text-ui-xl font-bold text-[--color-text-primary]">New Purchase Request</h2>
-          <p className="text-ui-xs text-[--color-text-muted] mt-0.5">Fill in the PR details and list all items needed.</p>
+          <p className="text-ui-xs text-[--color-text-muted] mt-0.5">Tell us what you need, why, and by when.</p>
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-5">
+      <form onSubmit={e => e.preventDefault()} className="space-y-5">
+
+        {isRequestor && (
+          <div className="flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
+            <Info className="size-4 shrink-0 mt-0.5 text-blue-700" />
+            <p className="text-ui-sm text-blue-900 leading-relaxed">
+              You don't need to know procurement terms. Describe what you need and why. The Technical Working Group
+              (TWG) checks your request, and the Procurement Office handles suppliers, orders, and delivery.
+              You can save it as a draft and finish later.
+            </p>
+          </div>
+        )}
+
+        {/* ── Request Context ─────────────────────────────── */}
+        <Card>
+          <CardHeader>
+            <CardTitle>About your request</CardTitle>
+            <p className="text-ui-xs text-[--color-text-muted] mt-1">Who is asking, what it is for, and when it is needed.</p>
+          </CardHeader>
+          <CardContent>
+            <RequestContextForm value={form} onChange={setContext} />
+          </CardContent>
+        </Card>
 
         {/* ── PR Details ─────────────────────────────────────── */}
         <Card>
-          <CardHeader><CardTitle>PR Details</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Title and type</CardTitle></CardHeader>
           <CardContent className="space-y-4">
+
+            <div className="space-y-2">
+              <Label>
+                What kind of items? <span className="text-red-500 text-xs">*</span>
+                <span className="ml-1.5 text-[10px] text-[--color-text-muted] font-normal">pick the closest match; hover the info icon for examples</span>
+              </Label>
+              <ItemCategorySelector value={form.category} onChange={setCategory} />
+            </div>
 
             <div className="space-y-1.5">
               <Label htmlFor="title">
-                Title <span className="text-red-500 text-xs">*</span>
+                Short title <span className="text-red-500 text-xs">*</span>
+                <span className="ml-1.5 text-[10px] text-[--color-text-muted] font-normal">a few words so you can find it later</span>
               </Label>
               <Input
                 id="title"
-                placeholder="e.g. Office Supplies Q2 2026"
+                placeholder="e.g. Snacks for DCS Days"
                 value={form.title}
                 onChange={e => setF('title', e.target.value)}
               />
             </div>
 
-            <div className="space-y-1.5">
-              <Label>
-                Quarter
-                {isExtension && <span className="text-red-500 text-xs ml-1">*</span>}
-                {!isExtension && <span className="text-[--color-text-muted] font-normal text-xs ml-1">(optional)</span>}
-              </Label>
-              <Select value={form.quarter_id} onValueChange={v => setF('quarter_id', v)}>
-                <SelectTrigger><SelectValue placeholder="Select quarter…" /></SelectTrigger>
-                <SelectContent>
-                  {quarters.map(q => (
-                    <SelectItem key={q.id} value={String(q.id)}>{q.label} {q.year}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {isRequestor ? (
+              <p className="text-ui-xs text-[--color-text-muted]">
+                {currentQuarter
+                  ? <>Your request is filed under the current quarter, <span className="font-semibold text-[--color-text-secondary]">{currentQuarter.label} {currentQuarter.year}</span>.</>
+                  : 'Your request is filed under the current year.'}
+              </p>
+            ) : (
+              <>
+                <div className="space-y-1.5">
+                  <Label>
+                    Quarter
+                    <span className="text-[--color-text-muted] font-normal text-xs ml-1">(optional; the current quarter if left empty)</span>
+                  </Label>
+                  <Select value={form.quarter_id} onValueChange={v => setF('quarter_id', v)}>
+                    <SelectTrigger><SelectValue placeholder="Select quarter…" /></SelectTrigger>
+                    <SelectContent>
+                      {quarters.map(q => (
+                        <SelectItem key={q.id} value={String(q.id)}>{q.label} {q.year}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-            {/* Fund Cluster & RCC — auto-populated from org settings, read-only */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <AutoField label="Fund Cluster" value={orgSettings.fund_cluster} />
-              <AutoField label="Responsibility Center Code" value={orgSettings.responsibility_center_code} />
-            </div>
+                {/* Fund Cluster & RCC: filled from Organization settings on the server */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <AutoField label="Fund Cluster" value={orgSettings.fund_cluster} />
+                  <AutoField label="Responsibility Center Code" value={orgSettings.responsibility_center_code} />
+                </div>
+              </>
+            )}
 
           </CardContent>
         </Card>
@@ -222,8 +315,8 @@ export default function PRCreate() {
             <div className="flex items-center gap-2">
               <Package className="size-4 text-[--color-text-muted]" />
               <CardTitle>
-                Item List
-                {isExtension && <span className="text-red-500 text-xs ml-1">*</span>}
+                {isRequestor ? 'Items you need' : 'Item List'}
+                {isRequestor && <span className="text-red-500 text-xs ml-1">*</span>}
               </CardTitle>
               {items.length > 0 && (
                 <span className="text-xs text-[--color-text-muted] font-normal">
@@ -232,7 +325,7 @@ export default function PRCreate() {
               )}
             </div>
             {grandTotal > 0 && (
-              <span className="text-sm font-bold text-emerald-700">Grand Total: {fmtCurrency(grandTotal)}</span>
+              <span className="text-sm font-bold text-blue-700">Grand Total: {fmtCurrency(grandTotal)}</span>
             )}
           </CardHeader>
 
@@ -244,9 +337,9 @@ export default function PRCreate() {
                   <tr className="border-b border-[--color-border]">
                     <TH className="text-center w-14">No.</TH>
                     <TH className="text-center w-20">Unit</TH>
-                    <TH className="text-left">Item Description</TH>
+                    <TH className="text-left">{categoryForm.itemLabel}</TH>
                     <TH className="text-center w-16">Qty</TH>
-                    <TH className="text-right w-32">Unit Cost</TH>
+                    <TH className="text-right w-32">Estimated Cost</TH>
                     <TH className="text-right w-32">Total Cost</TH>
                     <th className="w-10 bg-[--color-canvas]" />
                   </tr>
@@ -264,17 +357,20 @@ export default function PRCreate() {
                       return (
                         <Fragment key={gi}>
                           {group.label && (
-                            <tr className="bg-emerald-50 border-y border-emerald-200">
-                              <td colSpan={7} className="px-6 py-3 text-center text-sm font-bold text-emerald-800 tracking-wide uppercase">
-                                {group.label}
-                              </td>
-                            </tr>
+                            <SectionHeaderRow label={group.label} colSpan={7} onAddItem={() => addToSection(group.label)} />
                           )}
                           {group.items.map((item) => (
                             <tr key={item.globalIdx} className="border-b border-[--color-border] hover:bg-[--color-canvas]">
                               <TD className="text-center text-[--color-text-muted] font-medium">{item.rowNum}</TD>
                               <TD className="text-center font-semibold text-[--color-text-primary]">{item.unit || '—'}</TD>
-                              <TD className="text-left font-medium text-[--color-text-primary] leading-relaxed">{item.item_name}</TD>
+                              <TD className="text-left font-medium text-[--color-text-primary] leading-relaxed">
+                                {item.item_name}
+                                {item.notes && (
+                                  <div className="mt-2 text-sm text-[--color-text-secondary] whitespace-pre-wrap leading-relaxed">
+                                    {item.notes}
+                                  </div>
+                                )}
+                              </TD>
                               <TD className="text-center tabular-nums font-medium">{item.quantity}</TD>
                               <TD className="text-right tabular-nums text-[--color-text-secondary]">
                                 {item.estimated_cost ? fmtCurrency(parseFloat(item.estimated_cost)) : '—'}
@@ -309,11 +405,11 @@ export default function PRCreate() {
                     })
                   )}
                   {grandTotal > 0 && (
-                    <tr className="bg-emerald-50 border-b border-emerald-200">
-                      <td colSpan={5} className="px-6 py-3.5 text-right text-sm font-bold text-emerald-800">
+                    <tr className="bg-blue-50 border-b border-blue-200">
+                      <td colSpan={5} className="px-6 py-3.5 text-right text-sm font-bold text-blue-800">
                         Grand Total
                       </td>
-                      <td className="px-4 py-3.5 text-right text-base font-bold tabular-nums text-emerald-700">
+                      <td className="px-4 py-3.5 text-right text-base font-bold tabular-nums text-blue-700">
                         {fmtCurrency(grandTotal)}
                       </td>
                       <td />
@@ -329,40 +425,41 @@ export default function PRCreate() {
 
               <div className="space-y-1.5">
                 <Label className="text-xs">
-                  Section / Project Name
-                  <span className="ml-1 font-normal text-[--color-text-muted]">
-                    (optional — items under the same name are grouped with a subtotal)
-                  </span>
+                  {categoryForm.sectionLabel}
+                  <span className="ml-1 font-normal text-[--color-text-muted]">(optional) Items with the same name share one section and subtotal.</span>
                 </Label>
-                <Input
-                  placeholder="e.g. PROJECT 1: COMMUNITY-BASED TOURISM — Brgy. Linintian"
+                <SectionNameInput
+                  id="pr-section"
+                  placeholder={categoryForm.sectionPlaceholder}
                   value={draft.group_label}
-                  onChange={e => setD('group_label', e.target.value)}
+                  onChange={v => setD('group_label', v)}
+                  sections={grouped.map(g => g.label).filter(Boolean)}
                 />
               </div>
 
               <div className="grid grid-cols-12 gap-2 items-end">
                 {/* Item Description */}
                 <div className="col-span-5 space-y-1">
-                  <Label className="text-xs">Item Description</Label>
+                  <Label className="text-xs">{categoryForm.itemLabel}</Label>
                   <Input
                     ref={itemRef}
-                    placeholder="e.g. Snacks Day 1 - AM: (Ham and cheese & softdrinks)"
+                    placeholder={categoryForm.itemPlaceholder}
                     value={draft.item_name}
                     onChange={e => setD('item_name', e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAddItem())}
                   />
                 </div>
 
-                {/* Unit */}
+                {/* Unit — typeable with suggested units in datalist dropdown */}
                 <div className="col-span-2 space-y-1">
                   <Label className="text-xs">Unit</Label>
-                  <Select value={draft.unit} onValueChange={v => setD('unit', v)}>
-                    <SelectTrigger className="text-sm"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {UNITS.map(u => <SelectItem key={u} value={u}>{u}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+                  <UnitInput
+                    value={draft.unit}
+                    onChange={v => setD('unit', v)}
+                    options={categoryForm.units}
+                    placeholder={categoryForm.defaultUnit}
+                    className="text-sm"
+                  />
                 </div>
 
                 {/* Quantity */}
@@ -376,9 +473,9 @@ export default function PRCreate() {
                   />
                 </div>
 
-                {/* Unit Cost */}
+                {/* Estimated Cost */}
                 <div className="col-span-2 space-y-1">
-                  <Label className="text-xs">Unit Cost (₱)</Label>
+                  <Label className="text-xs">Price each (₱, estimate)</Label>
                   <Input
                     type="number" min="0.01" step="any" placeholder="0.00"
                     value={draft.estimated_cost}
@@ -387,7 +484,7 @@ export default function PRCreate() {
                 </div>
 
                 {/* Running total preview */}
-                <div className="col-span-1 text-right text-sm font-bold tabular-nums text-emerald-700 self-end pb-2">
+                <div className="col-span-1 text-right text-sm font-bold tabular-nums text-blue-700 self-end pb-2">
                   {draftTotal > 0 ? fmtCurrency(draftTotal) : ''}
                 </div>
 
@@ -402,6 +499,15 @@ export default function PRCreate() {
                   </Button>
                 </div>
               </div>
+
+              {/* Per-category structured spec fields (Brand/Model for Hardware,
+                  Material/Dimensions/Color for Furniture, etc.) — replaces the
+                  single freeform Specifications textarea. */}
+              <CategorySpecFields
+                category={form.category}
+                specs={draft.specs}
+                onChange={(next) => setD('specs', next)}
+              />
             </div>
           </CardContent>
         </Card>
@@ -411,12 +517,13 @@ export default function PRCreate() {
           <Button type="button" variant="outline" size="lg" onClick={() => navigate(-1)} className="px-8">
             Cancel
           </Button>
-          <Button type="submit" size="lg" disabled={isPending} className="px-12">
-            {isPending
-              ? 'Creating…'
-              : isExtension
-                ? 'Submit Purchase Request'
-                : 'Create PR'}
+          <Button type="button" variant="secondary" size="lg" disabled={isPending} className="px-8"
+            onClick={(e) => handleSubmit(e, { asDraft: true })}>
+            Save as draft
+          </Button>
+          <Button type="button" size="lg" disabled={isPending} className="px-12"
+            onClick={(e) => handleSubmit(e)}>
+            {isPending ? 'Saving…' : 'Submit to TWG'}
           </Button>
         </div>
       </form>
