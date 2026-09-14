@@ -67,6 +67,8 @@ const config = {
   mail: {
     user: optional('MAIL_USER', ''),
     pass: optional('MAIL_PASS', ''),
+    // Set on hosts that block email ports (Render's free plan): mail then goes through Brevo's HTTPS API.
+    brevoKey: optional('BREVO_API_KEY', ''),
   },
 
   // Authentication abuse limits. Windows are in minutes. Defaults suit a
