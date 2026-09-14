@@ -32,6 +32,20 @@ exports.textRule = (field, label, max, { required = false } = {}) => {
   return chain.isLength({ max }).withMessage(msg(label, `is too long (${max} characters at most)`))
 }
 
+// Philippine phone numbers: an 11-digit mobile (09XX XXX XXXX) or a 10-digit landline with area code.
+// Spaces, dashes, dots and brackets are ignored, +63 becomes 0, and the number is saved in one layout.
+const PH_PHONE = /^0(9\d{9}|[2-8]\d{8})$/
+const phoneDigits = (v) => (typeof v === 'string' ? v.replace(/[\s().-]/g, '').replace(/^\+?63(?=\d{9,10}$)/, '0') : v)
+const phoneLayout = (d) => (d[1] === '9' ? `${d.slice(0, 4)} ${d.slice(4, 7)} ${d.slice(7)}`
+  : d[1] === '2' ? `(02) ${d.slice(2, 6)} ${d.slice(6)}` : `(${d.slice(0, 3)}) ${d.slice(3, 6)} ${d.slice(6)}`)
+exports.phoneRule = (field, label, { required = false } = {}) => {
+  const chain = required
+    ? body(field).isString().withMessage(msg(label, 'is required')).bail().customSanitizer(phoneDigits).notEmpty().withMessage(msg(label, 'is required')).bail()
+    : body(field).if(present).isString().withMessage(msg(label, 'must be text')).bail().customSanitizer(phoneDigits)
+  return chain.matches(PH_PHONE).withMessage(msg(label, 'must be a mobile number (09XX XXX XXXX) or a landline with area code, e.g. (086) 211 1234')).bail()
+    .customSanitizer(phoneLayout)
+}
+
 // Amounts of money: DECIMAL(15,2), so up to 13 whole digits and 2 decimals,
 // never negative; `positive` also refuses zero.
 const MONEY = /^\d{1,13}(\.\d{1,2})?$/

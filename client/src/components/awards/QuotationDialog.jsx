@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
 import { fmtCurrency, fmtDate, localToday } from '@/lib/utils'
 import api from '@/lib/axios'
 import {
-  EMPTY_SUPPLIER, DETAIL_FIELDS, QUOTE_REQUIRED, SupplierFields, SectionTitle, Optional, cents, lineCents,
+  EMPTY_SUPPLIER, DETAIL_FIELDS, QUOTE_REQUIRED, SupplierFields, SectionTitle, Optional, cents, lineCents, isPhone,
   useSupplierSuggestions, withSuggestion, useRefreshAwards,
 } from './supplier'
 
@@ -61,7 +61,7 @@ export default function QuotationDialog({ pr, items, quotation, open, onClose })
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to save the quotation'),
   })
   const canSave = !!form && !!form.supplier_name.trim() && QUOTE_REQUIRED.every(k => form[k].trim())
-    && entered.length > 0 && !isPending
+    && isPhone(form.supplier_phone) && entered.length > 0 && !isPending
   const submit = () => {
     if (!canSave) return
     mutate({
