@@ -1,4 +1,3 @@
-const path            = require('path')
 const fs              = require('fs')
 const pool            = require('../db/pool')
 const withTransaction = require('../db/transaction')
@@ -6,6 +5,7 @@ const asyncHandler    = require('../utils/asyncHandler')
 const httpError       = require('../utils/httpError')
 const notify          = require('../utils/notify')
 const sendMail        = require('../utils/mailer')
+const fileStore       = require('../utils/fileStore')
 const deliveryStatusEmail   = require('../emails/deliveryStatus')
 const { prScope } = require('../middleware/scope.middleware')
 const {
@@ -15,8 +15,6 @@ const { poItems } = require('../utils/awardWorkflow')
 const drawInspectionReport = require('../pdf/inspectionReport')
 
 const qty = (n) => String(Number(n))   // 2.00 -> "2"
-
-const UPLOAD_DIR = path.join(__dirname, '..', 'uploads', 'delivery')
 
 // PO, PR and requestor details for notices and emails. With `scope`, a PO whose
 // PR this user can't see is not found (C2).
@@ -284,7 +282,7 @@ exports.remove = asyncHandler(async (req, res) => {
     return files
   })
   // After commit: the attachment files go with their rows.
-  for (const f of files) fs.unlink(path.join(UPLOAD_DIR, f.filename), () => {})
+  for (const f of files) fileStore.remove('delivery', f.filename)
   res.json({ message: 'Delivery record removed' })
 })
 
@@ -330,6 +328,8 @@ exports.uploadAttachment = async (req, res) => {
       fs.unlink(req.file.path, () => {})
       return res.status(404).json({ message: 'Delivery not found' })
     }
+    // The file is stored before its row, so a row never points at a missing file.
+    await fileStore.keep('delivery', req.file)
     const [result] = await pool.execute(
       'INSERT INTO delivery_attachments (delivery_id, filename, original_name, mimetype, size, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)',
       [req.params.id, req.file.filename, req.file.originalname, req.file.mimetype, req.file.size, req.user.id]
@@ -359,9 +359,7 @@ exports.downloadAttachment = async (req, res) => {
       [req.params.attachId, req.params.id]
     )
     if (!rows.length) return res.status(404).json({ message: 'Attachment not found' })
-    const filePath = path.join(UPLOAD_DIR, rows[0].filename)
-    if (!fs.existsSync(filePath)) return res.status(404).json({ message: 'File not found on disk' })
-    res.download(filePath, rows[0].original_name)
+    await fileStore.send(res, 'delivery', rows[0].filename, rows[0].original_name)
   } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
 }
 
@@ -380,7 +378,7 @@ exports.deleteAttachment = async (req, res) => {
     if (denied) return res.status(denied.status).json({ message: denied.message })
     await pool.execute('DELETE FROM delivery_attachments WHERE id = ?', [req.params.attachId])
     // The file goes after its row, so a failed delete never leaves a row without its file.
-    fs.unlink(path.join(UPLOAD_DIR, rows[0].filename), () => {})
+    fileStore.remove('delivery', rows[0].filename)
     res.json({ message: 'Attachment deleted' })
   } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
 }

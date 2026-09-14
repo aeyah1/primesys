@@ -1,7 +1,7 @@
-const path         = require('path')
 const fs           = require('fs')
 const pool         = require('../db/pool')
 const asyncHandler = require('../utils/asyncHandler')
+const fileStore    = require('../utils/fileStore')
 const { loadPR, fileDeleteBlock } = require('../utils/prWorkflow')
 
 // A PR's files: handled within the PR's scope, and kept once the PR is closed.
@@ -12,6 +12,8 @@ exports.uploadAttachment = asyncHandler(async (req, res) => {
     fs.unlink(req.file.path, () => {})
     return res.status(404).json({ message: 'PR not found' })
   }
+  // The file is stored before its row, so a row never points at a missing file.
+  await fileStore.keep('pr', req.file)
   const [result] = await pool.execute(
     'INSERT INTO pr_attachments (pr_id, filename, original_name, mimetype, size, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)',
     [req.params.id, req.file.filename, req.file.originalname, req.file.mimetype, req.file.size, req.user.id]
@@ -37,9 +39,7 @@ exports.downloadAttachment = asyncHandler(async (req, res) => {
     [req.params.attachId, req.params.id]
   )
   if (!rows.length) return res.status(404).json({ message: 'Attachment not found' })
-  const filePath = path.join(__dirname, '..', 'uploads', 'pr', rows[0].filename)
-  if (!fs.existsSync(filePath)) return res.status(404).json({ message: 'File not found on disk' })
-  res.download(filePath, rows[0].original_name)
+  await fileStore.send(res, 'pr', rows[0].filename, rows[0].original_name)
 })
 
 exports.deleteAttachment = asyncHandler(async (req, res) => {
@@ -53,6 +53,6 @@ exports.deleteAttachment = asyncHandler(async (req, res) => {
   if (!rows.length) return res.status(404).json({ message: 'Attachment not found' })
   await pool.execute('DELETE FROM pr_attachments WHERE id = ?', [req.params.attachId])
   // The file goes after its row, so a failed delete never leaves a row without its file.
-  fs.unlink(path.join(__dirname, '..', 'uploads', 'pr', rows[0].filename), () => {})
+  fileStore.remove('pr', rows[0].filename)
   res.json({ message: 'Attachment deleted' })
 })
