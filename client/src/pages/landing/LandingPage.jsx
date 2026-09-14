@@ -184,7 +184,7 @@ export default function LandingPage() {
                 PRimeSys
               </p>
               <p className={`text-[11px] mt-0.5 leading-none font-medium transition-colors duration-300 ${scrolled ? 'text-[--color-text-muted]' : 'text-[#ECB22E]'}`}>
-                Alleah Carmel and Friends
+                Procurement Management System
               </p>
             </div>
           </Link>
@@ -227,7 +227,7 @@ export default function LandingPage() {
               <span className="animate-ping absolute size-full rounded-full bg-blue-400 opacity-70" />
               <span className="relative size-2 rounded-full bg-blue-400" />
             </span>
-            <span className="text-blue-300/90 text-[11px] font-semibold tracking-[0.12em] uppercase">NEMSU Cantilan Campus</span>
+            <span className="text-blue-300/90 text-[11px] font-semibold tracking-[0.12em] uppercase">North Eastern Mindanao State University</span>
           </div>
 
           <h1 className="font-bold text-white leading-[1.06] tracking-tight mb-7"
