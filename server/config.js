@@ -30,6 +30,9 @@ function validate() {
   if (config.captcha.enabled && !config.captcha.secretKey) {
     throw new Error('CAPTCHA_ENABLED is true but CAPTCHA_SECRET_KEY is not set')
   }
+  if (config.db.timezone !== 'local' && !/^[+-]\d{2}:\d{2}$/.test(config.db.timezone)) {
+    throw new Error('DB_TIMEZONE must be "local" or an offset such as +08:00')
+  }
 }
 
 const int = (name, fallback) => {
@@ -57,6 +60,8 @@ const config = {
     // Zone the database's clock runs in: 'local' (this computer's, right for
     // XAMPP on the same machine) or an offset such as '+08:00'.
     timezone: optional('DB_TIMEZONE', 'local'),
+    // Cloud databases such as TiDB Cloud accept only encrypted connections.
+    ssl:      optional('DB_SSL', 'false') === 'true',
   },
 
   mail: {

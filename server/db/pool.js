@@ -23,6 +23,8 @@ const pool = mysql.createPool({
   // cron runs (the reminder job queries the database every minute).
   enableKeepAlive:        true,
   keepAliveInitialDelay:  10_000,
+  // DB_SSL=true: TLS 1.2 or newer with a verified certificate (TiDB Cloud's is publicly trusted).
+  ssl:              config.db.ssl ? { minVersion: 'TLSv1.2', rejectUnauthorized: true } : undefined,
 })
 
 // Strict SQL mode on every connection: a value that doesn't fit its column
@@ -30,9 +32,12 @@ const pool = mysql.createPool({
 // of being silently cut, rounded to zero, or stored as ''. XAMPP's MariaDB is
 // not strict by default. Routes validate input first; this is the backstop.
 const SQL_MODE = 'STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION'
+// A fixed DB_TIMEZONE also becomes the session zone, so NOW() and CURDATE() on a UTC cloud database run in it.
+const SESSION_TZ = /^[+-]\d{2}:\d{2}$/.test(config.db.timezone) ? config.db.timezone : null
+const SESSION = `SET SESSION sql_mode = '${SQL_MODE}'${SESSION_TZ ? `, time_zone = '${SESSION_TZ}'` : ''}`
 pool.on('connection', (conn) => {
-  conn.query(`SET SESSION sql_mode = '${SQL_MODE}'`, (err) => {
-    if (err) console.error('[db] could not set strict SQL mode:', err.message)
+  conn.query(SESSION, (err) => {
+    if (err) console.error('[db] could not set the session SQL mode or time zone:', err.message)
   })
 })
 
