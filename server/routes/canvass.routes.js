@@ -4,7 +4,7 @@ const c         = require('../controllers/canvass.controller')
 const auth      = require('../middleware/auth.middleware')
 const authorize = require('../middleware/authorize.middleware')
 const { requireAccess } = require('../middleware/scope.middleware')
-const { handle, textRule, moneyRule, dateRule } = require('../middleware/validate')
+const { handle, textRule, phoneRule, moneyRule, dateRule } = require('../middleware/validate')
 
 // A PR's canvass: suppliers' quotations, the award from them, dropped items.
 // Scoped (C2): 404 unless this user may see the PR.
@@ -17,7 +17,7 @@ const quotationRules = [
   textRule('supplier_name', 'Supplier name', 200, { required: true }),
   textRule('supplier_contact', 'Contact person', 100, { required: true }),
   textRule('supplier_address', 'Business address', 500, { required: true }),
-  textRule('supplier_phone', 'Phone number', 50, { required: true }),
+  phoneRule('supplier_phone', 'Phone number', { required: true }),
   textRule('supplier_email', 'Email address', 150, { required: true }),
   body('supplier_email').if(v => !!v).isEmail().withMessage('Email address is not valid'),
   textRule('supplier_tin', 'TIN', 50),

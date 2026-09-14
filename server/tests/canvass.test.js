@@ -24,13 +24,14 @@ function fixtures() {
     INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified) VALUES
       ${U(1, 'Admin One')}, ${U(2, 'Proc One')}, ${U(3, 'Req A')}, ${U(4, 'Sup One')}, ${U(5, 'Twg One')};
     INSERT INTO purchase_requests (id, pr_number, title, status, created_by, category) VALUES
-      ${P(80, 'bidding')}, ${P(81, 'twg_review')}, ${P(82, 'bidding')}, ${P(83, 'bidding')};
+      ${P(80, 'bidding')}, ${P(81, 'twg_review')}, ${P(82, 'bidding')}, ${P(83, 'bidding')}, ${P(84, 'bidding')};
     INSERT INTO pr_items (id, pr_id, item_name, quantity, unit, estimated_cost) VALUES
       (801, 80, 'Laptop', 2, 'unit', 45000), (802, 80, 'Mouse', 4, 'pc', 500),
       (803, 80, 'Printer', 1, 'unit', 12000), (804, 80, 'Projector', 1, 'unit', 30000),
       (811, 81, 'Router', 1, 'unit', 3000),
       (821, 82, 'Chair', 10, 'pc', 2500), (822, 82, 'Table', 2, 'pc', 8000),
-      (831, 83, 'Cabinet', 1, 'unit', 9000);
+      (831, 83, 'Cabinet', 1, 'unit', 9000),
+      (841, 84, 'Stapler', 1, 'pc', 500);
     SET FOREIGN_KEY_CHECKS = 1;
   `
 }
@@ -88,6 +89,16 @@ async function run() {
   await is(G1, '…saved', 2, 'GET', '/canvass/80', undefined, (r) => r.status === 200 && num(r.data.quotations[2].prices[804]) === 27500)
   const qx = await is(G1, 'a quotation recorded by mistake', 2, 'POST', '/canvass/80/quotations', Q('Mistake Co', { 801: 1 }), code(201))
   await is(G1, '…can be removed while nothing it prices is awarded', 2, 'DELETE', `/canvass/80/quotations/${qx.data?.id}`, undefined, code(200))
+
+  // Phone numbers: a Philippine mobile or landline, saved in one layout (PR 84 only).
+  const GP = 'Phone numbers'
+  for (const bad of ['12345', 'call the office', '0917 123 456', '0917 123 45678', '+1 555 123 4567']) {
+    await is(GP, `"${bad}" → 400`, 2, 'POST', '/canvass/84/quotations', Q('X', { 841: 10 }, { supplier_phone: bad }), code(400, /Phone number must be a mobile number/))
+  }
+  const phones = [['+63 917-123-4567', '0917 123 4567'], ['(086) 211-1234', '(086) 211 1234'], ['02 8123 4567', '(02) 8123 4567'], ['0917.000.0000', '0917 000 0000']]
+  for (const [typed] of phones) await is(GP, `"${typed}" accepted`, 2, 'POST', '/canvass/84/quotations', Q(`P ${typed}`, { 841: 10 }, { supplier_phone: typed }), code(201))
+  await is(GP, '…each saved in one layout', 2, 'GET', '/canvass/84', undefined,
+    (r) => r.status === 200 && phones.every(([typed, saved]) => r.data.quotations.find(q => q.supplier_name === `P ${typed}`)?.supplier_phone === saved))
 
   // Award from the quotations
   const G2 = 'Award from quotations'
@@ -180,7 +191,7 @@ async function run() {
   const G6 = 'Suggestions and cancelling'
   await is(G6, 'suppliers who only quoted are suggested too', 2, 'GET', '/lots/suppliers', undefined,
     (r) => r.status === 200 && ['Alpha Computers', 'Beta Supplies', 'Gamma Trading'].every(n => r.data.some(s => s.name === n))
-           && r.data.find(s => s.name === 'Alpha Computers').supplier_phone === '0917-111-0000')
+           && r.data.find(s => s.name === 'Alpha Computers').supplier_phone === '0917 111 0000')
   await is(G6, 'award a PR by hand', 2, 'POST', '/lots', { purchase_request_id: 83, awarded_to: 'Delta Office', awarded_amount: 9000 }, code(201))
   await is(G6, 'cancel that PR (no PO yet)', 2, 'PATCH', '/pr/83/status', { status: 'cancelled' }, code(200))
   await is(G6, '…its award is cancelled with it (was left "awarded")', 2, 'GET', '/lots/pr/83', undefined,

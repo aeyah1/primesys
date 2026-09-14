@@ -14,6 +14,9 @@ export const DETAIL_FIELDS = ['supplier_tin', 'supplier_contact', 'supplier_phon
 export const QUOTE_REQUIRED = ['supplier_contact', 'supplier_phone', 'supplier_email', 'supplier_address']
 export const EMPTY_SUPPLIER = { supplier_name: '', supplier_tin: '', supplier_contact: '', supplier_phone: '', supplier_email: '', supplier_address: '' }
 
+// A Philippine mobile or landline with area code, ignoring spaces, dashes and brackets (server: validate.js phoneRule).
+export const isPhone = (v) => /^0(9\d{9}|[2-8]\d{8})$/.test(String(v || '').replace(/[\s().-]/g, '').replace(/^\+?63(?=\d{9,10}$)/, '0'))
+
 // Money in whole centavos, so sums and comparisons are exact (as on the server).
 export const cents     = (v) => Math.round(Number(v || 0) * 100)
 export const lineCents = (quantity, price) => Math.round(Number(quantity || 0) * Number(price || 0) * 100)
@@ -95,7 +98,10 @@ export function SupplierFields({ form, setF, nameField = 'awarded_to', suggestio
         </div>
         <div className="space-y-1.5">
           <Label>Phone Number {mark('supplier_phone')}</Label>
-          <Input placeholder="e.g. 09xx-xxx-xxxx" value={form.supplier_phone} onChange={e => setF('supplier_phone', e.target.value)} />
+          <Input type="tel" inputMode="tel" placeholder="e.g. 0917 123 4567 or (086) 211 1234" value={form.supplier_phone} onChange={e => setF('supplier_phone', e.target.value)} />
+          {required.includes('supplier_phone') && form.supplier_phone.trim() && !isPhone(form.supplier_phone) && (
+            <p className="text-[10px] font-medium text-amber-700">Use a mobile number (09XX XXX XXXX) or a landline with area code.</p>
+          )}
         </div>
         <div className="space-y-1.5">
           <Label>Email Address {mark('supplier_email')}</Label>
