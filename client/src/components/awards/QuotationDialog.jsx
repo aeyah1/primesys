@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
 import { fmtCurrency, fmtDate, localToday } from '@/lib/utils'
 import api from '@/lib/axios'
 import {
-  EMPTY_SUPPLIER, DETAIL_FIELDS, SupplierFields, SectionTitle, Optional, cents, lineCents,
+  EMPTY_SUPPLIER, DETAIL_FIELDS, QUOTE_REQUIRED, SupplierFields, SectionTitle, Optional, cents, lineCents,
   useSupplierSuggestions, withSuggestion, useRefreshAwards,
 } from './supplier'
 
@@ -60,7 +60,8 @@ export default function QuotationDialog({ pr, items, quotation, open, onClose })
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to save the quotation'),
   })
-  const canSave = !!form && !!form.supplier_name.trim() && entered.length > 0 && !isPending
+  const canSave = !!form && !!form.supplier_name.trim() && QUOTE_REQUIRED.every(k => form[k].trim())
+    && entered.length > 0 && !isPending
   const submit = () => {
     if (!canSave) return
     mutate({
@@ -79,7 +80,7 @@ export default function QuotationDialog({ pr, items, quotation, open, onClose })
           <div className="space-y-6">
             <section className="space-y-3">
               <SectionTitle>Supplier</SectionTitle>
-              <SupplierFields form={form} setF={setF} nameField="supplier_name" suggestions={suppliers} onName={onName} />
+              <SupplierFields form={form} setF={setF} nameField="supplier_name" suggestions={suppliers} onName={onName} required={QUOTE_REQUIRED} />
               {filledFrom && (
                 <p className="text-xs text-[--color-text-muted]">
                   Details filled in from {filledFrom.name}'s earlier records (last used {fmtDate(filledFrom.last_used_at)}). Check they are still right.
