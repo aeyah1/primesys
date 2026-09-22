@@ -4,7 +4,7 @@ const esc = require('../utils/escapeHtml')
 // active procurement/admin user a nudge to look at this PR.
 // recipientName - target user's display name
 // senderName - the user who triggered the reminder
-// prLabel - "PR-2026-Q1-001" or "PR-2026-Q1-001 - Title"
+// prLabel - "CSO 2026-001" or "CSO 2026-001 - Title"
 module.exports = function prReminderEmail({ recipientName, senderName, prLabel }) {
   return `
     <div style="font-family:Inter,Arial,sans-serif;max-width:560px;margin:auto;padding:32px;border:1px solid #e5e7eb;border-radius:12px;background:#fff;">

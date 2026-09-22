@@ -1,0 +1,231 @@
+// The data the printed Purchase Request form (Appendix 60) needs, end to end:
+// PR numbers in the form's own format, the campus signatories in organization
+// settings, the filer's designation copied onto the PR, and the Stock/Property
+// No. column on its items. Real HTTP against a throwaway database (harness.js).
+//
+// The form's geometry is checked separately, without a database, in
+// pr-form.test.js.
+const path = require('path')
+const H    = require('./harness')
+
+const { db: TEST_DB, base: BASE } = H.configure({ db: 'primesys_appendix60_test_tmp', port: 5099 })
+const serverReq = (m) => require(require.resolve(m, { paths: [H.SERVER] }))
+const config = require(path.join(H.SERVER, 'config.js'))
+const jwt    = serverReq('jsonwebtoken')
+
+const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor' }
+const tok  = (id) => jwt.sign({ id, role: ROLE[id] }, config.jwt.secret, { expiresIn: '1h' })
+const YEAR = new Date().getFullYear()
+
+function fixtures() {
+  const hash = serverReq('bcryptjs').hashSync('Test@1234', 4)
+  const U = (id, name, designation) =>
+    `(${id}, '${name}', ${designation ? `'${designation}'` : 'NULL'}, '${name.toLowerCase().replace(/\W/g, '')}', 'u${id}@apx.invalid', '${hash}', '${ROLE[id]}', 1, 1)`
+  return `
+    SET FOREIGN_KEY_CHECKS = 0;
+    INSERT INTO users (id, name, designation, username, email, password_hash, role, is_active, is_verified) VALUES
+      ${U(1, 'Admin One')}, ${U(2, 'Proc One')}, ${U(3, 'Juana Dela Cruz', 'Department Chair, DCS')};
+    INSERT INTO quarters (id, label, year, start_date, end_date, is_active) VALUES
+      (1, 'Q1', ${YEAR}, '${YEAR}-01-01', '${YEAR}-12-31', 1);
+    -- A PR numbered the old way, to prove the new sequence ignores it.
+    INSERT INTO purchase_requests (id, pr_number, title, status, created_by, category) VALUES
+      (900, 'PR-${YEAR}-Q3-007', 'Legacy numbering', 'draft', 3, 'office_supplies');
+    SET FOREIGN_KEY_CHECKS = 1;
+  `
+}
+
+async function http(who, method, p, body) {
+  const headers = { Authorization: `Bearer ${tok(who)}` }
+  if (body !== undefined) headers['Content-Type'] = 'application/json'
+  const res  = await fetch(BASE + p, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })
+  const type = res.headers.get('content-type') || ''
+  const data = type.includes('json') ? await res.json()
+    : type.includes('pdf') ? Buffer.from(await res.arrayBuffer()) : await res.text()
+  return { status: res.status, data, type }
+}
+const show = (r) => `${r.status} ${Buffer.isBuffer(r.data) ? `<pdf ${r.data.length}b>` : JSON.stringify(r.data)}`.slice(0, 220)
+
+const SIGNATORIES = {
+  entity_name:                  'NEMSU - Cantilan Campus',
+  fund_cluster:                 '05 206441',
+  responsibility_center_code:   '08-106-000000',
+  approved_by_name:             'MARIA S. SANTOS, Ph. D.',
+  approved_by_designation:      'Campus Director',
+  allotment_by_name:            'PEDRO B. REYES',
+  allotment_by_designation:     'AO IV/Budget Officer II',
+  app_certified_by_name:        'ANA C. GARCIA, Ph.D.',
+  app_certified_by_designation: 'BAC Secretariat',
+}
+
+async function run() {
+  const t = H.suite('APPENDIX 60')
+  const is = async (g, label, who, m, p, body, ok, want) => {
+    const r = await http(who, m, p, body)
+    t.check(g, label, ok(r), `${show(r)}${want ? ` (want ${want})` : ''}`)
+    return r
+  }
+
+  // ── Organization settings ───────────────────────────────────────────
+  await is('Settings', 'an admin saves every signatory at once', 1, 'PATCH', '/settings',
+    { ...SIGNATORIES, pr_number_prefix: 'CSO' }, r => r.status === 200)
+  const saved = await is('Settings', 'they all read back', 1, 'GET', '/settings', undefined,
+    r => r.status === 200 && Object.entries(SIGNATORIES).every(([k, v]) => r.data[k] === v))
+  t.check('Settings', 'the PR number prefix is stored', saved.data?.pr_number_prefix === 'CSO', saved.data?.pr_number_prefix)
+
+  await is('Settings', 'a blank value clears the field', 1, 'PATCH', '/settings',
+    { allotment_by_name: '' }, r => r.status === 200)
+  await is('Settings', '…and reads back as null, not the old value', 1, 'GET', '/settings', undefined,
+    r => r.data.allotment_by_name === null, 'null')
+  await is('Settings', '…while the keys not sent are untouched', 1, 'GET', '/settings', undefined,
+    r => r.data.approved_by_name === SIGNATORIES.approved_by_name)
+  await is('Settings', 'restore it for the rest of the run', 1, 'PATCH', '/settings',
+    { allotment_by_name: SIGNATORIES.allotment_by_name }, r => r.status === 200)
+
+  // A prefix reaches a LIKE pattern and a SUBSTRING offset, so it is fenced.
+  for (const [label, prefix] of [['a wildcard', 'C%O'], ['an underscore', 'C_O'], ['a quote', "C'O"], ['too long', 'ABCDEFGHIJKLMNOP']]) {
+    await is('Settings', `PR prefix with ${label} is refused`, 1, 'PATCH', '/settings',
+      { pr_number_prefix: prefix }, r => r.status === 400, '400')
+  }
+  await is('Settings', 'a normal prefix is accepted', 1, 'PATCH', '/settings',
+    { pr_number_prefix: 'CSO' }, r => r.status === 200)
+  await is('Settings', 'a requestor cannot change them', 3, 'PATCH', '/settings',
+    { approved_by_name: 'Me' }, r => r.status === 403, '403')
+
+  // ── PR numbering ────────────────────────────────────────────────────
+  const first = await is('Numbering', 'a new PR uses the form\'s format', 3, 'POST', '/pr',
+    { title: 'Window blinds', department: 'DCS' },
+    r => r.status === 201 && r.data.pr_number === `CSO ${YEAR}-001`, `CSO ${YEAR}-001`)
+  await is('Numbering', 'the legacy PR-yyyy-Qn-nnn number does not seed the sequence', 3, 'POST', '/pr',
+    { title: 'Second' }, r => r.data.pr_number === `CSO ${YEAR}-002`, `CSO ${YEAR}-002`)
+  await is('Numbering', 'the sequence keeps counting', 3, 'POST', '/pr',
+    { title: 'Third' }, r => r.data.pr_number === `CSO ${YEAR}-003`, `CSO ${YEAR}-003`)
+
+  await is('Numbering', 'changing the prefix starts a new sequence', 1, 'PATCH', '/settings',
+    { pr_number_prefix: 'DCS' }, r => r.status === 200)
+  await is('Numbering', '…so the next PR is DCS 001', 3, 'POST', '/pr',
+    { title: 'After the change' }, r => r.data.pr_number === `DCS ${YEAR}-001`, `DCS ${YEAR}-001`)
+  await is('Numbering', 'put the prefix back', 1, 'PATCH', '/settings',
+    { pr_number_prefix: 'CSO' }, r => r.status === 200)
+  await is('Numbering', '…and the original sequence resumes', 3, 'POST', '/pr',
+    { title: 'Back to CSO' }, r => r.data.pr_number === `CSO ${YEAR}-004`, `CSO ${YEAR}-004`)
+
+  // ── The filer's designation ─────────────────────────────────────────
+  const prId = first.data.id
+  await is('Designation', 'copied from the profile onto the PR', 3, 'GET', `/pr/${prId}`, undefined,
+    r => r.data.requested_by_designation === 'Department Chair, DCS', 'Department Chair, DCS')
+  await is('Designation', 'a user can change their own', 3, 'PATCH', '/auth/me',
+    { name: 'Juana Dela Cruz', designation: 'Dean, College of Computing' }, r => r.status === 200)
+  await is('Designation', '…/auth/me returns it', 3, 'GET', '/auth/me', undefined,
+    r => r.data.designation === 'Dean, College of Computing')
+  await is('Designation', '…a PR already filed keeps the old one', 3, 'GET', `/pr/${prId}`, undefined,
+    r => r.data.requested_by_designation === 'Department Chair, DCS', 'unchanged')
+  const later = await is('Designation', '…a new PR gets the new one', 3, 'POST', '/pr',
+    { title: 'After promotion' }, r => r.status === 201)
+  await is('Designation', '…confirmed on the new PR', 3, 'GET', `/pr/${later.data.id}`, undefined,
+    r => r.data.requested_by_designation === 'Dean, College of Computing')
+  await is('Designation', 'it can be cleared', 3, 'PATCH', '/auth/me',
+    { name: 'Juana Dela Cruz', designation: '' }, r => r.status === 200)
+  await is('Designation', '…and really is empty afterwards', 3, 'GET', '/auth/me', undefined,
+    r => r.data.designation === null, 'null')
+  await is('Designation', 'restore it', 3, 'PATCH', '/auth/me',
+    { name: 'Juana Dela Cruz', designation: 'Department Chair, DCS' }, r => r.status === 200)
+
+  // ── Stock/Property No. on items ─────────────────────────────────────
+  await is('Stock/Property No.', 'an item can carry one', 3, 'POST', `/pr/${prId}/items`,
+    { stock_property_no: 'SP-0012', item_name: 'Window 1', notes: 'Width = 401 cm x Height = 280 cm',
+      quantity: 1, unit: 'set', estimated_cost: 17500 },
+    r => r.status === 201 && r.data.stock_property_no === 'SP-0012', 'SP-0012')
+  const listed = await is('Stock/Property No.', 'it comes back on the item list', 3, 'GET', `/pr/${prId}/items`, undefined,
+    r => r.status === 200 && r.data[0].stock_property_no === 'SP-0012')
+  const itemId = listed.data[0].id
+  await is('Stock/Property No.', 'it can be changed', 3, 'PATCH', `/pr/${prId}/items/${itemId}`,
+    { stock_property_no: 'SP-0099' }, r => r.status === 200)
+  await is('Stock/Property No.', '…and only that field changed', 3, 'GET', `/pr/${prId}/items`, undefined,
+    r => r.data[0].stock_property_no === 'SP-0099' && r.data[0].item_name === 'Window 1')
+  await is('Stock/Property No.', 'it can be cleared', 3, 'PATCH', `/pr/${prId}/items/${itemId}`,
+    { stock_property_no: '' }, r => r.status === 200)
+  await is('Stock/Property No.', '…and is then empty', 3, 'GET', `/pr/${prId}/items`, undefined,
+    r => r.data[0].stock_property_no === null, 'null')
+  await is('Stock/Property No.', 'one longer than the column is refused', 3, 'POST', `/pr/${prId}/items`,
+    { item_name: 'Too long', stock_property_no: 'x'.repeat(51) }, r => r.status === 400, '400')
+  await is('Stock/Property No.', 'items created with the PR carry theirs', 3, 'POST', '/pr',
+    { title: 'With items', items: [{ stock_property_no: 'SP-1', item_name: 'Chair', quantity: 2, estimated_cost: 900 }] },
+    r => r.status === 201)
+
+  // ── The PDF, with the real values in it ─────────────────────────────
+  const pdf = await is('PDF', 'the PR form downloads', 3, 'GET', `/pr/${prId}/pdf`, undefined,
+    r => r.status === 200 && r.type.includes('pdf') && r.data.slice(0, 5).toString() === '%PDF-')
+  t.check('PDF', 'it is a non-trivial document', pdf.data.length > 2000, `${pdf.data.length} bytes`)
+
+  // Re-render the same PR through the drawing function to read its text back.
+  const [rows] = await conn.execute(
+    `SELECT pr.*, u.name AS created_by_name, u.designation AS created_by_designation
+       FROM purchase_requests pr JOIN users u ON u.id = pr.created_by WHERE pr.id = ?`, [prId])
+  const [itemRows] = await conn.execute(
+    'SELECT stock_property_no, item_name, quantity, unit, estimated_cost, notes, group_label FROM pr_items WHERE pr_id = ? ORDER BY id', [prId])
+  const [settingRows] = await conn.execute('SELECT setting_key, setting_value FROM org_settings')
+  const org = Object.fromEntries(settingRows.map(r => [r.setting_key, r.setting_value]))
+
+  const text = await renderText({ pr: rows[0], orgSettings: org, items: itemRows })
+  for (const [label, value] of [
+    ['the PR number',            `CSO ${YEAR}-001`],
+    ['the entity name',          'NEMSU - Cantilan Campus'],
+    ['the fund cluster',         '05 206441'],
+    ['the office/section',       'DCS'],
+    ['the filer',                'Juana Dela Cruz'],
+    ['the filer\'s designation', 'Department Chair, DCS'],
+    ['the campus director',      'MARIA S. SANTOS, Ph. D.'],
+    ['the budget officer',       'PEDRO B. REYES'],
+    ['the BAC secretariat',      'ANA C. GARCIA, Ph.D.'],
+  ]) t.check('PDF', `carries ${label}`, text.includes(value), value)
+
+  return t.summary()
+}
+
+// Renders the form with the same drawing code the endpoint uses and returns
+// every string in it, so the values on the page can be asserted.
+const zlib = require('zlib')
+async function renderText(args) {
+  const PDFDocument = serverReq('pdfkit')
+  const drawPRForm  = require(path.join(H.SERVER, 'pdf', 'prForm'))
+  const { M }       = require(path.join(H.SERVER, 'utils', 'pdfHelpers'))
+  const doc = new PDFDocument({ size: 'LETTER', margin: M })
+  const chunks = []
+  doc.on('data', c => chunks.push(c))
+  const done = new Promise(r => doc.on('end', r))
+  drawPRForm(doc, args)
+  doc.end()
+  await done
+  const buf = Buffer.concat(chunks)
+  let out = '', i = 0
+  while (true) {
+    const s = buf.indexOf('stream', i)
+    if (s === -1) break
+    let a = s + 6
+    if (buf[a] === 0x0d) a++
+    if (buf[a] === 0x0a) a++
+    const e = buf.indexOf('endstream', a)
+    if (e === -1) break
+    try {
+      const c = zlib.inflateSync(buf.subarray(a, e)).toString('latin1')
+      for (const m of c.matchAll(/<([0-9a-fA-F]+)>/g)) out += Buffer.from(m[1], 'hex').toString('latin1')
+    } catch { /* not a content stream */ }
+    i = e + 9
+  }
+  return out
+}
+
+// A direct connection for the checks that read what the API stored.
+let conn
+H.main({
+  db: TEST_DB,
+  base: BASE,
+  fixtures,
+  run: async () => {
+    conn = await serverReq('mysql2/promise').createConnection({
+      host: '127.0.0.1', port: 3306, user: process.env.TEST_DB_USER || 'root',
+      password: process.env.TEST_DB_PASSWORD || '', database: TEST_DB,
+    })
+    try { return await run() } finally { await conn.end() }
+  },
+})

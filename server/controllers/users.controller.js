@@ -69,8 +69,10 @@ exports.list = async (req, res) => {
     const list = where('search', 'role', 'status', 'area')
     const [rows] = await pool.execute(
       `SELECT u.id, u.name, u.username, u.email, u.role, u.is_active, u.is_verified, u.created_at,
+              u.designation, u.department_id, d.code AS department_code, d.name AS department_name,
               (SELECT GROUP_CONCAT(ta.category) FROM twg_assignments ta WHERE ta.user_id = u.id) AS twg_areas
        FROM users u
+       LEFT JOIN departments d ON d.id = u.department_id
        ${list.sql} ORDER BY ${USER_SORTS[q.sort] || USER_SORTS.newest} LIMIT ${limit} OFFSET ${offset}`,
       list.params
     )
@@ -135,12 +137,17 @@ exports.update = async (req, res) => {
       )
       if (dup.length) return res.status(409).json({ message: 'Username already taken' })
     }
+    // The office this person encodes for, and their own job title. Both are
+    // only written when sent, so a form that omits them leaves them alone.
+    const extra = []
+    const extraValues = []
+    if ('department_id' in req.body) { extra.push('department_id = ?'); extraValues.push(req.body.department_id || null) }
+    if ('designation'   in req.body) { extra.push('designation = ?');   extraValues.push(String(req.body.designation ?? '').trim() || null) }
+
     const areasSaved = await withTransaction(async (conn) => {
       await conn.execute(
-        'UPDATE users SET name = ?, role = ?' + (username ? ', username = ?' : '') + ' WHERE id = ?',
-        username
-          ? [name.trim(), role, username.trim(), current[0].id]
-          : [name.trim(), role, current[0].id]
+        `UPDATE users SET name = ?, role = ?${username ? ', username = ?' : ''}${extra.length ? ', ' + extra.join(', ') : ''} WHERE id = ?`,
+        [name.trim(), role, ...(username ? [username.trim()] : []), ...extraValues, current[0].id]
       )
       return saveAreas(conn, current[0].id, role, areas, req.user.id)
     })
@@ -175,8 +182,10 @@ exports.create = async (req, res) => {
     try {
       result = await withTransaction(async (conn) => {
         const [r] = await conn.execute(
-          'INSERT INTO users (name, username, email, password_hash, role, is_verified) VALUES (?, ?, ?, ?, ?, 1)',
-          [name.trim(), username.trim(), email.trim(), hash, role]
+          `INSERT INTO users (name, username, email, password_hash, role, is_verified, department_id, designation)
+           VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
+          [name.trim(), username.trim(), email.trim(), hash, role,
+           req.body.department_id || null, String(req.body.designation ?? '').trim() || null]
         )
         await saveAreas(conn, r.insertId, role, areas, req.user.id)
         return r
