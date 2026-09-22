@@ -213,7 +213,11 @@ exports.login = async (req, res) => {
 exports.me = async (req, res) => {
   try {
     const [rows] = await pool.execute(
-      'SELECT id, name, username, email, role, is_active, created_at, fund_cluster, responsibility_center_code FROM users WHERE id = ?', [req.user.id]
+      `SELECT u.id, u.name, u.designation, u.username, u.email, u.role, u.is_active, u.created_at,
+              u.fund_cluster, u.responsibility_center_code,
+              u.department_id, d.code AS department_code, d.name AS department_name
+         FROM users u LEFT JOIN departments d ON d.id = u.department_id
+        WHERE u.id = ?`, [req.user.id]
     )
     if (!rows.length) return res.status(404).json({ message: 'User not found' })
     if (!rows[0].is_active) return res.status(403).json({ message: 'Account deactivated' })
@@ -223,13 +227,19 @@ exports.me = async (req, res) => {
   }
 }
 
+// Only the fields the request actually sends are changed, so a field sent
+// blank is cleared rather than silently kept (audit API-14, same rule as
+// prItems.updateItem). `designation` is the job title printed on the PR form.
+const PROFILE_FIELDS = ['designation', 'fund_cluster', 'responsibility_center_code']
+
 exports.updateProfile = async (req, res) => {
   try {
-    const { name, fund_cluster, responsibility_center_code } = req.body
+    const { name } = req.body
     if (!name || !name.trim()) return res.status(400).json({ message: 'Name is required' })
+    const sent = PROFILE_FIELDS.filter(f => f in req.body)
     await pool.execute(
-      'UPDATE users SET name = ?, fund_cluster = COALESCE(?, fund_cluster), responsibility_center_code = COALESCE(?, responsibility_center_code) WHERE id = ?',
-      [name.trim(), fund_cluster || null, responsibility_center_code || null, req.user.id]
+      `UPDATE users SET name = ?${sent.map(f => `, ${f} = ?`).join('')} WHERE id = ?`,
+      [name.trim(), ...sent.map(f => String(req.body[f] ?? '').trim() || null), req.user.id]
     )
     invalidateUserCache(req.user.id)   // the next request carries the new name
     res.json({ message: 'Profile updated' })

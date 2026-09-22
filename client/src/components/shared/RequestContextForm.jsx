@@ -1,6 +1,9 @@
-import { User, Calendar, Briefcase, Building2 } from 'lucide-react'
+import { User, Calendar, Briefcase, Building2, PenLine } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import api from '@/lib/axios'
 
 // Single source of truth for the four purpose_type options.
 // To add/edit a purpose type: update this array AND the ENUM in the DB.
@@ -23,19 +26,58 @@ export default function RequestContextForm({ value = {}, onChange }) {
   const set = (k, v) => onChange({ ...value, [k]: v })
   const selectedType = value.purpose_type || 'personal'
 
+  // The offices that can file a request. The one picked here decides who the
+  // printed form names as "Requested by": the head of that office, not the
+  // person filling this in.
+  const { data: departments = [] } = useQuery({
+    queryKey: ['departments'],
+    queryFn:  () => api.get('/departments').then(r => r.data),
+    staleTime: 5 * 60_000,
+  })
+  const picked = departments.find(d => d.id === Number(value.department_id))
+
   return (
     <div className="space-y-4">
       <div className="space-y-1.5">
         <Label htmlFor="ctx-department">
-          Department / Office
-          <span className="ml-1 font-normal text-[--color-text-muted] text-xs">(your office, department, or college)</span>
+          Office / Section
+          <span className="ml-1 font-normal text-[--color-text-muted] text-xs">(the office this request is for)</span>
         </Label>
-        <Input
-          id="ctx-department"
-          placeholder="e.g. Chemistry Department, Registrar's Office, Extension Services"
-          value={value.department || ''}
-          onChange={(e) => set('department', e.target.value)}
-        />
+        {departments.length > 0 ? (
+          <Select
+            value={value.department_id ? String(value.department_id) : ''}
+            onValueChange={(v) => set('department_id', v ? Number(v) : null)}
+          >
+            <SelectTrigger id="ctx-department">
+              <SelectValue placeholder="Select the office" />
+            </SelectTrigger>
+            <SelectContent>
+              {departments.map(d => (
+                <SelectItem key={d.id} value={String(d.id)}>{d.code} — {d.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <>
+            <Input
+              id="ctx-department"
+              placeholder="e.g. Chemistry Department, Registrar's Office"
+              value={value.department || ''}
+              onChange={(e) => set('department', e.target.value)}
+            />
+            <p className="text-[11px] text-[--color-text-muted]">
+              No offices have been set up yet. An admin adds them under Settings &gt; Organization.
+            </p>
+          </>
+        )}
+        {picked && (
+          <p className="flex items-start gap-1.5 text-[11px] text-[--color-text-muted]">
+            <PenLine className="size-3 mt-0.5 shrink-0" />
+            {picked.head_name
+              ? <span>The form will be signed by <strong className="text-[--color-text-secondary]">{picked.head_name}</strong>{picked.head_designation ? `, ${picked.head_designation}` : ''}.</span>
+              : <span>{picked.code} has no head of office recorded, so the form prints a blank line to sign by hand.</span>}
+          </p>
+        )}
       </div>
 
       <div className="space-y-2">

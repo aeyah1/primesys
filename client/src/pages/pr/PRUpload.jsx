@@ -17,7 +17,7 @@ import CategorySpecFields from '@/components/shared/CategorySpecFields'
 import { useAuth } from '@/context/AuthContext'
 import api from '@/lib/axios'
 
-const EMPTY_DRAFT = { group_label: '', item_name: '', quantity: '1', unit: 'ream', estimated_cost: '', specs: {} }
+const EMPTY_DRAFT = { group_label: '', stock_property_no: '', item_name: '', quantity: '1', unit: 'ream', estimated_cost: '', specs: {} }
 
 const TH = ({ children, className = '' }) => (
   <th className={`px-4 py-3 text-xs font-bold text-[--color-text-secondary] uppercase tracking-wider bg-[--color-canvas] ${className}`}>
@@ -61,6 +61,7 @@ export default function PRCreate() {
     category: 'office_supplies',
     // Request Context (the new end-user-centric fields)
     department: '',
+    department_id: '',
     purpose_type: 'personal',
     purpose: '',
     date_needed: '',
@@ -143,11 +144,12 @@ export default function PRCreate() {
     // The local list keeps `notes` as the canonical form; `specs` is UI-only.
     const notes = buildItemNotes(form.category, draft.specs)
     const newItem = {
-      group_label:    draft.group_label,
-      item_name:      draft.item_name.trim(),
-      quantity:       draft.quantity,
-      unit:           draft.unit,
-      estimated_cost: draft.estimated_cost,
+      group_label:       draft.group_label,
+      stock_property_no: draft.stock_property_no.trim(),
+      item_name:         draft.item_name.trim(),
+      quantity:          draft.quantity,
+      unit:              draft.unit,
+      estimated_cost:    draft.estimated_cost,
       notes,
     }
     setItems(p => [...p, newItem])
@@ -193,6 +195,7 @@ export default function PRCreate() {
       category:                   form.category,
       // Request Context fields — only sent if the requestor filled them
       department:                 form.department?.trim()     || undefined,
+      department_id:              form.department_id          || undefined,
       purpose_type:               form.purpose_type,
       purpose:                    form.purpose?.trim()        || undefined,
       date_needed:                form.date_needed            || undefined,
@@ -336,6 +339,7 @@ export default function PRCreate() {
                 <thead>
                   <tr className="border-b border-[--color-border]">
                     <TH className="text-center w-14">No.</TH>
+                    <TH className="text-center w-24">Stock/Property</TH>
                     <TH className="text-center w-20">Unit</TH>
                     <TH className="text-left">{categoryForm.itemLabel}</TH>
                     <TH className="text-center w-16">Qty</TH>
@@ -347,7 +351,7 @@ export default function PRCreate() {
                 <tbody>
                   {processed.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-6 py-12 text-center text-sm text-[--color-text-muted]">
+                      <td colSpan={8} className="px-6 py-12 text-center text-sm text-[--color-text-muted]">
                         No items yet — use the form below to add items.
                       </td>
                     </tr>
@@ -357,11 +361,12 @@ export default function PRCreate() {
                       return (
                         <Fragment key={gi}>
                           {group.label && (
-                            <SectionHeaderRow label={group.label} colSpan={7} onAddItem={() => addToSection(group.label)} />
+                            <SectionHeaderRow label={group.label} colSpan={8} onAddItem={() => addToSection(group.label)} />
                           )}
                           {group.items.map((item) => (
                             <tr key={item.globalIdx} className="border-b border-[--color-border] hover:bg-[--color-canvas]">
                               <TD className="text-center text-[--color-text-muted] font-medium">{item.rowNum}</TD>
+                              <TD className="text-center text-[--color-text-secondary] tabular-nums">{item.stock_property_no || '—'}</TD>
                               <TD className="text-center font-semibold text-[--color-text-primary]">{item.unit || '—'}</TD>
                               <TD className="text-left font-medium text-[--color-text-primary] leading-relaxed">
                                 {item.item_name}
@@ -391,7 +396,7 @@ export default function PRCreate() {
                           ))}
                           {group.label && groupTotal > 0 && (
                             <tr className="bg-[--color-canvas] border-b border-[--color-border]">
-                              <td colSpan={5} className="px-6 py-3 text-right text-sm font-semibold text-[--color-text-secondary]">
+                              <td colSpan={6} className="px-6 py-3 text-right text-sm font-semibold text-[--color-text-secondary]">
                                 Subtotal
                               </td>
                               <td className="px-4 py-3 text-right text-sm font-bold tabular-nums text-[--color-text-primary]">
@@ -406,7 +411,7 @@ export default function PRCreate() {
                   )}
                   {grandTotal > 0 && (
                     <tr className="bg-blue-50 border-b border-blue-200">
-                      <td colSpan={5} className="px-6 py-3.5 text-right text-sm font-bold text-blue-800">
+                      <td colSpan={6} className="px-6 py-3.5 text-right text-sm font-bold text-blue-800">
                         Grand Total
                       </td>
                       <td className="px-4 py-3.5 text-right text-base font-bold tabular-nums text-blue-700">
@@ -438,8 +443,19 @@ export default function PRCreate() {
               </div>
 
               <div className="grid grid-cols-12 gap-2 items-end">
+                {/* Stock/Property No. — the Supply Office's number, usually blank here */}
+                <div className="col-span-2 space-y-1">
+                  <Label className="text-xs">Stock/Property No.</Label>
+                  <Input
+                    placeholder="optional"
+                    value={draft.stock_property_no}
+                    onChange={e => setD('stock_property_no', e.target.value)}
+                    className="text-sm"
+                  />
+                </div>
+
                 {/* Item Description */}
-                <div className="col-span-5 space-y-1">
+                <div className="col-span-4 space-y-1">
                   <Label className="text-xs">{categoryForm.itemLabel}</Label>
                   <Input
                     ref={itemRef}
@@ -473,19 +489,20 @@ export default function PRCreate() {
                   />
                 </div>
 
-                {/* Estimated Cost */}
-                <div className="col-span-2 space-y-1">
+                {/* Estimated Cost. The line total sits outside the flow so the
+                    inputs across the row stay bottom-aligned. */}
+                <div className="col-span-2 space-y-1 relative">
                   <Label className="text-xs">Price each (₱, estimate)</Label>
                   <Input
                     type="number" min="0.01" step="any" placeholder="0.00"
                     value={draft.estimated_cost}
                     onChange={e => setD('estimated_cost', e.target.value)}
                   />
-                </div>
-
-                {/* Running total preview */}
-                <div className="col-span-1 text-right text-sm font-bold tabular-nums text-blue-700 self-end pb-2">
-                  {draftTotal > 0 ? fmtCurrency(draftTotal) : ''}
+                  {draftTotal > 0 && (
+                    <p className="absolute left-0 top-full mt-1 text-[11px] font-bold tabular-nums text-blue-700">
+                      {fmtCurrency(draftTotal)}
+                    </p>
+                  )}
                 </div>
 
                 {/* Add button */}

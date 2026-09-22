@@ -17,7 +17,7 @@ import CategorySpecFields from '@/components/shared/CategorySpecFields'
 import { useAuth } from '@/context/AuthContext'
 import api from '@/lib/axios'
 
-const EMPTY_DRAFT = { group_label: '', item_name: '', quantity: '1', unit: 'pc', estimated_cost: '', specs: {} }
+const EMPTY_DRAFT = { group_label: '', stock_property_no: '', item_name: '', quantity: '1', unit: 'pc', estimated_cost: '', specs: {} }
 
 const TH = ({ children, className = '' }) => (
   <th className={`px-4 py-3 text-xs font-bold text-[--color-text-secondary] uppercase tracking-wider bg-[--color-canvas] ${className}`}>
@@ -38,7 +38,7 @@ export default function PREdit() {
 
   const [form, setForm]     = useState({
     title: '', fund_cluster: '', responsibility_center_code: '', category: 'office_supplies',
-    department: '', purpose_type: 'personal', purpose: '', date_needed: '', recommended_by: '',
+    department: '', department_id: '', purpose_type: 'personal', purpose: '', date_needed: '', recommended_by: '',
     event_name: '', event_date: '', project_name: '',
   })
   const [items, setItems]   = useState([])
@@ -79,6 +79,7 @@ export default function PREdit() {
         responsibility_center_code: pr.responsibility_center_code || '',
         category:                   pr.category                   || 'office_supplies',
         department:                 pr.department                 || '',
+        department_id:              pr.department_id              || '',
         purpose_type:               pr.purpose_type               || 'personal',
         purpose:                    pr.purpose                    || '',
         // MySQL DATE column comes back as 'YYYY-MM-DDTHH:mm:ss.sssZ' through
@@ -113,11 +114,12 @@ export default function PREdit() {
     if (!draft.item_name.trim()) { toast.error('Item description is required'); return }
     const notes = buildItemNotes(form.category, draft.specs)
     const newItem = {
-      group_label:    draft.group_label,
-      item_name:      draft.item_name.trim(),
-      quantity:       draft.quantity,
-      unit:           draft.unit,
-      estimated_cost: draft.estimated_cost,
+      group_label:       draft.group_label,
+      stock_property_no: draft.stock_property_no.trim(),
+      item_name:         draft.item_name.trim(),
+      quantity:          draft.quantity,
+      unit:              draft.unit,
+      estimated_cost:    draft.estimated_cost,
       notes,
       _new: true,
     }
@@ -159,7 +161,8 @@ export default function PREdit() {
     for (const item of items.filter(i => i._new)) {
       try {
         await api.post(`/pr/${id}/items`, {
-          group_label:    item.group_label    || undefined,
+          group_label:       item.group_label       || undefined,
+          stock_property_no: item.stock_property_no || undefined,
           item_name:      item.item_name,
           quantity:       parseFloat(item.quantity)       || 1,
           unit:           item.unit           || undefined,
@@ -317,6 +320,7 @@ export default function PREdit() {
                 <thead>
                   <tr className="border-b border-[--color-border]">
                     <TH className="text-center w-14">No.</TH>
+                    <TH className="text-center w-24">Stock/Property</TH>
                     <TH className="text-center w-20">Unit</TH>
                     <TH className="text-left">{categoryForm.itemLabel}</TH>
                     <TH className="text-center w-16">Qty</TH>
@@ -328,7 +332,7 @@ export default function PREdit() {
                 <tbody>
                   {processed.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-6 py-12 text-center text-sm text-[--color-text-muted]">
+                      <td colSpan={8} className="px-6 py-12 text-center text-sm text-[--color-text-muted]">
                         No items yet — use the form below to add items.
                       </td>
                     </tr>
@@ -338,11 +342,12 @@ export default function PREdit() {
                       return (
                         <Fragment key={gi}>
                           {group.label && (
-                            <SectionHeaderRow label={group.label} colSpan={7} onAddItem={() => addToSection(group.label)} />
+                            <SectionHeaderRow label={group.label} colSpan={8} onAddItem={() => addToSection(group.label)} />
                           )}
                           {group.items.map((item) => (
                             <tr key={item.globalIdx} className="border-b border-[--color-border] hover:bg-[--color-canvas]">
                               <TD className="text-center text-[--color-text-muted] font-medium">{item.rowNum}</TD>
+                              <TD className="text-center text-[--color-text-secondary] tabular-nums">{item.stock_property_no || '—'}</TD>
                               <TD className="text-center font-semibold text-[--color-text-primary]">{item.unit || '—'}</TD>
                               <TD className="text-left font-medium text-[--color-text-primary] leading-relaxed">
                                 {item.item_name}
@@ -372,7 +377,7 @@ export default function PREdit() {
                           ))}
                           {group.label && groupTotal > 0 && (
                             <tr className="bg-[--color-canvas] border-b border-[--color-border]">
-                              <td colSpan={5} className="px-6 py-3 text-right text-sm font-semibold text-[--color-text-secondary]">
+                              <td colSpan={6} className="px-6 py-3 text-right text-sm font-semibold text-[--color-text-secondary]">
                                 Subtotal
                               </td>
                               <td className="px-4 py-3 text-right text-sm font-bold tabular-nums text-[--color-text-primary]">
@@ -387,7 +392,7 @@ export default function PREdit() {
                   )}
                   {grandTotal > 0 && (
                     <tr className="bg-blue-50 border-b border-blue-200">
-                      <td colSpan={5} className="px-6 py-3.5 text-right text-sm font-bold text-blue-800">
+                      <td colSpan={6} className="px-6 py-3.5 text-right text-sm font-bold text-blue-800">
                         Grand Total
                       </td>
                       <td className="px-4 py-3.5 text-right text-base font-bold tabular-nums text-blue-700">
@@ -419,7 +424,17 @@ export default function PREdit() {
               </div>
 
               <div className="grid grid-cols-12 gap-2 items-end">
-                <div className="col-span-5 space-y-1">
+                {/* Stock/Property No. — the Supply Office's number, usually blank here */}
+                <div className="col-span-2 space-y-1">
+                  <Label className="text-xs">Stock/Property No.</Label>
+                  <Input
+                    placeholder="optional"
+                    value={draft.stock_property_no}
+                    onChange={e => setD('stock_property_no', e.target.value)}
+                    className="text-sm"
+                  />
+                </div>
+                <div className="col-span-4 space-y-1">
                   <Label className="text-xs">{categoryForm.itemLabel} <span className="text-[--color-brand]">*</span></Label>
                   <Input
                     ref={itemRef}
@@ -448,16 +463,20 @@ export default function PREdit() {
                     className="text-center"
                   />
                 </div>
-                <div className="col-span-2 space-y-1">
+                {/* The line total sits outside the flow so the inputs across
+                    the row stay bottom-aligned. */}
+                <div className="col-span-2 space-y-1 relative">
                   <Label className="text-xs">Price each (₱, estimate)</Label>
                   <Input
                     type="number" min="0" step="any" placeholder="0.00"
                     value={draft.estimated_cost}
                     onChange={e => setD('estimated_cost', e.target.value)}
                   />
-                </div>
-                <div className="col-span-1 text-right text-sm font-bold tabular-nums text-blue-700 self-end pb-2">
-                  {draftTotal > 0 ? fmtCurrency(draftTotal) : ''}
+                  {draftTotal > 0 && (
+                    <p className="absolute left-0 top-full mt-1 text-[11px] font-bold tabular-nums text-blue-700">
+                      {fmtCurrency(draftTotal)}
+                    </p>
+                  )}
                 </div>
                 <div className="col-span-1 self-end">
                   <Button

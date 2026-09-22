@@ -5,22 +5,27 @@ const { editDenied } = require('../utils/prWorkflow')
 // A PR's items: listed to anyone who can see the PR, changed only while the PR is editable.
 exports.listItems = asyncHandler(async (req, res) => {
   const [rows] = await pool.execute(
-    'SELECT id, group_label, item_name, quantity, unit, estimated_cost, notes FROM pr_items WHERE pr_id = ? ORDER BY id',
+    'SELECT id, stock_property_no, group_label, item_name, quantity, unit, estimated_cost, notes FROM pr_items WHERE pr_id = ? ORDER BY id',
     [req.params.id]
   )
   res.json(rows)
 })
 
 exports.addItem = asyncHandler(async (req, res) => {
-  const { group_label, item_name, quantity, unit, estimated_cost, notes } = req.body
+  const { stock_property_no, group_label, item_name, quantity, unit, estimated_cost, notes } = req.body
   if (!item_name?.trim()) return res.status(400).json({ message: 'Item name is required' })
   const denied = await editDenied(pool, req.user, req.params.id)
   if (denied) return res.status(denied.status).json({ message: denied.message })
+  const stockNo = stock_property_no?.trim() || null
   const [result] = await pool.execute(
-    'INSERT INTO pr_items (pr_id, group_label, item_name, quantity, unit, estimated_cost, notes) VALUES (?, ?, ?, ?, ?, ?, ?)',
-    [req.params.id, group_label?.trim() || null, item_name.trim(), quantity || 1, unit || null, estimated_cost || null, notes || null]
+    `INSERT INTO pr_items (pr_id, stock_property_no, group_label, item_name, quantity, unit, estimated_cost, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [req.params.id, stockNo, group_label?.trim() || null, item_name.trim(), quantity || 1, unit || null, estimated_cost || null, notes || null]
   )
-  res.status(201).json({ id: result.insertId, group_label: group_label?.trim() || null, item_name: item_name.trim(), quantity, unit, estimated_cost })
+  res.status(201).json({
+    id: result.insertId, stock_property_no: stockNo, group_label: group_label?.trim() || null,
+    item_name: item_name.trim(), quantity, unit, estimated_cost,
+  })
 })
 
 exports.updateItem = asyncHandler(async (req, res) => {
@@ -41,6 +46,7 @@ exports.updateItem = asyncHandler(async (req, res) => {
   const text = (v) => String(v ?? '').trim() || null
   const num  = (v) => (v != null && v !== '' ? parseFloat(v) : null)
   const changes = {
+    stock_property_no: 'stock_property_no' in b ? text(b.stock_property_no) : undefined,
     group_label:    'group_label' in b ? text(b.group_label) : undefined,
     item_name:      'item_name' in b ? text(b.item_name) : undefined,
     quantity:       num(b.quantity) ?? undefined,

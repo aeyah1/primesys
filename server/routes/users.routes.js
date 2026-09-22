@@ -3,7 +3,7 @@ const { body } = require('express-validator')
 const c = require('../controllers/users.controller')
 const auth = require('../middleware/auth.middleware')
 const authorize = require('../middleware/authorize.middleware')
-const { handle, passwordRule, textRule, oneOfRule } = require('../middleware/validate')
+const { handle, passwordRule, textRule, oneOfRule, idRule } = require('../middleware/validate')
 const { CATEGORIES } = require('../utils/categories')
 
 // User Management: the only place roles are assigned (public sign-up always
@@ -29,6 +29,9 @@ router.post('/',
     .isEmail().withMessage('A valid email address is required').bail()
     .isLength({ max: 150 }).withMessage('Email is too long'),
   oneOfRule('role', 'Invalid role', ROLES, { required: true }),
+  // The office this person encodes for; its head signs "Requested by" on their PRs.
+  idRule('department_id', 'Pick a valid office'),
+  textRule('designation', 'Designation', 150),
   areas,
   passwordRule('password'),
   handle,
@@ -38,6 +41,9 @@ router.patch('/:id',
   textRule('name', 'Name', 100, { required: true }),
   username(body('username').if(v => !!v)),
   oneOfRule('role', 'Valid name and role are required', ROLES, { required: true }),
+  // The office this person encodes for; its head signs "Requested by" on their PRs.
+  idRule('department_id', 'Pick a valid office'),
+  textRule('designation', 'Designation', 150),
   areas,
   handle,
   c.update)

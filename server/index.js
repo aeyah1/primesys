@@ -78,6 +78,7 @@ app.use((req, _, next) => { req.io = io; next() })
 
 app.use('/api/auth',          require('./routes/auth.routes'))
 app.use('/api/users',         require('./routes/users.routes'))
+app.use('/api/departments',   require('./routes/departments.routes'))
 app.use('/api/quarters',      require('./routes/quarters.routes'))
 app.use('/api/settings',      require('./routes/settings.routes'))
 app.use('/api/pr',            require('./routes/pr.routes'))

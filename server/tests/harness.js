@@ -68,8 +68,9 @@ async function buildDb(db, fixtures = '') {
     await conn.query(schema)
     const [[{ current }]] = await conn.query('SELECT DATABASE() AS current')
     if (current !== db) throw new Error(`Expected to be in ${db}, but in ${current}; refusing to continue`)
-    // schema.sql seeds the admin account, quarters, and settings; fixtures bring their own.
-    await conn.query('SET FOREIGN_KEY_CHECKS = 0; DELETE FROM org_settings; DELETE FROM quarters; DELETE FROM users; SET FOREIGN_KEY_CHECKS = 1;')
+    // schema.sql seeds the admin account, quarters, settings and the one known
+    // department; fixtures bring their own.
+    await conn.query('SET FOREIGN_KEY_CHECKS = 0; DELETE FROM org_settings; DELETE FROM quarters; DELETE FROM users; DELETE FROM departments; SET FOREIGN_KEY_CHECKS = 1;')
     if (fixtures) await conn.query(fixtures)
   } finally { await conn.end() }
 }
