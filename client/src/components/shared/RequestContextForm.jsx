@@ -149,9 +149,10 @@ export default function RequestContextForm({ value = {}, onChange }) {
         </div>
       )}
 
-      {/* The justification lives beside the Purpose field on the PR forms,
-          not here, so the phrase that prints and the reason that does not are
-          read together. See components/shared/JustificationField.jsx. */}
+      {/* A request says what it is for in one field, the Purpose, on the form
+          above. The separate justification this section used to ask for is
+          gone; purchase_requests.purpose only carries what was written before
+          it was removed. */}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="space-y-1.5">
