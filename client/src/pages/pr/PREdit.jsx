@@ -256,10 +256,14 @@ export default function PREdit() {
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label>
-                What kind of items? <span className="text-red-500 text-xs">*</span>
-                <span className="ml-1.5 text-[10px] text-[--color-text-muted] font-normal">pick the closest match; hover the info icon for examples</span>
+                Mostly what kind of items?
+                <span className="ml-1.5 text-[10px] text-[--color-text-muted] font-normal">hover the info icon for examples</span>
               </Label>
               <ItemCategorySelector value={form.category} onChange={setCategory} />
+              <p className="text-[11px] text-[--color-text-muted]">
+                Sets the wording below and the starting kind for each item — change any item that differs.
+                Which TWG area reviews this request is worked out from the items themselves.
+              </p>
             </div>
 
             <div className="space-y-1.5">
