@@ -43,22 +43,22 @@ const FUND_CODES = [
 const SIGNATORIES = [
   { key: 'approved_by', title: 'Approved by — at or below the threshold',
     hint: 'Signs the smaller requests. The head of the requesting office signs the other half of that box.',
-    namePlaceholder: 'JUANCHO A. INTANO, Ph. D.', designationPlaceholder: 'Campus Director' },
+    namePlaceholder: 'e.g. JUAN A. DELA CRUZ, Ph. D.', designationPlaceholder: 'Campus Director' },
   { key: 'approved_above', title: 'Approved by — above the threshold',
     hint: 'Signs requests over the amount set above.',
-    namePlaceholder: 'ROMEO C. GRIFFO, Ph. D.', designationPlaceholder: 'University President' },
+    namePlaceholder: 'e.g. MARIA S. SANTOS, Ph. D.', designationPlaceholder: 'University President' },
   { key: 'allotment_by', title: 'Allotment/Appropriation Available',
     hint: 'Certifies that funds are available.',
-    namePlaceholder: 'MELANIL A. ESPINOLA', designationPlaceholder: 'AO IV/Budget Officer II' },
+    namePlaceholder: 'e.g. PEDRO B. REYES', designationPlaceholder: 'AO IV/Budget Officer II' },
   { key: 'app_certified_by', title: 'Included in the APP',
     hint: 'Certifies the request is in the Annual Procurement Plan.',
-    namePlaceholder: 'JENNIFER L. OROZCO, Ph.D.', designationPlaceholder: 'BAC Secretariat' },
+    namePlaceholder: 'e.g. ANA C. GARCIA, Ph.D.', designationPlaceholder: 'BAC Secretariat' },
   { key: 'bac_vice_chairman', title: 'Request for Quotation — signed by',
     hint: 'Signs the RFQ sent out to suppliers.',
-    namePlaceholder: 'LOTH M. OROZCO, Ph. D.', designationPlaceholder: 'BAC Vice Chairman' },
+    namePlaceholder: 'e.g. JOSE T. RAMOS, Ph. D.', designationPlaceholder: 'BAC Vice Chairman' },
   { key: 'canvasser', title: 'Request for Quotation — canvasser',
     hint: 'Named at the foot of the RFQ.',
-    namePlaceholder: 'ROXEL A. CRUIZ', designationPlaceholder: 'Canvasser' },
+    namePlaceholder: 'e.g. LUIS M. AQUINO', designationPlaceholder: 'Canvasser' },
 ]
 
 const KEYS = [
