@@ -103,7 +103,10 @@ CREATE TABLE `purchase_requests` (
   `pr_number`                  VARCHAR(50)  NOT NULL,
   `quarter_id`                 INT UNSIGNED NULL,
   `title`                      VARCHAR(200) NULL,
+  -- The code of the fund this request is drawn on, frozen when it is filed.
   `fund_cluster`               VARCHAR(50)  NULL,
+  -- Which of the three funds that code came from (org_settings.fund_code_*).
+  `fund_source`                ENUM('STF','GAA','IGP') NOT NULL DEFAULT 'STF',
   `responsibility_center_code` VARCHAR(50)  NULL,
   `department`                 VARCHAR(150) NULL,   -- as printed in Office/Section
   `department_id`              INT UNSIGNED NULL,
@@ -477,4 +480,24 @@ INSERT INTO `org_settings` (`setting_key`, `setting_value`) VALUES
   ('allotment_by_name',            NULL),
   ('allotment_by_designation',     'AO IV/Budget Officer II'),
   ('app_certified_by_name',        NULL),
-  ('app_certified_by_designation', 'BAC Secretariat');
+  ('app_certified_by_designation', 'BAC Secretariat'),
+  -- The Request for Quotation's letterhead.
+  ('entity_full_name',              'NORTH EASTERN MINDANAO STATE UNIVERSITY'),
+  ('entity_campus',                 'Cantilan Campus'),
+  ('entity_address',                'Cantilan Surigao del Sur'),
+  ('entity_telefax',                '086-212-5132'),
+  ('entity_website',                'www.nemsu.edu.ph'),
+  -- Source of fund: the code printed for each of the three choices.
+  ('fund_code_stf',                 '05-206441'),
+  ('fund_code_gaa',                 '01-101101'),
+  ('fund_code_igp',                 '05-206441-IGP'),
+  -- At or below this amount the Campus Director approves; above it the
+  -- University President does.
+  ('approver_threshold',            '50000'),
+  ('approved_above_name',           NULL),
+  ('approved_above_designation',    'University President'),
+  -- Request for Quotation signatories.
+  ('bac_vice_chairman_name',        NULL),
+  ('bac_vice_chairman_designation', 'BAC Vice Chairman'),
+  ('canvasser_name',                NULL),
+  ('canvasser_designation',         'Canvasser');

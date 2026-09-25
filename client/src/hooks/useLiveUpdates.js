@@ -3,12 +3,14 @@ import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useAuth } from '@/context/AuthContext'
 
+// The notification types the server actually sends (utils/notify.js callers).
 const TYPE_MESSAGES = {
-  po_issued:   { label: 'Purchase Order Issued' },
-  po_pending:  { label: 'PO Awaiting Approval' },
-  po_approved: { label: 'PO Approved' },
-  delivered:   { label: 'Delivery Confirmed' },
-  lot_updated: { label: 'Lot Updated' },
+  info:        { label: 'Update' },
+  success:     { label: 'Approved' },
+  warning:     { label: 'Needs attention' },
+  error:       { label: 'Not approved' },
+  delivered:   { label: 'Delivery' },
+  lot_updated: { label: 'Award' },
   reminder:    { label: 'Reminder' },
 }
 
@@ -44,30 +46,26 @@ export function useLiveUpdates() {
       qc.invalidateQueries({ queryKey: ['notifications'] })
       qc.invalidateQueries({ queryKey: ['notifications-unread'] })
 
-      switch (notification.type) {
-        case 'lot_created':
-        case 'lot_updated':
-        case 'lot_all_awarded':
-          qc.invalidateQueries({ queryKey: ['pr-list'] })
-          qc.invalidateQueries({ queryKey: ['pr-stats'] })
-          qc.invalidateQueries({ queryKey: ['lots'] })
+      // What to refresh is decided by what the notice POINTS AT, not by its
+      // type. The type is a severity the server picks freely ('info',
+      // 'warning', ...), so switching on it silently stopped matching when
+      // those were consolidated, and the lists went stale until refetched.
+      // reference_type is only ever 'pr', 'lot' or 'delivery'.
+      const id = notification.reference_id ? String(notification.reference_id) : null
+      const refresh = (...keys) => keys.forEach(k => qc.invalidateQueries({ queryKey: k }))
+
+      switch (notification.reference_type) {
+        case 'pr':
+          refresh(['pr-list'], ['pr-stats'], ['po-list'], ['lot-queue'], ['archive'], ['twg-pending'])
+          if (id) refresh(['pr', id], ['pr-items', id], ['pr-logs', id], ['canvass', id])
           break
 
-        case 'po_issued':
-        case 'po_pending':
-        case 'po_approved':
-          qc.invalidateQueries({ queryKey: ['pr-list'] })
-          qc.invalidateQueries({ queryKey: ['pr-stats'] })
-          qc.invalidateQueries({ queryKey: ['po-list'] })
-          if (notification.reference_id) {
-            qc.invalidateQueries({ queryKey: ['pr', String(notification.reference_id)] })
-          }
+        case 'lot':
+          refresh(['pr-list'], ['pr-stats'], ['lots'], ['lot-queue'])
           break
 
-        case 'delivered':
-          qc.invalidateQueries({ queryKey: ['pr-list'] })
-          qc.invalidateQueries({ queryKey: ['pr-stats'] })
-          qc.invalidateQueries({ queryKey: ['archive'] })
+        case 'delivery':
+          refresh(['pr-list'], ['pr-stats'], ['po-list'], ['delivery-list'], ['archive'])
           break
       }
     }

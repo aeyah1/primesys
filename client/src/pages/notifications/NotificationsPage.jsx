@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Bell, CheckCheck, CheckCircle2, FileText, Truck, AlertTriangle, XCircle, Clock } from 'lucide-react'
+import { Bell, CheckCheck, CheckCircle2, FileText, Truck, AlertTriangle, XCircle, Clock, Package } from 'lucide-react'
 import { toast } from 'sonner'
 import { Link } from 'react-router-dom'
 import { Card, CardContent } from '@/components/ui/card'
@@ -10,19 +10,21 @@ import api from '@/lib/axios'
 
 // Keyed by notifications.type, as the server sends it.
 const TYPE_ICON = {
-  info:      FileText,
-  success:   CheckCircle2,
-  warning:   AlertTriangle,
-  error:     XCircle,
-  reminder:  Clock,
-  delivered: Truck,
+  info:        FileText,
+  success:     CheckCircle2,
+  warning:     AlertTriangle,
+  error:       XCircle,
+  reminder:    Clock,
+  delivered:   Truck,
+  lot_updated: Package,
 }
 
-// Keyed by notifications.reference_type: the page a notice opens.
+// Keyed by notifications.reference_type: the page a notice opens. An award
+// notice carries its lot id, so it opens the awards list rather than nothing.
 const TYPE_LINK = {
   pr:       (id) => `/pr/${id}`,
+  lot:      () => '/bidding',
   delivery: () => '/delivery',
-  user:     () => '/users',
 }
 
 function NotifIcon({ type }) {

@@ -10,7 +10,7 @@ const { recordBlock, QTY_ORDERED, QTY_RECEIVED } = require('../utils/deliveryWor
 const { orderBySection } = require('../utils/itemSections')
 const { currentQuarter } = require('../utils/quarters')
 const { CATEGORIES } = require('../utils/categories')
-const { loadOrgSettings, prNumberPrefix } = require('../utils/orgSettings')
+const { loadOrgSettings, prNumberPrefix, fundCodeFor, FUND_SOURCE_VALUES } = require('../utils/orgSettings')
 const { requestedBy, resolveDepartment } = require('../utils/departments')
 const { reviewsCategory, notifyAreaReviewers } = require('../utils/twgAreas')
 const drawPRForm = require('../pdf/prForm')
@@ -245,7 +245,7 @@ const toSqlDate = (v) => {
 
 exports.create = asyncHandler(async (req, res) => {
   const {
-    quarter_id, title, fund_cluster, responsibility_center_code, status, category,
+    quarter_id, title, fund_cluster, fund_source, responsibility_center_code, status, category,
     department, department_id, purpose_type, purpose, date_needed, recommended_by,
     event_name, event_date, project_name, items,
   } = req.body
@@ -269,7 +269,11 @@ exports.create = asyncHandler(async (req, res) => {
   const isStaff   = ['procurement', 'admin'].includes(req.user.role)
   const quarterId = (isStaff && quarter_id) ? quarter_id : ((await currentQuarter(pool))?.id ?? null)
   const org = await loadOrgSettings(pool)
-  const fundCluster = (isStaff && fund_cluster) || org.fund_cluster || null
+  // Which of the three funds this request is drawn on, and the code that goes
+  // with it. The code is frozen onto the PR, so a later change to the campus's
+  // codes leaves filed requests alone. Staff may still type a code by hand.
+  const fundSource  = FUND_SOURCE_VALUES.includes(fund_source) ? fund_source : 'STF'
+  const fundCluster = (isStaff && fund_cluster) || fundCodeFor(org, fundSource)
   const rcCode      = (isStaff && responsibility_center_code) || org.responsibility_center_code || null
   // The form's "Requested by" names the HEAD of the requesting office, not
   // whoever encoded the request. Both the office and its head are frozen onto
@@ -291,13 +295,13 @@ exports.create = asyncHandler(async (req, res) => {
       try {
         const [result] = await conn.execute(
           `INSERT INTO purchase_requests (
-             pr_number, quarter_id, title, fund_cluster, responsibility_center_code,
+             pr_number, quarter_id, title, fund_cluster, fund_source, responsibility_center_code,
              department, department_id, purpose_type, purpose, date_needed, recommended_by,
              event_name, event_date, project_name, category, status, created_by,
              requested_by_name, requested_by_designation
-           ) VALUES (?, ?, ?, ?, ?,  ?, ?, ?, ?, ?,  ?, ?, ?, ?, ?, 'draft', ?,  ?, ?)`,
+           ) VALUES (?, ?, ?, ?, ?, ?,  ?, ?, ?, ?, ?,  ?, ?, ?, ?, ?, 'draft', ?,  ?, ?)`,
           [
-            pr_number, quarterId, title || null, fundCluster, rcCode,
+            pr_number, quarterId, title || null, fundCluster, fundSource, rcCode,
             departmentText, dept?.id ?? null,
             prPurposeType,
             purpose?.trim() || null,
@@ -377,7 +381,7 @@ exports.updateStatus = asyncHandler(async (req, res) => {
 
 exports.update = asyncHandler(async (req, res) => {
   const {
-    title, fund_cluster, responsibility_center_code, notes, category,
+    title, fund_cluster, fund_source, responsibility_center_code, notes, category,
     department, department_id, purpose_type, purpose, date_needed, recommended_by,
     event_name, event_date, project_name,
   } = req.body
@@ -401,6 +405,13 @@ exports.update = asyncHandler(async (req, res) => {
   // The office and its signatory move together, and only when the request
   // actually names an office: sending it empty clears all three, so a PR can't
   // end up filed under one office but signed by another's head.
+  // Changing the source of fund re-derives the code printed on the form.
+  const newSource = FUND_SOURCE_VALUES.includes(fund_source) ? fund_source : null
+  const sourceSet = newSource ? `,
+           fund_source                 = ?,
+           fund_cluster                = ?` : ''
+  const sourceValues = newSource ? [newSource, fundCodeFor(await loadOrgSettings(pool), newSource)] : []
+
   const officeSet = dept === undefined ? '' : `,
            department_id               = ?,
            requested_by_name           = ?,
@@ -417,7 +428,7 @@ exports.update = asyncHandler(async (req, res) => {
            responsibility_center_code  = COALESCE(?, responsibility_center_code),
            category                    = COALESCE(?, category),
            notes                       = COALESCE(?, notes),
-           department                  = ?${officeSet},
+           department                  = ?${officeSet}${sourceSet},
            purpose_type                = COALESCE(?, purpose_type),
            purpose                     = ?,
            date_needed                 = ?,
@@ -431,6 +442,7 @@ exports.update = asyncHandler(async (req, res) => {
       newCategory, notes || null,
       departmentText,
       ...officeValues,
+      ...sourceValues,
       newPurposeType,
       purpose?.trim() || null,
       toSqlDate(date_needed),
@@ -567,5 +579,35 @@ exports.generatePDF = asyncHandler(async (req, res) => {
   doc.pipe(res)
 
   drawPRForm(doc, { pr, orgSettings, items })
+  doc.end()
+})
+
+// The Request for Quotation sent to suppliers once the PR is under canvass:
+// the items with their quantities, priced columns left blank for the supplier
+// to fill in. One page per lot, since the campus canvasses a lot at a time.
+exports.generateRFQ = asyncHandler(async (req, res) => {
+  const PDFDocument = require('pdfkit')
+  const { M } = require('../utils/pdfHelpers')
+  const drawRFQ = require('../pdf/requestForQuotation')
+
+  const [rows] = await pool.execute(
+    'SELECT pr_number, title, purpose FROM purchase_requests WHERE id = ?', [req.params.id])
+  if (!rows.length) return res.status(404).json({ message: 'PR not found' })
+  const pr = rows[0]
+
+  const orgSettings = await loadOrgSettings(pool)
+  // Dropped items are not canvassed, so they are left off the form.
+  const items = orderBySection((await pool.execute(
+    `SELECT item_name, quantity, unit, estimated_cost, notes, group_label
+       FROM pr_items WHERE pr_id = ? AND dropped_at IS NULL ORDER BY id`,
+    [req.params.id]
+  ))[0])
+
+  const doc = new PDFDocument({ size: 'LETTER', margin: M })
+  res.setHeader('Content-Type', 'application/pdf')
+  res.setHeader('Content-Disposition', `attachment; filename="RFQ ${pr.pr_number}.pdf"`)
+  doc.pipe(res)
+
+  drawRFQ(doc, { pr, orgSettings, items })
   doc.end()
 })
