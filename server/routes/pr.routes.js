@@ -6,7 +6,8 @@ const items       = require('../controllers/prItems.controller')
 const files       = require('../controllers/prAttachments.controller')
 const auth        = require('../middleware/auth.middleware')
 const authorize   = require('../middleware/authorize.middleware')
-const { handle, textRule, moneyRule, quantityRule, dateRule, idRule } = require('../middleware/validate')
+const { handle, textRule, moneyRule, quantityRule, dateRule, idRule, oneOfRule } = require('../middleware/validate')
+const { FUND_SOURCE_VALUES } = require('../utils/orgSettings')
 const { requireAccess } = require('../middleware/scope.middleware')
 const makeUploader = require('../utils/upload')
 
@@ -14,6 +15,8 @@ const makeUploader = require('../utils/upload')
 const prFields = (titleRequired) => [
   textRule('title', 'Title', 200, { required: titleRequired }),
   textRule('fund_cluster', 'Fund cluster', 50),
+  // Which of the three campus funds this request is drawn on.
+  oneOfRule('fund_source', 'Pick a valid source of fund', FUND_SOURCE_VALUES),
   textRule('responsibility_center_code', 'Responsibility center code', 50),
   textRule('department', 'Department', 150),
   // The office this PR is filed for; its head signs "Requested by".
@@ -67,6 +70,8 @@ const prAccess = requireAccess('pr')
 const prRead   = requireAccess('pr', 'id', { includeDeleted: true })
 
 router.get('/:id/pdf',   prRead, c.generatePDF)
+// The Request for Quotation, for the staff who canvass suppliers.
+router.get('/:id/rfq',   authorize('procurement', 'admin'), prRead, c.generateRFQ)
 router.get('/:id',       prRead, c.getById)
 
 router.post('/:id/read', prRead, c.markRead)

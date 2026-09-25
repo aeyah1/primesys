@@ -537,6 +537,7 @@ export default function PRDetail() {
 
   const downloadPRForm   = () => openPDF(`/pr/${id}/pdf`,       'PR Form')
   const downloadAbstract = () => openPDF(`/lots/pr/${id}/pdf`,  'Abstract of Quotations')
+  const downloadRFQ      = () => openPDF(`/pr/${id}/rfq`,       'Request for Quotation')
 
   // Server-backed read set. Fetched only for procurement/admin (the role that
   // sees the "new submission" banner).
@@ -823,6 +824,17 @@ export default function PRDetail() {
         >
           <FileDown className="size-3.5" /> PR Form
         </button>
+        {/* The RFQ goes to suppliers once the PR is approved and under canvass,
+            so it is offered from the TWG's approval onward. One page per lot. */}
+        {canManage && !['draft', 'submitted', 'revision_requested', 'rejected'].includes(pr.status) && (
+          <button
+            onClick={downloadRFQ}
+            title="Download the Request for Quotation — one page per lot, to send to suppliers"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[--color-border] text-xs font-medium text-[--color-text-secondary] hover:text-[--color-brand] hover:border-[--color-brand] transition-colors shrink-0"
+          >
+            <FileDown className="size-3.5" /> RFQ
+          </button>
+        )}
         {!isRequestor && pr.status !== 'draft' && pr.status !== 'submitted' && (
           <button
             onClick={downloadAbstract}

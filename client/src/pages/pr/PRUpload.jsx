@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { fmtCurrency, CATEGORY_FORM, buildItemNotes, groupItemsBySection } from '@/lib/utils'
+import { fmtCurrency, CATEGORY_FORM, buildItemNotes, groupItemsBySection, FUND_SOURCES, fundCodeFor } from '@/lib/utils'
 import { SectionNameInput, SectionHeaderRow } from '@/components/shared/ItemSections'
 import CategorySpecFields from '@/components/shared/CategorySpecFields'
 import { useAuth } from '@/context/AuthContext'
@@ -59,6 +59,7 @@ export default function PRCreate() {
     quarter_id: '',
     title: '',
     category: 'office_supplies',
+    fund_source: 'STF',
     // Request Context (the new end-user-centric fields)
     department: '',
     department_id: '',
@@ -193,6 +194,7 @@ export default function PRCreate() {
       title:                      form.title.trim(),
       ...(!isRequestor && form.quarter_id ? { quarter_id: parseInt(form.quarter_id) } : {}),
       category:                   form.category,
+      fund_source:                form.fund_source,
       // Request Context fields — only sent if the requestor filled them
       department:                 form.department?.trim()     || undefined,
       department_id:              form.department_id          || undefined,
@@ -301,9 +303,19 @@ export default function PRCreate() {
                   </Select>
                 </div>
 
-                {/* Fund Cluster & RCC: filled from Organization settings on the server */}
+                {/* Source of fund decides the code printed on the PR form. */}
+                <div className="space-y-1.5">
+                  <Label>Source of Fund</Label>
+                  <Select value={form.fund_source} onValueChange={v => setF('fund_source', v)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {FUND_SOURCES.map(f => <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <AutoField label="Fund Cluster" value={orgSettings.fund_cluster} />
+                  <AutoField label="Fund Cluster" value={fundCodeFor(orgSettings, form.fund_source)} />
                   <AutoField label="Responsibility Center Code" value={orgSettings.responsibility_center_code} />
                 </div>
               </>

@@ -11,7 +11,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
-import { fmtCurrency, CATEGORY_FORM, buildItemNotes, groupItemsBySection } from '@/lib/utils'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { fmtCurrency, CATEGORY_FORM, buildItemNotes, groupItemsBySection, FUND_SOURCES, fundCodeFor } from '@/lib/utils'
 import { SectionNameInput, SectionHeaderRow } from '@/components/shared/ItemSections'
 import CategorySpecFields from '@/components/shared/CategorySpecFields'
 import { useAuth } from '@/context/AuthContext'
@@ -37,7 +38,7 @@ export default function PREdit() {
   const isRequestor = user?.role === 'requestor'
 
   const [form, setForm]     = useState({
-    title: '', fund_cluster: '', responsibility_center_code: '', category: 'office_supplies',
+    title: '', fund_cluster: '', fund_source: 'STF', responsibility_center_code: '', category: 'office_supplies',
     department: '', department_id: '', purpose_type: 'personal', purpose: '', date_needed: '', recommended_by: '',
     event_name: '', event_date: '', project_name: '',
   })
@@ -76,6 +77,7 @@ export default function PREdit() {
       setForm({
         title:                      pr.title                      || '',
         fund_cluster:               pr.fund_cluster               || '',
+        fund_source:                pr.fund_source                || 'STF',
         responsibility_center_code: pr.responsibility_center_code || '',
         category:                   pr.category                   || 'office_supplies',
         department:                 pr.department                 || '',
@@ -284,6 +286,18 @@ export default function PREdit() {
             {/* Fund codes are the Procurement Office's to set, not the requestor's */}
             {!isRequestor && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>Source of Fund</Label>
+                <Select value={form.fund_source} onValueChange={v => setF('fund_source', v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {FUND_SOURCES.map(f => <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-[--color-text-muted]">
+                  Changing this replaces the fund cluster below with that source's code.
+                </p>
+              </div>
               <div className="space-y-1.5">
                 <Label htmlFor="fc">Fund Cluster <span className="text-[--color-text-muted] font-normal text-xs">(optional)</span></Label>
                 <Input id="fc" placeholder="e.g. 05-206441" value={form.fund_cluster} onChange={e => setF('fund_cluster', e.target.value)} />

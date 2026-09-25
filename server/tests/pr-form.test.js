@@ -80,8 +80,11 @@ const ORG = {
   entity_name: 'NEMSU - Cantilan Campus',
   fund_cluster: '05 206441',
   responsibility_center_code: '08-106-000000',
+  approver_threshold: '50000',
   approved_by_name: 'MARIA S. SANTOS, Ph. D.',
   approved_by_designation: 'Campus Director',
+  approved_above_name: 'ROBERTO D. LIM, Ph. D.',
+  approved_above_designation: 'University President',
   allotment_by_name: 'PEDRO B. REYES',
   allotment_by_designation: 'AO IV/Budget Officer II',
   app_certified_by_name: 'ANA C. GARCIA, Ph.D.',
@@ -161,7 +164,8 @@ async function run() {
     ['requested by', 'Requested by:'], ['approved by', 'Approved by:'],
     ['signature row', 'Signature'], ['printed name row', 'Printed'], ['designation row', 'Designation'],
     ['office head, not the encoder', 'JUAN A. DELA CRUZ, Ph. D.'], ['head designation', 'Department Chair, DCS'],
-    ['campus director', 'MARIA S. SANTOS, Ph. D.'], ['director designation', 'Campus Director'],
+    // The window-blinds request totals 70,000, so its approver is the one above the threshold.
+    ['approver above the threshold', 'ROBERTO D. LIM, Ph. D.'], ['their designation', 'University President'],
     ['allotment box', 'Allotment/Appropriation Available'], ['budget officer', 'PEDRO B. REYES'],
     ['app box', 'INCLUDED IN THE APP'], ['bac secretariat', 'ANA C. GARCIA, Ph.D.'],
   ]) t.check('Signatories', label, has(p1, value), value)
@@ -178,6 +182,47 @@ async function run() {
   }))
   t.check('Signatories', 'a PR with no office head falls back to its creator', has(legacy[0], 'Felix Miguel Atenin'))
   t.check('Signatories', '…with the creator\'s own designation', has(legacy[0], 'Administrative Aide IV'))
+
+  // ── Who approves depends on the amount ──────────────────────────────
+  // The campus rule: at or below the threshold the Campus Director signs,
+  // above it the University President does.
+  const money = (n) => ({ group_label: 'LOT A', item_name: 'Thing', quantity: 1, unit: 'pc', estimated_cost: n })
+  const approverOn = async (total) => {
+    const p = parse(await render({ pr: PR, orgSettings: ORG, items: [money(total)] }))[0]
+    return { director: has(p, 'MARIA S. SANTOS'), president: has(p, 'ROBERTO D. LIM') }
+  }
+  let a = await approverOn(49999)
+  t.check('Approver', 'below the threshold the Campus Director signs', a.director && !a.president, JSON.stringify(a))
+  a = await approverOn(50000)
+  t.check('Approver', 'exactly at the threshold it is still the Campus Director', a.director && !a.president, JSON.stringify(a))
+  a = await approverOn(50001)
+  t.check('Approver', 'above it the University President signs', a.president && !a.director, JSON.stringify(a))
+  a = await approverOn(168030)
+  t.check('Approver', 'and on a large request too', a.president && !a.director, JSON.stringify(a))
+
+  const noThreshold = parse(await render({
+    pr: PR, orgSettings: { ...ORG, approver_threshold: '' }, items: [money(60000)],
+  }))[0]
+  t.check('Approver', 'with no threshold set it falls back to 50,000',
+    has(noThreshold, 'ROBERTO D. LIM'), 'the president for 60,000')
+
+  // ── Section subtotals, as the campus's filled forms carry them ──────
+  const lots = parse(await render({
+    pr: PR, orgSettings: ORG,
+    items: [
+      { group_label: 'LOT A', item_name: 'Ink', quantity: 30, unit: 'bot.', estimated_cost: 400 },
+      { group_label: 'LOT A', item_name: 'Ink 2', quantity: 10, unit: 'bot.', estimated_cost: 400 },
+      { group_label: 'LOT B', item_name: 'Paper', quantity: 40, unit: 'ream', estimated_cost: 260 },
+    ],
+  }))[0]
+  t.check('Subtotals', 'each section carries its own subtotal', has(lots, 'Sub Total:'))
+  t.check('Subtotals', 'LOT A adds up to 16,000', has(lots, '16,000.00'))
+  t.check('Subtotals', 'LOT B adds up to 10,400', has(lots, '10,400.00'))
+  t.check('Subtotals', 'and the grand total is their sum', has(lots, '26,400.00'))
+  t.check('Subtotals', 'the subtotal is bold, like the heading',
+    find(lots, 'Sub Total:')?.font === 'Times-Bold', find(lots, 'Sub Total:')?.font)
+  t.check('Subtotals', 'a request with no sections has no subtotal row',
+    !has(parse(await render({ pr: PR, orgSettings: ORG, items: [{ item_name: 'Loose item', quantity: 1, estimated_cost: 50 }] }))[0], 'Sub Total:'))
 
   // ── Typography: the three item tiers must be visually distinct ──────
   t.check('Typography', 'section name is bold and upper-cased',

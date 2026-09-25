@@ -1,4 +1,5 @@
 const { M } = require('../utils/pdfHelpers')
+const { approverFor } = require('../utils/orgSettings')
 
 // Purchase Request, drawn as the government form the campus files on paper
 // (Appendix 60). The layout is a plain bordered grid in a serif face, matching
@@ -122,17 +123,23 @@ module.exports = function drawPRForm(doc, { pr, orgSettings = {}, items = [] }) 
     descColH('Times-BoldItalic', name || '') + (notes ? descColH('Times-Roman', notes) : 0) + PAD * 2
   const sectionHeight = (label) => descColH('Times-Bold', label) + PAD * 2
 
+  // A section heading carries its own subtotal, as the campus's filled forms do:
+  //   LOT A                                   Sub Total:      49,500.00
+  // The subtotal is only known once the section's items have been read, so each
+  // heading row keeps a reference and is filled in at the end.
   const rows = []
   let grandTotal = 0
-  let section = null
+  let section = null, current = null
   for (const item of items) {
     const label = (item.group_label || '').trim()
     if (label && label !== section) {
       section = label
-      rows.push({ kind: 'section', label, height: Math.max(ROW_H, sectionHeight(label.toUpperCase())) })
+      current = { kind: 'section', label, subtotal: 0, height: Math.max(ROW_H, sectionHeight(label.toUpperCase())) }
+      rows.push(current)
     }
     const total = (parseFloat(item.quantity) || 0) * (parseFloat(item.estimated_cost) || 0)
     grandTotal += total
+    if (current) current.subtotal += total
     rows.push({ kind: 'item', item, total, height: Math.max(ROW_H, descHeight(item.item_name, item.notes)) })
   }
 
@@ -140,6 +147,10 @@ module.exports = function drawPRForm(doc, { pr, orgSettings = {}, items = [] }) 
     COLS.forEach((c, i) => rect(X[i], top, c.width, row.height))
     if (row.kind === 'section') {
       put(row.label.toUpperCase(), X[2], top, COLS[2].width, row.height, { font: 'Times-Bold' })
+      if (row.subtotal > 0) {
+        put('Sub Total:',          X[4], top, COLS[4].width, row.height, { font: 'Times-Bold', align: 'right' })
+        put(amount(row.subtotal),  X[5], top, COLS[5].width, row.height, { font: 'Times-Bold', align: 'right' })
+      }
       return
     }
     const { item, total } = row
@@ -169,19 +180,22 @@ module.exports = function drawPRForm(doc, { pr, orgSettings = {}, items = [] }) 
   const purposeH = Math.max(ROW_H, doc.heightOfString(purposeText, { width: W - PAD * 2 }) + PAD * 2)
   const FOOTER_H = ROW_H + purposeH + ROW_H + 30 + 20 + 18 + 16 + 64   // total + purpose + sign block + boxes
 
+  let spilled = false
   for (const row of rows) {
     if (y + row.height > BOTTOM - ROW_H) {          // keep one row's breathing space
       doc.addPage()
       y = drawColumnHeader(M)
+      spilled = true
     }
     drawRow(row, y)
     y += row.height
   }
   if (!rows.length) { blankRow(y); y += ROW_H }
 
-  // Blank rows padding the grid out, as the paper form does — but only as far
-  // as the signature block still fits on this page.
-  while (y + ROW_H + FOOTER_H <= BOTTOM) { blankRow(y); y += ROW_H }
+  // Blank rows pad the grid out, as the paper form does. Only on a form that
+  // fits one page: padding a continuation page just strands the total at the
+  // bottom of a nearly empty sheet.
+  if (!spilled) while (y + ROW_H + FOOTER_H <= BOTTOM) { blankRow(y); y += ROW_H }
   if (y + FOOTER_H > BOTTOM) { doc.addPage(); y = M }
 
   // ── Total ──────────────────────────────────────────────────────────
@@ -217,10 +231,14 @@ module.exports = function drawPRForm(doc, { pr, orgSettings = {}, items = [] }) 
   const requestedName = pr.requested_by_name || pr.created_by_name || ''
   const requestedTitle = pr.requested_by_designation || pr.created_by_designation || ''
 
+  // Who approves depends on the amount: at or below the campus threshold the
+  // Campus Director, above it the University President (utils/orgSettings.js).
+  const approver = approverFor(orgSettings, grandTotal)
+
   signRow(y, ROW_H, '', 'Requested by:', 'Approved by:'); y += ROW_H
   signRow(y, 30,    'Signature', '', ''); y += 30
-  signRow(y, 20,    'Printed\nName', requestedName, s('approved_by_name'), { font: 'Times-Bold', size: 10 }); y += 20
-  signRow(y, 18,    'Designation', requestedTitle, s('approved_by_designation'), { font: 'Times-Bold', size: 9 }); y += 18
+  signRow(y, 20,    'Printed\nName', requestedName, approver.name, { font: 'Times-Bold', size: 10 }); y += 20
+  signRow(y, 18,    'Designation', requestedTitle, approver.designation, { font: 'Times-Bold', size: 9 }); y += 18
 
   // ── Certification boxes ────────────────────────────────────────────
   // "Allotment/Appropriation Available" and "INCLUDED IN THE APP", side by

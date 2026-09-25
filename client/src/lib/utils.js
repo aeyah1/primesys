@@ -304,3 +304,17 @@ export const CATEGORY_HELP = {
     ],
   },
 }
+
+// Source of fund. The campus draws on three, each with its own code; the code
+// itself is configurable in Settings > Organization (server: utils/orgSettings.js).
+export const FUND_SOURCES = [
+  { value: 'STF', label: 'STF — Special Trust Fund',         settingKey: 'fund_code_stf' },
+  { value: 'GAA', label: 'GAA — General Appropriations Act', settingKey: 'fund_code_gaa' },
+  { value: 'IGP', label: 'IGP — Income Generating Project',  settingKey: 'fund_code_igp' },
+]
+
+// The code that will print on the form for the chosen source.
+export const fundCodeFor = (orgSettings, source) => {
+  const found = FUND_SOURCES.find(f => f.value === source)
+  return (found && orgSettings?.[found.settingKey]) || orgSettings?.fund_cluster || ''
+}

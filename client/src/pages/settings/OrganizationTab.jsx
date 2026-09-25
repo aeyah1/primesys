@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Save, Building2, PenLine } from 'lucide-react'
+import { Save, Building2, PenLine, FileText, Coins } from 'lucide-react'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -9,32 +9,63 @@ import { Label } from '@/components/ui/label'
 import DepartmentsCard from './DepartmentsCard'
 import api from '@/lib/axios'
 
-// Campus-wide values that appear on the printed Purchase Request form
-// (Appendix 60), and the fund codes copied onto every new PR when the creator
-// hasn't set their own. Admin-only; the route guards this in App.jsx too.
-// Keep these keys in step with server/utils/orgSettings.js.
+// Campus-wide values printed on the procurement forms. Admin-only; the route
+// guards this in App.jsx too. Keep these keys in step with
+// server/utils/orgSettings.js.
+
+// The Purchase Request form's own header.
 const FIELDS = [
   { key: 'entity_name',                title: 'Entity name',                placeholder: 'NEMSU - Cantilan Campus' },
-  { key: 'fund_cluster',               title: 'Default fund cluster',       placeholder: '05 206441' },
-  { key: 'responsibility_center_code', title: 'Default responsibility center code', placeholder: '08-106-000000' },
+  { key: 'responsibility_center_code', title: 'Responsibility center code', placeholder: '08-106-000000' },
   { key: 'pr_number_prefix',           title: 'PR number prefix',           placeholder: 'CSO',
     hint: 'New PR numbers read "CSO 2026-001". Letters, numbers, spaces and dashes only.' },
 ]
 
-// Each signature block on the form: who signs, and what it says beneath the line.
-const SIGNATORIES = [
-  { key: 'approved_by',     title: 'Approved by',
-    hint: 'Signs the "Approved by" box, next to the person who filed the request.',
-    namePlaceholder: 'MARIA S. SANTOS, Ph. D.', designationPlaceholder: 'Campus Director' },
-  { key: 'allotment_by',    title: 'Allotment/Appropriation Available',
-    hint: 'Certifies that funds are available.',
-    namePlaceholder: 'PEDRO B. REYES', designationPlaceholder: 'AO IV/Budget Officer II' },
-  { key: 'app_certified_by', title: 'Included in the APP',
-    hint: 'Certifies the request is in the Annual Procurement Plan.',
-    namePlaceholder: 'ANA C. GARCIA, Ph.D.', designationPlaceholder: 'BAC Secretariat' },
+// The letterhead at the top of the Request for Quotation.
+const LETTERHEAD = [
+  { key: 'entity_full_name', title: 'University name', placeholder: 'NORTH EASTERN MINDANAO STATE UNIVERSITY' },
+  { key: 'entity_campus',    title: 'Campus',          placeholder: 'Cantilan Campus' },
+  { key: 'entity_address',   title: 'Address',         placeholder: 'Cantilan Surigao del Sur' },
+  { key: 'entity_telefax',   title: 'Telefax number',  placeholder: '086-212-5132' },
+  { key: 'entity_website',   title: 'Website',         placeholder: 'www.nemsu.edu.ph' },
 ]
 
-const KEYS = [...FIELDS.map(f => f.key), ...SIGNATORIES.flatMap(s => [`${s.key}_name`, `${s.key}_designation`])]
+// The three funds the campus draws on, and the code printed for each.
+const FUND_CODES = [
+  { key: 'fund_code_stf', title: 'STF — Special Trust Fund',          placeholder: '05-206441' },
+  { key: 'fund_code_gaa', title: 'GAA — General Appropriations Act',  placeholder: '01-101101' },
+  { key: 'fund_code_igp', title: 'IGP — Income Generating Project',   placeholder: '05-206441-IGP' },
+  { key: 'fund_cluster',  title: 'Fallback, when a source has no code', placeholder: '05 206441' },
+]
+
+// Each signature block on the printed forms: who signs, and what it says
+// beneath the line.
+const SIGNATORIES = [
+  { key: 'approved_by', title: 'Approved by — at or below the threshold',
+    hint: 'Signs the smaller requests. The head of the requesting office signs the other half of that box.',
+    namePlaceholder: 'JUANCHO A. INTANO, Ph. D.', designationPlaceholder: 'Campus Director' },
+  { key: 'approved_above', title: 'Approved by — above the threshold',
+    hint: 'Signs requests over the amount set above.',
+    namePlaceholder: 'ROMEO C. GRIFFO, Ph. D.', designationPlaceholder: 'University President' },
+  { key: 'allotment_by', title: 'Allotment/Appropriation Available',
+    hint: 'Certifies that funds are available.',
+    namePlaceholder: 'MELANIL A. ESPINOLA', designationPlaceholder: 'AO IV/Budget Officer II' },
+  { key: 'app_certified_by', title: 'Included in the APP',
+    hint: 'Certifies the request is in the Annual Procurement Plan.',
+    namePlaceholder: 'JENNIFER L. OROZCO, Ph.D.', designationPlaceholder: 'BAC Secretariat' },
+  { key: 'bac_vice_chairman', title: 'Request for Quotation — signed by',
+    hint: 'Signs the RFQ sent out to suppliers.',
+    namePlaceholder: 'LOTH M. OROZCO, Ph. D.', designationPlaceholder: 'BAC Vice Chairman' },
+  { key: 'canvasser', title: 'Request for Quotation — canvasser',
+    hint: 'Named at the foot of the RFQ.',
+    namePlaceholder: 'ROXEL A. CRUIZ', designationPlaceholder: 'Canvasser' },
+]
+
+const KEYS = [
+  ...[...FIELDS, ...LETTERHEAD, ...FUND_CODES].map(f => f.key),
+  'approver_threshold',
+  ...SIGNATORIES.flatMap(s => [`${s.key}_name`, `${s.key}_designation`]),
+]
 const EMPTY = Object.fromEntries(KEYS.map(k => [k, '']))
 
 export default function OrganizationTab() {
@@ -64,7 +95,7 @@ export default function OrganizationTab() {
 
   const dirty = KEYS.some(k => form[k].trim() !== (settings?.[k] || ''))
 
-  const field = (key, title, placeholder, hint) => (
+  const field = ({ key, title, placeholder, hint }) => (
     <div className="space-y-1.5" key={key}>
       <Label htmlFor={`org-${key}`}>{title}</Label>
       <Input
@@ -84,16 +115,40 @@ export default function OrganizationTab() {
         <CardHeader>
           <div className="flex items-center gap-2">
             <Building2 className="size-4 text-[--color-text-muted]" />
-            <CardTitle>Organization details</CardTitle>
+            <CardTitle>Purchase Request header</CardTitle>
           </div>
           <CardDescription>
-            Printed at the top of every Purchase Request form. The fund codes are also the
-            fallback on PRs whose creator hasn't filled in their own.
+            Printed at the top of every Purchase Request form.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          {FIELDS.map(f => field(f.key, f.title, f.placeholder, f.hint))}
-        </CardContent>
+        <CardContent className="space-y-4">{FIELDS.map(field)}</CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <FileText className="size-4 text-[--color-text-muted]" />
+            <CardTitle>Request for Quotation letterhead</CardTitle>
+          </div>
+          <CardDescription>
+            The block under the seal at the top of every RFQ sent to suppliers.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">{LETTERHEAD.map(field)}</CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Coins className="size-4 text-[--color-text-muted]" />
+            <CardTitle>Source of fund</CardTitle>
+          </div>
+          <CardDescription>
+            Whoever files a request picks one of these three; its code is printed as the
+            form's Fund Cluster and frozen onto that request.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">{FUND_CODES.map(field)}</CardContent>
       </Card>
 
       <DepartmentsCard />
@@ -102,15 +157,24 @@ export default function OrganizationTab() {
         <CardHeader>
           <div className="flex items-center gap-2">
             <PenLine className="size-4 text-[--color-text-muted]" />
-            <CardTitle>Purchase Request signatories</CardTitle>
+            <CardTitle>Signatories</CardTitle>
           </div>
           <CardDescription>
-            The three campus-wide signature blocks at the foot of the printed form. Leave a name
-            blank to print an empty line for signing by hand. The fourth block, "Requested by",
-            is signed by the head of the office the request is filed for — set that per office above.
+            The signature blocks on the printed forms. Leave a name blank to print an empty
+            line for signing by hand. "Requested by" is not here — that is the head of the
+            office the request is filed for, set per office above.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
+          <div className="max-w-xs">
+            {field({
+              key: 'approver_threshold',
+              title: 'Approver threshold (₱)',
+              placeholder: '50000',
+              hint: 'At or below this amount the first approver signs; above it, the second.',
+            })}
+          </div>
+
           {SIGNATORIES.map(s => (
             <div key={s.key} className="space-y-3">
               <div>
@@ -118,8 +182,8 @@ export default function OrganizationTab() {
                 <p className="text-[11px] text-[--color-text-muted] mt-0.5">{s.hint}</p>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {field(`${s.key}_name`, 'Name', s.namePlaceholder)}
-                {field(`${s.key}_designation`, 'Designation', s.designationPlaceholder)}
+                {field({ key: `${s.key}_name`, title: 'Name', placeholder: s.namePlaceholder })}
+                {field({ key: `${s.key}_designation`, title: 'Designation', placeholder: s.designationPlaceholder })}
               </div>
             </div>
           ))}
