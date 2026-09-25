@@ -160,6 +160,9 @@ CREATE TABLE `pr_items` (
   -- Stock/Property No. on the PR form; assigned by the Supply Office, often blank.
   `stock_property_no` VARCHAR(50) NULL,
   `group_label`    VARCHAR(255)  NULL,
+  -- What kind of thing this is. The request's own category is derived from its
+  -- items (server/utils/categories.js), and that is what routes it to the TWG.
+  `category`       ENUM('hardware','office_supplies','lab_educational','furniture','food_catering','event_supplies') NULL,
   `item_name`      VARCHAR(500)  NOT NULL,
   `quantity`       DECIMAL(10,2) NOT NULL DEFAULT 1,
   `unit`           VARCHAR(50)   NULL,
@@ -172,6 +175,7 @@ CREATE TABLE `pr_items` (
   `created_at`     TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_pr_items_pr_id` (`pr_id`),
+  KEY `idx_pr_items_category` (`category`),
   CONSTRAINT `fk_pr_items_pr`         FOREIGN KEY (`pr_id`)      REFERENCES `purchase_requests` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_pr_items_dropped_by` FOREIGN KEY (`dropped_by`) REFERENCES `users` (`id`)             ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

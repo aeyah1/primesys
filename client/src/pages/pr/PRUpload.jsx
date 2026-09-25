@@ -11,13 +11,13 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { fmtCurrency, CATEGORY_FORM, buildItemNotes, groupItemsBySection, FUND_SOURCES, fundCodeFor } from '@/lib/utils'
+import { fmtCurrency, CATEGORY_FORM, buildItemNotes, groupItemsBySection, FUND_SOURCES, fundCodeFor, CATEGORY_LABELS } from '@/lib/utils'
 import { SectionNameInput, SectionHeaderRow } from '@/components/shared/ItemSections'
 import CategorySpecFields from '@/components/shared/CategorySpecFields'
 import { useAuth } from '@/context/AuthContext'
 import api from '@/lib/axios'
 
-const EMPTY_DRAFT = { group_label: '', stock_property_no: '', item_name: '', quantity: '1', unit: 'ream', estimated_cost: '', specs: {} }
+const EMPTY_DRAFT = { group_label: '', stock_property_no: '', category: '', item_name: '', quantity: '1', unit: 'ream', estimated_cost: '', specs: {} }
 
 const TH = ({ children, className = '' }) => (
   <th className={`px-4 py-3 text-xs font-bold text-[--color-text-secondary] uppercase tracking-wider bg-[--color-canvas] ${className}`}>
@@ -147,6 +147,7 @@ export default function PRCreate() {
     const newItem = {
       group_label:       draft.group_label,
       stock_property_no: draft.stock_property_no.trim(),
+      category:          draft.category || form.category,
       item_name:         draft.item_name.trim(),
       quantity:          draft.quantity,
       unit:              draft.unit,
@@ -440,18 +441,34 @@ export default function PRCreate() {
             <div className="bg-[--color-canvas] px-4 py-4 space-y-3">
               <p className="text-xs font-semibold text-[--color-text-muted] uppercase tracking-wide">Add Item</p>
 
-              <div className="space-y-1.5">
-                <Label className="text-xs">
-                  {categoryForm.sectionLabel}
-                  <span className="ml-1 font-normal text-[--color-text-muted]">(optional) Items with the same name share one section and subtotal.</span>
-                </Label>
-                <SectionNameInput
-                  id="pr-section"
-                  placeholder={categoryForm.sectionPlaceholder}
-                  value={draft.group_label}
-                  onChange={v => setD('group_label', v)}
-                  sections={grouped.map(g => g.label).filter(Boolean)}
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label className="text-xs">
+                    {categoryForm.sectionLabel}
+                    <span className="ml-1 font-normal text-[--color-text-muted]">(optional) Items with the same name share one section and subtotal.</span>
+                  </Label>
+                  <SectionNameInput
+                    id="pr-section"
+                    placeholder={categoryForm.sectionPlaceholder}
+                    value={draft.group_label}
+                    onChange={v => setD('group_label', v)}
+                    sections={grouped.map(g => g.label).filter(Boolean)}
+                  />
+                </div>
+                {/* What kind of thing this item is. Most requests are all one
+                    kind, so it follows the choice above unless changed here. */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Kind of item</Label>
+                  <Select value={draft.category || form.category} onValueChange={v => setD('category', v)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(CATEGORY_LABELS).map(([k, label]) => (
+                        <SelectItem key={k} value={k}>{label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-[--color-text-muted]">Decides which TWG area reviews the request.</p>
+                </div>
               </div>
 
               <div className="grid grid-cols-12 gap-2 items-end">

@@ -40,7 +40,7 @@ const ITD = ({ children, className = '' }) => (
   </td>
 )
 
-const EMPTY_ITEM = { group_label: '', stock_property_no: '', item_name: '', quantity: '1', unit: 'pax', estimated_cost: '', specs: {} }
+const EMPTY_ITEM = { group_label: '', stock_property_no: '', category: '', item_name: '', quantity: '1', unit: 'pax', estimated_cost: '', specs: {} }
 
 function PRItemsSection({ prId, canEdit, category }) {
   const [itemToDelete, setItemToDelete] = useState(null)
@@ -93,6 +93,7 @@ function PRItemsSection({ prId, canEdit, category }) {
     setEditDraft({
       group_label:       item.group_label       || '',
       stock_property_no: item.stock_property_no || '',
+      category:          item.category          || '',
       item_name:      item.item_name      || '',
       quantity:       String(item.quantity ?? '1'),
       unit:           item.unit           || categoryForm.defaultUnit,
@@ -108,6 +109,7 @@ function PRItemsSection({ prId, canEdit, category }) {
       body: {
         group_label:       editDraft.group_label?.trim() || null,
         stock_property_no: editDraft.stock_property_no?.trim() || null,
+        category:          editDraft.category || undefined,
         item_name:      editDraft.item_name.trim(),
         quantity:       editDraft.quantity,
         unit:           editDraft.unit?.trim() || null,
@@ -123,6 +125,7 @@ function PRItemsSection({ prId, canEdit, category }) {
     addItem({
       group_label:       draft.group_label       || undefined,
       stock_property_no: draft.stock_property_no?.trim() || undefined,
+      category:          draft.category || category || undefined,
       item_name:      draft.item_name.trim(),
       quantity:       parseFloat(draft.quantity)       || 1,
       unit:           draft.unit           || undefined,
