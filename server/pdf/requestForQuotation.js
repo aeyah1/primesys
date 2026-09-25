@@ -190,7 +190,7 @@ function drawLot(doc, { pr, orgSettings: org, lot, first }) {
   put(`ABC : ${amount(lot.abc)}`, X[1], y, COLS[1].width, ROW_H, { font: 'Times-Bold' })
   y += ROW_H
   rect(M, y, W, ROW_H)
-  // The short title, as on the Purchase Request; not the TWG justification.
+  // The short title, as on the Purchase Request; not the Justification field.
   put(`Purpose: ${pr.title || pr.purpose || ''}`, M, y, W, ROW_H, { font: 'Times-Bold', size: 9 })
   y += ROW_H + 8
 

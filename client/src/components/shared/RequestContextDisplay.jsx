@@ -86,7 +86,7 @@ export default function RequestContextDisplay({ pr }) {
 
         {pr.purpose && (
           <div className="sm:col-span-2 lg:col-span-3">
-            <Field icon={ClipboardList} label="Purpose / Justification" value={pr.purpose} multiline />
+            <Field icon={ClipboardList} label="Justification" value={pr.purpose} multiline />
           </div>
         )}
       </CardContent>

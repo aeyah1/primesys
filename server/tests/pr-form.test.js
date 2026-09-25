@@ -159,7 +159,7 @@ async function run() {
     t.check('Form furniture', `column header "${header}"`, has(p1, header))
   }
   t.check('Form furniture', 'purpose line', has(p1, 'Purpose: Office Use of the Department of Computer Studies'))
-  // The Purpose line is the short title. The "Why do you need it?" justification
+  // The Purpose line is the short title. The Justification field
   // is written for the TWG and must not reach a document the BAC sees.
   t.check('Form furniture', 'the TWG justification is not printed', !has(p1, 'ran out in January'))
   const noTitle = parse(await render({ pr: { ...PR, title: null }, orgSettings: ORG, items: BLINDS }))[0]

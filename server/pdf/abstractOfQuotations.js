@@ -34,7 +34,7 @@ module.exports = function drawAbstract(doc, { pr, quotes, prices, lots, lotItems
   box(M + q * 3, y, q, 26, 'ABC', amount(abc))
   y += 26
   // The purpose is free text, so the box grows to hold however much of it there is.
-  // The short title, as on the Purchase Request; not the TWG justification.
+  // The short title, as on the Purchase Request; not the Justification field.
   const purpose = pr.title || pr.purpose || ''
   const purposeH = Math.max(22, f.heightIn('Times-Roman', 9, purpose, W - PAD * 2) + 13)
   f.rect(M, y, W, purposeH)

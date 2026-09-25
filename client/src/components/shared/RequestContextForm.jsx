@@ -149,20 +149,9 @@ export default function RequestContextForm({ value = {}, onChange }) {
         </div>
       )}
 
-      <div className="space-y-1.5">
-        <Label htmlFor="ctx-purpose">
-          Why do you need it?
-          <span className="ml-1 font-normal text-[--color-text-muted] text-xs">(what it is for and why; a clear reason helps the TWG approve it)</span>
-        </Label>
-        <textarea
-          id="ctx-purpose"
-          rows={3}
-          placeholder={`e.g. "For the Organic Chem 2 laboratory course, AY 2026-2027. Current microscopes are 15+ years old and students can't complete the cell-observation activity."`}
-          value={value.purpose || ''}
-          onChange={(e) => set('purpose', e.target.value)}
-          className="w-full rounded-md border border-[--color-border] bg-[--color-surface] px-3 py-2 text-sm text-[--color-text-primary] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent resize-y min-h-[72px]"
-        />
-      </div>
+      {/* The justification lives beside the Purpose field on the PR forms,
+          not here, so the phrase that prints and the reason that does not are
+          read together. See components/shared/JustificationField.jsx. */}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="space-y-1.5">
