@@ -65,8 +65,11 @@ async function http(who, method, p, body) {
   const headers = { Authorization: `Bearer ${tok(who)}` }
   if (body !== undefined) headers['Content-Type'] = 'application/json'
   const res = await fetch(BASE + p, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })
-  const data = (res.headers.get('content-type') || '').includes('json') ? await res.json() : null
-  return { status: res.status, data }
+  const type = res.headers.get('content-type') || ''
+  const data = type.includes('json') ? await res.json() : null
+  // A PDF counts only when it was written to the end (not cut off by an error).
+  const pdf = type.includes('pdf') ? Buffer.from(await res.arrayBuffer()).toString('latin1').trimEnd().endsWith('%%EOF') : false
+  return { status: res.status, data, pdf }
 }
 const code  = (c) => (r) => r.status === c
 const perms = (want) => (r) => r.status === 200 && JSON.stringify(r.data.permissions) === JSON.stringify(want)
@@ -300,7 +303,20 @@ add('Reports', '"completed" total sent (was read as "delivered")', 1, 'GET', '/r
   (r) => r.status === 200 && Number(r.data.totals.completed) >= 3 && !('delivered' in r.data.totals), 'completed >= 3')
 add('Reports', 'requestor has no reports',               3, 'GET', '/reports/summary', undefined, code(403), '403')
 add('Reports', 'quarters newest first, also within a year', 1, 'GET', '/reports/summary', undefined,
-  (r) => r.status === 200 && r.data.byQuarter.map(q => `${q.year} ${q.label}`).join() === '2026 Q4,2026 Q3', 'Q4 before Q3')
+  (r) => { NEW.quarterId = r.data?.byQuarter?.[0]?.id; return r.status === 200 && r.data.byQuarter.map(q => `${q.year} ${q.label}`).join() === '2026 Q4,2026 Q3' }, 'Q4 before Q3')
+
+// The printed Procurement Summary Report, over the same figures.
+add('Summary report', 'procurement can print it',        2, 'GET', '/reports/summary/pdf', undefined,
+  (r) => r.status === 200 && r.pdf, 'a complete PDF')
+add('Summary report', 'admin can print it',              1, 'GET', '/reports/summary/pdf', undefined,
+  (r) => r.status === 200 && r.pdf, 'a complete PDF')
+add('Summary report', 'a requestor cannot',              3, 'GET', '/reports/summary/pdf', undefined, code(403), '403')
+add('Summary report', 'a quarter can be asked for',      2, 'GET',
+  () => `/reports/summary/pdf?quarter_id=${NEW.quarterId}`, undefined, (r) => r.status === 200 && r.pdf, 'a complete PDF')
+add('Summary report', 'a period with nothing in it still prints', 2,
+  'GET', '/reports/summary/pdf?from=2019-01-01&to=2019-12-31', undefined, (r) => r.status === 200 && r.pdf, 'a complete PDF')
+add('Summary report', 'a nonsense date falls back, it does not fail', 2,
+  'GET', '/reports/summary/pdf?from=not-a-date&to=%27%20OR%201%3D1--', undefined, (r) => r.status === 200 && r.pdf, 'a complete PDF')
 add('PO notice', 'supply told a PO was issued',          5, 'GET', '/notifications', undefined,
   (r) => r.status === 200 && r.data.some(n => /was issued for PR PR-P2-028/.test(n.message) && n.reference_type === 'pr'), 'notice (was missing)')
 add('PO notice', 'requestor told too',                   4, 'GET', '/notifications', undefined,
