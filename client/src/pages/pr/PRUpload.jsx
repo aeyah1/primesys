@@ -5,7 +5,6 @@ import { ArrowLeft, Package, Plus, Trash2, Info } from 'lucide-react'
 import ItemCategorySelector from '@/components/shared/ItemCategorySelector'
 import UnitInput from '@/components/shared/UnitInput'
 import RequestContextForm from '@/components/shared/RequestContextForm'
-import JustificationField from '@/components/shared/JustificationField'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -65,7 +64,6 @@ export default function PRCreate() {
     department: '',
     department_id: '',
     purpose_type: 'personal',
-    purpose: '',
     date_needed: '',
     recommended_by: '',
     event_name: '',
@@ -201,7 +199,6 @@ export default function PRCreate() {
       department:                 form.department?.trim()     || undefined,
       department_id:              form.department_id          || undefined,
       purpose_type:               form.purpose_type,
-      purpose:                    form.purpose?.trim()        || undefined,
       date_needed:                form.date_needed            || undefined,
       recommended_by:             form.recommended_by?.trim() || undefined,
       event_name:                 form.purpose_type === 'event'   ? (form.event_name?.trim() || undefined) : undefined,
@@ -288,8 +285,6 @@ export default function PRCreate() {
                 Goes in the Purpose line of the printed request, and names it in your list.
               </p>
             </div>
-
-            <JustificationField value={form.purpose} onChange={v => setF('purpose', v)} />
 
             {isRequestor ? (
               <p className="text-ui-xs text-[--color-text-muted]">

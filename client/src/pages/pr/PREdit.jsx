@@ -5,7 +5,6 @@ import { ArrowLeft, Package, Plus, Trash2, Send } from 'lucide-react'
 import ItemCategorySelector from '@/components/shared/ItemCategorySelector'
 import UnitInput from '@/components/shared/UnitInput'
 import RequestContextForm from '@/components/shared/RequestContextForm'
-import JustificationField from '@/components/shared/JustificationField'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -84,6 +83,8 @@ export default function PREdit() {
         department:                 pr.department                 || '',
         department_id:              pr.department_id              || '',
         purpose_type:               pr.purpose_type               || 'personal',
+        // No longer asked for, only carried, so an edit does not erase the
+        // justification a request filed before the field was removed still holds.
         purpose:                    pr.purpose                    || '',
         // MySQL DATE column comes back as 'YYYY-MM-DDTHH:mm:ss.sssZ' through
         // JSON serialization — slice to the date portion for <input type="date">.
@@ -283,8 +284,6 @@ export default function PREdit() {
                 Goes in the Purpose line of the printed request, and names it in your list.
               </p>
             </div>
-
-            <JustificationField value={form.purpose} onChange={v => setF('purpose', v)} />
 
             <div className="space-y-1.5">
               <Label>Quarter</Label>
