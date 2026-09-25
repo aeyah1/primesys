@@ -1,138 +1,154 @@
-const { M, BRAND, GRAY, LIGHT, fmtDate, fmtCurrency, pageHeader, pageFooter, hRule, metaField, sigBlock, drawTable } = require('../utils/pdfHelpers')
-const { cents, lineCents } = require('../utils/awardWorkflow')
+const { M, BLACK, ROW_H, PAD, FS, amount, qty, fmtDate, forms } = require('./campusForm')
+const { cents, lineCents, supplierKey } = require('../utils/awardWorkflow')
 
-const money = (v) => Number(v || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-const clip  = (s, n) => (s.length > n ? `${s.slice(0, n - 3)}...` : s)
+// Abstract of Quotations, in the campus's house style: the same letterhead,
+// bordered grid and signature blocks as its Request for Quotation.
+//
+// NOT a reproduction of a COA appendix. No template was supplied for this one,
+// so it follows the house style rather than an official layout. If the campus
+// produces its own Abstract template, match that instead.
+//
+// What it must show is the comparison itself: every item down the page, every
+// supplier across it, each one's quoted price, and which supplier won each item
+// with the lowest marked. That is the document proving the canvass happened.
 
-// Draws the abstract of quotations onto a pdfkit document.
-module.exports = function drawAbstract(doc, { pr, quotes, prices, lots, lotItems, items }) {
+module.exports = function drawAbstract(doc, { pr, quotes, prices, lots, lotItems, items, orgSettings = {} }) {
+  const f = forms(doc)
+  const s = (key, fallback = '') => (orgSettings[key] || '').trim() || fallback
   const W = doc.page.width - M * 2
-  const newPageIfNeeded = (y, need) => { if (y + need > doc.page.height - 80) { doc.addPage(); return M } return y }
+  const BOTTOM = doc.page.height - M
 
-  let y = pageHeader(doc, 'ABSTRACT OF QUOTATIONS')
-  metaField(doc, 'PR NUMBER',   pr.pr_number,          M,       y, 140)
-  metaField(doc, 'DATE',        fmtDate(pr.created_at), M + 150, y, 130)
-  metaField(doc, 'QUARTER',     pr.quarter_label ? `${pr.quarter_label} ${pr.quarter_year}` : '—', M + 290, y, 130)
-  metaField(doc, 'PREPARED BY', pr.created_by_name,    M + 430, y, 150)
-  y += 36; hRule(doc, y); y += 10
-  if (pr.title) {
-    doc.fontSize(8).fillColor(GRAY).font('Helvetica').text('DESCRIPTION / PURPOSE', M, y)
-    doc.fontSize(10).fillColor('#111827').font('Helvetica').text(pr.title, M, y + 12, { width: W })
-    y += 30; hRule(doc, y); y += 12
+  let y = f.letterhead(orgSettings, 'ABSTRACT OF QUOTATIONS')
+
+  // ── Which request, and what it is worth ────────────────────────────
+  const abc = items.reduce((sum, i) => sum + lineCents(i.quantity, i.estimated_cost), 0) / 100
+  const box = (x, top, width, height, label, value) => {
+    f.rect(x, top, width, height)
+    doc.font('Times-Roman').fontSize(7.5).fillColor(BLACK).text(label, x + PAD, top + 2, { width: width - PAD * 2 })
+    f.put(value, x, top + 9, width, height - 9, { font: 'Times-Bold', size: 9 })
   }
+  const q = W / 4
+  box(M,         y, q, 26, 'PR No.', pr.pr_number)
+  box(M + q,     y, q, 26, 'Date', fmtDate(pr.created_at))
+  box(M + q * 2, y, q, 26, 'Mode of Procurement', pr.mode_of_procurement || '')
+  box(M + q * 3, y, q, 26, 'ABC', amount(abc))
+  y += 26
+  // The purpose is free text, so the box grows to hold however much of it there is.
+  const purpose = pr.purpose || pr.title || ''
+  const purposeH = Math.max(22, f.heightIn('Times-Roman', 9, purpose, W - PAD * 2) + 13)
+  f.rect(M, y, W, purposeH)
+  doc.font('Times-Roman').fontSize(7.5).fillColor(BLACK).text('Purpose', M + PAD, y + 2, { width: W - PAD * 2 })
+  f.put(purpose, M, y + 9, W, purposeH - 9, { font: 'Times-Roman', size: 9 })
+  y += purposeH + 8
+
+  // ── The comparison ─────────────────────────────────────────────────
+  // Items down the page, suppliers across it. With no quotations recorded there
+  // is nothing to compare, so the awards alone are listed below.
+  const priceOf = (quoteId, itemId) => {
+    const row = prices.find(p => p.quotation_id === quoteId && p.pr_item_id === itemId)
+    return row ? Number(row.unit_price) : null
+  }
+  const lowestFor = (itemId) => {
+    const offered = quotes.map(qt => priceOf(qt.id, itemId)).filter(p => p != null)
+    return offered.length ? Math.min(...offered) : null
+  }
+  // Which supplier each item went to. An award made over the whole request
+  // carries no per-item link, so it stands for every item that was not dropped.
+  const wholeLot = lots.find(l => l.status === 'awarded'
+    && !lotItems.some(li => li.lot_id === l.id && li.pr_item_id))
+  const awardedTo = (item) => (item.award ? item.award.awarded_to
+    : (wholeLot && item.state === 'awarded' ? wholeLot.awarded_to : null))
 
   if (quotes.length) {
-    // Which quotation each awarded item went to.
-    const awardedFrom = new Map()
-    for (const li of lotItems) {
-      const lot = lots.find(l => l.id === li.lot_id)
-      if (li.pr_item_id && lot?.status === 'awarded' && lot.quotation_id) awardedFrom.set(li.pr_item_id, lot.quotation_id)
-    }
-    const priceOf = (qid, itemId) => prices.find(p => p.quotation_id === qid && p.pr_item_id === itemId)
-    const lowestOf = (itemId) => Math.min(...prices.filter(p => p.pr_item_id === itemId).map(p => Number(p.unit_price)))
-
-    doc.fontSize(8).fillColor(GRAY).font('Helvetica-Bold').text('SUPPLIERS', M, y); y += 12
-    quotes.forEach((q, k) => {
-      doc.fontSize(9).fillColor('#111827').font('Helvetica')
-         .text(`S${k + 1}  ${q.supplier_name}${q.quoted_at ? `, quoted ${fmtDate(q.quoted_at)}` : ''}${q.supplier_address ? `, ${q.supplier_address}` : ''}`, M, y, { width: W })
-      y = doc.y + 2
-    })
-    y += 8
-
-    // Up to four suppliers per table; unit prices in pesos.
-    for (let start = 0; start < quotes.length; start += 4) {
-      const group = quotes.slice(start, start + 4)
-      const cols = [
-        { header: '#',                 width: 24,  align: 'center' },
-        { header: 'ITEM',              width: 236, align: 'left'   },
-        { header: 'QTY',               width: 60,  align: 'right'  },
-        { header: 'BUDGET / UNIT',     width: 80,  align: 'right'  },
-        ...group.map((q, k) => ({ header: `S${start + k + 1} / UNIT`, width: 70, align: 'right' })),
-      ]
-      y = newPageIfNeeded(y, 80)
-      doc.y = y
-      const rows = items.map((it, n) => [
-        n + 1,
-        clip(`${it.item_name}${it.state === 'dropped' ? ' (dropped)' : ''}`, 48),
-        `${Number(it.quantity)} ${it.unit || ''}`.trim(),
-        money(it.estimated_cost),
-        ...group.map(q => {
-          const p = priceOf(q.id, it.id)
-          if (!p) return '—'
-          const text = `${money(p.unit_price)}${Number(p.unit_price) === lowestOf(it.id) ? '*' : ''}`
-          return { text, bold: awardedFrom.get(it.id) === q.id }
-        }),
-      ])
-      const total = ['', 'TOTAL OF QUOTED ITEMS', '', money(items.reduce((s, it) => s + lineCents(it.quantity, it.estimated_cost), 0) / 100),
-        ...group.map(q => money(prices.filter(p => p.quotation_id === q.id)
-          .reduce((s, p) => s + lineCents(items.find(i => i.id === p.pr_item_id)?.quantity, p.unit_price), 0) / 100))]
-      total._total = true
-      y = drawTable(doc, cols, [...rows, total]) + 6
-    }
-    doc.fontSize(8).fillColor(GRAY).font('Helvetica')
-       .text('Unit prices in pesos. * Lowest quotation for the item. Bold: awarded. Budget: the PR\'s estimated unit cost.', M, y, { width: W })
-    y = doc.y + 12
-  }
-
-  // The awards.
-  if (lots.length) {
-    y = newPageIfNeeded(y, 80)
-    doc.fontSize(8).fillColor(GRAY).font('Helvetica-Bold').text('AWARDS', M, y); y += 12
-    doc.y = y
-    const awardCols = [
-      { header: 'LOT',        width: 70,      align: 'left'  },
-      { header: 'AWARDED TO', width: W - 390, align: 'left'  },
-      { header: 'ITEMS',      width: 60,      align: 'right' },
-      { header: 'STATUS',     width: 80,      align: 'left'  },
-      { header: 'PO',         width: 80,      align: 'left'  },
-      { header: 'AMOUNT',     width: 100,     align: 'right' },
+    // Column widths are solved, not fixed: however many suppliers quoted, the
+    // grid has to end exactly at the right margin. Suppliers share what is left
+    // once the item column has its 120pt minimum, and the item column then
+    // takes the true remainder, so the table can never run off the page.
+    const QTY_W = 36, UNIT_W = 40
+    const AWARD_W = quotes.length > 4 ? 84 : 118
+    const SUP_W = Math.min(84, Math.max(Math.floor((W - QTY_W - UNIT_W - AWARD_W - 120) / quotes.length), 0))
+    const ITEM_W = W - QTY_W - UNIT_W - AWARD_W - SUP_W * quotes.length
+    const COLS = [
+      { header: 'Item', width: ITEM_W, align: 'left' },
+      { header: 'Qty',  width: QTY_W,  align: 'center' },
+      { header: 'Unit', width: UNIT_W, align: 'center' },
+      ...quotes.map(qt => ({ header: qt.supplier_name || '', width: SUP_W, align: 'right' })),
+      { header: 'Awarded to', width: AWARD_W, align: 'left' },
     ]
-    let awardedTotal = 0
-    const awardRows = lots.map(l => {
-      if (l.status === 'awarded') awardedTotal += cents(l.awarded_amount)
-      return [l.lot_number, clip(l.awarded_to || 'Not awarded', 60), lotItems.filter(i => i.lot_id === l.id).length,
-        l.status === 'awarded' ? 'Awarded' : 'Cancelled', l.po_number || '—', fmtCurrency(l.awarded_amount || 0)]
+    const X = COLS.reduce((acc, c) => [...acc, acc[acc.length - 1] + c.width], [M])
+
+    // Supplier names are long, so the header row is as tall as the longest wraps.
+    const HEAD_H = Math.max(26, ...COLS.map(c =>
+      f.heightIn('Times-Bold', 8.5, c.header, c.width - PAD * 2) + PAD * 2))
+    const header = (top) => f.columnHeader(COLS, M, top, HEAD_H)
+    y = header(y)
+
+    for (const item of items) {
+      const won = awardedTo(item)
+      const height = Math.max(ROW_H,
+        f.heightIn("Times-Roman", FS, item.item_name, ITEM_W - PAD * 2) + PAD * 2,
+        f.heightIn('Times-Roman', FS, won || '', AWARD_W - PAD * 2) + PAD * 2)
+      if (y + height > BOTTOM - 90) { doc.addPage(); y = header(M) }
+      COLS.forEach((c, i) => f.rect(X[i], y, c.width, height))
+      f.put(item.item_name,   X[0], y, COLS[0].width, height)
+      f.put(qty(item.quantity), X[1], y, COLS[1].width, height, { align: 'center' })
+      f.put(item.unit || '',  X[2], y, COLS[2].width, height, { align: 'center' })
+
+      const low = lowestFor(item.id)
+      quotes.forEach((qt, k) => {
+        const price = priceOf(qt.id, item.id)
+        // The lowest offer for each item is bold, so the comparison reads at a glance.
+        const isLow = price != null && low != null && cents(price) === cents(low)
+        f.put(price == null ? '-' : amount(price), X[3 + k], y, COLS[3 + k].width, height,
+          { align: 'right', font: isLow ? 'Times-Bold' : 'Times-Roman' })
+      })
+      f.put(won || (item.state === 'dropped' ? 'Dropped' : ''), X[COLS.length - 1], y,
+        COLS[COLS.length - 1].width, height, { font: won ? 'Times-Bold' : 'Times-Roman' })
+      y += height
+    }
+
+    // Each supplier's total for what they actually won. Matched on the same
+    // normalised name the awards use, so spacing or case cannot split a total.
+    const wonTotal = (supplier) => lots
+      .filter(l => l.status === 'awarded' && supplierKey(l.awarded_to) === supplierKey(supplier))
+      .reduce((sum, l) => sum + cents(l.awarded_amount), 0) / 100
+    COLS.forEach((c, i) => f.rect(X[i], y, c.width, ROW_H))
+    f.put('Awarded total', X[0], y, COLS[0].width, ROW_H, { font: 'Times-Bold' })
+    quotes.forEach((qt, k) => {
+      const t = wonTotal(qt.supplier_name)
+      f.put(t > 0 ? amount(t) : '', X[3 + k], y, COLS[3 + k].width, ROW_H, { font: 'Times-Bold', align: 'right' })
     })
-    const totalRow = ['', 'TOTAL AWARDED', '', '', '', fmtCurrency(awardedTotal / 100)]
-    totalRow._total = true
-    y = drawTable(doc, awardCols, [...awardRows, totalRow]) + 12
-
-    // Without quotations, each award's items.
-    if (!quotes.length) {
-      for (const lot of lots.filter(l => l.status === 'awarded')) {
-        const mine = lotItems.filter(i => i.lot_id === lot.id)
-        if (!mine.length) continue
-        y = newPageIfNeeded(y, 60)
-        doc.rect(M, y, W, 24).fillColor(LIGHT).fill()
-        doc.fontSize(9).fillColor(BRAND).font('Helvetica-Bold')
-           .text(`${lot.lot_number}${lot.title ? `: ${lot.title}` : ''}, ${lot.awarded_to}`, M + 8, y + 8, { width: W - 16 })
-        y += 28; doc.y = y
-        y = drawTable(doc, [
-          { header: '#',           width: 28,      align: 'center' },
-          { header: 'DESCRIPTION', width: W - 250, align: 'left'   },
-          { header: 'QTY',         width: 56,      align: 'right'  },
-          { header: 'UNIT',        width: 56,      align: 'center' },
-          { header: 'EST. COST',   width: 110,     align: 'right'  },
-        ], mine.map((it, n) => [n + 1, clip(it.item_name, 60), Number(it.quantity), it.unit || '—', fmtCurrency(it.estimated_cost)])) + 12
-      }
-    }
+    y += ROW_H + 10
+  } else {
+    doc.font('Times-Roman').fontSize(9).fillColor(BLACK)
+      .text('No supplier quotations were recorded for this request.', M, y, { width: W })
+    y = doc.y + 10
   }
 
-  // Items dropped from the procurement, and why.
-  const dropped = items.filter(i => i.state === 'dropped')
-  if (dropped.length) {
-    y = newPageIfNeeded(y, 40)
-    doc.fontSize(8).fillColor(GRAY).font('Helvetica-Bold').text('DROPPED ITEMS', M, y); y += 12
-    for (const it of dropped) {
-      doc.fontSize(9).fillColor('#111827').font('Helvetica').text(`${it.item_name}: ${it.drop_reason || 'no reason given'}`, M, y, { width: W })
-      y = doc.y + 4
+  // ── Awards, and why any of them was not the lowest ──────────────────
+  const awarded = lots.filter(l => l.status === 'awarded')
+  if (awarded.length) {
+    doc.font('Times-Bold').fontSize(9).fillColor(BLACK).text('Awards', M, y, { width: W })
+    y = doc.y + 3
+    for (const lot of awarded) {
+      const note = [lot.notes, lot.few_quotations_reason].filter(Boolean).join(' - ')
+      const text = `${lot.lot_number}: ${lot.awarded_to} - ${amount(lot.awarded_amount)}`
+        + `${lot.po_number ? ` (${lot.po_number})` : ''}${note ? `\n${note}` : ''}`
+      const h = f.heightIn('Times-Roman', 8.5, text, W - PAD * 2) + PAD * 2
+      if (y + h > BOTTOM - 80) { doc.addPage(); y = M }
+      f.rect(M, y, W, h)
+      f.put(text, M, y, W, h, { size: 8.5 })
+      y += h
     }
+    y += 10
   }
 
-  const sigY = doc.page.height - 130
-  if (y + 20 > sigY - 10) doc.addPage()
-  hRule(doc, doc.page.height - 140)
-  sigBlock(doc, M,       sigY, 'Prepared By', pr.created_by_name, 'Requestor')
-  sigBlock(doc, M + 310, sigY, 'Reviewed By', '',                 'Procurement Officer')
-  pageFooter(doc)
+  // ── Signatures ─────────────────────────────────────────────────────
+  if (y > BOTTOM - 76) { doc.addPage(); y = M }
+  const third = W / 3
+  f.signature(M,             y, third, { label: 'Canvassed by:', name: s('canvasser_name'), designation: s('canvasser_designation', 'Canvasser') })
+  f.signature(M + third,     y, third, { label: 'Recommending approval:', name: s('bac_vice_chairman_name'), designation: s('bac_vice_chairman_designation', 'BAC Vice Chairman') })
+  f.signature(M + third * 2, y, third, { label: 'Certified in the APP:', name: s('app_certified_by_name'), designation: s('app_certified_by_designation', 'BAC Secretariat') })
+
+  doc.fillColor(BLACK).strokeColor(BLACK)
 }

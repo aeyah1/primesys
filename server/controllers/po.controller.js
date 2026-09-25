@@ -9,6 +9,7 @@ const { awardsForPO, poItems } = require('../utils/awardWorkflow')
 const { poLines, recordBlock, QTY_ORDERED, QTY_RECEIVED } = require('../utils/deliveryWorkflow')
 const httpError = require('../utils/httpError')
 const { paging } = require('../middleware/validate')
+const { loadOrgSettings } = require('../utils/orgSettings')
 const drawPurchaseOrder = require('../pdf/purchaseOrder')
 
 const STAFF = ['procurement', 'admin']
@@ -236,6 +237,7 @@ exports.generatePDF = asyncHandler(async (req, res) => {
 
   const [rows] = await pool.execute(`
     SELECT po.*, pr.pr_number, pr.title AS pr_title, pr.id AS pr_id,
+           pr.mode_of_procurement, pr.department,
            u.name AS issued_by_name,
            q.label AS quarter_label, q.year AS quarter_year
     FROM purchase_orders po
@@ -248,6 +250,7 @@ exports.generatePDF = asyncHandler(async (req, res) => {
   if (!rows.length) return res.status(404).json({ message: 'PO not found' })
   const po = rows[0]
 
+  const orgSettings = await loadOrgSettings(pool)
   const items = await poItems(pool, po.id, po.pr_id)
   // Awarded unit prices when every line has one (awards from quotations);
   // otherwise the PR's estimates, and the contract amount is the total.
@@ -258,7 +261,7 @@ exports.generatePDF = asyncHandler(async (req, res) => {
   res.setHeader('Content-Disposition', `attachment; filename="${po.po_number}.pdf"`)
   doc.pipe(res)
 
-  drawPurchaseOrder(doc, { po, items, priced })
+  drawPurchaseOrder(doc, { po, items, priced, orgSettings })
   doc.end()
 })
 

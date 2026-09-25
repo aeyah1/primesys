@@ -11,6 +11,7 @@ const {
 const { paging }     = require('../middleware/validate')
 const { CATEGORIES } = require('../utils/categories')
 const drawAbstract   = require('../pdf/abstractOfQuotations')
+const { loadOrgSettings } = require('../utils/orgSettings')
 
 // The lot and its PR's facts; with `lock` (inside a transaction), the PR row
 // first and then the lot, the same order as every other award write.
@@ -374,7 +375,7 @@ exports.generateAbstract = asyncHandler(async (req, res) => {
   const prId = req.params.prId
 
   const [[pr]] = await pool.execute(`
-    SELECT pr.id, pr.pr_number, pr.title, pr.created_at,
+    SELECT pr.id, pr.pr_number, pr.title, pr.created_at, pr.purpose, pr.mode_of_procurement,
            u.name AS created_by_name, q.label AS quarter_label, q.year AS quarter_year
       FROM purchase_requests pr
       JOIN users u ON pr.created_by = u.id
@@ -393,11 +394,12 @@ exports.generateAbstract = asyncHandler(async (req, res) => {
     ? await pool.execute(`SELECT * FROM lot_items WHERE lot_id IN (${lotIds.map(() => '?').join(',')}) ORDER BY lot_id, id`, lotIds)
     : [[]]
   const { items } = await itemStates(pool, prId)
+  const orgSettings = await loadOrgSettings(pool)
 
   const doc = new PDFDocument({ size: 'LETTER', layout: quotes.length ? 'landscape' : 'portrait', margin: M })
   res.setHeader('Content-Type', 'application/pdf')
   res.setHeader('Content-Disposition', `attachment; filename="Abstract-${pr.pr_number}.pdf"`)
   doc.pipe(res)
-  drawAbstract(doc, { pr, quotes, prices, lots, lotItems, items })
+  drawAbstract(doc, { pr, quotes, prices, lots, lotItems, items, orgSettings })
   doc.end()
 })
