@@ -47,7 +47,7 @@ export default function RequestContextDisplay({ pr }) {
 
   // Only render the card if there's anything to show.
   const hasAny = pr.department || pr.purpose_type || pr.purpose || pr.date_needed ||
-                 pr.recommended_by || pr.event_name || pr.project_name
+                 pr.recommended_by || pr.event_name || pr.project_name || pr.requested_by_name
   if (!hasAny) return null
 
   return (
@@ -60,7 +60,16 @@ export default function RequestContextDisplay({ pr }) {
         {pr.purpose_type && <PurposeTypeBadge type={pr.purpose_type} />}
       </CardHeader>
       <CardContent className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <Field icon={Building2}    label="Department"      value={pr.department} />
+        <Field icon={Building2}    label="Office / Section" value={pr.department} />
+        {/* Who the printed form names as the requesting party: the head of the
+            office, as they stood when it was filed. */}
+        <Field
+          icon={UserCheck}
+          label="Requested by"
+          value={pr.requested_by_name
+            ? `${pr.requested_by_name}${pr.requested_by_designation ? ` — ${pr.requested_by_designation}` : ''}`
+            : null}
+        />
         <Field icon={UserCheck}    label="Office head / adviser" value={pr.recommended_by} />
         <Field icon={Calendar}     label="Date needed"     value={pr.date_needed ? fmtDate(pr.date_needed) : null} />
 

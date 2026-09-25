@@ -16,6 +16,8 @@ const prFields = (titleRequired) => [
   textRule('fund_cluster', 'Fund cluster', 50),
   textRule('responsibility_center_code', 'Responsibility center code', 50),
   textRule('department', 'Department', 150),
+  // The office this PR is filed for; its head signs "Requested by".
+  idRule('department_id', 'Pick a valid office'),
   textRule('purpose', 'Purpose', 2000),
   textRule('recommended_by', 'Recommended by', 150),
   textRule('event_name', 'Event name', 200),
@@ -27,6 +29,7 @@ const prFields = (titleRequired) => [
 // Item fields; `name` words each message ("Quantity ..." or "Item 2 quantity ...").
 const itemFields = (prefix, name) => [
   textRule(`${prefix}group_label`, name('section name'), 255),
+  textRule(`${prefix}stock_property_no`, name('stock/property no.'), 50),
   textRule(`${prefix}item_name`, name('name'), 500),
   quantityRule(`${prefix}quantity`, name('quantity')),
   textRule(`${prefix}unit`, name('unit'), 50),

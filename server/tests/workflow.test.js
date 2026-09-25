@@ -330,8 +330,12 @@ const RQ = {}
 add('Requestor form', 'current quarter endpoint',          3, 'GET', '/quarters/current', undefined, (r) => r.status === 200 && r.data?.label === 'Q3' && r.data?.year === 2026, 'Q3 2026')
 add('Requestor form', 'save a draft with no items yet',    3, 'POST', '/pr', { title: 'Draft for later', quarter_id: 2, fund_cluster: 'HACK', responsibility_center_code: 'HACK' },
   (r) => { RQ.id = r.data?.id; return r.status === 201 }, '201')
+// The quarter is recorded on the PR but no longer spelled into its number:
+// the printed form (Appendix 60) numbers per year, e.g. "CSO 2026-001".
 add('Requestor form', '…filed under the current quarter (sent one ignored)', 3, 'GET', () => `/pr/${RQ.id}`, undefined,
-  (r) => r.status === 200 && r.data.status === 'draft' && r.data.quarter_label === 'Q3' && /-Q3-/.test(r.data.pr_number), 'draft, Q3')
+  (r) => r.status === 200 && r.data.status === 'draft' && r.data.quarter_label === 'Q3', 'draft, Q3')
+add('Requestor form', '…numbered in the form\'s own format', 3, 'GET', () => `/pr/${RQ.id}`, undefined,
+  (r) => r.status === 200 && new RegExp(`^CSO ${new Date().getFullYear()}-\\d{3}$`).test(r.data.pr_number), 'CSO <year>-nnn')
 add('Requestor form', '…fund codes from Organization settings', 3, 'GET', () => `/pr/${RQ.id}`, undefined,
   (r) => r.status === 200 && r.data.fund_cluster === 'FC-01' && r.data.responsibility_center_code === 'RC-01', 'FC-01 / RC-01')
 add('Requestor form', '…Submit is offered even while empty', 3, 'GET', () => `/pr/${RQ.id}`, undefined,
@@ -343,8 +347,11 @@ add('Requestor form', '…now Submit is offered',            3, 'GET', () => `/p
   (r) => r.status === 200 && r.data.permissions.next_statuses.includes('submitted'), 'submit offered')
 add('Requestor form', '…and submitting works',             3, 'PATCH', () => `/pr/${RQ.id}/status`, { status: 'submitted' }, code(200), '200')
 add('Requestor form', 'create-and-submit with no items is refused', 3, 'POST', '/pr', { title: 'Empty', status: 'submitted' }, code(400), '400')
+const STAFF_PR = {}
 add('Requestor form', 'procurement may still choose the quarter', 2, 'POST', '/pr', { title: 'Staff Q4', quarter_id: 2 },
-  (r) => r.status === 201 && /-Q4-/.test(r.data.pr_number), '201, Q4')
+  (r) => { STAFF_PR.id = r.data?.id; return r.status === 201 }, '201')
+add('Requestor form', '…and the PR is filed under it', 2, 'GET', () => `/pr/${STAFF_PR.id}`, undefined,
+  (r) => r.status === 200 && r.data.quarter_label === 'Q4', 'Q4')
 
 async function run() {
   const t = H.suite('WORKFLOW')

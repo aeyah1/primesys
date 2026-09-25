@@ -116,6 +116,8 @@ router.post('/reset-password',
 router.get('/me',        auth, c.me)
 router.patch('/me',      auth,
   textRule('name', 'Name', 100, { required: true }),
+  // Job title as it prints on the PR form, e.g. "Department Chair, DCS".
+  textRule('designation', 'Designation', 150),
   textRule('fund_cluster', 'Fund cluster', 100),
   textRule('responsibility_center_code', 'Responsibility center code', 100),
   handle,

@@ -89,7 +89,7 @@ function ReminderForm({ initial, onSubmit, isPending, onCancel }) {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="space-y-1.5 sm:col-span-2">
           <Label>Title *</Label>
-          <Input placeholder="e.g. Follow up on PR-2025-001" value={form.title}
+          <Input placeholder="e.g. Follow up on CSO 2026-001" value={form.title}
             onChange={e => setF('title', e.target.value)} required />
         </div>
 

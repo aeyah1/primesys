@@ -20,7 +20,7 @@ import { fmtDate, CATEGORY_LABELS } from '@/lib/utils'
 import { useAuth } from '@/context/AuthContext'
 import api from '@/lib/axios'
 
-const EMPTY_ADD = { name: '', username: '', email: '', password: '', role: 'requestor', areas: [] }
+const EMPTY_ADD = { name: '', username: '', email: '', password: '', role: 'requestor', areas: [], department_id: '', designation: '' }
 const PAGE_SIZE = 20
 
 // Role tabs: staff first in workflow order, then requestors, the largest
@@ -129,7 +129,14 @@ export default function UserList() {
   const [deleteUser, setDeleteUser] = useState(null)
   const [editUser, setEditUser]   = useState(null)
   const [addForm, setAddForm]     = useState(EMPTY_ADD)
-  const [editForm, setEditForm]   = useState({ name: '', role: 'requestor', newPassword: '', areas: [] })
+  // Offices for the picker; the head of the chosen office signs the PR form.
+  const { data: departments = [] } = useQuery({
+    queryKey: ['departments'],
+    queryFn:  () => api.get('/departments').then(r => r.data),
+    staleTime: 5 * 60_000,
+  })
+
+  const [editForm, setEditForm]   = useState({ name: '', role: 'requestor', newPassword: '', areas: [], department_id: '', designation: '' })
   const [showAddPw, setShowAddPw] = useState(false)
   const [showEditPw, setShowEditPw] = useState(false)
 
@@ -231,7 +238,7 @@ export default function UserList() {
 
   function openEdit(u) {
     setEditUser(u)
-    setEditForm({ name: u.name, username: u.username || '', role: u.role || 'requestor', newPassword: '', areas: u.twg_areas || [] })
+    setEditForm({ name: u.name, username: u.username || '', role: u.role || 'requestor', newPassword: '', areas: u.twg_areas || [], department_id: u.department_id || '', designation: u.designation || '' })
     setShowEditPw(false)
     setEditOpen(true)
   }
@@ -243,7 +250,9 @@ export default function UserList() {
       return toast.error('All fields are required')
     }
     if (password.length < 8) return toast.error('Password must be at least 8 characters')
-    createUser({ name: name.trim(), username: username.trim(), email: email.trim(), password, role, ...(role === 'twg' ? { areas } : {}) })
+    createUser({ name: name.trim(), username: username.trim(), email: email.trim(), password, role,
+      department_id: addForm.department_id || null, designation: addForm.designation?.trim() || null,
+      ...(role === 'twg' ? { areas } : {}) })
   }
 
   function handleEdit(e) {
@@ -257,6 +266,8 @@ export default function UserList() {
       body: {
         name: editForm.name.trim(),
         role: editForm.role,
+        department_id: editForm.department_id || null,
+        designation: editForm.designation?.trim() || null,
         ...(editForm.username.trim() ? { username: editForm.username.trim() } : {}),
         ...(editForm.role === 'twg' ? { areas: editForm.areas } : {}),
       },
@@ -585,6 +596,37 @@ export default function UserList() {
               <AreaChecklist value={addForm.areas} onChange={areas => setAddForm(f => ({ ...f, areas }))} />
             )}
 
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Office</Label>
+                <Select
+                  value={addForm.department_id ? String(addForm.department_id) : 'none'}
+                  onValueChange={v => setAddForm(f => ({ ...f, department_id: v === 'none' ? '' : Number(v) }))}
+                >
+                  <SelectTrigger><SelectValue placeholder="No office" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No office</SelectItem>
+                    {departments.map(d => (
+                      <SelectItem key={d.id} value={String(d.id)}>{d.code} — {d.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="add-designation">Designation</Label>
+                <Input
+                  id="add-designation"
+                  value={addForm.designation}
+                  onChange={e => setAddForm(f => ({ ...f, designation: e.target.value }))}
+                  placeholder="e.g. Administrative Aide IV"
+                />
+              </div>
+            </div>
+            <p className="text-[11px] text-[--color-text-muted] -mt-1">
+              Their office pre-fills the PR form. The form's "Requested by" names that office's
+              head, not this person — set heads under Settings &gt; Organization.
+            </p>
+
             <div className="rounded-lg border border-[--color-border] bg-[--color-canvas] px-4 py-3 text-ui-xs text-[--color-text-secondary]">
               This account will be <span className="font-semibold text-blue-700">pre-verified</span> and ready to use immediately.
               Share the username and password with the user directly.
@@ -655,6 +697,37 @@ export default function UserList() {
             {editForm.role === 'twg' && (
               <AreaChecklist value={editForm.areas} onChange={areas => setEditForm(f => ({ ...f, areas }))} />
             )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Office</Label>
+                <Select
+                  value={editForm.department_id ? String(editForm.department_id) : 'none'}
+                  onValueChange={v => setEditForm(f => ({ ...f, department_id: v === 'none' ? '' : Number(v) }))}
+                >
+                  <SelectTrigger><SelectValue placeholder="No office" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No office</SelectItem>
+                    {departments.map(d => (
+                      <SelectItem key={d.id} value={String(d.id)}>{d.code} — {d.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-designation">Designation</Label>
+                <Input
+                  id="edit-designation"
+                  value={editForm.designation}
+                  onChange={e => setEditForm(f => ({ ...f, designation: e.target.value }))}
+                  placeholder="e.g. Administrative Aide IV"
+                />
+              </div>
+            </div>
+            <p className="text-[11px] text-[--color-text-muted] -mt-1">
+              Their office pre-fills the PR form. The form's "Requested by" names that office's
+              head, not this person — set heads under Settings &gt; Organization.
+            </p>
 
             <div className="space-y-1.5">
               <Label htmlFor="edit-password" className="flex items-center gap-2">

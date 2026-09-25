@@ -10,34 +10,31 @@ const { recordBlock, QTY_ORDERED, QTY_RECEIVED } = require('../utils/deliveryWor
 const { orderBySection } = require('../utils/itemSections')
 const { currentQuarter } = require('../utils/quarters')
 const { CATEGORIES } = require('../utils/categories')
+const { loadOrgSettings, prNumberPrefix } = require('../utils/orgSettings')
+const { requestedBy, resolveDepartment } = require('../utils/departments')
 const { reviewsCategory, notifyAreaReviewers } = require('../utils/twgAreas')
 const drawPRForm = require('../pdf/prForm')
 
-// Builds the next PR number using MAX(suffix) + 1, so it's stable across deletions
-// and so concurrent inserts naturally collide on the UNIQUE constraint (handled by retry).
-// `attempt` shifts the candidate number forward on retry - set by the caller's retry loop.
-const genPRNumber = async (quarterId, attempt = 0) => {
-  let prefix, whereSql, whereParams
-  if (quarterId) {
-    const [qRows] = await pool.execute('SELECT label, year FROM quarters WHERE id = ?', [quarterId])
-    if (qRows.length) {
-      prefix       = `PR-${qRows[0].year}-${qRows[0].label}-`
-      whereSql     = 'quarter_id = ?'
-      whereParams  = [quarterId]
-    }
-  }
-  if (!prefix) {
-    const year   = new Date().getFullYear()
-    prefix       = `PR-${year}-`
-    whereSql     = 'quarter_id IS NULL AND YEAR(created_at) = ?'
-    whereParams  = [year]
-  }
+// The next PR number, in the form the printed PR carries: "CSO 2026-001",
+// where CSO is the campus prefix (org_settings.pr_number_prefix) and the count
+// runs per calendar year. The year is in the prefix, so the LIKE alone scopes
+// the sequence.
+//
+// MAX(suffix) + 1, so numbers are stable across deletions and concurrent
+// inserts collide on the UNIQUE constraint (handled by the caller's retry).
+// `attempt` shifts the candidate forward on retry.
+//
+// PRs numbered before this format (PR-2026-Q3-001) keep their numbers: they
+// don't match the LIKE, so they neither block nor renumber.
+const prNumberStem = (prefixWord) => `${prefixWord} ${new Date().getFullYear()}-`
 
+const genPRNumber = async (prefixWord, attempt = 0) => {
+  const prefix = prNumberStem(prefixWord)
   const [rows] = await pool.execute(
     `SELECT MAX(CAST(SUBSTRING(pr_number, ${prefix.length + 1}) AS UNSIGNED)) AS max_n
-     FROM purchase_requests
-     WHERE ${whereSql} AND pr_number LIKE ?`,
-    [...whereParams, prefix + '%']
+       FROM purchase_requests
+      WHERE pr_number LIKE ?`,
+    [prefix + '%']
   )
   const next = (rows[0].max_n || 0) + 1 + attempt
   return prefix + String(next).padStart(3, '0')
@@ -249,7 +246,7 @@ const toSqlDate = (v) => {
 exports.create = asyncHandler(async (req, res) => {
   const {
     quarter_id, title, fund_cluster, responsibility_center_code, status, category,
-    department, purpose_type, purpose, date_needed, recommended_by,
+    department, department_id, purpose_type, purpose, date_needed, recommended_by,
     event_name, event_date, project_name, items,
   } = req.body
   const initialStatus = (status === 'submitted') ? 'submitted' : 'draft'
@@ -271,29 +268,37 @@ exports.create = asyncHandler(async (req, res) => {
   // settings unless staff give them.
   const isStaff   = ['procurement', 'admin'].includes(req.user.role)
   const quarterId = (isStaff && quarter_id) ? quarter_id : ((await currentQuarter(pool))?.id ?? null)
-  const [orgRows] = await pool.execute(
-    "SELECT setting_key, setting_value FROM org_settings WHERE setting_key IN ('fund_cluster', 'responsibility_center_code')"
-  )
-  const org = Object.fromEntries(orgRows.map(r => [r.setting_key, r.setting_value]))
+  const org = await loadOrgSettings(pool)
   const fundCluster = (isStaff && fund_cluster) || org.fund_cluster || null
   const rcCode      = (isStaff && responsibility_center_code) || org.responsibility_center_code || null
+  // The form's "Requested by" names the HEAD of the requesting office, not
+  // whoever encoded the request. Both the office and its head are frozen onto
+  // the PR now, so a later change of chair leaves filed PRs alone
+  // (utils/departments.js). The office asked for wins; otherwise the filer's own.
+  const [[filer]] = await pool.execute('SELECT name, designation FROM users WHERE id = ?', [req.user.id])
+  const dept = await resolveDepartment(pool, { departmentId: department_id, userId: req.user.id })
+  const requester = requestedBy(dept, filer)
+  // Office/Section prints the department's code; free text is still accepted
+  // for an office that is not on the list.
+  const departmentText = dept ? dept.code : (department?.trim() || null)
 
   const { prId, pr_number } = await withTransaction(async (conn) => {
     // Retry on UNIQUE-constraint collision (concurrent inserts picking the same suffix).
     const MAX_ATTEMPTS = 5
     let created = null
     for (let attempt = 0; attempt < MAX_ATTEMPTS && !created; attempt++) {
-      const pr_number = await genPRNumber(quarterId, attempt)
+      const pr_number = await genPRNumber(prNumberPrefix(org.pr_number_prefix), attempt)
       try {
         const [result] = await conn.execute(
           `INSERT INTO purchase_requests (
              pr_number, quarter_id, title, fund_cluster, responsibility_center_code,
-             department, purpose_type, purpose, date_needed, recommended_by,
-             event_name, event_date, project_name, category, status, created_by
-           ) VALUES (?, ?, ?, ?, ?,  ?, ?, ?, ?, ?,  ?, ?, ?, ?, 'draft', ?)`,
+             department, department_id, purpose_type, purpose, date_needed, recommended_by,
+             event_name, event_date, project_name, category, status, created_by,
+             requested_by_name, requested_by_designation
+           ) VALUES (?, ?, ?, ?, ?,  ?, ?, ?, ?, ?,  ?, ?, ?, ?, ?, 'draft', ?,  ?, ?)`,
           [
             pr_number, quarterId, title || null, fundCluster, rcCode,
-            department?.trim() || null,
+            departmentText, dept?.id ?? null,
             prPurposeType,
             purpose?.trim() || null,
             toSqlDate(date_needed),
@@ -302,6 +307,7 @@ exports.create = asyncHandler(async (req, res) => {
             toSqlDate(event_date),
             project_name?.trim() || null,
             prCategory, req.user.id,
+            requester.name, requester.designation,
           ]
         )
         created = { prId: result.insertId, pr_number }
@@ -311,8 +317,10 @@ exports.create = asyncHandler(async (req, res) => {
     }
     for (const it of itemList) {
       await conn.execute(
-        'INSERT INTO pr_items (pr_id, group_label, item_name, quantity, unit, estimated_cost, notes) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [created.prId, it.group_label?.trim() || null, it.item_name.trim(), it.quantity || 1, it.unit || null, it.estimated_cost || null, it.notes || null]
+        `INSERT INTO pr_items (pr_id, stock_property_no, group_label, item_name, quantity, unit, estimated_cost, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [created.prId, it.stock_property_no?.trim() || null, it.group_label?.trim() || null, it.item_name.trim(),
+         it.quantity || 1, it.unit || null, it.estimated_cost || null, it.notes || null]
       )
     }
     // "Submit to TWG" on the new-PR form: the PR is saved as a draft and then
@@ -370,7 +378,7 @@ exports.updateStatus = asyncHandler(async (req, res) => {
 exports.update = asyncHandler(async (req, res) => {
   const {
     title, fund_cluster, responsibility_center_code, notes, category,
-    department, purpose_type, purpose, date_needed, recommended_by,
+    department, department_id, purpose_type, purpose, date_needed, recommended_by,
     event_name, event_date, project_name,
   } = req.body
   const newCategory    = category && VALID_CATEGORIES.includes(category) ? category : null
@@ -378,6 +386,27 @@ exports.update = asyncHandler(async (req, res) => {
 
   const denied = await editDenied(pool, req.user, req.params.id)
   if (denied) return res.status(denied.status).json({ message: denied.message })
+
+  // Moving the PR to another office moves who signs "Requested by" with it: the
+  // form must name the head of the office it is actually filed under. A PR is
+  // only editable before the TWG sees it, so this never rewrites an approved one.
+  const [[owner]] = await pool.execute(
+    'SELECT u.name, u.designation FROM purchase_requests pr JOIN users u ON u.id = pr.created_by WHERE pr.id = ?',
+    [req.params.id])
+  const dept = 'department_id' in req.body
+    ? await resolveDepartment(pool, { departmentId: department_id })
+    : undefined
+  const requester = dept === undefined ? null : requestedBy(dept, owner)
+  const departmentText = dept === undefined ? (department?.trim() || null) : (dept ? dept.code : (department?.trim() || null))
+  // The office and its signatory move together, and only when the request
+  // actually names an office: sending it empty clears all three, so a PR can't
+  // end up filed under one office but signed by another's head.
+  const officeSet = dept === undefined ? '' : `,
+           department_id               = ?,
+           requested_by_name           = ?,
+           requested_by_designation    = ?`
+  const officeValues = dept === undefined ? [] : [dept?.id ?? null, requester?.name ?? null, requester?.designation ?? null]
+
   // Each context column is set unconditionally (no COALESCE) so the client can
   // legitimately CLEAR a field by sending null/empty. category and purpose_type
   // stay COALESCE-style because they're enums with required defaults.
@@ -388,7 +417,7 @@ exports.update = asyncHandler(async (req, res) => {
            responsibility_center_code  = COALESCE(?, responsibility_center_code),
            category                    = COALESCE(?, category),
            notes                       = COALESCE(?, notes),
-           department                  = ?,
+           department                  = ?${officeSet},
            purpose_type                = COALESCE(?, purpose_type),
            purpose                     = ?,
            date_needed                 = ?,
@@ -400,7 +429,8 @@ exports.update = asyncHandler(async (req, res) => {
     [
       title || null, fund_cluster || null, responsibility_center_code || null,
       newCategory, notes || null,
-      department?.trim() || null,
+      departmentText,
+      ...officeValues,
       newPurposeType,
       purpose?.trim() || null,
       toSqlDate(date_needed),
@@ -510,23 +540,24 @@ exports.generatePDF = asyncHandler(async (req, res) => {
   const { M } = require('../utils/pdfHelpers')
 
   const [rows] = await pool.execute(`
-    SELECT pr.*, u.name AS created_by_name,
+    SELECT pr.*, u.name AS created_by_name, u.designation AS created_by_designation,
+           d.code AS department_code, d.name AS department_name,
            q.label AS quarter_label, q.year AS quarter_year
     FROM purchase_requests pr
     JOIN users u ON pr.created_by = u.id
+    LEFT JOIN departments d ON d.id = pr.department_id
     LEFT JOIN quarters q ON q.id = pr.quarter_id
     WHERE pr.id = ?
   `, [req.params.id])
   if (!rows.length) return res.status(404).json({ message: 'PR not found' })
   const pr = rows[0]
 
-  const [orgRows] = await pool.execute(
-    "SELECT setting_key, setting_value FROM org_settings WHERE setting_key IN ('fund_cluster','responsibility_center_code')"
-  )
-  const orgSettings = Object.fromEntries(orgRows.map(r => [r.setting_key, r.setting_value]))
+  const orgSettings = await loadOrgSettings(pool)
 
+  // The form prints the item's specifications under its description, so
+  // "Window 1" and "Width = 401 cm x Height = 280 cm" read as one entry.
   const items = orderBySection((await pool.execute(
-    'SELECT item_name, quantity, unit, estimated_cost, group_label FROM pr_items WHERE pr_id = ? ORDER BY id',
+    'SELECT stock_property_no, item_name, quantity, unit, estimated_cost, notes, group_label FROM pr_items WHERE pr_id = ? ORDER BY id',
     [req.params.id]
   ))[0])
 
