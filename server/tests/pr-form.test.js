@@ -95,7 +95,8 @@ const ORG = {
 const PR = {
   pr_number: 'CSO 2026-001', created_at: '2026-02-11', department: 'DCS',
   fund_cluster: '05 206441', responsibility_center_code: '08-106-000000',
-  purpose: 'Office Use of the Department of Computer Studies',
+  title: 'Office Use of the Department of Computer Studies',
+  purpose: "The current stock ran out in January and the office cannot process clearances without it.",
   created_by_name: 'Felix Miguel Atenin',
   requested_by_name: 'JUAN A. DELA CRUZ, Ph. D.',
   requested_by_designation: 'Department Chair, DCS',
@@ -158,6 +159,12 @@ async function run() {
     t.check('Form furniture', `column header "${header}"`, has(p1, header))
   }
   t.check('Form furniture', 'purpose line', has(p1, 'Purpose: Office Use of the Department of Computer Studies'))
+  // The Purpose line is the short title. The "Why do you need it?" justification
+  // is written for the TWG and must not reach a document the BAC sees.
+  t.check('Form furniture', 'the TWG justification is not printed', !has(p1, 'ran out in January'))
+  const noTitle = parse(await render({ pr: { ...PR, title: null }, orgSettings: ORG, items: BLINDS }))[0]
+  t.check('Form furniture', 'a request filed without a title falls back to its purpose',
+    has(noTitle, 'Purpose: ' + "The current stock ran out in January and"))
 
   // ── Signatories ─────────────────────────────────────────────────────
   for (const [label, value] of [
@@ -259,7 +266,7 @@ async function run() {
 
   // ── A long section name and a long description ──────────────────────
   const long = parse(await render({
-    pr: { ...PR, purpose: 'x'.repeat(400) },
+    pr: { ...PR, title: 'x'.repeat(400) },
     orgSettings: ORG,
     items: [{
       group_label: 'A section name long enough that it has to wrap across the description column twice over',

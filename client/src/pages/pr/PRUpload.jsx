@@ -183,7 +183,7 @@ export default function PRCreate() {
   const handleSubmit = (e, { asDraft = false } = {}) => {
     e.preventDefault()
     if (!form.title.trim()) {
-      toast.error('Give your request a short title')
+      toast.error('Give your request a purpose')
       return
     }
     const submitNow = !asDraft
@@ -274,15 +274,19 @@ export default function PRCreate() {
 
             <div className="space-y-1.5">
               <Label htmlFor="title">
-                Short title <span className="text-red-500 text-xs">*</span>
-                <span className="ml-1.5 text-[10px] text-[--color-text-muted] font-normal">a few words so you can find it later</span>
+                Purpose <span className="text-red-500 text-xs">*</span>
+                <span className="ml-1.5 text-[10px] text-[--color-text-muted] font-normal">a short phrase, printed on the request</span>
               </Label>
               <Input
                 id="title"
-                placeholder="e.g. Snacks for DCS Days"
+                placeholder="e.g. Office Use of the Department of Computer Studies"
                 value={form.title}
                 onChange={e => setF('title', e.target.value)}
               />
+              <p className="text-[11px] text-[--color-text-muted]">
+                Goes in the Purpose line of the printed request, and names it in your list.
+                The longer reason for the TWG goes under &ldquo;Why do you need it?&rdquo; below.
+              </p>
             </div>
 
             {isRequestor ? (
