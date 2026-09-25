@@ -35,6 +35,9 @@ const SETTING_KEYS = [
   'bac_vice_chairman_designation',
   'canvasser_name',
   'canvasser_designation',
+
+  // How many supplier quotations the campus expects before an award.
+  'minimum_quotations',
 ]
 
 // The three funds the campus draws on. The code is configurable because it is

@@ -3,6 +3,8 @@ const asyncHandler    = require('../utils/asyncHandler')
 const httpError       = require('../utils/httpError')
 const withTransaction = require('../db/transaction')
 const { loadPR, syncPRProgress } = require('../utils/prWorkflow')
+const { loadOrgSettings } = require('../utils/orgSettings')
+const DEFAULT_MINIMUM_QUOTATIONS = 3
 const {
   SUPPLIER_COLUMNS, short, cents, lineCents,
   awardBlock, budgetBlock, itemStates, recordAward, announceAwards,
@@ -151,12 +153,27 @@ exports.deleteQuotation = asyncHandler(async (req, res) => {
 // Picking a price above the lowest quotation for an item needs a reason, which
 // is kept on that award.
 exports.awardFromQuotes = asyncHandler(async (req, res) => {
-  const { picks, reason } = req.body   // checked in the route
+  const { picks, reason, few_quotations_reason } = req.body   // checked in the route
   const created = await withTransaction(async (conn) => {
     const pr = await loadPR(conn, req.params.prId, { lock: true })
     refuse(awardBlock(pr))
     const { items } = await itemStates(conn, pr.id)
     const { quotes, prices } = await quotationsOf(conn, pr.id)
+
+    // Canvassing exists to compare suppliers, so awarding on fewer quotations
+    // than the campus expects needs saying why. The count is a setting; the
+    // reason is kept on every award made in this round, because that is the
+    // record an auditor asks for.
+    const org = await loadOrgSettings(conn)
+    const wanted = Math.max(parseInt(org.minimum_quotations, 10) || DEFAULT_MINIMUM_QUOTATIONS, 1)
+    const tooFew = quotes.length < wanted
+    const fewReason = few_quotations_reason?.trim() || null
+    if (tooFew && !fewReason) {
+      throw httpError(400, quotes.length === 0
+        ? 'Record the suppliers\' quotations before awarding.'
+        : `This PR has ${quotes.length} quotation${quotes.length === 1 ? '' : 's'} but ${wanted} are expected. `
+          + 'Give a reason for awarding on fewer, or record the other quotations first.')
+    }
     const lowest = (itemId) => Math.min(...prices.filter(p => p.pr_item_id === itemId).map(p => cents(p.unit_price)))
 
     const seen = new Set(), notLowest = new Set()
@@ -191,6 +208,7 @@ exports.awardFromQuotes = asyncHandler(async (req, res) => {
         prId: pr.id, supplier: quote.supplier_name.trim(), amount: (amount / 100).toFixed(2),
         details: quote, quotationId: quote.id, userId: req.user.id,
         notes: rows.some(r => notLowest.has(r.item.id)) ? `Not the lowest quotation: ${reason.trim()}` : null,
+        fewQuotationsReason: tooFew ? fewReason : null,
         items: rows.map(r => r.item), prices: rows.map(r => r.price),
       })
       lots.push({ ...lot, awarded_to: quote.supplier_name.trim(), awarded_amount: (amount / 100).toFixed(2), items: rows.length })

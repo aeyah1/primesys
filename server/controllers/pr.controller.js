@@ -456,6 +456,18 @@ exports.update = asyncHandler(async (req, res) => {
   res.json({ message: 'PR updated' })
 })
 
+// PATCH /pr/:id/mode - how this purchase is procured. Procurement decides it,
+// usually once the TWG has approved and the canvass is being set up, so it is
+// separate from the request's own details and can be set after submission.
+exports.setProcurementMode = asyncHandler(async (req, res) => {
+  const [r] = await pool.execute(
+    'UPDATE purchase_requests SET mode_of_procurement = ? WHERE id = ? AND deleted_at IS NULL',
+    [req.body.mode_of_procurement, req.params.id]
+  )
+  if (!r.affectedRows) return res.status(404).json({ message: 'PR not found' })
+  res.json({ message: 'Mode of procurement saved' })
+})
+
 exports.remove = asyncHandler(async (req, res) => {
   // Soft delete: the PR, with its items, attachments, and audit log, is kept and
   // listed under Archive > Deleted. The rule check and the mark run under a row

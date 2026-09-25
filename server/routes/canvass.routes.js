@@ -37,6 +37,7 @@ router.post('/:prId/award', staff, prAccess,
   body('picks.*.item').isInt({ min: 1 }).withMessage('Unknown item').toInt(),
   body('picks.*.quotation').isInt({ min: 1 }).withMessage('Unknown quotation').toInt(),
   textRule('reason', 'Reason', 500),
+  textRule('few_quotations_reason', 'Reason for awarding on fewer quotations', 500),
   handle,
   c.awardFromQuotes)
 router.post('/:prId/items/:itemId/drop', staff, prAccess, textRule('reason', 'Reason', 500), handle, c.dropItem)

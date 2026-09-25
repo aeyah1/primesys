@@ -47,6 +47,10 @@ router.patch('/',  auth, authorize('admin'),
   textRule('canvasser_name', 'Canvasser name', 150),
   textRule('canvasser_designation', 'Canvasser designation', 150),
 
+  // Canvassing rule
+  body('minimum_quotations').if(v => v !== undefined && v !== null && v !== '')
+    .isInt({ min: 1, max: 99 }).withMessage('Minimum quotations must be a whole number from 1 to 99'),
+
   handle,
   c.update)
 

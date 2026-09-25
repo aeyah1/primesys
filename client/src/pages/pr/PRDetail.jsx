@@ -17,7 +17,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
 import { PRStatusBadge, DeliveryStatusBadge, CategoryBadge } from '@/components/shared/StatusBadge'
 import AttachmentsPanel from '@/components/shared/AttachmentsPanel'
-import { fmtDate, fmtCurrency, PR_STATUS_LABELS, CATEGORY_FORM, buildItemNotes, groupItemsBySection } from '@/lib/utils'
+import { fmtDate, fmtCurrency, PR_STATUS_LABELS, CATEGORY_FORM, buildItemNotes, groupItemsBySection, PROCUREMENT_MODES } from '@/lib/utils'
 import { SectionNameInput, SectionHeaderRow } from '@/components/shared/ItemSections'
 import RequestProgress from '@/components/shared/RequestProgress'
 import CategorySpecFields from '@/components/shared/CategorySpecFields'
@@ -539,6 +539,13 @@ export default function PRDetail() {
   const downloadAbstract = () => openPDF(`/lots/pr/${id}/pdf`,  'Abstract of Quotations')
   const downloadRFQ      = () => openPDF(`/pr/${id}/rfq`,       'Request for Quotation')
 
+  // How this purchase is procured; Procurement sets it once the canvass is set up.
+  const { mutate: setMode, isPending: settingMode } = useMutation({
+    mutationFn: (body) => api.patch(`/pr/${id}/mode`, body),
+    onSuccess: () => { toast.success('Mode of procurement saved'); qc.invalidateQueries({ queryKey: ['pr', id] }) },
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed to save the mode'),
+  })
+
   // Server-backed read set. Fetched only for procurement/admin (the role that
   // sees the "new submission" banner).
   const { data: readSet } = useQuery({
@@ -869,14 +876,38 @@ export default function PRDetail() {
       {isRequestor && !pr.deleted_at && <RequestProgress pr={pr} />}
 
       {/* PR Details (fund codes are procurement's business, not shown to requestors) */}
-      {((!isRequestor && (pr.fund_cluster || pr.responsibility_center_code)) || pr.notes) && (
+      {((!isRequestor && (pr.fund_cluster || pr.responsibility_center_code)) || pr.notes || canManage) && (
         <Card>
           <CardHeader><CardTitle>PR Details</CardTitle></CardHeader>
           <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {!isRequestor && pr.fund_cluster && (
               <div>
-                <p className="text-ui-xs text-[--color-text-muted] font-medium uppercase tracking-wide">Fund Cluster</p>
+                <p className="text-ui-xs text-[--color-text-muted] font-medium uppercase tracking-wide">
+                  Fund Cluster{pr.fund_source ? ` · ${pr.fund_source}` : ''}
+                </p>
                 <p className="text-ui-sm text-[--color-text-primary] font-medium mt-0.5">{pr.fund_cluster}</p>
+              </div>
+            )}
+            {/* How this is procured. Procurement's call, so only they may set it. */}
+            {canManage && !pr.deleted_at && (
+              <div>
+                <p className="text-ui-xs text-[--color-text-muted] font-medium uppercase tracking-wide">Mode of Procurement</p>
+                <Select
+                  value={pr.mode_of_procurement || ''}
+                  onValueChange={(mode_of_procurement) => setMode({ mode_of_procurement })}
+                  disabled={settingMode}
+                >
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="Not set" /></SelectTrigger>
+                  <SelectContent>
+                    {PROCUREMENT_MODES.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {!canManage && pr.mode_of_procurement && (
+              <div>
+                <p className="text-ui-xs text-[--color-text-muted] font-medium uppercase tracking-wide">Mode of Procurement</p>
+                <p className="text-ui-sm text-[--color-text-primary] font-medium mt-0.5">{pr.mode_of_procurement}</p>
               </div>
             )}
             {!isRequestor && pr.responsibility_center_code && (
