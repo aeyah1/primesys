@@ -9,6 +9,7 @@ const authorize   = require('../middleware/authorize.middleware')
 const { handle, textRule, moneyRule, quantityRule, dateRule, idRule, oneOfRule } = require('../middleware/validate')
 const { FUND_SOURCE_VALUES } = require('../utils/orgSettings')
 const { PROCUREMENT_MODES } = require('../utils/procurementModes')
+const { CATEGORIES } = require('../utils/categories')
 const { requireAccess } = require('../middleware/scope.middleware')
 const makeUploader = require('../utils/upload')
 
@@ -34,6 +35,8 @@ const prFields = (titleRequired) => [
 const itemFields = (prefix, name) => [
   textRule(`${prefix}group_label`, name('section name'), 255),
   textRule(`${prefix}stock_property_no`, name('stock/property no.'), 50),
+  // What kind of thing this is; the request's own category follows from these.
+  oneOfRule(`${prefix}category`, name('category'), CATEGORIES),
   textRule(`${prefix}item_name`, name('name'), 500),
   quantityRule(`${prefix}quantity`, name('quantity')),
   textRule(`${prefix}unit`, name('unit'), 50),

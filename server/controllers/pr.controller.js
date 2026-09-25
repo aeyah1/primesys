@@ -9,7 +9,7 @@ const { PR_STATUSES, loadPR, editDenied, deleteBlock, poCancelBlock, prPermissio
 const { recordBlock, QTY_ORDERED, QTY_RECEIVED } = require('../utils/deliveryWorkflow')
 const { orderBySection } = require('../utils/itemSections')
 const { currentQuarter } = require('../utils/quarters')
-const { CATEGORIES } = require('../utils/categories')
+const { CATEGORIES, isCategory, syncPRCategory } = require('../utils/categories')
 const { loadOrgSettings, prNumberPrefix, fundCodeFor, FUND_SOURCE_VALUES } = require('../utils/orgSettings')
 const { requestedBy, resolveDepartment } = require('../utils/departments')
 const { reviewsCategory, notifyAreaReviewers } = require('../utils/twgAreas')
@@ -286,7 +286,7 @@ exports.create = asyncHandler(async (req, res) => {
   // for an office that is not on the list.
   const departmentText = dept ? dept.code : (department?.trim() || null)
 
-  const { prId, pr_number } = await withTransaction(async (conn) => {
+  const { prId, pr_number, category: createdCategory } = await withTransaction(async (conn) => {
     // Retry on UNIQUE-constraint collision (concurrent inserts picking the same suffix).
     const MAX_ATTEMPTS = 5
     let created = null
@@ -321,12 +321,18 @@ exports.create = asyncHandler(async (req, res) => {
     }
     for (const it of itemList) {
       await conn.execute(
-        `INSERT INTO pr_items (pr_id, stock_property_no, group_label, item_name, quantity, unit, estimated_cost, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [created.prId, it.stock_property_no?.trim() || null, it.group_label?.trim() || null, it.item_name.trim(),
+        `INSERT INTO pr_items (pr_id, stock_property_no, group_label, category, item_name, quantity, unit, estimated_cost, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [created.prId, it.stock_property_no?.trim() || null, it.group_label?.trim() || null,
+         isCategory(it.category) ? it.category : prCategory, it.item_name.trim(),
          it.quantity || 1, it.unit || null, it.estimated_cost || null, it.notes || null]
       )
     }
+    // The request's category follows its items, so it describes what is being
+    // bought rather than what was guessed up front. It decides which TWG
+    // members review it, so it must settle before the submission below.
+    created.category = (await syncPRCategory(conn, created.prId)) || prCategory
+
     // "Submit to TWG" on the new-PR form: the PR is saved as a draft and then
     // submitted through the workflow, so the submission is checked and logged
     // like any other (audit WF-4), all in this one transaction.
@@ -338,7 +344,7 @@ exports.create = asyncHandler(async (req, res) => {
 
   // Created already submitted: tell the reviewers of its area (utils/twgAreas.js).
   if (initialStatus === 'submitted') {
-    await notifyAreaReviewers(req.io, { id: prId, pr_number, title, category: prCategory }, { exceptId: req.user.id })
+    await notifyAreaReviewers(req.io, { id: prId, pr_number, title, category: createdCategory }, { exceptId: req.user.id })
   }
 
   res.status(201).json({ id: prId, pr_number })
