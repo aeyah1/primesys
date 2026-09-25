@@ -176,7 +176,7 @@ module.exports = function drawPRForm(doc, { pr, orgSettings = {}, items = [] }) 
 
   // Height of everything that must stay together after the last item row.
   // The Purpose line takes the request's short title: on Appendix 60 this is a
-  // short phrase, not the "Why do you need it?" justification, which is written
+  // short phrase, not the Justification field, which is written
   // for the TWG and stays on screen. Requests filed without one fall back to it.
   const purposeText = `Purpose: ${pr.title || pr.purpose || ''}`
   doc.font('Times-Roman').fontSize(FS)

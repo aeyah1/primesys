@@ -5,6 +5,7 @@ import { ArrowLeft, Package, Plus, Trash2, Send } from 'lucide-react'
 import ItemCategorySelector from '@/components/shared/ItemCategorySelector'
 import UnitInput from '@/components/shared/UnitInput'
 import RequestContextForm from '@/components/shared/RequestContextForm'
+import JustificationField from '@/components/shared/JustificationField'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -252,7 +253,7 @@ export default function PREdit() {
 
         {/* PR Details */}
         <Card>
-          <CardHeader><CardTitle>Title and type</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Purpose and type</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label>
@@ -280,9 +281,10 @@ export default function PREdit() {
               />
               <p className="text-[11px] text-[--color-text-muted]">
                 Goes in the Purpose line of the printed request, and names it in your list.
-                The longer reason for the TWG goes under &ldquo;Why do you need it?&rdquo; below.
               </p>
             </div>
+
+            <JustificationField value={form.purpose} onChange={v => setF('purpose', v)} />
 
             <div className="space-y-1.5">
               <Label>Quarter</Label>
