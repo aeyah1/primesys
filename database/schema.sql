@@ -107,6 +107,9 @@ CREATE TABLE `purchase_requests` (
   `fund_cluster`               VARCHAR(50)  NULL,
   -- Which of the three funds that code came from (org_settings.fund_code_*).
   `fund_source`                ENUM('STF','GAA','IGP') NOT NULL DEFAULT 'STF',
+  -- How this is procured (server/utils/procurementModes.js). Set by
+  -- Procurement, not asked of the person filing the request.
+  `mode_of_procurement`        VARCHAR(60)  NULL,
   `responsibility_center_code` VARCHAR(50)  NULL,
   `department`                 VARCHAR(150) NULL,   -- as printed in Office/Section
   `department_id`              INT UNSIGNED NULL,
@@ -284,6 +287,8 @@ CREATE TABLE `lots` (
   `supplier_email`      VARCHAR(150)  NULL,
   `supplier_tin`        VARCHAR(50)   NULL,
   `notes`               TEXT          NULL,
+  -- Why this was awarded on fewer quotations than the campus expects.
+  `few_quotations_reason` VARCHAR(500) NULL,
   `quotation_id`        INT UNSIGNED  NULL,
   `po_id`               INT UNSIGNED  NULL,   -- FK added after purchase_orders, below
   `created_by`          INT UNSIGNED  NOT NULL,
@@ -500,4 +505,6 @@ INSERT INTO `org_settings` (`setting_key`, `setting_value`) VALUES
   ('bac_vice_chairman_name',        NULL),
   ('bac_vice_chairman_designation', 'BAC Vice Chairman'),
   ('canvasser_name',                NULL),
-  ('canvasser_designation',         'Canvasser');
+  ('canvasser_designation',         'Canvasser'),
+  -- How many supplier quotations the campus expects before an award.
+  ('minimum_quotations',            '3');

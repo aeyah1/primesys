@@ -162,14 +162,14 @@ async function poItems(db, poId, prId) {
 // Records an award: the lot (the PR's next LOT number) and its items, copies
 // of the PR items it covers. `prices`: each item's awarded unit price (from a
 // quotation), or none for a lump-sum award. Resolves with { id, lot_number }.
-async function recordAward(db, { prId, supplier, amount, details = {}, title = null, notes = null, quotationId = null, userId, items, prices = null }) {
+async function recordAward(db, { prId, supplier, amount, details = {}, title = null, notes = null, fewQuotationsReason = null, quotationId = null, userId, items, prices = null }) {
   const [[{ n }]] = await db.execute('SELECT COUNT(*) AS n FROM lots WHERE purchase_request_id = ?', [prId])
   const lot_number = `LOT-${String(Number(n) + 1).padStart(3, '0')}`
   const [lot] = await db.execute(
     `INSERT INTO lots (purchase_request_id, lot_number, title, status, awarded_to, awarded_amount,
-                       ${SUPPLIER_COLUMNS.join(', ')}, notes, quotation_id, created_by)
-     VALUES (?, ?, ?, 'awarded', ?, ?, ${SUPPLIER_COLUMNS.map(() => '?').join(', ')}, ?, ?, ?)`,
-    [prId, lot_number, title, supplier, amount, ...SUPPLIER_COLUMNS.map(c => details[c] || null), notes, quotationId, userId]
+                       ${SUPPLIER_COLUMNS.join(', ')}, notes, few_quotations_reason, quotation_id, created_by)
+     VALUES (?, ?, ?, 'awarded', ?, ?, ${SUPPLIER_COLUMNS.map(() => '?').join(', ')}, ?, ?, ?, ?)`,
+    [prId, lot_number, title, supplier, amount, ...SUPPLIER_COLUMNS.map(c => details[c] || null), notes, fewQuotationsReason, quotationId, userId]
   )
   if (items.length) {
     await db.execute(

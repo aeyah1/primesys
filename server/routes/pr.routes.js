@@ -8,6 +8,7 @@ const auth        = require('../middleware/auth.middleware')
 const authorize   = require('../middleware/authorize.middleware')
 const { handle, textRule, moneyRule, quantityRule, dateRule, idRule, oneOfRule } = require('../middleware/validate')
 const { FUND_SOURCE_VALUES } = require('../utils/orgSettings')
+const { PROCUREMENT_MODES } = require('../utils/procurementModes')
 const { requireAccess } = require('../middleware/scope.middleware')
 const makeUploader = require('../utils/upload')
 
@@ -102,6 +103,13 @@ router.patch('/:id',
   handle,
   c.update
 )
+
+// How the purchase is procured: Procurement's call, not the requestor's.
+router.patch('/:id/mode',
+  authorize('procurement', 'admin'), prAccess,
+  oneOfRule('mode_of_procurement', 'Pick a valid mode of procurement', PROCUREMENT_MODES, { required: true }),
+  handle,
+  c.setProcurementMode)
 
 router.delete('/:id', authorize('admin', 'procurement', 'requestor'), prAccess, c.remove)
 
