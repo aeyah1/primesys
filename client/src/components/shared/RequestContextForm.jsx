@@ -167,18 +167,6 @@ export default function RequestContextForm({ value = {}, onChange }) {
             onChange={(e) => set('date_needed', e.target.value)}
           />
         </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="ctx-recommended-by">
-            Office head or adviser
-            <span className="ml-1 font-normal text-[--color-text-muted] text-xs">(who recommended this request)</span>
-          </Label>
-          <Input
-            id="ctx-recommended-by"
-            placeholder="e.g. Dr. Maria Santos"
-            value={value.recommended_by || ''}
-            onChange={(e) => set('recommended_by', e.target.value)}
-          />
-        </div>
       </div>
     </div>
   )

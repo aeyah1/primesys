@@ -47,7 +47,7 @@ export default function RequestContextDisplay({ pr }) {
 
   // Only render the card if there's anything to show.
   const hasAny = pr.department || pr.purpose_type || pr.purpose || pr.date_needed ||
-                 pr.recommended_by || pr.event_name || pr.project_name || pr.requested_by_name
+                 pr.event_name || pr.project_name || pr.requested_by_name
   if (!hasAny) return null
 
   return (
@@ -70,7 +70,6 @@ export default function RequestContextDisplay({ pr }) {
             ? `${pr.requested_by_name}${pr.requested_by_designation ? ` — ${pr.requested_by_designation}` : ''}`
             : null}
         />
-        <Field icon={UserCheck}    label="Office head / adviser" value={pr.recommended_by} />
         <Field icon={Calendar}     label="Date needed"     value={pr.date_needed ? fmtDate(pr.date_needed) : null} />
 
         {pr.purpose_type === 'event' && (
