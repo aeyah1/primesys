@@ -175,7 +175,10 @@ module.exports = function drawPRForm(doc, { pr, orgSettings = {}, items = [] }) 
   const blankRow = (top) => { COLS.forEach((c, i) => rect(X[i], top, c.width, ROW_H)) }
 
   // Height of everything that must stay together after the last item row.
-  const purposeText = `Purpose: ${pr.purpose || pr.title || ''}`
+  // The Purpose line takes the request's short title: on Appendix 60 this is a
+  // short phrase, not the "Why do you need it?" justification, which is written
+  // for the TWG and stays on screen. Requests filed without one fall back to it.
+  const purposeText = `Purpose: ${pr.title || pr.purpose || ''}`
   doc.font('Times-Roman').fontSize(FS)
   const purposeH = Math.max(ROW_H, doc.heightOfString(purposeText, { width: W - PAD * 2 }) + PAD * 2)
   const FOOTER_H = ROW_H + purposeH + ROW_H + 30 + 20 + 18 + 16 + 64   // total + purpose + sign block + boxes

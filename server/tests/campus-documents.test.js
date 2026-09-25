@@ -116,8 +116,9 @@ const PO_ITEMS = [
 ]
 
 const AB_PR = {
-  pr_number: 'CSO 2026-002', title: 'Office supplies', created_at: '2026-02-10',
-  purpose: 'Office Use of the Department of Computer Studies',
+  pr_number: 'CSO 2026-002', created_at: '2026-02-10',
+  title: 'Office Use of the Department of Computer Studies',
+  purpose: "The current stock ran out in January and the office cannot process clearances without it.",
   mode_of_procurement: 'Small Value Procurement',
 }
 const item = (id, name, quantity, unit, cost, state, awardedTo) => ({
@@ -273,6 +274,7 @@ async function run() {
   t.check('Abstract', 'states the mode of procurement', has(abPages[0], 'Small Value Procurement'))
   t.check('Abstract', 'states the approved budget', has(abPages[0], '60,400.00'))
   t.check('Abstract', 'carries the purpose', has(abPages[0], 'Office Use of the Department of Computer Studies'))
+  t.check('Abstract', 'the TWG justification is not printed', !has(abPages[0], 'ran out in January'))
   t.check('Abstract', 'gives every supplier a column',
     AB_QUOTES.every(q => hasWrapped(abPages[0], q.supplier_name)))
   t.check('Abstract', 'shows what each supplier offered',

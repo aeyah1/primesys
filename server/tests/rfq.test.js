@@ -83,7 +83,11 @@ const ORG = {
   fund_code_igp: '05-206441-IGP',
   fund_cluster: 'FALLBACK',
 }
-const PR = { pr_number: 'CSO 2026-001', purpose: 'Office Use of the Department of Computer Studies' }
+const PR = {
+  pr_number: 'CSO 2026-001',
+  title: 'Office Use of the Department of Computer Studies',
+  purpose: "The current stock ran out in January and the office cannot process clearances without it.",
+}
 const I = (g, u, n, q, c, notes) => ({ group_label: g, unit: u, item_name: n, quantity: q, estimated_cost: c, notes })
 
 // The campus's own two lots: window blinds (ABC 70,000) and office supplies
@@ -160,6 +164,7 @@ async function run() {
   t.check('ABC', 'the window-blinds lot is 70,000', has(p1, 'ABC : 70,000.00'))
   t.check('ABC', 'the office-supplies lot is 98,970', has(pages[1], 'ABC : 98,970.00'))
   t.check('ABC', 'each page carries its purpose', pages.every(p => has(p, 'Purpose: Office Use of the Department of Computer Studies')))
+  t.check('ABC', 'the TWG justification is not printed', pages.every(p => !has(p, 'ran out in January')))
 
   // ── Items ───────────────────────────────────────────────────────────
   t.check('Items', 'the lot is named', has(p1, 'LOT A'))
