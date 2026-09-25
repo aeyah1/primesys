@@ -24,11 +24,32 @@ USE `primesys`;
 
 SET NAMES utf8mb4;
 
+-- Departments
+-- The offices that file purchase requests. Each carries the head who signs
+-- "Requested by" on the printed form; a department with no head_name still
+-- works, the form just prints a blank line to sign by hand.
+CREATE TABLE `departments` (
+  `id`               INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `code`             VARCHAR(20)  NOT NULL,   -- printed in the form's Office/Section cell
+  `name`             VARCHAR(150) NOT NULL,
+  `head_name`        VARCHAR(150) NULL,
+  `head_designation` VARCHAR(150) NULL,
+  `is_active`        TINYINT(1)   NOT NULL DEFAULT 1,
+  `created_at`       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_department_code` (`code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Users
 -- Public sign-up always creates a requestor; admins assign every other role.
 CREATE TABLE `users` (
   `id`                         INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `name`                       VARCHAR(100) NOT NULL,
+  -- Job title as it should print on the PR form, e.g. "Department Chair, DCS".
+  `designation`                VARCHAR(150) NULL,
+  -- The office this person encodes for; pre-fills the PR form.
+  `department_id`              INT UNSIGNED NULL,
   `username`                   VARCHAR(50)  NULL,
   `email`                      VARCHAR(150) NOT NULL,
   `password_hash`              VARCHAR(255) NOT NULL,
@@ -46,7 +67,9 @@ CREATE TABLE `users` (
   `updated_at`                 TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_email`    (`email`),
-  UNIQUE KEY `uq_username` (`username`)
+  UNIQUE KEY `uq_username` (`username`),
+  KEY `idx_users_department` (`department_id`),
+  CONSTRAINT `fk_users_department` FOREIGN KEY (`department_id`) REFERENCES `departments` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Quarters
@@ -82,7 +105,8 @@ CREATE TABLE `purchase_requests` (
   `title`                      VARCHAR(200) NULL,
   `fund_cluster`               VARCHAR(50)  NULL,
   `responsibility_center_code` VARCHAR(50)  NULL,
-  `department`                 VARCHAR(150) NULL,
+  `department`                 VARCHAR(150) NULL,   -- as printed in Office/Section
+  `department_id`              INT UNSIGNED NULL,
   `purpose_type`               ENUM('personal','event','office','project') NOT NULL DEFAULT 'personal',
   `purpose`                    TEXT         NULL,
   `date_needed`                DATE         NULL,
@@ -94,6 +118,12 @@ CREATE TABLE `purchase_requests` (
   `status`                     ENUM('draft','submitted','twg_review','revision_requested','rejected','bidding','for_po','completed','cancelled') NOT NULL DEFAULT 'draft',
   `notes`                      TEXT         NULL,
   `created_by`                 INT UNSIGNED NOT NULL,
+  -- The head of the requesting office and their designation, as they stood when
+  -- the PR was filed: the form's "Requested by" names the office's head, not
+  -- whoever encoded it, and a later change of head must not rewrite PRs already
+  -- on record. Falls back to the filer when the office has no head recorded.
+  `requested_by_name`          VARCHAR(150) NULL,
+  `requested_by_designation`   VARCHAR(150) NULL,
   `twg_reviewed_by`            INT UNSIGNED NULL,
   `twg_reviewed_at`            TIMESTAMP    NULL DEFAULT NULL,
   `twg_comment`                TEXT         NULL,
@@ -110,7 +140,9 @@ CREATE TABLE `purchase_requests` (
   KEY `idx_purpose_type`        (`purpose_type`),
   KEY `idx_date_needed`         (`date_needed`),
   KEY `idx_pr_deleted_at`       (`deleted_at`),
+  KEY `idx_pr_department_id`    (`department_id`),
   CONSTRAINT `fk_pr_created_by`   FOREIGN KEY (`created_by`)      REFERENCES `users` (`id`),
+  CONSTRAINT `fk_pr_department`   FOREIGN KEY (`department_id`)   REFERENCES `departments` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_pr_quarter`      FOREIGN KEY (`quarter_id`)      REFERENCES `quarters` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_pr_twg_reviewer` FOREIGN KEY (`twg_reviewed_by`) REFERENCES `users` (`id`)    ON DELETE SET NULL,
   CONSTRAINT `fk_pr_deleted_by`   FOREIGN KEY (`deleted_by`)      REFERENCES `users` (`id`)    ON DELETE SET NULL
@@ -119,6 +151,8 @@ CREATE TABLE `purchase_requests` (
 CREATE TABLE `pr_items` (
   `id`             INT UNSIGNED  NOT NULL AUTO_INCREMENT,
   `pr_id`          INT UNSIGNED  NOT NULL,
+  -- Stock/Property No. on the PR form; assigned by the Supply Office, often blank.
+  `stock_property_no` VARCHAR(50) NULL,
   `group_label`    VARCHAR(255)  NULL,
   `item_name`      VARCHAR(500)  NOT NULL,
   `quantity`       DECIMAL(10,2) NOT NULL DEFAULT 1,
@@ -418,6 +452,11 @@ CREATE TABLE `password_reset_tokens` (
 INSERT INTO `users` (`name`, `username`, `email`, `password_hash`, `role`, `is_active`, `is_verified`) VALUES
   ('System Administrator', 'admin', 'admin@example.com','$2a$10$6M98Da8LCoGWN.6XMDRC8ueqg77kil5.cSOEoQjbDMg8EyF0/RHKu', 'admin', 1, 1);
 
+-- The one department supplied so far; admins add the rest with their heads
+-- under Settings > Organization.
+INSERT INTO `departments` (`code`, `name`, `head_name`, `head_designation`) VALUES
+  ('DCS', 'Department of Computer Studies', NULL, 'Department Chair, DCS');
+
 -- 2026 quarters with their real date ranges; Q3 is the current one.
 INSERT INTO `quarters` (`label`, `year`, `start_date`, `end_date`, `is_active`) VALUES
   ('Q1', 2026, '2026-01-01', '2026-03-31', 0),
@@ -426,6 +465,16 @@ INSERT INTO `quarters` (`label`, `year`, `start_date`, `end_date`, `is_active`) 
   ('Q4', 2026, '2026-10-01', '2026-12-31', 0);
 
 -- Organization defaults (filled in later under Settings > Organization).
+-- The four signatory pairs and the entity name print on the PR form
+-- (Appendix 60); pr_number_prefix is the "CSO" in "CSO 2026-001".
 INSERT INTO `org_settings` (`setting_key`, `setting_value`) VALUES
   ('fund_cluster', NULL),
-  ('responsibility_center_code', NULL);
+  ('responsibility_center_code', NULL),
+  ('entity_name',                  'NEMSU - Cantilan Campus'),
+  ('pr_number_prefix',             'CSO'),
+  ('approved_by_name',             NULL),
+  ('approved_by_designation',      'Campus Director'),
+  ('allotment_by_name',            NULL),
+  ('allotment_by_designation',     'AO IV/Budget Officer II'),
+  ('app_certified_by_name',        NULL),
+  ('app_certified_by_designation', 'BAC Secretariat');

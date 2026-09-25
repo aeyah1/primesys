@@ -1,25 +1,24 @@
-const pool = require('../db/pool')
+const pool         = require('../db/pool')
+const asyncHandler = require('../utils/asyncHandler')
+const { SETTING_KEYS } = require('../utils/orgSettings')
 
-exports.get = async (req, res) => {
-  try {
-    const [rows] = await pool.execute('SELECT setting_key, setting_value FROM org_settings')
-    const out = {}
-    for (const row of rows) out[row.setting_key] = row.setting_value
-    res.json(out)
-  } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
-}
+exports.get = asyncHandler(async (req, res) => {
+  const [rows] = await pool.execute('SELECT setting_key, setting_value FROM org_settings')
+  const out = {}
+  for (const row of rows) out[row.setting_key] = row.setting_value
+  res.json(out)
+})
 
-exports.update = async (req, res) => {
-  try {
-    const { fund_cluster, responsibility_center_code } = req.body
-    await pool.execute(
-      'INSERT INTO org_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)',
-      ['fund_cluster', fund_cluster?.trim() || null]
-    )
-    await pool.execute(
-      'INSERT INTO org_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)',
-      ['responsibility_center_code', responsibility_center_code?.trim() || null]
-    )
-    res.json({ message: 'Settings saved' })
-  } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
-}
+// Saves the keys present in the body, in one statement so a half-saved form
+// can't leave the entity name set and its signatories missing. Keys the body
+// leaves out keep their stored value; a key sent blank is cleared to NULL.
+exports.update = asyncHandler(async (req, res) => {
+  const sent = SETTING_KEYS.filter(k => k in req.body)
+  if (!sent.length) return res.json({ message: 'Nothing to save' })
+  await pool.execute(
+    `INSERT INTO org_settings (setting_key, setting_value) VALUES ${sent.map(() => '(?, ?)').join(', ')}
+     ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)`,
+    sent.flatMap(k => [k, typeof req.body[k] === 'string' ? req.body[k].trim() || null : null])
+  )
+  res.json({ message: 'Settings saved' })
+})

@@ -40,9 +40,9 @@ const ITD = ({ children, className = '' }) => (
   </td>
 )
 
-const EMPTY_ITEM = { group_label: '', item_name: '', quantity: '1', unit: 'pax', estimated_cost: '', specs: {} }
+const EMPTY_ITEM = { group_label: '', stock_property_no: '', item_name: '', quantity: '1', unit: 'pax', estimated_cost: '', specs: {} }
 
-function PRItemsSection({ prId, canEdit, category, plain = false }) {
+function PRItemsSection({ prId, canEdit, category }) {
   const [itemToDelete, setItemToDelete] = useState(null)
   const [editingItem, setEditingItem]   = useState(null)
   const [editDraft, setEditDraft]       = useState(null)
@@ -91,7 +91,8 @@ function PRItemsSection({ prId, canEdit, category, plain = false }) {
   const openEdit = (item) => {
     setEditingItem(item)
     setEditDraft({
-      group_label:    item.group_label    || '',
+      group_label:       item.group_label       || '',
+      stock_property_no: item.stock_property_no || '',
       item_name:      item.item_name      || '',
       quantity:       String(item.quantity ?? '1'),
       unit:           item.unit           || categoryForm.defaultUnit,
@@ -105,7 +106,8 @@ function PRItemsSection({ prId, canEdit, category, plain = false }) {
     updateItemReq({
       itemId: editingItem.id,
       body: {
-        group_label:    editDraft.group_label?.trim() || null,
+        group_label:       editDraft.group_label?.trim() || null,
+        stock_property_no: editDraft.stock_property_no?.trim() || null,
         item_name:      editDraft.item_name.trim(),
         quantity:       editDraft.quantity,
         unit:           editDraft.unit?.trim() || null,
@@ -119,7 +121,8 @@ function PRItemsSection({ prId, canEdit, category, plain = false }) {
     if (!draft.item_name.trim()) return toast.error('Item description is required')
     const notes = buildItemNotes(category, draft.specs)
     addItem({
-      group_label:    draft.group_label    || undefined,
+      group_label:       draft.group_label       || undefined,
+      stock_property_no: draft.stock_property_no?.trim() || undefined,
       item_name:      draft.item_name.trim(),
       quantity:       parseFloat(draft.quantity)       || 1,
       unit:           draft.unit           || undefined,
@@ -144,7 +147,7 @@ function PRItemsSection({ prId, canEdit, category, plain = false }) {
   const draftTotal = draft.estimated_cost && draft.quantity
     ? parseFloat(draft.estimated_cost) * (parseFloat(draft.quantity) || 1)
     : 0
-  const cols = canEdit ? 7 : 6
+  const cols = canEdit ? 8 : 7
 
   return (
     <Card>
@@ -170,7 +173,8 @@ function PRItemsSection({ prId, canEdit, category, plain = false }) {
               <table className="w-full border-separate border-spacing-0">
                 <thead>
                   <tr>
-                    <ITH className="text-center w-14">{plain ? 'No.' : 'Stock / Property No.'}</ITH>
+                    <ITH className="text-center w-14">No.</ITH>
+                    <ITH className="text-center w-24">Stock/Property</ITH>
                     <ITH className="text-center w-20">Unit</ITH>
                     <ITH className="text-left">{categoryForm.itemLabel}</ITH>
                     <ITH className="text-center w-16">Qty</ITH>
@@ -197,6 +201,7 @@ function PRItemsSection({ prId, canEdit, category, plain = false }) {
                           {group.items.map((item) => (
                             <tr key={item.id} className="border-b border-[--color-border] hover:bg-[--color-canvas]">
                               <ITD className="text-center text-[--color-text-muted] font-medium">{item.rowNum}</ITD>
+                              <ITD className="text-center text-[--color-text-secondary] tabular-nums">{item.stock_property_no || '—'}</ITD>
                               <ITD className="text-center font-semibold text-[--color-text-primary]">{item.unit || '—'}</ITD>
                               <ITD className="text-left font-medium text-[--color-text-primary] leading-relaxed">
                                 {item.item_name}
@@ -235,7 +240,7 @@ function PRItemsSection({ prId, canEdit, category, plain = false }) {
                           ))}
                           {group.label && groupTotal > 0 && (
                             <tr className="bg-[--color-canvas] border-b border-[--color-border]">
-                              <td colSpan={5} className="px-6 py-3 text-right text-sm font-semibold text-[--color-text-secondary]">
+                              <td colSpan={6} className="px-6 py-3 text-right text-sm font-semibold text-[--color-text-secondary]">
                                 Subtotal
                               </td>
                               <td className="px-4 py-3 text-right text-sm font-bold tabular-nums text-[--color-text-primary]">
@@ -250,7 +255,7 @@ function PRItemsSection({ prId, canEdit, category, plain = false }) {
                   )}
                   {grandTotal > 0 && (
                     <tr className="bg-blue-50">
-                      <td colSpan={5} className="px-6 py-3.5 text-right text-sm font-bold text-blue-800">
+                      <td colSpan={6} className="px-6 py-3.5 text-right text-sm font-bold text-blue-800">
                         Grand Total
                       </td>
                       <td className="px-4 py-3.5 text-right text-base font-bold tabular-nums text-blue-700">
@@ -280,7 +285,17 @@ function PRItemsSection({ prId, canEdit, category, plain = false }) {
                   />
                 </div>
                 <div className="grid grid-cols-12 gap-2 items-end">
-                  <div className="col-span-5 space-y-1">
+                  {/* Stock/Property No. — the Supply Office's number, usually blank here */}
+                  <div className="col-span-2 space-y-1">
+                    <Label className="text-xs">Stock/Property No.</Label>
+                    <Input
+                      placeholder="optional"
+                      value={draft.stock_property_no}
+                      onChange={e => setD('stock_property_no', e.target.value)}
+                      className="text-sm"
+                    />
+                  </div>
+                  <div className="col-span-4 space-y-1">
                     <Label className="text-xs">{categoryForm.itemLabel} <span className="text-[--color-brand]">*</span></Label>
                     <Input
                       ref={itemRef}
@@ -309,16 +324,20 @@ function PRItemsSection({ prId, canEdit, category, plain = false }) {
                       className="text-center"
                     />
                   </div>
-                  <div className="col-span-2 space-y-1">
+                  {/* The line total sits outside the flow so the inputs across
+                      the row stay bottom-aligned. */}
+                  <div className="col-span-2 space-y-1 relative">
                     <Label className="text-xs">Price each (₱, estimate)</Label>
                     <Input
                       type="number" min="0" step="any" placeholder="0.00"
                       value={draft.estimated_cost}
                       onChange={e => setD('estimated_cost', e.target.value)}
                     />
-                  </div>
-                  <div className="col-span-1 text-right text-sm font-bold tabular-nums text-blue-700 self-end pb-2">
-                    {draftTotal > 0 ? fmtCurrency(draftTotal) : ''}
+                    {draftTotal > 0 && (
+                      <p className="absolute left-0 top-full mt-1 text-[11px] font-bold tabular-nums text-blue-700">
+                        {fmtCurrency(draftTotal)}
+                      </p>
+                    )}
                   </div>
                   <div className="col-span-1 self-end">
                     <Button
@@ -379,6 +398,18 @@ function PRItemsSection({ prId, canEdit, category, plain = false }) {
                   placeholder={categoryForm.sectionPlaceholder}
                   value={editDraft.group_label}
                   onChange={e => setED('group_label', e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs">
+                  Stock/Property No.
+                  <span className="ml-1 font-normal text-[--color-text-muted]">(optional)</span>
+                </Label>
+                <Input
+                  placeholder="Assigned by the Supply Office"
+                  value={editDraft.stock_property_no}
+                  onChange={e => setED('stock_property_no', e.target.value)}
                 />
               </div>
 
@@ -856,7 +887,7 @@ export default function PRDetail() {
       <RequestContextDisplay pr={pr} />
 
       {/* Items Requested */}
-      <PRItemsSection prId={id} canEdit={!!pr.permissions?.edit} category={pr.category} plain={isRequestor} />
+      <PRItemsSection prId={id} canEdit={!!pr.permissions?.edit} category={pr.category} />
 
       {/* Canvass & awards: quotations, awards by supplier (procurement, admin; supply once awarded) */}
       {showCanvass && (
