@@ -89,7 +89,7 @@ export default function PREdit() {
         // MySQL DATE column comes back as 'YYYY-MM-DDTHH:mm:ss.sssZ' through
         // JSON serialization — slice to the date portion for <input type="date">.
         date_needed:                pr.date_needed                ? String(pr.date_needed).slice(0, 10) : '',
-        recommended_by:             pr.recommended_by             || '',
+        recommended_by:             pr.recommended_by             || '',   // carried, not asked
         event_name:                 pr.event_name                 || '',
         event_date:                 pr.event_date                 ? String(pr.event_date).slice(0, 10)  : '',
         project_name:               pr.project_name               || '',
