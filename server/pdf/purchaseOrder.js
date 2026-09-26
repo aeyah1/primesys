@@ -1,4 +1,4 @@
-const { W, M, BLACK, ROW_H, PAD, FS, BOTTOM, amount, qty, fmtDate, forms } = require('./campusForm')
+const { W, M, BLACK, ROW_H, PAD, FS, BOTTOM, amount, qty, fmtDate, pesosInWords, forms } = require('./campusForm')
 const { approverFor } = require('../utils/orgSettings')
 
 // Purchase Order, in the campus's house style: the same letterhead, bordered
@@ -23,30 +23,6 @@ const COLS = [
   { header: 'Amount',           width: 72,  align: 'right'  },
 ]
 const X = COLS.reduce((acc, c) => [...acc, acc[acc.length - 1] + c.width], [M])
-
-// "Forty-Seven Thousand Nine Hundred Pesos and 00/100" - a purchase order
-// states its total in words as well as figures, so the amount cannot be altered
-// after signing.
-const ONES = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten',
-  'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen']
-const TENS = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety']
-
-function inWords(n) {
-  if (n < 20) return ONES[n]
-  if (n < 100) return TENS[Math.floor(n / 10)] + (n % 10 ? `-${ONES[n % 10]}` : '')
-  if (n < 1000) return `${ONES[Math.floor(n / 100)]} Hundred${n % 100 ? ` ${inWords(n % 100)}` : ''}`
-  for (const [size, name] of [[1e9, 'Billion'], [1e6, 'Million'], [1e3, 'Thousand']]) {
-    if (n >= size) return `${inWords(Math.floor(n / size))} ${name}${n % size ? ` ${inWords(n % size)}` : ''}`
-  }
-  return ''
-}
-function pesosInWords(value) {
-  const total = Math.round(Number(value || 0) * 100)
-  const pesos = Math.floor(total / 100)
-  const centavos = String(total % 100).padStart(2, '0')
-  const words = pesos === 0 ? 'Zero' : inWords(pesos)
-  return `${words} Peso${pesos === 1 ? '' : 's'} and ${centavos}/100`
-}
 
 module.exports = function drawPurchaseOrder(doc, { po, items, priced, orgSettings = {} }) {
   const f = forms(doc)

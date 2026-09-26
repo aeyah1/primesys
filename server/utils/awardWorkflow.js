@@ -16,6 +16,10 @@ const { orderBySection } = require('./itemSections')
 // An award is fixed once it has a purchase order or its PR is closed. To
 // change it, cancel the PO (which cancels its awards) and award again.
 //
+// While awards need the BAC's approval (orgSettings.bacApprovalRequired) a
+// new award is 'recommended': it holds its items, but only the BAC approving
+// it (bac.controller.js) makes it 'awarded' and able to get a purchase order.
+//
 // Every award write locks the PR row first (prWorkflow.loadPR with `lock`), so
 // awards, POs, and status moves on one PR run one after another.
 
@@ -60,8 +64,8 @@ function budgetBlock(amountCents, estimateCents, who = 'The contract amount') {
   return null
 }
 
-// Each PR item with its award state: 'awarded' (in an awarded lot, `award`
-// says which), 'dropped', or 'pending' (still needs an award).
+// Each PR item with its award state: 'awarded' or 'recommended' (in such a
+// lot, `award` says which), 'dropped', or 'pending' (still needs an award).
 async function itemStates(db, prId) {
   const [items] = await db.execute(
     `SELECT i.id, i.item_name, i.quantity, i.unit, i.estimated_cost, i.group_label,
@@ -69,9 +73,9 @@ async function itemStates(db, prId) {
        FROM pr_items i LEFT JOIN users du ON du.id = i.dropped_by
       WHERE i.pr_id = ? ORDER BY i.id`, [prId])
   const [links] = await db.execute(
-    `SELECT li.pr_item_id, li.unit_price, l.id AS lot_id, l.lot_number, l.awarded_to, l.po_id
+    `SELECT li.pr_item_id, li.unit_price, l.id AS lot_id, l.lot_number, l.awarded_to, l.po_id, l.status AS lot_status
        FROM lot_items li JOIN lots l ON l.id = li.lot_id
-      WHERE l.purchase_request_id = ? AND l.status = 'awarded' AND li.pr_item_id IS NOT NULL`, [prId])
+      WHERE l.purchase_request_id = ? AND l.status IN ('recommended', 'awarded') AND li.pr_item_id IS NOT NULL`, [prId])
   const [[{ whole }]] = await db.execute(
     `SELECT EXISTS (SELECT 1 FROM lots l WHERE l.purchase_request_id = ? AND l.status = 'awarded'
                       AND NOT EXISTS (SELECT 1 FROM lot_items li WHERE li.lot_id = l.id AND li.pr_item_id IS NOT NULL)) AS whole`, [prId])
@@ -80,28 +84,35 @@ async function itemStates(db, prId) {
     wholeAward: !!whole,
     items: items.map(i => {
       const award = byItem.get(i.id) || null
-      return { ...i, award, state: award ? 'awarded' : i.dropped_at ? 'dropped' : whole ? 'awarded' : 'pending' }
+      const state = award ? (award.lot_status === 'recommended' ? 'recommended' : 'awarded')
+        : i.dropped_at ? 'dropped' : whole ? 'awarded' : 'pending'
+      return { ...i, award, state }
     }),
   }
 }
 
-// Where the PR's awards stand: items still to award, and how many awards have
-// a PO that is fully delivered.
+// Where the PR's awards stand: items still to award, awards waiting for the
+// BAC, and how many awards have a PO that is fully delivered.
 async function awardProgress(db, prId) {
   const { items } = await itemStates(db, prId)
+  const [[{ recommended }]] = await db.execute(
+    "SELECT COUNT(*) AS recommended FROM lots WHERE purchase_request_id = ? AND status = 'recommended'", [prId])
   const [[a]] = await db.execute(
     `SELECT COUNT(*) AS awarded,
             COALESCE(SUM(po.po_status = 'active' AND po.delivery_status = 'delivered'), 0) AS delivered
        FROM lots l LEFT JOIN purchase_orders po ON po.id = l.po_id
       WHERE l.purchase_request_id = ? AND l.status = 'awarded'`, [prId])
-  return { pending: items.filter(i => i.state === 'pending').length, awarded: Number(a.awarded), delivered: Number(a.delivered) }
+  return {
+    pending: items.filter(i => i.state === 'pending').length, recommended: Number(recommended),
+    awarded: Number(a.awarded), delivered: Number(a.delivered),
+  }
 }
 
 // The status the awards put a PR in, from canvass on: Bidding while any item
-// needs an award, Ready for PO once every item is awarded (or dropped),
+// needs an award or the BAC's approval, Ready for PO once every item is awarded (or dropped),
 // Completed once every award's PO is fully delivered.
 function statusFromAwards(p) {
-  if (p.pending > 0 || p.awarded === 0) return 'bidding'
+  if (p.pending > 0 || p.recommended > 0 || p.awarded === 0) return 'bidding'
   return p.delivered === p.awarded ? 'completed' : 'for_po'
 }
 
@@ -161,15 +172,16 @@ async function poItems(db, poId, prId) {
 
 // Records an award: the lot (the PR's next LOT number) and its items, copies
 // of the PR items it covers. `prices`: each item's awarded unit price (from a
-// quotation), or none for a lump-sum award. Resolves with { id, lot_number }.
-async function recordAward(db, { prId, supplier, amount, details = {}, title = null, notes = null, fewQuotationsReason = null, quotationId = null, userId, items, prices = null }) {
+// quotation), or none for a lump-sum award. `status`: 'recommended' while the
+// BAC must approve awards. Resolves with { id, lot_number }.
+async function recordAward(db, { status = 'awarded', prId, supplier, amount, details = {}, title = null, notes = null, fewQuotationsReason = null, quotationId = null, userId, items, prices = null }) {
   const [[{ n }]] = await db.execute('SELECT COUNT(*) AS n FROM lots WHERE purchase_request_id = ?', [prId])
   const lot_number = `LOT-${String(Number(n) + 1).padStart(3, '0')}`
   const [lot] = await db.execute(
     `INSERT INTO lots (purchase_request_id, lot_number, title, status, awarded_to, awarded_amount,
                        ${SUPPLIER_COLUMNS.join(', ')}, notes, few_quotations_reason, quotation_id, created_by)
-     VALUES (?, ?, ?, 'awarded', ?, ?, ${SUPPLIER_COLUMNS.map(() => '?').join(', ')}, ?, ?, ?, ?)`,
-    [prId, lot_number, title, supplier, amount, ...SUPPLIER_COLUMNS.map(c => details[c] || null), notes, fewQuotationsReason, quotationId, userId]
+     VALUES (?, ?, ?, ?, ?, ?, ${SUPPLIER_COLUMNS.map(() => '?').join(', ')}, ?, ?, ?, ?)`,
+    [prId, lot_number, title, status, supplier, amount, ...SUPPLIER_COLUMNS.map(c => details[c] || null), notes, fewQuotationsReason, quotationId, userId]
   )
   if (items.length) {
     await db.execute(
@@ -191,11 +203,11 @@ async function announceAwards(io, prNumber, lots) {
   }
 }
 
-// Cancels the PR's awards that have no PO (a recanvass, or the PR cancelled),
-// noting why on each. Resolves with how many.
+// Cancels the PR's awards (and recommendations) that have no PO (a recanvass,
+// or the PR cancelled), noting why on each. Resolves with how many.
 async function cancelAwards(db, prId, note) {
   const [r] = await db.execute(
-    "UPDATE lots SET status = 'cancelled', notes = CONCAT_WS('\\n', notes, ?) WHERE purchase_request_id = ? AND status = 'awarded' AND po_id IS NULL",
+    "UPDATE lots SET status = 'cancelled', notes = CONCAT_WS('\\n', notes, ?) WHERE purchase_request_id = ? AND status IN ('recommended', 'awarded') AND po_id IS NULL",
     [note, prId]
   )
   return r.affectedRows

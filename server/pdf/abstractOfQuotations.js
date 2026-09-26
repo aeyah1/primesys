@@ -12,6 +12,9 @@ const { cents, lineCents, supplierKey } = require('../utils/awardWorkflow')
 // supplier across it, each one's quoted price, and which supplier won each item
 // with the lowest marked. That is the document proving the canvass happened.
 
+// Awards that hold their items: approved, or recommended to the BAC.
+const HELD = ['awarded', 'recommended']
+
 module.exports = function drawAbstract(doc, { pr, quotes, prices, lots, lotItems, items, orgSettings = {} }) {
   const f = forms(doc)
   const s = (key, fallback = '') => (orgSettings[key] || '').trim() || fallback
@@ -111,7 +114,7 @@ module.exports = function drawAbstract(doc, { pr, quotes, prices, lots, lotItems
     // Each supplier's total for what they actually won. Matched on the same
     // normalised name the awards use, so spacing or case cannot split a total.
     const wonTotal = (supplier) => lots
-      .filter(l => l.status === 'awarded' && supplierKey(l.awarded_to) === supplierKey(supplier))
+      .filter(l => HELD.includes(l.status) && supplierKey(l.awarded_to) === supplierKey(supplier))
       .reduce((sum, l) => sum + cents(l.awarded_amount), 0) / 100
     COLS.forEach((c, i) => f.rect(X[i], y, c.width, ROW_H))
     f.put('Awarded total', X[0], y, COLS[0].width, ROW_H, { font: 'Times-Bold' })
@@ -127,13 +130,15 @@ module.exports = function drawAbstract(doc, { pr, quotes, prices, lots, lotItems
   }
 
   // ── Awards, and why any of them was not the lowest ──────────────────
-  const awarded = lots.filter(l => l.status === 'awarded')
+  // A recommendation waiting for the BAC is listed and marked as such.
+  const awarded = lots.filter(l => HELD.includes(l.status))
   if (awarded.length) {
     doc.font('Times-Bold').fontSize(9).fillColor(BLACK).text('Awards', M, y, { width: W })
     y = doc.y + 3
     for (const lot of awarded) {
       const note = [lot.notes, lot.few_quotations_reason].filter(Boolean).join(' - ')
       const text = `${lot.lot_number}: ${lot.awarded_to} - ${amount(lot.awarded_amount)}`
+        + `${lot.status === 'recommended' ? ' (recommended, awaiting BAC approval)' : ''}`
         + `${lot.po_number ? ` (${lot.po_number})` : ''}${note ? `\n${note}` : ''}`
       const h = f.heightIn('Times-Roman', 8.5, text, W - PAD * 2) + PAD * 2
       if (y + h > BOTTOM - 80) { doc.addPage(); y = M }

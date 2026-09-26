@@ -107,9 +107,9 @@ router.patch('/:id',
   c.update
 )
 
-// How the purchase is procured: Procurement's call, not the requestor's.
+// How the purchase is procured: Procurement's or the BAC's call, not the requestor's.
 router.patch('/:id/mode',
-  authorize('procurement', 'admin'), prAccess,
+  authorize('procurement', 'admin', 'bac'), prAccess,
   oneOfRule('mode_of_procurement', 'Pick a valid mode of procurement', PROCUREMENT_MODES, { required: true }),
   handle,
   c.setProcurementMode)

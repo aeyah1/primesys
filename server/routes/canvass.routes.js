@@ -28,7 +28,7 @@ const quotationRules = [
   moneyRule('prices.*.unit_price', 'Each quoted price', { required: true, positive: true }),
 ]
 
-router.get('/:prId', authorize('procurement', 'admin', 'supply'), prAccess, c.summary)
+router.get('/:prId', authorize('procurement', 'admin', 'supply', 'bac'), prAccess, c.summary)
 router.post('/:prId/quotations',        staff, prAccess, quotationRules, handle, c.createQuotation)
 router.patch('/:prId/quotations/:qid',  staff, prAccess, quotationRules, handle, c.updateQuotation)
 router.delete('/:prId/quotations/:qid', staff, prAccess, c.deleteQuotation)

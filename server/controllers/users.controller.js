@@ -26,7 +26,7 @@ async function saveAreas(conn, userId, role, areas, byId) {
   return true
 }
 
-const VALID_ROLES = ['admin', 'procurement', 'requestor', 'supply', 'twg']
+const VALID_ROLES = ['admin', 'procurement', 'requestor', 'supply', 'twg', 'bac']
 
 // User Management list: role tabs, status and TWG-area filters, and these
 // orders. "role" groups staff first in workflow order, then requestors, the
@@ -35,7 +35,7 @@ const USER_SORTS = {
   newest: 'u.created_at DESC, u.id DESC',
   oldest: 'u.created_at ASC, u.id ASC',
   name:   'u.name ASC, u.id ASC',
-  role:   "FIELD(u.role, 'admin', 'twg', 'procurement', 'supply', 'requestor'), u.name ASC, u.id ASC",
+  role:   "FIELD(u.role, 'admin', 'twg', 'procurement', 'bac', 'supply', 'requestor'), u.name ASC, u.id ASC",
 }
 const STATUS_FILTERS = {
   active:     'u.is_active = 1',

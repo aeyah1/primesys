@@ -82,7 +82,8 @@ const show = (r) => r.data?.permissions ? `${r.status} ${JSON.stringify(r.data.p
 
 const R = []
 const add = (g, label, who, m, p, body, fn, want) => R.push({ g, label, who, m, p, body, fn, want })
-const P_ = (edit, del, next, twg_review = false) => ({ edit, delete: del, next_statuses: next, twg_review })
+// set_mode: Procurement or an admin may still pick the mode of procurement (no award yet, PR not closed).
+const P_ = (edit, del, next, twg_review = false, set_mode = false) => ({ edit, delete: del, next_statuses: next, set_mode, twg_review })
 // What this user may do with the PR's (first) active PO: a PR may have one per supplier.
 const firstPO = (fn) => (r) => r.status === 200 && Array.isArray(r.data.pos) && fn(r.data.pos[0] || {})
 const idsOf = (d) => (Array.isArray(d) ? d : d?.data || []).map(r => r.id).sort((a, b) => a - b)
@@ -93,15 +94,16 @@ const NEW = {}   // ids captured during the run
 add('Permissions', 'requestor, own draft',          3, 'GET', '/pr/12', undefined, perms(P_(true, true, ['submitted'])), 'edit, delete, → submitted')
 add('Permissions', 'requestor, own submitted',      3, 'GET', '/pr/13', undefined, perms(P_(false, false, ['draft'])), 'locked, → draft (withdraw)')
 add('Permissions', 'requestor, TWG-approved',       3, 'GET', '/pr/15', undefined, perms(P_(false, false, [])), 'read-only')
-add('Permissions', 'procurement, for_po no PO',     2, 'GET', '/pr/22', undefined, perms(P_(false, false, ['bidding', 'cancelled'])), 'recanvass/cancel only')
+// PRs 22 and 19 were awarded with no mode on record, so it can still be filled in.
+add('Permissions', 'procurement, for_po no PO',     2, 'GET', '/pr/22', undefined, perms(P_(false, false, ['bidding', 'cancelled'], false, true)), 'recanvass/cancel only')
 add('Permissions', 'procurement, for_po with PO',   2, 'GET', '/pr/19', undefined,
-  (r) => perms(P_(false, false, []))(r) && r.data.pos.length === 1 && r.data.pos[0].can_cancel && r.data.pos[0].can_record_delivery, 'its PO: cancel, record delivery')
+  (r) => perms(P_(false, false, [], false, true))(r) && r.data.pos.length === 1 && r.data.pos[0].can_cancel && r.data.pos[0].can_record_delivery, 'its PO: cancel, record delivery')
 // From submission on, items and details are locked for every role; Procurement
 // can return an approved PR for revision instead (audit WF-1).
-add('Permissions', 'procurement, TWG-approved',     2, 'GET', '/pr/20', undefined, perms(P_(false, true, ['bidding', 'revision_requested', 'cancelled'])), 'locked; canvass, return, cancel')
-add('Permissions', 'procurement, own draft',        2, 'GET', '/pr/24', undefined, perms(P_(true, true, ['submitted', 'cancelled'])), 'submit own')
-add('Permissions', "procurement, someone's submitted", 2, 'GET', '/pr/25', undefined, perms(P_(false, false, [])), 'locked; cancel and delete are admin-only at the TWG (WF-6, WF-7)')
-add('Permissions', "admin, someone's submitted",      1, 'GET', '/pr/25', undefined, perms(P_(false, true, ['draft', 'cancelled'], true)), 'admin may still cancel, delete, or review')
+add('Permissions', 'procurement, TWG-approved',     2, 'GET', '/pr/20', undefined, perms(P_(false, true, ['bidding', 'revision_requested', 'cancelled'], false, true)), 'locked; canvass, return, cancel')
+add('Permissions', 'procurement, own draft',        2, 'GET', '/pr/24', undefined, perms(P_(true, true, ['submitted', 'cancelled'], false, true)), 'submit own')
+add('Permissions', "procurement, someone's submitted", 2, 'GET', '/pr/25', undefined, perms(P_(false, false, [], false, true)), 'locked; cancel and delete are admin-only at the TWG (WF-6, WF-7)')
+add('Permissions', "admin, someone's submitted",      1, 'GET', '/pr/25', undefined, perms(P_(false, true, ['draft', 'cancelled'], true, true)), 'admin may still cancel, delete, or review')
 add('Permissions', 'admin, completed',              1, 'GET', '/pr/16', undefined, perms(P_(false, false, [])), 'final: kept, not deletable')
 add('Permissions', 'list rows carry permissions',   3, 'GET', '/pr?limit=100', undefined,
   (r) => { const row = (id) => r.data.data.find(x => x.id === id)

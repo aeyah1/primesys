@@ -51,6 +51,13 @@ router.patch('/',  auth, authorize('admin'),
   body('minimum_quotations').if(v => v !== undefined && v !== null && v !== '')
     .isInt({ min: 1, max: 99 }).withMessage('Minimum quotations must be a whole number from 1 to 99'),
 
+  // Bids and Awards Committee
+  body('bac_approval_required').if(v => v !== undefined && v !== null && v !== '')
+    .isIn(['0', '1']).withMessage('BAC approval must be on (1) or off (0)'),
+  textRule('bac_chairman_name', 'BAC Chairman name', 150),
+  textRule('bac_chairman_designation', 'BAC Chairman designation', 150),
+  textRule('bac_members', 'BAC members', 2000),
+
   handle,
   c.update)
 
