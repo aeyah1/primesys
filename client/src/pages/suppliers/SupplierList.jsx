@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { Search, Plus, Pencil, Store, Mail, Phone, MapPin, CreditCard, User, BadgeCheck, Ban } from 'lucide-react'
+import { Search, Plus, Pencil, Store, Mail, Phone, MapPin, CreditCard, User, Ban } from 'lucide-react'
 import { toast } from 'sonner'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -15,13 +15,12 @@ const TABS = [
   { key: 'active',      label: 'Active' },
   { key: 'blacklisted', label: 'Blacklisted' },
 ]
-const EMPTY = { name: '', tin: '', address: '', contact_person: '', email: '', phone: '', philgeps_no: '', status: 'active', status_note: '' }
+const EMPTY = { name: '', tin: '', address: '', contact_person: '', email: '', phone: '', status: 'active', status_note: '' }
 const FIELDS = [
   { key: 'contact_person', label: 'Contact person',   placeholder: 'e.g. Ana Reyes' },
   { key: 'email',          label: 'Email address',    placeholder: 'sales@supplier.com', hint: 'RFQs are emailed here.' },
   { key: 'phone',          label: 'Phone number',     placeholder: '0917 123 4567' },
   { key: 'tin',            label: 'TIN',              placeholder: '123-456-789-000' },
-  { key: 'philgeps_no',    label: 'PhilGEPS registration no.', placeholder: '' },
 ]
 
 /* ── Add or edit one supplier ─────────────────────────────────────────── */
@@ -135,9 +134,9 @@ export default function SupplierList() {
                   <div className="min-w-0 flex-1">
                     <p className="flex items-center gap-2 text-sm font-semibold text-[--color-text-primary]">
                       {s.name}
-                      {s.status === 'blacklisted'
-                        ? <span className="inline-flex items-center gap-1 rounded-full border border-red-300 bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-red-700"><Ban className="size-3" /> Blacklisted</span>
-                        : s.philgeps_no && <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700"><BadgeCheck className="size-3" /> PhilGEPS {s.philgeps_no}</span>}
+                      {s.status === 'blacklisted' && (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-red-300 bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-red-700"><Ban className="size-3" /> Blacklisted</span>
+                      )}
                     </p>
                     <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[--color-text-secondary]">
                       {s.contact_person && <span className="flex items-center gap-1"><User className="size-3" /> {s.contact_person}</span>}
