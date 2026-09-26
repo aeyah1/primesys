@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { Trophy, ChevronRight, FileDown, Search, ShoppingCart, Gavel, ExternalLink } from 'lucide-react'
 import { toast } from 'sonner'
 import { Card } from '@/components/ui/card'
@@ -10,7 +10,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { CategoryBadge, DeliveryStatusBadge, PRStatusBadge } from '@/components/shared/StatusBadge'
 import CanvassPanel from '@/components/awards/CanvassPanel'
-import { fmtCurrency, CATEGORY_LABELS } from '@/lib/utils'
+import OpenQuotationsDialog from '@/components/awards/OpenQuotationsDialog'
+import { fmtCurrency, fmtDatetime, CATEGORY_LABELS } from '@/lib/utils'
 import { openPdf, blobErrorMessage } from '@/lib/download'
 import { useAuth } from '@/context/AuthContext'
 import api from '@/lib/axios'
@@ -52,7 +53,7 @@ const abstractPdf = (prId) => openPdf(`/lots/pr/${prId}/pdf`)
   .catch(async (err) => toast.error(await blobErrorMessage(err, 'Could not open the Abstract of Quotations')))
 
 /* ── One PR in the queue, on one line; a click opens its canvass ──────── */
-function AwardRow({ row, stage, canManage, onOpen, onStart, starting }) {
+function AwardRow({ row, stage, canManage, onOpen, onStart }) {
   const days      = daysSince(row.stage_since)
   const estimate  = Number(row.estimated_total)
   const awarded   = Number(row.awarded_total)
@@ -95,7 +96,17 @@ function AwardRow({ row, stage, canManage, onOpen, onStart, starting }) {
       </div>
 
       <div className="basis-32 text-xs space-y-1">
-        {['to_canvass', 'needs_award', 'with_bac', 'awaiting_po'].includes(stage) && (
+        {stage === 'needs_award' && row.quotations_due ? (
+          // The canvass schedule: when quotations close, and how many are in.
+          <>
+            <p className={Number(row.quotations_open) ? 'text-[--color-text-secondary]' : 'font-semibold text-emerald-700'}>
+              {Number(row.quotations_open) ? `Closes ${fmtDatetime(row.quotations_due)}` : 'Closed: ready for the BAC'}
+            </p>
+            <p className="text-[--color-text-muted]">
+              {plural(Number(row.quotations), 'quotation')}{Number(row.invited) ? ` of ${Number(row.invited)} invited` : ''}
+            </p>
+          </>
+        ) : ['to_canvass', 'needs_award', 'with_bac', 'awaiting_po'].includes(stage) && (
           <p className={days > 3 ? 'font-semibold text-amber-700' : 'text-[--color-text-muted]'}>Waiting {plural(days, 'day')}</p>
         )}
         {row.po_count > 0 && (stage === 'po_issued' || stage === 'awaiting_po') && (
@@ -109,8 +120,8 @@ function AwardRow({ row, stage, canManage, onOpen, onStart, starting }) {
 
       <div className="flex items-center gap-1.5 ml-auto" onClick={e => e.stopPropagation()}>
         {canManage && stage === 'to_canvass' ? (
-          <Button size="sm" className="gap-1.5" disabled={starting} onClick={onStart}>
-            <Gavel className="size-3.5" /> {starting ? 'Starting…' : 'Start canvass'}
+          <Button size="sm" className="gap-1.5" onClick={onStart}>
+            <Gavel className="size-3.5" /> Open for quotations
           </Button>
         ) : canManage && stage === 'needs_award' ? (
           <Button size="sm" className="gap-1.5" onClick={onOpen}>
@@ -229,16 +240,8 @@ export default function Bidding() {
     placeholderData: keepPreviousData,
     refetchInterval: 30000,
   })
-  // Start canvass: the request moves to Bidding and its canvass opens here.
-  const qc = useQueryClient()
-  const { mutate: startCanvass, isPending: starting, variables: startingId } = useMutation({
-    mutationFn: (id) => api.patch(`/pr/${id}/status`, { status: 'bidding' }),
-    onSuccess: (_, id) => {
-      for (const key of [['lot-queue'], ['pr', String(id)], ['pr-list'], ['pr-stats']]) qc.invalidateQueries({ queryKey: key })
-      update({ stage: 'needs_award', page: '', pr: id })
-    },
-    onError: (err) => toast.error(err.response?.data?.message || 'Could not start the canvass'),
-  })
+  // Open for quotations: the request moves under canvass and its canvass opens here.
+  const [opening, setOpening] = useState(null)   // the row being opened
   const rows    = data?.data ?? []
   const counts  = data?.counts
   const inStage = Object.values(counts?.categories || {}).reduce((a, b) => a + b, 0)
@@ -306,13 +309,13 @@ export default function Bidding() {
               {search || category ? 'No PRs match these filters.' : current.empty}
             </p>
             {canManage && stage === 'needs_award' && !search && !category && (
-              <p className="text-ui-xs text-[--color-text-muted] mt-1">A request moves here when you start its canvass under To canvass.</p>
+              <p className="text-ui-xs text-[--color-text-muted] mt-1">A request moves here when you open it for quotations under To canvass.</p>
             )}
           </div>
         ) : (
           rows.map(row => (
             <AwardRow key={row.id} row={row} stage={stage} canManage={canManage} onOpen={() => update({ pr: row.id })}
-              onStart={() => startCanvass(row.id)} starting={starting && startingId === row.id} />
+              onStart={() => setOpening(row)} />
           ))
         )}
 
@@ -327,6 +330,10 @@ export default function Bidding() {
         )}
       </Card>
 
+      {opening && (
+        <OpenQuotationsDialog pr={opening} onClose={() => setOpening(null)}
+          onOpened={() => update({ stage: 'needs_award', page: '', pr: opening.id })} />
+      )}
       <CanvassDialog prId={openId} row={rows.find(r => String(r.id) === openId)} canManage={canManage} onClose={() => update({ pr: '' })} />
     </div>
   )

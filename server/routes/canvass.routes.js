@@ -54,8 +54,16 @@ router.patch('/:prId/quotations/:qid/qualification', authorize('bac'), prAccess,
   textRule('reason', 'Reason', 500),
   handle,
   c.setQualification)
-// RFQs emailed to suppliers on the master list (controllers/rfq.controller.js).
+// Canvass schedule and RFQs emailed to suppliers on the list (controllers/rfq.controller.js).
 const rfq = require('../controllers/rfq.controller')
+// Open for quotations: mode, schedule, and the suppliers emailed (none for a canvass on paper).
+router.post('/:prId/open', staff, prAccess,
+  textRule('mode_of_procurement', 'Mode of procurement', 60, { required: true }),
+  textRule('deadline', 'Closing time', 16, { required: true }),
+  body('supplier_ids').optional().isArray({ max: 50 }).withMessage('The suppliers must be a list'),
+  body('supplier_ids.*').isInt({ min: 1 }).withMessage('Unknown supplier').toInt(),
+  handle,
+  rfq.open)
 router.post('/:prId/rfq', staff, prAccess,
   body('supplier_ids').isArray({ min: 1, max: 50 }).withMessage('Choose at least one supplier'),
   body('supplier_ids.*').isInt({ min: 1 }).withMessage('Unknown supplier').toInt(),

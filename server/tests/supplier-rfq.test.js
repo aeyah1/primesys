@@ -193,6 +193,40 @@ async function run() {
   const [lotRow] = await H.sql(TEST_DB, 'SELECT supplier_email FROM lots WHERE id = ?', [lot.data.id])
   t.check(L, '…with its details from the list', lotRow?.supplier_email === 'gamma@x.invalid', JSON.stringify(lotRow))
 
+  // ── Open for quotations ─────────────────────────────────────────────
+  const O = 'Open for quotations'
+  const approved = async (title) => {
+    const id = (await http(2, 'POST', '/pr', { title, items: [{ item_name: 'Chair', quantity: 10, estimated_cost: 1500 }] })).data.id
+    await http(2, 'PATCH', `/pr/${id}/status`, { status: 'submitted' })
+    await http(4, 'POST', `/twg/${id}/review`, { action: 'approve' })
+    return id
+  }
+  const e = await approved('Chairs, emailed')
+  await is(O, 'a requestor can\'t open it', 3, 'POST', `/canvass/${e}/open`, { mode_of_procurement: 'Shopping', deadline: inDays(3) }, r => r.status === 403, '403')
+  await is(O, 'an unknown mode is refused', 2, 'POST', `/canvass/${e}/open`, { mode_of_procurement: 'Telepathy', deadline: inDays(3) }, r => r.status === 400, '400')
+  await is(O, 'a past closing time is refused', 2, 'POST', `/canvass/${e}/open`, { mode_of_procurement: 'Shopping', deadline: inDays(-1) }, r => r.status === 400, '400')
+  MAIL.length = 0
+  await is(O, 'opened with its mode, schedule and two suppliers emailed', 2, 'POST', `/canvass/${e}/open`,
+    { mode_of_procurement: 'Small Value Procurement', deadline: inDays(4), supplier_ids: [alpha, gamma] }, r => r.status === 201 && r.data.results.length === 2)
+  const [opened1] = await H.sql(TEST_DB, 'SELECT status, mode_of_procurement, quotations_due FROM purchase_requests WHERE id = ?', [e])
+  t.check(O, 'the PR is under canvass, with its mode and schedule', opened1.status === 'bidding' && opened1.mode_of_procurement === 'Small Value Procurement' && opened1.quotations_due, JSON.stringify(opened1))
+  t.check(O, 'the RFQs went out on that schedule', MAIL.length === 2
+    && (await H.sql(TEST_DB, 'SELECT COUNT(*) AS n FROM rfq_invitations WHERE purchase_request_id = ? AND deadline = ?', [e, opened1.quotations_due]))[0].n === 2)
+  await is(O, 'it can\'t be opened twice', 2, 'POST', `/canvass/${e}/open`, { mode_of_procurement: 'Shopping', deadline: inDays(3) }, r => r.status === 409, '409')
+  await is(O, 'the Work Queue shows the schedule', 2, 'GET', '/lots/queue?stage=needs_award', undefined,
+    r => { const row = r.data.data.find(x => x.id === e); return row && row.quotations_due && Number(row.quotations_open) === 1 && Number(row.invited) === 2 })
+
+  const paper = await approved('Chairs, on paper')
+  MAIL.length = 0
+  await is(O, 'a canvass on paper opens with nobody emailed', 2, 'POST', `/canvass/${paper}/open`,
+    { mode_of_procurement: 'Shopping', deadline: inDays(2) }, r => r.status === 201 && MAIL.length === 0)
+  await is(O, 'its schedule shows, nothing is sealed', 2, 'GET', `/canvass/${paper}`, undefined,
+    r => r.data.schedule.open === true && r.data.rfq.open === false)
+  await is(O, 'a supplier emailed later joins the same schedule', 2, 'POST', `/canvass/${paper}/rfq`, { supplier_ids: [beta], deadline: inDays(9) }, r => r.status === 201)
+  const [pSched] = await H.sql(TEST_DB, 'SELECT quotations_due FROM purchase_requests WHERE id = ?', [paper])
+  t.check(O, '…not the one sent with it', (await H.sql(TEST_DB, 'SELECT deadline FROM rfq_invitations WHERE purchase_request_id = ?', [paper]))[0].deadline.getTime() === pSched.quotations_due.getTime())
+  await is(O, 'the schedule can be extended', 2, 'PATCH', `/canvass/${paper}/rfq/deadline`, { deadline: inDays(6) }, r => r.status === 200)
+
   return t.summary()
 }
 
