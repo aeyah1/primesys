@@ -40,15 +40,52 @@ function Field({ icon: Icon, label, value, multiline = false }) {
   )
 }
 
+// Whether the PR has any request context to show.
+export function hasRequestContext(pr) {
+  return !!pr && !!(pr.department || pr.purpose_type || pr.purpose || pr.date_needed ||
+    pr.event_name || pr.project_name || pr.requested_by_name)
+}
+
+// The context fields alone, for a card that holds other details too.
+export function RequestContextFields({ pr, className = '' }) {
+  return (
+    <div className={`grid sm:grid-cols-2 lg:grid-cols-3 gap-4 ${className}`}>
+      <Field icon={Building2}    label="Office / Section" value={pr.department} />
+      {/* Who the printed form names as the requesting party: the head of the
+          office, as they stood when it was filed. */}
+      <Field
+        icon={UserCheck}
+        label="Requested by"
+        value={pr.requested_by_name
+          ? `${pr.requested_by_name}${pr.requested_by_designation ? ` — ${pr.requested_by_designation}` : ''}`
+          : null}
+      />
+      <Field icon={Calendar}     label="Date needed"     value={pr.date_needed ? fmtDate(pr.date_needed) : null} />
+
+      {pr.purpose_type === 'event' && (
+        <>
+          <Field icon={Calendar} label="Event name" value={pr.event_name} />
+          <Field icon={Calendar} label="Event date" value={pr.event_date ? fmtDate(pr.event_date) : null} />
+        </>
+      )}
+
+      {pr.purpose_type === 'project' && (
+        <Field icon={Briefcase} label="Project name" value={pr.project_name} />
+      )}
+
+      {pr.purpose && (
+        <div className="sm:col-span-2 lg:col-span-3">
+          <Field icon={ClipboardList} label="Justification" value={pr.purpose} multiline />
+        </div>
+      )}
+    </div>
+  )
+}
+
 // Display block used on PRDetail and TwgReviewDetail. Skips fields with no value
 // so a sparse PR doesn't render empty rows.
 export default function RequestContextDisplay({ pr }) {
-  if (!pr) return null
-
-  // Only render the card if there's anything to show.
-  const hasAny = pr.department || pr.purpose_type || pr.purpose || pr.date_needed ||
-                 pr.event_name || pr.project_name || pr.requested_by_name
-  if (!hasAny) return null
+  if (!hasRequestContext(pr)) return null
 
   return (
     <Card>
@@ -59,36 +96,7 @@ export default function RequestContextDisplay({ pr }) {
         </div>
         {pr.purpose_type && <PurposeTypeBadge type={pr.purpose_type} />}
       </CardHeader>
-      <CardContent className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <Field icon={Building2}    label="Office / Section" value={pr.department} />
-        {/* Who the printed form names as the requesting party: the head of the
-            office, as they stood when it was filed. */}
-        <Field
-          icon={UserCheck}
-          label="Requested by"
-          value={pr.requested_by_name
-            ? `${pr.requested_by_name}${pr.requested_by_designation ? ` — ${pr.requested_by_designation}` : ''}`
-            : null}
-        />
-        <Field icon={Calendar}     label="Date needed"     value={pr.date_needed ? fmtDate(pr.date_needed) : null} />
-
-        {pr.purpose_type === 'event' && (
-          <>
-            <Field icon={Calendar} label="Event name" value={pr.event_name} />
-            <Field icon={Calendar} label="Event date" value={pr.event_date ? fmtDate(pr.event_date) : null} />
-          </>
-        )}
-
-        {pr.purpose_type === 'project' && (
-          <Field icon={Briefcase} label="Project name" value={pr.project_name} />
-        )}
-
-        {pr.purpose && (
-          <div className="sm:col-span-2 lg:col-span-3">
-            <Field icon={ClipboardList} label="Justification" value={pr.purpose} multiline />
-          </div>
-        )}
-      </CardContent>
+      <CardContent><RequestContextFields pr={pr} /></CardContent>
     </Card>
   )
 }

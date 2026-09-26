@@ -22,7 +22,7 @@ import { SectionNameInput, SectionHeaderRow } from '@/components/shared/ItemSect
 import RequestProgress from '@/components/shared/RequestProgress'
 import CategorySpecFields from '@/components/shared/CategorySpecFields'
 import UnitInput from '@/components/shared/UnitInput'
-import RequestContextDisplay from '@/components/shared/RequestContextDisplay'
+import { RequestContextFields, PurposeTypeBadge, hasRequestContext } from '@/components/shared/RequestContextDisplay'
 import PurchaseOrders from './PurchaseOrders'
 import ProcurementActions from './ProcurementActions'
 import { useAuth } from '@/context/AuthContext'
@@ -627,6 +627,8 @@ export default function PRDetail() {
     </div>
   )
 
+  const showDetails = (!isRequestor && (pr.fund_cluster || pr.responsibility_center_code)) || pr.notes || canManage || pr.permissions?.set_mode
+
   return (
     <div className="space-y-5">
 
@@ -814,59 +816,66 @@ export default function PRDetail() {
       {/* Plain-language "where is my request" for the person who filed it */}
       {isRequestor && !pr.deleted_at && <RequestProgress pr={pr} />}
 
-      {/* PR Details (fund codes are procurement's business, not shown to requestors) */}
-      {((!isRequestor && (pr.fund_cluster || pr.responsibility_center_code)) || pr.notes || canManage || pr.permissions?.set_mode) && (
+      {/* PR Details: the fund codes (not shown to requestors), then who asked and why */}
+      {(showDetails || hasRequestContext(pr)) && (
         <Card>
-          <CardHeader><CardTitle>PR Details</CardTitle></CardHeader>
-          <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {!isRequestor && pr.fund_cluster && (
-              <div>
-                <p className="text-ui-xs text-[--color-text-muted] font-medium uppercase tracking-wide">
-                  Fund Cluster{pr.fund_source ? ` · ${pr.fund_source}` : ''}
-                </p>
-                <p className="text-ui-sm text-[--color-text-primary] font-medium mt-0.5">{pr.fund_cluster}</p>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle>PR Details</CardTitle>
+            {pr.purpose_type && <PurposeTypeBadge type={pr.purpose_type} />}
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {showDetails && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {!isRequestor && pr.fund_cluster && (
+                  <div>
+                    <p className="text-ui-xs text-[--color-text-muted] font-medium uppercase tracking-wide">
+                      Fund Cluster{pr.fund_source ? ` · ${pr.fund_source}` : ''}
+                    </p>
+                    <p className="text-ui-sm text-[--color-text-primary] font-medium mt-0.5">{pr.fund_cluster}</p>
+                  </div>
+                )}
+                {/* How this is procured: Procurement's or the BAC's call, fixed once a supplier is awarded. */}
+                {pr.permissions?.set_mode && (
+                  <div>
+                    <p className="text-ui-xs text-[--color-text-muted] font-medium uppercase tracking-wide">Mode of Procurement</p>
+                    <Select
+                      value={pr.mode_of_procurement || ''}
+                      onValueChange={(mode_of_procurement) => setMode({ mode_of_procurement })}
+                      disabled={settingMode}
+                    >
+                      <SelectTrigger className="mt-1"><SelectValue placeholder="Not set" /></SelectTrigger>
+                      <SelectContent>
+                        {PROCUREMENT_MODES.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {!pr.permissions?.set_mode && pr.mode_of_procurement && (
+                  <div>
+                    <p className="text-ui-xs text-[--color-text-muted] font-medium uppercase tracking-wide">Mode of Procurement</p>
+                    <p className="text-ui-sm text-[--color-text-primary] font-medium mt-0.5">{pr.mode_of_procurement}</p>
+                  </div>
+                )}
+                {!isRequestor && pr.responsibility_center_code && (
+                  <div>
+                    <p className="text-ui-xs text-[--color-text-muted] font-medium uppercase tracking-wide">Responsibility Center Code</p>
+                    <p className="text-ui-sm text-[--color-text-primary] font-medium mt-0.5">{pr.responsibility_center_code}</p>
+                  </div>
+                )}
+                {pr.notes && (
+                  <div className="sm:col-span-2">
+                    <p className="text-ui-xs text-[--color-text-muted] font-medium uppercase tracking-wide">Notes</p>
+                    <p className="text-ui-sm text-[--color-text-secondary] mt-0.5 leading-relaxed">{pr.notes}</p>
+                  </div>
+                )}
               </div>
             )}
-            {/* How this is procured: Procurement's or the BAC's call, fixed once a supplier is awarded. */}
-            {pr.permissions?.set_mode && (
-              <div>
-                <p className="text-ui-xs text-[--color-text-muted] font-medium uppercase tracking-wide">Mode of Procurement</p>
-                <Select
-                  value={pr.mode_of_procurement || ''}
-                  onValueChange={(mode_of_procurement) => setMode({ mode_of_procurement })}
-                  disabled={settingMode}
-                >
-                  <SelectTrigger className="mt-1"><SelectValue placeholder="Not set" /></SelectTrigger>
-                  <SelectContent>
-                    {PROCUREMENT_MODES.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-            {!pr.permissions?.set_mode && pr.mode_of_procurement && (
-              <div>
-                <p className="text-ui-xs text-[--color-text-muted] font-medium uppercase tracking-wide">Mode of Procurement</p>
-                <p className="text-ui-sm text-[--color-text-primary] font-medium mt-0.5">{pr.mode_of_procurement}</p>
-              </div>
-            )}
-            {!isRequestor && pr.responsibility_center_code && (
-              <div>
-                <p className="text-ui-xs text-[--color-text-muted] font-medium uppercase tracking-wide">Responsibility Center Code</p>
-                <p className="text-ui-sm text-[--color-text-primary] font-medium mt-0.5">{pr.responsibility_center_code}</p>
-              </div>
-            )}
-            {pr.notes && (
-              <div className="sm:col-span-2">
-                <p className="text-ui-xs text-[--color-text-muted] font-medium uppercase tracking-wide">Notes</p>
-                <p className="text-ui-sm text-[--color-text-secondary] mt-0.5 leading-relaxed">{pr.notes}</p>
-              </div>
+            {hasRequestContext(pr) && (
+              <RequestContextFields pr={pr} className={showDetails ? 'border-t border-[--color-border] pt-4' : ''} />
             )}
           </CardContent>
         </Card>
       )}
-
-      {/* Request Context — only renders if the PR has any context fields filled */}
-      <RequestContextDisplay pr={pr} />
 
       {/* Items Requested */}
       <PRItemsSection prId={id} canEdit={!!pr.permissions?.edit} category={pr.category} />
