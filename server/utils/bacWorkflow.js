@@ -9,6 +9,8 @@ const { loadOrgSettings, bacApprovalRequired } = require('./orgSettings')
 
 // Who may approve or return recommended awards.
 const BAC_DECIDERS = ['bac', 'admin']
+// Who may read the BAC's queue and print its documents.
+const BAC_READERS = ['bac', 'admin', 'procurement']
 
 // The status a newly recorded award starts in.
 async function newAwardStatus(db) {
@@ -35,4 +37,4 @@ async function nextResolutionNumber(db, attempt = 0) {
   return `${year}-${String(Number(max_n || 0) + 1 + attempt).padStart(3, '0')}`
 }
 
-module.exports = { BAC_DECIDERS, newAwardStatus, notifyBac, nextResolutionNumber }
+module.exports = { BAC_DECIDERS, BAC_READERS, newAwardStatus, notifyBac, nextResolutionNumber }

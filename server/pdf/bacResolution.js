@@ -86,6 +86,7 @@ module.exports = function drawBacResolution(doc, { resolution, pr, abc, lots, qu
     doc.font('Times-Roman').fontSize(8.5).fillColor(BLACK).text(text, M, y, { width: W })
     y = doc.y + 3
   }
+  y += 4
   if (resolution.notes) para('NOTE:', resolution.notes)
   para('RESOLVED FURTHER,', 'that a Notice of Award be served on each supplier named above, and that a Purchase Order be issued upon its acceptance.')
   para('RESOLVED', `this ${fmtDate(resolution.resolved_on)} at ${s('entity_campus', 'the campus')}${s('entity_address') ? `, ${s('entity_address')}` : ''}.`)
@@ -96,11 +97,13 @@ module.exports = function drawBacResolution(doc, { resolution, pr, abc, lots, qu
     { name: s('bac_vice_chairman_name'), designation: s('bac_vice_chairman_designation', 'BAC Vice Chairman') },
     ...bacMembers(orgSettings).map(name => ({ name, designation: 'BAC Member' })),
   ]
-  const perRow = 3, colW = W / perRow, rowH = 58
-  y += 6
+  const perRow = 3, colW = W / perRow, rowH = 50
+  if (y + 16 + rowH > BOTTOM) { doc.addPage(); y = M }
+  doc.font('Times-Roman').fontSize(8.5).fillColor(BLACK).text('The Bids and Awards Committee:', M, y + 4, { width: W })
+  y += 16
   for (let i = 0; i < signers.length; i += perRow) {
     if (y + rowH > BOTTOM) { doc.addPage(); y = M }
-    signers.slice(i, i + perRow).forEach((p, k) => f.signature(M + colW * k, y, colW, { label: i === 0 && k === 0 ? 'The Bids and Awards Committee:' : '', ...p, align: 'center' }))
+    signers.slice(i, i + perRow).forEach((p, k) => f.signature(M + colW * k, y, colW, p))
     y += rowH
   }
 
