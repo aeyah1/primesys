@@ -110,6 +110,12 @@ async function run() {
     { prices: [{ item: laptop, unit_price: 47500 }, { item: mouse, unit_price: 450 }], delivery_period: '5 days' }, r => r.status === 200 && r.data.message === 'Quotation updated')
   await is(P, '…and sees its own latest prices', null, 'GET', `/public/quote/${alphaTok}`, undefined,
     r => Number(r.data.prices[laptop]) === 47500 && r.data.terms.delivery_period === '5 days')
+  await is(P, 'Alpha changes it a second time', null, 'POST', `/public/quote/${alphaTok}`,
+    { prices: [{ item: laptop, unit_price: 47500 }, { item: mouse, unit_price: 450 }], delivery_period: '5 days' }, r => r.status === 200)
+  await is(P, '…but not a fourth submission', null, 'POST', `/public/quote/${alphaTok}`,
+    { prices: [{ item: laptop, unit_price: 1 }] }, r => r.status === 429 && /at most 3 times/.test(r.data.message), '429')
+  await is(P, 'the page says no changes are left', null, 'GET', `/public/quote/${alphaTok}`, undefined,
+    r => r.data.changes_left === 0 && Number(r.data.prices[laptop]) === 47500)
   t.check(P, 'one quotation, not two', (await H.sql(TEST_DB, 'SELECT COUNT(*) AS n FROM quotations WHERE purchase_request_id = ?', [pr]))[0].n === 1)
   t.check(P, 'and no second notice', (await H.sql(TEST_DB, "SELECT id FROM notifications WHERE user_id = 2 AND message LIKE '%submitted a quotation%'")).length === 1)
 

@@ -329,6 +329,7 @@ CREATE TABLE `rfq_invitations` (
   `reminded_at`         DATETIME     NULL,
   `opened_at`           DATETIME     NULL,
   `submitted_at`        DATETIME     NULL,
+  `submit_count`        TINYINT UNSIGNED NOT NULL DEFAULT 0,
   `quotation_id`        INT UNSIGNED NULL,
   `created_by`          INT UNSIGNED NOT NULL,
   `created_at`          TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
