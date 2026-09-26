@@ -166,3 +166,22 @@ exports.extend = asyncHandler(async (req, res) => {
   const results = await sendAll(prId, pending)
   res.json({ message: `Deadline extended${results.length ? `; ${results.filter(r => r.sent).length} supplier${results.length === 1 ? '' : 's'} emailed a new link` : ''}`, results })
 })
+
+// POST /canvass/:prId/rfq/close - ends the schedule now. With RFQs emailed,
+// only once every invited supplier has quoted: the others were promised the
+// deadline. A canvass on paper alone can close whenever Procurement is done.
+exports.close = asyncHandler(async (req, res) => {
+  await withTransaction(async (conn) => {
+    const pr = await openCanvass(conn, req.params.prId)
+    if (!(await openSchedule(conn, pr.id))) throw httpError(409, 'Quotations are already closed')
+    const [waiting] = await conn.execute(
+      `SELECT s.name FROM rfq_invitations i JOIN suppliers s ON s.id = i.supplier_id
+        WHERE i.purchase_request_id = ? AND i.submitted_at IS NULL ORDER BY s.name`, [pr.id])
+    if (waiting.length) {
+      throw httpError(409, `${waiting.map(w => w.name).join(', ')} ${waiting.length === 1 ? 'has' : 'have'} not quoted yet, so the RFQ stays open until its deadline`)
+    }
+    await conn.execute('UPDATE purchase_requests SET quotations_due = NOW() WHERE id = ?', [pr.id])
+    await conn.execute('UPDATE rfq_invitations SET deadline = NOW() WHERE purchase_request_id = ?', [pr.id])
+  })
+  res.json({ message: 'Quotations closed. The prices are open.' })
+})

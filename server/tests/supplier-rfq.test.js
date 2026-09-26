@@ -208,6 +208,7 @@ async function run() {
   MAIL.length = 0
   await is(O, 'opened with its mode, schedule and two suppliers emailed', 2, 'POST', `/canvass/${e}/open`,
     { mode_of_procurement: 'Small Value Procurement', deadline: inDays(4), supplier_ids: [alpha, gamma] }, r => r.status === 201 && r.data.results.length === 2)
+  const eTokens = MAIL.map(tokenIn)
   const [opened1] = await H.sql(TEST_DB, 'SELECT status, mode_of_procurement, quotations_due FROM purchase_requests WHERE id = ?', [e])
   t.check(O, 'the PR is under canvass, with its mode and schedule', opened1.status === 'bidding' && opened1.mode_of_procurement === 'Small Value Procurement' && opened1.quotations_due, JSON.stringify(opened1))
   t.check(O, 'the RFQs went out on that schedule', MAIL.length === 2
@@ -226,6 +227,21 @@ async function run() {
   const [pSched] = await H.sql(TEST_DB, 'SELECT quotations_due FROM purchase_requests WHERE id = ?', [paper])
   t.check(O, '…not the one sent with it', (await H.sql(TEST_DB, 'SELECT deadline FROM rfq_invitations WHERE purchase_request_id = ?', [paper]))[0].deadline.getTime() === pSched.quotations_due.getTime())
   await is(O, 'the schedule can be extended', 2, 'PATCH', `/canvass/${paper}/rfq/deadline`, { deadline: inDays(6) }, r => r.status === 200)
+
+  // ── Closing early ───────────────────────────────────────────────────
+  const C = 'Close now'
+  await is(C, 'not while an invited supplier has yet to quote', 2, 'POST', `/canvass/${e}/rfq/close`, undefined, r => r.status === 409 && /not quoted yet/.test(r.data.message), '409')
+  const [chair] = (await http(2, 'GET', `/canvass/${e}`)).data.items.map(i => i.id)
+  for (const tk of eTokens) await http(null, 'POST', `/public/quote/${tk}`, { prices: [{ item: chair, unit_price: 1400 }] })
+  await is(C, 'a requestor may not close it', 3, 'POST', `/canvass/${e}/rfq/close`, undefined, r => r.status === 403, '403')
+  await is(C, 'once every invited supplier has quoted, it closes', 2, 'POST', `/canvass/${e}/rfq/close`, undefined, r => r.status === 200)
+  await is(C, 'the prices open at once', 2, 'GET', `/canvass/${e}`, undefined,
+    r => r.data.rfq.open === false && r.data.schedule.open === false && r.data.quotations.every(q => !q.sealed))
+  await is(C, 'a supplier can no longer change theirs', null, 'POST', `/public/quote/${eTokens[0]}`, { prices: [{ item: chair, unit_price: 1 }] }, r => r.status === 409, '409')
+  await is(C, 'not twice', 2, 'POST', `/canvass/${e}/rfq/close`, undefined, r => r.status === 409, '409')
+  const paper2 = await approved('Chairs, paper, closed early')
+  await http(2, 'POST', `/canvass/${paper2}/open`, { mode_of_procurement: 'Shopping', deadline: inDays(2) })
+  await is(C, 'a canvass on paper closes whenever Procurement is done', 2, 'POST', `/canvass/${paper2}/rfq/close`, undefined, r => r.status === 200)
 
   return t.summary()
 }

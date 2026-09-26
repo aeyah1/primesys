@@ -129,12 +129,25 @@ export default function RfqPanel({ prId, rfq, schedule, can }) {
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to resend'),
   })
   const invites = rfq?.invitations ?? []
+  // Closing early: once every invited supplier has quoted (they were promised the deadline), or any time on paper.
+  const canClose = can.canvass && schedule?.open && invites.every(i => i.submitted_at)
+  const { mutate: closeNow, isPending: closing } = useMutation({
+    mutationFn: () => api.post(`/canvass/${prId}/rfq/close`),
+    onSuccess: ({ data }) => { toast.success(data.message); refresh() },
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed to close the quotations'),
+  })
   if (!invites.length && !schedule?.due && !can.canvass) return null
 
   return (
     <div className="space-y-2">
       <SectionTitle action={can.canvass && (
         <div className="flex items-center gap-2">
+          {canClose && (
+            <Button size="sm" variant="ghost" className="gap-1.5 text-xs" disabled={closing}
+              onClick={() => { if (window.confirm(invites.length ? 'Every invited supplier has quoted. Close the quotations now and open the prices?' : 'Close the quotations now?')) closeNow() }}>
+              <Lock className="size-3.5" /> {closing ? 'Closing…' : 'Close quotations now'}
+            </Button>
+          )}
           {schedule?.open && <Button size="sm" variant="ghost" className="gap-1.5 text-xs" onClick={() => setExtending(true)}><CalendarClock className="size-3.5" /> Extend deadline</Button>}
           <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setSending(true)}><Mail className="size-3.5" /> Send RFQ by email</Button>
         </div>
