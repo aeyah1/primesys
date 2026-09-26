@@ -88,11 +88,11 @@ export default function App() {
           <Route path="pr/:id/edit" element={<ProtectedRoute roles={['procurement','admin','requestor']}><PREdit /></ProtectedRoute>} />
 
           <Route path="po"         element={<ProtectedRoute roles={['procurement','admin','supply','requestor']}><POList /></ProtectedRoute>} />
-          <Route path="delivery"   element={<ProtectedRoute roles={['procurement','admin','supply','requestor']}><DeliveryList /></ProtectedRoute>} />
-          <Route path="bidding"    element={<ProtectedRoute roles={['procurement','admin','requestor','supply']}><Bidding /></ProtectedRoute>} />
-          <Route path="archive"       element={<ArchivePage />} />
+          <Route path="delivery"   element={<ProtectedRoute roles={['procurement','admin','supply']}><DeliveryList /></ProtectedRoute>} />
+          <Route path="bidding"    element={<ProtectedRoute roles={['procurement','admin']}><Bidding /></ProtectedRoute>} />
+          <Route path="archive"       element={<ProtectedRoute roles={['admin','procurement']}><ArchivePage /></ProtectedRoute>} />
           <Route path="history"       element={<Navigate to="/archive" replace />} />
-          <Route path="reminders"     element={<RemindersPage />} />
+          <Route path="reminders"     element={<ProtectedRoute roles={['admin','procurement']}><RemindersPage /></ProtectedRoute>} />
           <Route path="notifications" element={<NotificationsPage />} />
           <Route path="settings"      element={<SettingsPage />} />
           <Route path="guide"         element={<GuidePage />} />
@@ -101,8 +101,8 @@ export default function App() {
           <Route path="users"         element={<ProtectedRoute roles={['admin']}><UserList /></ProtectedRoute>} />
           <Route path="quarters"      element={<ProtectedRoute roles={['admin']}><QuarterList /></ProtectedRoute>} />
 
-          <Route path="twg/reviews"     element={<ProtectedRoute roles={['twg','admin']}><TwgReviewList /></ProtectedRoute>} />
-          <Route path="twg/reviews/:id" element={<ProtectedRoute roles={['twg','admin']}><TwgReviewDetail /></ProtectedRoute>} />
+          <Route path="twg/reviews"     element={<ProtectedRoute roles={['twg']}><TwgReviewList /></ProtectedRoute>} />
+          <Route path="twg/reviews/:id" element={<ProtectedRoute roles={['twg']}><TwgReviewDetail /></ProtectedRoute>} />
           <Route path="bac"             element={<ProtectedRoute roles={['bac','admin','procurement']}><BacApprovals /></ProtectedRoute>} />
         </Route>
 

@@ -63,7 +63,10 @@ exports.list = asyncHandler(async (req, res) => {
   let where = [scope.sql], params = [...scope.params]
 
   if (deletedOnly) where.push('pr.deleted_at IS NOT NULL')
-  if (status)   { where.push('pr.status = ?');   params.push(status) }
+  // One status, or several comma-separated (a tab such as "needs me"); unknown ones are ignored.
+  const statuses = typeof status === 'string' ? status.split(',').filter(x => PR_STATUSES.includes(x)) : []
+  if (statuses.length) { where.push(`pr.status IN (${statuses.map(() => '?').join(', ')})`); params.push(...statuses) }
+  else if (status) where.push('1 = 0')
   if (category) { where.push('pr.category = ?'); params.push(category) }
   if (search) {
     where.push('(pr.pr_number LIKE ? OR pr.title LIKE ?)')

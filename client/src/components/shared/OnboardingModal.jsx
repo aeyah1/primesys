@@ -55,7 +55,7 @@ const SLIDES = {
       Icon:  FileText,
       color: 'from-amber-400 to-orange-400',
       title: 'Canvass TWG-Approved PRs',
-      body:  'PRs reach you once the Technical Working Group approves them (Approved by TWG). Open one and click Canvass PR to begin canvassing. Status moves to Bidding.',
+      body:  'Your Work Queue is your home. Requests the TWG approved wait under To canvass; click Start canvass and the canvass opens right there.',
     },
     {
       Icon:  Gavel,
@@ -121,7 +121,7 @@ const SLIDES = {
       Icon:  ClipboardCheck,
       color: 'from-amber-400 to-orange-400',
       title: 'Your Review Queue',
-      body:  'When a Requestor submits a PR, it lands in your TWG Reviews queue. Open it to see every item, quantity, unit cost, and attachment.',
+      body:  'When a Requestor submits a PR, it lands in your To Review list. Open it to see every item, quantity, unit cost, and attachment.',
     },
     {
       Icon:  CheckCircle,
@@ -139,7 +139,7 @@ const SLIDES = {
       Icon:  CheckCircle,
       color: 'from-cyan-500 to-blue-500',
       title: 'You\'re all set!',
-      body:  'Head to TWG Reviews to start. Your dashboard shows pending count, weekly activity, and your recent decisions. The User Guide has more details.',
+      body:  'Open To Review to start. Your dashboard shows pending count, weekly activity, and your recent decisions. The User Guide has more details.',
     },
   ],
 
@@ -153,8 +153,8 @@ const SLIDES = {
     {
       Icon:  ClipboardCheck,
       color: 'from-amber-400 to-orange-400',
-      title: 'BAC Approvals',
-      body:  'Recommended awards wait under BAC Approvals. Open a PR to see the quotations and who each item is recommended to.',
+      title: 'For Approval',
+      body:  'Recommended awards wait under For Approval, your home page. Open a PR to see the quotations and who each item is recommended to.',
     },
     {
       Icon:  CheckCircle,
@@ -193,7 +193,7 @@ const SLIDES = {
       Icon:  Shield,
       color: 'from-blue-600 to-indigo-500',
       title: 'Full System View',
-      body:  'You can see every PR, PO, and delivery. Finished PRs (completed, rejected, or cancelled) are kept in the Archive and can\'t be deleted. Use Reports for system-wide analytics.',
+      body:  'You supervise: All Requests shows every request, and finished ones stay in the Archive. TWG reviews and BAC approvals belong to their members. Use Reports for system-wide analytics.',
     },
     {
       Icon:  CheckCircle,

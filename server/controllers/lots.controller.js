@@ -247,6 +247,7 @@ exports.update = asyncHandler(async (req, res) => {
 
 // Lots & Awards work queue
 // PRs by what they need next. A PR awarded in part can be in more than one:
+//   to_canvass   approved by the TWG, canvass not started yet
 //   needs_award  under canvass (Bidding): some items still need an award
 //   with_bac     recommended awards waiting for the BAC's approval
 //   awaiting_po  awards with no purchase order yet
@@ -254,6 +255,7 @@ exports.update = asyncHandler(async (req, res) => {
 //   cancelled    cancelled after an award was recorded
 const HAS_LOTS  = 'EXISTS (SELECT 1 FROM lots hl WHERE hl.purchase_request_id = pr.id)'
 const STAGES = {
+  to_canvass:  "pr.status = 'twg_review'",
   needs_award: "pr.status = 'bidding'",
   with_bac:    "EXISTS (SELECT 1 FROM lots bl WHERE bl.purchase_request_id = pr.id AND bl.status = 'recommended')",
   awaiting_po: "(pr.status IN ('bidding', 'for_po') AND EXISTS (SELECT 1 FROM lots wl WHERE wl.purchase_request_id = pr.id AND wl.status = 'awarded' AND wl.po_id IS NULL))",
@@ -262,6 +264,7 @@ const STAGES = {
 }
 // Work waiting longest comes first; history shows the latest first.
 const STAGE_ORDER = {
+  to_canvass:  'stage_since ASC, pr.id ASC',
   needs_award: 'stage_since ASC, pr.id ASC',
   with_bac:    'stage_since ASC, pr.id ASC',
   awaiting_po: 'stage_since ASC, pr.id ASC',

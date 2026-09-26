@@ -105,6 +105,13 @@ add('Permissions', 'procurement, own draft',        2, 'GET', '/pr/24', undefine
 add('Permissions', "procurement, someone's submitted", 2, 'GET', '/pr/25', undefined, perms(P_(false, false, [], false, true)), 'locked; cancel and delete are admin-only at the TWG (WF-6, WF-7)')
 add('Permissions', "admin, someone's submitted",      1, 'GET', '/pr/25', undefined, perms(P_(false, true, ['draft', 'cancelled'], false, true)), 'admin may still cancel, delete, or review')
 add('Permissions', 'admin, completed',              1, 'GET', '/pr/16', undefined, perms(P_(false, false, [])), 'final: kept, not deletable')
+
+// A list tab asks for several statuses at once (e.g. a requestor's "Needs me").
+const statusesAre = (want) => (r) => r.status === 200 && r.data.data.length > 0 && r.data.data.every(x => want.includes(x.status))
+add('Lists', 'several statuses at once',            1, 'GET', '/pr?status=twg_review,completed&limit=100', undefined, statusesAre(['twg_review', 'completed']), 'only those two')
+add('Lists', 'an unknown status matches nothing',   1, 'GET', '/pr?status=bogus', undefined, (r) => r.status === 200 && r.data.data.length === 0, 'empty')
+add('Lists', 'Work Queue: To canvass = Approved by TWG', 2, 'GET', '/lots/queue?stage=to_canvass&limit=100', undefined,
+  (r) => r.status === 200 && r.data.data.length > 0 && r.data.data.every(x => x.status === 'twg_review') && r.data.counts.stages.to_canvass === r.data.total, 'twg_review only')
 add('Permissions', 'list rows carry permissions',   3, 'GET', '/pr?limit=100', undefined,
   (r) => { const row = (id) => r.data.data.find(x => x.id === id)
            return r.status === 200 && row(15).permissions.edit === false && row(12).permissions.delete === true && !('has_lot' in row(12)) }, 'row 15 read-only, row 12 deletable')

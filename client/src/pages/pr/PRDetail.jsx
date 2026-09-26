@@ -511,8 +511,8 @@ export default function PRDetail() {
   const isRequestor = user?.role === 'requestor'
   const isSupply    = user?.role === 'supply'
   const isBac       = user?.role === 'bac'
-  // The canvass and awards: from canvass on (supply sees them once awarded, the BAC to approve them).
-  const showCanvass = (canManage || isSupply || isBac) && !!pr && ['bidding', 'for_po', 'completed', 'cancelled'].includes(pr.status)
+  // The canvass and awards: Procurement's work, and the BAC's to approve (supply sees only the POs).
+  const showCanvass = (canManage || isBac) && !!pr && ['bidding', 'for_po', 'completed', 'cancelled'].includes(pr.status)
   // One delivery status over every PO: delivered once all are, partial once any delivery is in.
   const pos = pr?.pos || []
   const deliveryStatus = !pos.length ? null
@@ -846,7 +846,7 @@ export default function PRDetail() {
             <FileDown className="size-3.5" /> RFQ
           </button>
         )}
-        {!isRequestor && pr.status !== 'draft' && pr.status !== 'submitted' && (
+        {(canManage || isBac) && pr.status !== 'draft' && pr.status !== 'submitted' && (
           <button
             onClick={downloadAbstract}
             title="Download Abstract of Quotations"
@@ -936,7 +936,7 @@ export default function PRDetail() {
       {/* Items Requested */}
       <PRItemsSection prId={id} canEdit={!!pr.permissions?.edit} category={pr.category} />
 
-      {/* Canvass & awards: quotations, awards by supplier (procurement, admin; supply once awarded) */}
+      {/* Canvass & awards: quotations, awards by supplier, and the BAC's approval (procurement, admin, BAC) */}
       {showCanvass && (
         <Card>
           <CardHeader className="flex flex-row items-center gap-2">
