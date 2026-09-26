@@ -3,7 +3,7 @@ import {
   LayoutDashboard, FileText, ShoppingCart, Truck,
   Users, Calendar, ChevronRight, Bell, Archive,
   LogOut, Settings as SettingsIcon, Gavel, AlarmClock, BookOpen,
-  ClipboardCheck, BarChart3, Scale, FilePlus, PackageCheck, Building2,
+  ClipboardCheck, BarChart3, Scale, FilePlus, PackageCheck, Building2, Store,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useNavigate } from 'react-router-dom'
@@ -20,6 +20,7 @@ const NOTIFICATIONS = { to: '/notifications', label: 'Notifications',   icon: Be
 const REMINDERS     = { to: '/reminders',     label: 'Reminders',       icon: AlarmClock }
 const GUIDE         = { to: '/guide',         label: 'User Guide',      icon: BookOpen }
 const ALL_REQUESTS  = { to: '/pr',            label: 'All Requests',    icon: FileText }
+const SUPPLIERS     = { to: '/suppliers',     label: 'Suppliers',       icon: Store }
 const RECORDS       = { label: 'Records', items: [
   { to: '/reports', label: 'Reports', icon: BarChart3 },
   { to: '/archive', label: 'Archive', icon: Archive },
@@ -35,7 +36,7 @@ function menuFor(role) {
       return [{ label: 'My Work', items: [home, { to: '/twg/reviews', label: 'To Review', icon: ClipboardCheck }] },
               { label: 'Help', items: [NOTIFICATIONS, GUIDE] }]
     case 'procurement':
-      return [{ label: 'My Work', items: [home, ALL_REQUESTS, { to: '/po', label: 'Purchase Orders', icon: ShoppingCart }] },
+      return [{ label: 'My Work', items: [home, ALL_REQUESTS, { to: '/po', label: 'Purchase Orders', icon: ShoppingCart }, SUPPLIERS] },
               RECORDS, { label: 'Help', items: [NOTIFICATIONS, REMINDERS, GUIDE] }]
     case 'bac':
       return [{ label: 'My Work', items: [home] }, { label: 'Help', items: [NOTIFICATIONS, GUIDE] }]
@@ -46,6 +47,7 @@ function menuFor(role) {
       return [{ label: 'Overview', items: [home, ALL_REQUESTS] }, RECORDS,
               { label: 'Administration', items: [
                 { to: '/users', label: 'User Management', icon: Users },
+                SUPPLIERS,
                 { to: '/settings?tab=organization', label: 'Organization', icon: Building2 },
                 { to: '/quarters', label: 'Quarters', icon: Calendar },
               ] },

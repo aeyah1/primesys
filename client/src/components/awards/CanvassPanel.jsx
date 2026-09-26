@@ -15,6 +15,7 @@ import AwardFromQuotesDialog from './AwardFromQuotesDialog'
 import RecordAwardDialog from './RecordAwardDialog'
 import AwardList from './AwardList'
 import BacPanel from './BacPanel'
+import RfqPanel from './RfqPanel'
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 
@@ -237,6 +238,9 @@ export default function CanvassPanel({ pr }) {
         </div>
       )}
 
+      {/* RFQs emailed to suppliers, who quote through their own link */}
+      <RfqPanel prId={prId} rfq={canvass.rfq} can={can} />
+
       {/* The suppliers' quotations */}
       {quotations.length > 0 ? (
         <div className="space-y-2">
@@ -248,11 +252,20 @@ export default function CanvassPanel({ pr }) {
               return (
                 <div key={q.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold text-[--color-text-primary]">{q.supplier_name}</p>
-                    <p className="text-xs text-[--color-text-muted]">
-                      {q.quoted_at ? `Quoted ${fmtDate(q.quoted_at)}, ` : ''}{plural(priced.length, 'item')} for {fmtCurrency(total / 100)}
-                      {q.notes ? `. ${q.notes}` : ''}
+                    <p className="flex items-center gap-2 text-sm font-semibold text-[--color-text-primary]">
+                      {q.supplier_name}
+                      {q.source === 'online' && <span className="rounded-full border border-blue-300 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">Online</span>}
                     </p>
+                    <p className="text-xs text-[--color-text-muted]">
+                      {q.sealed
+                        ? <span className="inline-flex items-center gap-1"><Lock className="size-3" /> Sealed until the RFQ deadline</span>
+                        : <>{q.quoted_at ? `Quoted ${fmtDate(q.quoted_at)}, ` : ''}{plural(priced.length, 'item')} for {fmtCurrency(total / 100)}{q.notes ? `. ${q.notes}` : ''}</>}
+                    </p>
+                    {!q.sealed && (q.delivery_period || q.warranty || q.price_validity) && (
+                      <p className="text-xs text-[--color-text-secondary]">
+                        {[q.delivery_period && `Delivery: ${q.delivery_period}`, q.warranty && `Warranty: ${q.warranty}`, q.price_validity && `Prices valid: ${q.price_validity}`].filter(Boolean).join(' · ')}
+                      </p>
+                    )}
                     {q.disqualified_reason && (
                       <p className="mt-1 inline-block rounded-md border border-red-300 bg-red-50 px-2 py-0.5 text-[11px] text-red-800">
                         <span className="font-semibold">Failed the specifications:</span> {q.disqualified_reason}
@@ -273,7 +286,7 @@ export default function CanvassPanel({ pr }) {
                       title="An item it prices is awarded, so it is kept as it is for the Abstract of Quotations">
                       <Lock className="size-3" /> Kept on record
                     </span>
-                  ) : can.canvass && (
+                  ) : can.canvass && q.source !== 'online' && (
                     <div className="flex items-center gap-1">
                       <button onClick={() => setQuote({ quotation: q })} title="Edit this quotation"
                         className="p-1.5 rounded-lg text-[--color-text-muted] hover:text-[--color-brand] hover:bg-[--color-overlay] transition-colors">
