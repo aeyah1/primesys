@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils'
 // One menu per role, holding only that role's own work. The home page (/dashboard)
 // is each role's to-do list, so its label names that list.
 const HOME_LABELS = {
-  requestor: 'My Requests', twg: 'Home', procurement: 'Work Queue', bac: 'For Approval', supply: 'To Receive', admin: 'Overview',
+  requestor: 'My Requests', twg: 'Home', procurement: 'Work Queue', bac: 'For Evaluation', supply: 'To Receive', admin: 'Overview',
 }
 const HOME_ICONS = { requestor: FileText, twg: LayoutDashboard, procurement: Gavel, bac: Scale, supply: Truck, admin: LayoutDashboard }
 

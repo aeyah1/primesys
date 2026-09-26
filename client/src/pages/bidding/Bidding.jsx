@@ -24,7 +24,7 @@ const PAGE_SIZE = 20
 const STAGES = [
   { key: 'to_canvass',  label: 'To canvass',   empty: 'No request approved by the TWG is waiting to be canvassed.' },
   { key: 'needs_award', label: 'Canvassing',   empty: 'No request is being canvassed.' },
-  { key: 'with_bac',    label: 'With the BAC', empty: 'No awards are waiting for BAC approval.' },
+  { key: 'with_bac',    label: 'With the BAC', empty: 'No request is with the BAC for evaluation.' },
   { key: 'awaiting_po', label: 'Issue PO',     empty: 'No awards are waiting for a purchase order.' },
   { key: 'po_issued',   label: 'PO issued',    empty: 'No purchase orders have been issued yet.' },
   { key: 'cancelled',   label: 'Cancelled',   empty: 'No PRs were cancelled after an award.' },

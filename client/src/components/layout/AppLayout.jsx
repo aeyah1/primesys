@@ -12,7 +12,7 @@ const TITLES = {
   '/pr/create':       'New Purchase Request',
   '/pr':              'Purchase Requests',
   '/bidding':         'Work Queue',
-  '/bac':             'BAC Approvals',
+  '/bac':             'For Evaluation',
   '/po':              'Purchase Orders',
   '/delivery':        'Deliveries',
   '/archive':         'Archive',
