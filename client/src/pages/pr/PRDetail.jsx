@@ -3,7 +3,7 @@ import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, FileText, Gavel, Paperclip, History, BellRing, CheckCircle2,
-  Package, Plus, Trash2, ClipboardList, RotateCcw, Eye,
+  Package, Plus, Trash2, RotateCcw, Eye,
   FileDown, XCircle, Pencil, Send, Undo2, Archive,
 } from 'lucide-react'
 
@@ -25,6 +25,7 @@ import UnitInput from '@/components/shared/UnitInput'
 import RequestContextDisplay from '@/components/shared/RequestContextDisplay'
 import CanvassPanel from '@/components/awards/CanvassPanel'
 import PurchaseOrders from './PurchaseOrders'
+import ProcurementActions from './ProcurementActions'
 import { useAuth } from '@/context/AuthContext'
 import { openPdf, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
@@ -786,47 +787,6 @@ export default function PRDetail() {
             <Trash2 className="size-4" /> Delete PR
           </Button>
         )}
-        {pr.status === 'twg_review' && pr.permissions?.next_statuses?.includes('bidding') && (
-          <Button
-            size="sm"
-            className="gap-2 shrink-0 bg-blue-600 hover:bg-blue-700"
-            onClick={() => updateStatus({ status: 'bidding' })}
-            disabled={isPending}
-          >
-            <ClipboardList className="size-4" />
-            {isPending ? 'Processing…' : 'Canvass PR'}
-          </Button>
-        )}
-        {pr.status === 'for_po' && pr.permissions?.next_statuses?.includes('bidding') && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2 shrink-0 border-amber-300 text-amber-700 hover:bg-amber-50"
-            onClick={() => {
-              if (window.confirm('Return this PR to canvassing? Its awards are cancelled, and every item must be awarded again before a PO can be issued.')) {
-                updateStatus({ status: 'bidding', notes: 'Recanvass initiated by procurement' })
-              }
-            }}
-            disabled={isPending}
-            title="Return to canvassing: its awards are cancelled"
-          >
-            <RotateCcw className="size-4" />
-            {isPending ? 'Processing…' : 'Recanvass'}
-          </Button>
-        )}
-        {/* Items are locked once submitted; Procurement sends an approved PR
-            back to the requestor instead, and it returns through the TWG. */}
-        {canManage && pr.permissions?.next_statuses?.includes('revision_requested') && (
-          <Button
-            variant="outline" size="sm"
-            className="gap-2 shrink-0 border-amber-300 text-amber-700 hover:bg-amber-50"
-            onClick={() => setReturnOpen(true)}
-            disabled={isPending}
-            title="Send it back to the requestor to change; it goes through the TWG again"
-          >
-            <Undo2 className="size-4" /> Return for revision
-          </Button>
-        )}
         {/* Download buttons */}
         <button
           onClick={downloadPRForm}
@@ -835,18 +795,8 @@ export default function PRDetail() {
         >
           <FileDown className="size-3.5" /> PR Form
         </button>
-        {/* The RFQ goes to suppliers once the PR is approved and under canvass,
-            so it is offered from the TWG's approval onward. One page per lot. */}
-        {canManage && !['draft', 'submitted', 'revision_requested', 'rejected'].includes(pr.status) && (
-          <button
-            onClick={downloadRFQ}
-            title="Download the Request for Quotation — one page per lot, to send to suppliers"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[--color-border] text-xs font-medium text-[--color-text-secondary] hover:text-[--color-brand] hover:border-[--color-brand] transition-colors shrink-0"
-          >
-            <FileDown className="size-3.5" /> RFQ
-          </button>
-        )}
-        {(canManage || isBac) && pr.status !== 'draft' && pr.status !== 'submitted' && (
+        {/* The BAC evaluates from the Abstract of Quotations */}
+        {isBac && pr.status !== 'draft' && pr.status !== 'submitted' && (
           <button
             onClick={downloadAbstract}
             title="Download Abstract of Quotations"
@@ -855,24 +805,10 @@ export default function PRDetail() {
             <FileDown className="size-3.5" /> Abstract
           </button>
         )}
-
-        {canManage && pr.permissions?.next_statuses?.length > 0 && (
-          <div className="shrink-0 w-44">
-            <Select value={pr.status} onValueChange={(status) => updateStatus({ status })} disabled={isPending}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {/* Current status + the moves the server allows this user (prWorkflow).
-                    Return for revision (needs a reason) and Recanvass (cancels the
-                    award, asks first) have their own buttons. */}
-                {[pr.status, ...pr.permissions.next_statuses.filter(s =>
-                  s !== 'revision_requested' && !(pr.status === 'for_po' && s === 'bidding'))].map(s => (
-                  <SelectItem key={s} value={s}>
-                    {PR_STATUS_LABELS[s] || s}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+        {/* Procurement: the one next step for this stage, the rest under More */}
+        {canManage && !pr.deleted_at && (
+          <ProcurementActions pr={pr} updateStatus={updateStatus} isPending={isPending}
+            onReturn={() => setReturnOpen(true)} downloadRFQ={downloadRFQ} downloadAbstract={downloadAbstract} />
         )}
       </div>
 
