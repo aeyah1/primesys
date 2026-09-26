@@ -211,7 +211,7 @@ exports.getById = asyncHandler(async (req, res) => {
   const facts = { ...pr, hasPO: active.length > 0, hasAnyPO: pos.length > 0, hasLot: !!has_lot, hasAward: !!has_award }
   // TWG decision: a submitted PR, by a reviewer of its area or an admin.
   const twgReview = pr.status === 'submitted' && !pr.deleted_at
-    && (req.user.role === 'admin' || (req.user.role === 'twg' && await reviewsCategory(pool, req.user.id, pr.category)))
+    && req.user.role === 'twg' && await reviewsCategory(pool, req.user.id, pr.category)
   res.json({
     ...pr,
     // Each active PO with what this user may do with it.

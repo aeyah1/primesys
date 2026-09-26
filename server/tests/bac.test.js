@@ -152,7 +152,8 @@ async function run() {
   await http(2, 'PATCH', `/pr/${b.id}/mode`, { mode_of_procurement: 'Shopping' })
   await is('More', 'an award by hand is a recommendation too', 2, 'POST', '/lots',
     { purchase_request_id: b.id, awarded_to: 'Beta Supply', awarded_amount: 90000 }, r => r.status === 201 && r.data.status === 'recommended')
-  await is('More', 'an admin may approve', 1, 'POST', `/bac/${b.id}/approve`, { resolved_on: today() },
+  await is('More', 'admins supervise, they do not approve (403)', 1, 'POST', `/bac/${b.id}/approve`, { resolved_on: today() }, r => r.status === 403, '403')
+  await is('More', 'the BAC approves the second PR', 5, 'POST', `/bac/${b.id}/approve`, { resolved_on: today() },
     r => r.status === 201 && r.data.resolution_number === `${YEAR}-002`, `${YEAR}-002`)
 
   // ── Switched off ────────────────────────────────────────────────────
