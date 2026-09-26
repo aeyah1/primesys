@@ -14,6 +14,7 @@ import QuotationDialog from './QuotationDialog'
 import AwardFromQuotesDialog from './AwardFromQuotesDialog'
 import RecordAwardDialog from './RecordAwardDialog'
 import AwardList from './AwardList'
+import BacPanel from './BacPanel'
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 
@@ -53,6 +54,14 @@ function DropItemDialog({ prId, item, onClose }) {
 }
 
 function ItemStatus({ item }) {
+  if (item.state === 'recommended') {
+    return (
+      <span className="inline-flex flex-wrap items-center gap-x-1.5 rounded-full border border-indigo-300 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-800">
+        {item.awarded_to}{item.lot_number ? `, ${item.lot_number}` : ''}, for BAC approval
+        {item.awarded_price != null && <span className="font-normal">at {fmtCurrency(item.awarded_price)}</span>}
+      </span>
+    )
+  }
   if (item.state === 'awarded') {
     return (
       <span className="inline-flex flex-wrap items-center gap-x-1.5 rounded-full border border-blue-300 bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-800">
@@ -111,7 +120,8 @@ export default function CanvassPanel({ pr }) {
   const pending  = items.filter(i => i.state === 'pending')
   const awarded  = items.filter(i => i.state === 'awarded').length
   const dropped  = items.filter(i => i.state === 'dropped').length
-  const suppliers = new Set(lots.filter(l => l.status === 'awarded').map(l => l.awarded_to.trim().toLowerCase())).size
+  const withBac  = items.filter(i => i.state === 'recommended').length
+  const suppliers = new Set(lots.filter(l => ['awarded', 'recommended'].includes(l.status)).map(l => l.awarded_to.trim().toLowerCase())).size
   const quotesForPending = quotations.filter(q => pending.some(i => q.prices[i.id] != null))
 
   return (
@@ -119,6 +129,7 @@ export default function CanvassPanel({ pr }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-[--color-text-secondary]">
           <span className="font-semibold text-[--color-text-primary]">{awarded} of {items.length - dropped}</span> items awarded
+          {withBac > 0 && `, ${withBac} with the BAC`}
           {dropped > 0 && `, ${dropped} dropped`}
           {suppliers > 0 && `, from ${plural(suppliers, 'supplier')}`}
         </p>
@@ -237,6 +248,9 @@ export default function CanvassPanel({ pr }) {
 
       {/* The awards, by supplier */}
       <AwardList lots={lots} canManage={canManage} prStatus={pr.status} />
+
+      {/* The BAC's approval of recommended awards, and its resolutions */}
+      <BacPanel prId={prId} />
 
       {quote && <QuotationDialog pr={pr} items={items} quotation={quote.quotation} open onClose={() => setQuote(null)} />}
       {fromQuotes && <AwardFromQuotesDialog pr={pr} items={items} quotations={quotations} open onClose={() => setFromQuotes(false)} />}

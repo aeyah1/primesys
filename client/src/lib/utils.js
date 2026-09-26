@@ -70,6 +70,7 @@ export const LOT_STATUS_LABELS = {
   draft:     'Draft',
   open:      'Open',
   closed:    'Closed',
+  recommended: 'For BAC approval',
   awarded:   'Awarded',
   cancelled: 'Cancelled',
 }
@@ -78,6 +79,7 @@ export const LOT_STATUS_COLORS = {
   draft:     'bg-slate-50 text-slate-600 border-slate-300',
   open:      'bg-blue-50 text-blue-700 border-blue-300',
   closed:    'bg-amber-50 text-amber-700 border-amber-300',
+  recommended: 'bg-indigo-50 text-indigo-700 border-indigo-300',
   awarded:   'bg-emerald-50 text-emerald-700 border-emerald-300',
   cancelled: 'bg-red-50 text-red-700 border-red-300',
 }

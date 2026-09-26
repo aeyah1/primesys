@@ -510,8 +510,9 @@ export default function PRDetail() {
   const canManage   = ['admin', 'procurement'].includes(user?.role)
   const isRequestor = user?.role === 'requestor'
   const isSupply    = user?.role === 'supply'
-  // The canvass and awards: from canvass on (supply sees them once awarded).
-  const showCanvass = (canManage || isSupply) && !!pr && ['bidding', 'for_po', 'completed', 'cancelled'].includes(pr.status)
+  const isBac       = user?.role === 'bac'
+  // The canvass and awards: from canvass on (supply sees them once awarded, the BAC to approve them).
+  const showCanvass = (canManage || isSupply || isBac) && !!pr && ['bidding', 'for_po', 'completed', 'cancelled'].includes(pr.status)
   // One delivery status over every PO: delivered once all are, partial once any delivery is in.
   const pos = pr?.pos || []
   const deliveryStatus = !pos.length ? null
@@ -879,7 +880,7 @@ export default function PRDetail() {
       {isRequestor && !pr.deleted_at && <RequestProgress pr={pr} />}
 
       {/* PR Details (fund codes are procurement's business, not shown to requestors) */}
-      {((!isRequestor && (pr.fund_cluster || pr.responsibility_center_code)) || pr.notes || canManage) && (
+      {((!isRequestor && (pr.fund_cluster || pr.responsibility_center_code)) || pr.notes || canManage || pr.permissions?.set_mode) && (
         <Card>
           <CardHeader><CardTitle>PR Details</CardTitle></CardHeader>
           <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -891,8 +892,8 @@ export default function PRDetail() {
                 <p className="text-ui-sm text-[--color-text-primary] font-medium mt-0.5">{pr.fund_cluster}</p>
               </div>
             )}
-            {/* How this is procured. Procurement's call, so only they may set it. */}
-            {canManage && !pr.deleted_at && (
+            {/* How this is procured: Procurement's or the BAC's call, fixed once a supplier is awarded. */}
+            {pr.permissions?.set_mode && (
               <div>
                 <p className="text-ui-xs text-[--color-text-muted] font-medium uppercase tracking-wide">Mode of Procurement</p>
                 <Select
@@ -907,7 +908,7 @@ export default function PRDetail() {
                 </Select>
               </div>
             )}
-            {!canManage && pr.mode_of_procurement && (
+            {!pr.permissions?.set_mode && pr.mode_of_procurement && (
               <div>
                 <p className="text-ui-xs text-[--color-text-muted] font-medium uppercase tracking-wide">Mode of Procurement</p>
                 <p className="text-ui-sm text-[--color-text-primary] font-medium mt-0.5">{pr.mode_of_procurement}</p>

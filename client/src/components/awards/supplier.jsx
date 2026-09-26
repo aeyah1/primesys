@@ -57,7 +57,7 @@ export function withSuggestion(form, nameField, value, suggestions) {
 export function useRefreshAwards(prId) {
   const qc = useQueryClient()
   return () => {
-    for (const key of [['canvass', prId], ['lots'], ['lot-queue'], ['lot-suppliers'], ['pr', prId], ['pr-list'], ['pr-stats'], ['pr-logs', prId], ['po-list']]) {
+    for (const key of [['canvass', prId], ['lots'], ['lot-queue'], ['lot-suppliers'], ['pr', prId], ['pr-list'], ['pr-stats'], ['pr-logs', prId], ['po-list'], ['bac']]) {
       qc.invalidateQueries({ queryKey: key })
     }
   }

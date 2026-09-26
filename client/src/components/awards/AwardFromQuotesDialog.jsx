@@ -63,7 +63,7 @@ export default function AwardFromQuotesDialog({ pr, items, quotations, open, onC
   const { mutate, isPending } = useMutation({
     mutationFn: (body) => api.post(`/canvass/${prId}/award`, body),
     onSuccess: ({ data }) => {
-      toast.success(`${plural(data.lots.length, 'award')} recorded: ${data.lots.map(l => l.awarded_to).join(', ')}`)
+      toast.success(`${plural(data.lots.length, 'award')} ${data.status === 'recommended' ? 'recommended to the BAC' : 'recorded'}: ${data.lots.map(l => l.awarded_to).join(', ')}`)
       refresh()
       onClose()
     },
