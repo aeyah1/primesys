@@ -8,6 +8,7 @@ const withTransaction = require('../db/transaction')
 const httpError       = require('../utils/httpError')
 const { PR_STATUSES, loadPR, editDenied, deleteBlock, modeBlock, poCancelBlock, prPermissions, changePRStatus } = require('../utils/prWorkflow')
 const { recordBlock, QTY_ORDERED, QTY_RECEIVED } = require('../utils/deliveryWorkflow')
+const { closeBlock } = require('../utils/shortDelivery')
 const { orderBySection } = require('../utils/itemSections')
 const { currentQuarter } = require('../utils/quarters')
 const { CATEGORIES, isCategory, syncPRCategory } = require('../utils/categories')
@@ -89,7 +90,7 @@ exports.list = asyncHandler(async (req, res) => {
            ${ACTIVE('COUNT(*)')} AS po_count,
            ${ACTIVE('MIN(px.po_number)')} AS po_number,
            ${ACTIVE("GROUP_CONCAT(DISTINCT px.supplier_name ORDER BY px.supplier_name SEPARATOR ', ')")} AS supplier_name,
-           ${ACTIVE('SUM(px.total_amount)')} AS total_amount,
+           ${ACTIVE('SUM(px.total_amount - COALESCE(px.short_amount, 0))')} AS total_amount,
            ${ACTIVE(`CASE WHEN COUNT(*) = 0 THEN NULL
                           WHEN SUM(px.delivery_status = 'delivered') = COUNT(*) THEN 'delivered'
                           WHEN SUM(px.delivery_status <> 'pending') > 0 THEN 'partial'
@@ -223,6 +224,7 @@ exports.getById = asyncHandler(async (req, res) => {
       can_cancel:          !pr.deleted_at && !poCancelBlock(req.user, { ...po, hasDeliveries: !!has_deliveries }),
       can_record_delivery: !pr.deleted_at && !recordBlock(req.user, po),
       can_reschedule:      !pr.deleted_at && ['procurement', 'admin'].includes(req.user.role) && po.delivery_status !== 'delivered',
+      can_close:           Number(po.qty_ordered) > 0 && !closeBlock(req.user, po, pr),
     })),
     cancelled_pos: pos.filter(p => p.po_status === 'cancelled'),
     revision,

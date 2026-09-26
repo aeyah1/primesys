@@ -6,6 +6,7 @@ const { loadPR, syncPRProgress } = require('../utils/prWorkflow')
 const notify          = require('../utils/notify')
 const { loadOrgSettings } = require('../utils/orgSettings')
 const { sendAwardNotices } = require('../utils/awardNotice')
+const { failedSuppliers, failedBlock } = require('../utils/shortDelivery')
 const { BAC_DECIDERS, awardDenied, modeMissing, withBacBlock, bacAwards, adoptResolution, releaseIfDone } = require('../utils/bacWorkflow')
 const { rfqOpen, sealedBlock } = require('../utils/rfqWorkflow')
 const { resolveSupplier, supplierDetails } = require('../utils/suppliers')
@@ -225,6 +226,7 @@ exports.awardFromQuotes = asyncHandler(async (req, res) => {
     }
     const lowest = (itemId) => Math.min(...prices.filter(p => p.pr_item_id === itemId).map(p => cents(p.unit_price)))
 
+    const failedFor = await failedSuppliers(conn, pr.id)
     const seen = new Set(), notLowest = new Set()
     const groups = new Map()   // quotation -> [{ item, price }]
     for (const pick of picks) {
@@ -239,6 +241,7 @@ exports.awardFromQuotes = asyncHandler(async (req, res) => {
         throw failed ? httpError(409, `${failed.supplier_name}'s quotation failed the specifications, so it can't be awarded`)
           : httpError(400, 'Some of the chosen quotations are not on this PR')
       }
+      refuse(failedBlock(failedFor, item, quote.supplier_name.trim()))
       const price = prices.find(p => p.quotation_id === quote.id && p.pr_item_id === item.id)
       if (!price) throw httpError(400, `${quote.supplier_name} did not quote "${short(item.item_name)}"`)
       if (cents(price.unit_price) > lowest(item.id)) notLowest.add(item.id)

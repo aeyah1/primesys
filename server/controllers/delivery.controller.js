@@ -145,7 +145,7 @@ exports.create = asyncHandler(async (req, res) => {
         received.push({ line, quantity: it.quantity })
       }
       // Complete when every line is in full after this delivery.
-      status = lines.every(l => hundredths(l.received) + hundredths(received.find(r => r.line.id === l.id)?.quantity) >= hundredths(l.ordered))
+      status = lines.every(l => hundredths(l.received) + hundredths(l.short) + hundredths(received.find(r => r.line.id === l.id)?.quantity) >= hundredths(l.ordered))
         ? 'complete' : 'partial'
     }
 

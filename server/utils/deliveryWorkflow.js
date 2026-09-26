@@ -11,6 +11,8 @@ const httpError          = require('./httpError')
 // nothing received            -> pending
 // some received               -> partial
 // every line received in full -> delivered
+// A line's closed balance (short_quantity, see utils/shortDelivery.js) is no
+// longer expected, so a closed PO counts as delivered.
 // A PO issued before awards named their items has no lines; its records say
 // partial or complete, and a complete record makes it delivered.
 // Once a PO is delivered, its PR moves to Completed when every one of its POs
@@ -75,33 +77,36 @@ async function lockDelivery(conn, deliveryId) {
 // Quantities in hundredths, so sums and comparisons are exact.
 const hundredths = (n) => Math.round(Number(n || 0) * 100)
 
-// A PO's lines: what was ordered of each item and how much has arrived.
+// A PO's lines: what was ordered of each item, how much has arrived, how much
+// was closed as never to come (short), and what is still to come.
 async function poLines(db, poId) {
   const [rows] = await db.execute(`
-    SELECT li.id, li.item_name, li.quantity AS ordered, li.unit, li.unit_price, li.estimated_cost, pi.group_label,
+    SELECT li.id, li.lot_id, li.pr_item_id, li.item_name, li.quantity AS ordered, li.short_quantity AS short,
+           li.unit, li.unit_price, li.estimated_cost, pi.group_label,
            COALESCE((SELECT SUM(di.quantity) FROM delivery_items di WHERE di.lot_item_id = li.id), 0) AS received
       FROM lot_items li
       JOIN lots l ON l.id = li.lot_id
       LEFT JOIN pr_items pi ON pi.id = li.pr_item_id
      WHERE l.po_id = ?
      ORDER BY li.pr_item_id IS NULL, li.pr_item_id, li.id`, [poId])
-  return rows.map(r => ({ ...r, remaining: Math.max(0, hundredths(r.ordered) - hundredths(r.received)) / 100 }))
+  return rows.map(r => ({ ...r, remaining: Math.max(0, hundredths(r.ordered) - hundredths(r.short) - hundredths(r.received)) / 100 }))
 }
 
-// SQL over a purchase_orders alias `po`: the quantity ordered on its lines and
-// how much of it has arrived (0 and 0 for a PO without lines).
-const QTY_ORDERED  = '(SELECT COALESCE(SUM(li.quantity), 0) FROM lot_items li JOIN lots l ON l.id = li.lot_id WHERE l.po_id = po.id)'
+// SQL over a purchase_orders alias `po`: the quantity expected on its lines
+// (ordered less any closed balance) and how much of it has arrived (0 and 0
+// for a PO without lines).
+const QTY_ORDERED  = '(SELECT COALESCE(SUM(li.quantity - li.short_quantity), 0) FROM lot_items li JOIN lots l ON l.id = li.lot_id WHERE l.po_id = po.id)'
 const QTY_RECEIVED = `(SELECT COALESCE(SUM(di.quantity), 0) FROM delivery_items di JOIN lot_items li ON li.id = di.lot_item_id
                         JOIN lots l ON l.id = li.lot_id WHERE l.po_id = po.id)`
 
 // Recalculates the PO's delivery summary from its records and, when it is now
 // delivered, completes the PR if nothing else is outstanding (audit-logged).
 // Call inside the transaction that changed the records, after lockPO /
-// lockDelivery. Resolves with { status, prCompleted }.
-async function syncPODelivery(conn, po, user) {
+// lockDelivery. `note` goes on the PR's log when it moves. Resolves with { status, prCompleted }.
+async function syncPODelivery(conn, po, user, note = `${po.po_number} fully delivered`) {
   const lines = await poLines(conn, po.id)
   if (lines.length) {
-    const all = lines.every(l => hundredths(l.received) >= hundredths(l.ordered))
+    const all = lines.every(l => hundredths(l.received) + hundredths(l.short) >= hundredths(l.ordered))
     const any = lines.some(l => hundredths(l.received) > 0)
     await conn.execute(`
       UPDATE purchase_orders SET
@@ -129,7 +134,7 @@ async function syncPODelivery(conn, po, user) {
   let prCompleted = false
   if (status === 'delivered') {
     const [[before]] = await conn.execute('SELECT status FROM purchase_requests WHERE id = ?', [po.purchase_request_id])
-    const after = await syncPRProgress(conn, po.purchase_request_id, { user, note: `${po.po_number} fully delivered` })
+    const after = await syncPRProgress(conn, po.purchase_request_id, { user, note })
     prCompleted = before.status !== 'completed' && after === 'completed'
   }
   return { status, prCompleted }

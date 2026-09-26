@@ -181,12 +181,15 @@ CREATE TABLE `pr_items` (
   `dropped_at`     DATETIME      NULL,
   `dropped_by`     INT UNSIGNED  NULL,
   `drop_reason`    VARCHAR(500)  NULL,
+  -- The item whose undelivered quantity this one is (a closed PO's balance, back to canvass).
+  `balance_of`     INT UNSIGNED  NULL,
   `created_at`     TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_pr_items_pr_id` (`pr_id`),
   KEY `idx_pr_items_category` (`category`),
   CONSTRAINT `fk_pr_items_pr`         FOREIGN KEY (`pr_id`)      REFERENCES `purchase_requests` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_pr_items_dropped_by` FOREIGN KEY (`dropped_by`) REFERENCES `users` (`id`)             ON DELETE SET NULL
+  CONSTRAINT `fk_pr_items_dropped_by` FOREIGN KEY (`dropped_by`) REFERENCES `users` (`id`)             ON DELETE SET NULL,
+  CONSTRAINT `fk_pr_items_balance_of` FOREIGN KEY (`balance_of`) REFERENCES `pr_items` (`id`)          ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE `pr_attachments` (
@@ -402,6 +405,7 @@ CREATE TABLE `lot_items` (
   `unit`           VARCHAR(50)   NULL,
   `estimated_cost` DECIMAL(15,2) NULL,
   `unit_price`     DECIMAL(15,2) NULL,       -- the awarded (quoted) price; NULL for a lump-sum award
+  `short_quantity` DECIMAL(10,2) NOT NULL DEFAULT 0,   -- never delivered: the PO's balance was closed
   `created_at`     TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_lot_items_lot_id` (`lot_id`),
@@ -456,6 +460,13 @@ CREATE TABLE `purchase_orders` (
   -- The latest change to the expected delivery date, and why.
   `rescheduled_at`         DATETIME      NULL,
   `reschedule_reason`      VARCHAR(500)  NULL,
+  -- The balance closed on a partly delivered PO: who, when, why, the value not
+  -- delivered (not paid), and the late-delivery penalty worked out then.
+  `closed_at`              DATETIME      NULL,
+  `closed_by`              INT UNSIGNED  NULL,
+  `close_reason`           VARCHAR(1000) NULL,
+  `short_amount`           DECIMAL(15,2) NULL,
+  `penalty_amount`         DECIMAL(15,2) NULL,
   `issued_by`              INT UNSIGNED  NOT NULL,
   `created_at`             TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at`             TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -465,7 +476,8 @@ CREATE TABLE `purchase_orders` (
   KEY `idx_delivery_status`               (`delivery_status`),
   CONSTRAINT `fk_po_pr`           FOREIGN KEY (`purchase_request_id`) REFERENCES `purchase_requests` (`id`),
   CONSTRAINT `fk_po_issued_by`    FOREIGN KEY (`issued_by`)           REFERENCES `users` (`id`),
-  CONSTRAINT `fk_po_cancelled_by` FOREIGN KEY (`cancelled_by`)        REFERENCES `users` (`id`) ON DELETE SET NULL
+  CONSTRAINT `fk_po_cancelled_by` FOREIGN KEY (`cancelled_by`)        REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_po_closed_by`    FOREIGN KEY (`closed_by`)           REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- An award's purchase order (lots come before purchase_orders in this file).
