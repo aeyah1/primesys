@@ -35,9 +35,9 @@ createRoot(document.getElementById('root')).render(
         <AuthProvider>
           <GlobalLoadingBar />
           <App />
-          {/* Pop-ups below the header (70px), in the app's card look; errors stay until closed (lib/toast.js). */}
+          {/* Pop-ups in the top-right corner, in the app's card look; errors stay until closed (lib/toast.js). */}
           <Toaster
-            position="top-right" offset={84} visibleToasts={3} gap={10} duration={4000} closeButton
+            position="top-right" visibleToasts={3} gap={10} duration={4000} closeButton
             icons={{
               success: <CheckCircle2 className="size-4 text-emerald-600" />,
               error:   <XCircle className="size-4 text-red-600" />,
