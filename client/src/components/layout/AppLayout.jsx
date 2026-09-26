@@ -13,6 +13,7 @@ const TITLES = {
   '/pr':              'Purchase Requests',
   '/bidding':         'Work Queue',
   '/bac':             'For Evaluation',
+  '/suppliers':       'Suppliers',
   '/po':              'Purchase Orders',
   '/delivery':        'Deliveries',
   '/archive':         'Archive',
