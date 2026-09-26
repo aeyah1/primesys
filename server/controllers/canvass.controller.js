@@ -6,9 +6,10 @@ const { loadPR, syncPRProgress } = require('../utils/prWorkflow')
 const notify          = require('../utils/notify')
 const { loadOrgSettings } = require('../utils/orgSettings')
 const { BAC_DECIDERS, awardDenied, modeMissing, withBacBlock, bacAwards, adoptResolution, releaseIfDone } = require('../utils/bacWorkflow')
+const { rfqOpen, sealedBlock } = require('../utils/rfqWorkflow')
 const DEFAULT_MINIMUM_QUOTATIONS = 3
 const {
-  SUPPLIER_COLUMNS, short, cents, lineCents,
+  SUPPLIER_COLUMNS, supplierKey, short, cents, lineCents,
   awardBlock, budgetBlock, itemStates, recordAward, announceAwards,
 } = require('../utils/awardWorkflow')
 
@@ -46,7 +47,12 @@ async function quotationsOf(db, prId) {
 // with their prices (and whether each is locked), and what this user may do.
 exports.summary = asyncHandler(async (req, res) => {
   const pr = await loadPR(pool, req.params.prId)
-  const [{ items, wholeAward }, { quotes, prices }, bacOn] = await Promise.all([itemStates(pool, pr.id), quotationsOf(pool, pr.id), bacAwards(pool)])
+  const [{ items, wholeAward }, { quotes, prices }, bacOn, sealed] = await Promise.all([
+    itemStates(pool, pr.id), quotationsOf(pool, pr.id), bacAwards(pool), rfqOpen(pool, pr.id)])
+  const [invitations] = await pool.execute(
+    `SELECT i.id, i.deadline, i.sent_at, i.send_error, i.reminded_at, i.opened_at, i.submitted_at, s.name AS supplier_name, s.email
+       FROM rfq_invitations i JOIN suppliers s ON s.id = i.supplier_id
+      WHERE i.purchase_request_id = ? ORDER BY s.name`, [pr.id])
   const awarded = new Set(items.filter(i => i.state === 'awarded').map(i => i.id))
   const staff = STAFF.includes(req.user.role) && !pr.deleted_at
   const bidding = !pr.deleted_at && pr.status === 'bidding'
@@ -60,18 +66,26 @@ exports.summary = asyncHandler(async (req, res) => {
       lot_id: award?.lot_id ?? null, lot_number: award?.lot_number ?? null,
       awarded_to: award?.awarded_to ?? null, awarded_price: award?.unit_price ?? null, po_id: award?.po_id ?? null,
     })),
+    // A supplier's online prices stay sealed, from everyone, until the RFQ deadline.
     quotations: quotes.map(q => {
       const mine = prices.filter(p => p.quotation_id === q.id)
+      const hidden = sealed && q.source === 'online'
       return {
         ...q,
-        prices: Object.fromEntries(mine.map(p => [p.pr_item_id, p.unit_price])),
+        sealed: hidden,
+        prices: hidden ? {} : Object.fromEntries(mine.map(p => [p.pr_item_id, p.unit_price])),
         locked: mine.some(p => awarded.has(p.pr_item_id)),
       }
     }),
+    rfq: {
+      open: sealed,
+      deadline: invitations.reduce((d, i) => (!d || i.deadline > d ? i.deadline : d), null),
+      invitations: staff ? invitations : invitations.map(({ email, send_error, ...i }) => i),
+    },
     bac: { required: bacOn, with_bac: withBac },
     permissions: {
-      canvass:    staff && bidding && !withBac,                          // quotations, dropping items
-      award:      bidding && !awardDenied(req.user, pr, bacOn),         // awarding (the BAC's while it evaluates)
+      canvass:    staff && bidding && !withBac,                          // quotations, RFQs, dropping items
+      award:      bidding && !sealed && !awardDenied(req.user, pr, bacOn),   // awarding (the BAC's while it evaluates)
       disqualify: bacOn && bacMember && withBac,                        // marking a quotation as failing the specs
       restore:    staff && !withBac && ['bidding', 'for_po'].includes(pr.status),   // bringing a dropped item back
     },
@@ -104,9 +118,12 @@ async function savePrices(conn, quotationId, prices) {
 }
 
 // A quotation of this PR, for a change: refused once an item it prices is awarded.
-async function openQuotation(conn, prId, quotationId) {
+// `online`: a supplier's own quotation (sent through their RFQ link) may be
+// marked by the BAC but never edited or removed by the Secretariat.
+async function openQuotation(conn, prId, quotationId, { online = false } = {}) {
   const [[q]] = await conn.execute('SELECT * FROM quotations WHERE id = ? AND purchase_request_id = ? FOR UPDATE', [quotationId, prId])
   if (!q) throw httpError(404, 'Quotation not found')
+  if (q.source === 'online' && !online) throw httpError(409, 'The supplier sent this quotation themselves, so it is kept as they sent it')
   const { items } = await itemStates(conn, prId)
   const [mine] = await conn.execute('SELECT pr_item_id FROM quotation_items WHERE quotation_id = ?', [q.id])
   const awarded = mine.map(m => items.find(i => i.id === m.pr_item_id)).find(i => i?.state === 'awarded')
@@ -121,10 +138,12 @@ exports.createQuotation = asyncHandler(async (req, res) => {
     refuse(canvassBlock(pr))
     const { items } = await itemStates(conn, pr.id)
     const prices = checkPrices(items, req.body.prices)
+    // A supplier on the master list is linked by name.
+    const [[known]] = await conn.execute('SELECT id FROM suppliers WHERE name_key = ?', [supplierKey(req.body.supplier_name)])
     const [r] = await conn.execute(
-      `INSERT INTO quotations (purchase_request_id, ${QUOTATION_FIELDS.join(', ')}, created_by)
-       VALUES (?, ${QUOTATION_FIELDS.map(() => '?').join(', ')}, ?)`,
-      [pr.id, ...quotationValues(req.body), req.user.id]
+      `INSERT INTO quotations (purchase_request_id, supplier_id, ${QUOTATION_FIELDS.join(', ')}, created_by)
+       VALUES (?, ?, ${QUOTATION_FIELDS.map(() => '?').join(', ')}, ?)`,
+      [pr.id, known?.id ?? null, ...quotationValues(req.body), req.user.id]
     )
     await savePrices(conn, r.insertId, prices)
     return r.insertId
@@ -181,6 +200,7 @@ exports.awardFromQuotes = asyncHandler(async (req, res) => {
     const org = await loadOrgSettings(conn)
     const bacOn = await bacAwards(conn)
     refuse(awardDenied(req.user, pr, bacOn))
+    refuse(await sealedBlock(conn, pr.id))
     // Only offers that meet the specifications compete.
     const qualified = all.quotes.filter(q => !q.disqualified_reason)
     const quotes = qualified
@@ -307,7 +327,7 @@ exports.setQualification = asyncHandler(async (req, res) => {
     const pr = await loadPR(conn, req.params.prId, { lock: true })
     if (!pr || pr.deleted_at) throw httpError(404, 'PR not found')
     if (pr.status !== 'bidding' || !pr.bac_submitted_at) throw httpError(409, 'Offers are evaluated while the PR is with the BAC')
-    const { q } = await openQuotation(conn, pr.id, req.params.qid)
+    const { q } = await openQuotation(conn, pr.id, req.params.qid, { online: true })
     await conn.execute('UPDATE quotations SET disqualified_reason = ?, disqualified_by = ? WHERE id = ?',
       [disqualify ? reason : null, disqualify ? req.user.id : null, q.id])
   })

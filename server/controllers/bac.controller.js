@@ -9,6 +9,7 @@ const { paging }      = require('../middleware/validate')
 const { loadPR }      = require('../utils/prWorkflow')
 const { supplierKey, itemStates } = require('../utils/awardWorkflow')
 const { BAC_DECIDERS, BAC_READERS, SECRETARIAT, bacAwards, notifyBac } = require('../utils/bacWorkflow')
+const { rfqOpen, sealedBlock } = require('../utils/rfqWorkflow')
 const { loadOrgSettings } = require('../utils/orgSettings')
 const { M }            = require('../pdf/campusForm')
 const drawResolution   = require('../pdf/bacResolution')
@@ -32,6 +33,8 @@ exports.submit = asyncHandler(async (req, res) => {
     if (!(await bacAwards(conn))) throw httpError(409, 'The BAC does not award on this campus (Settings > Organization)')
     if (pr.status !== 'bidding') throw httpError(409, 'A PR goes to the BAC while it is under canvass')
     if (pr.bac_submitted_at) throw httpError(409, 'This PR is already with the BAC')
+    const sealed = await sealedBlock(conn, pr.id)
+    if (sealed) throw httpError(sealed.status, sealed.message)
     const { items } = await itemStates(conn, pr.id)
     if (!items.some(i => i.state === 'pending')) throw httpError(409, 'Nothing on this PR still needs an award')
     await conn.execute(
@@ -124,15 +127,17 @@ exports.summary = asyncHandler(async (req, res) => {
   const bidding = pr.status === 'bidding' && !pr.deleted_at
   const withBac = bidding && !!pr.bac_submitted_at
   const pending = bidding ? (await itemStates(pool, prId)).items.filter(i => i.state === 'pending').length : 0
+  const sealed = bidding && await rfqOpen(pool, prId)
   res.json({
     required: bacOn,
     with_bac: withBac,
+    rfq_open: sealed,
     submitted_at: withBac ? pr.bac_submitted_at : null,
     submitted_by_name: withBac ? pr.submitted_by_name : null,
     return_reason: !withBac && bidding ? pr.bac_return_reason : null,
     resolutions: resolutions.map(r => ({ ...r, lots: lots.filter(l => l.resolution_id === r.id) })),
     permissions: {
-      submit: bacOn && bidding && !withBac && pending > 0 && SECRETARIAT.includes(req.user.role),
+      submit: bacOn && bidding && !withBac && !sealed && pending > 0 && SECRETARIAT.includes(req.user.role),
       return: withBac && BAC_DECIDERS.includes(req.user.role),
       print:  BAC_READERS.includes(req.user.role),
     },
