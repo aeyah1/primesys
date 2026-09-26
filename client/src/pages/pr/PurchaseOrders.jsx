@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
-import { ShoppingCart, Truck, Clock, FileDown, XCircle, CalendarDays, ExternalLink } from 'lucide-react'
+import { ShoppingCart, Truck, Clock, FileDown, XCircle, CalendarDays, ExternalLink, Lock } from 'lucide-react'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -12,6 +12,7 @@ import { nameKey, cents, useRefreshAwards } from '@/components/awards/supplier'
 import ReceiveDialog from '@/components/delivery/ReceiveDialog'
 import RescheduleDialog from '@/components/delivery/RescheduleDialog'
 import CancelPODialog from '@/components/delivery/CancelPODialog'
+import CloseBalanceDialog from '@/components/delivery/CloseBalanceDialog'
 import { receivedText } from '@/components/delivery/shared'
 import { fmtDate, fmtCurrency, localToday } from '@/lib/utils'
 import { openPdf, blobErrorMessage } from '@/lib/download'
@@ -95,7 +96,7 @@ function Field({ label, children }) {
 export default function PurchaseOrders({ pr, canManage }) {
   const prId  = String(pr.id)
   const today = localToday()
-  const [action, setAction] = useState(null)   // { kind: 'receive' | 'reschedule' | 'cancel', po }
+  const [action, setAction] = useState(null)   // { kind: 'receive' | 'reschedule' | 'cancel' | 'close', po }
   const { data: lots = [] } = useQuery({
     queryKey: ['lots', prId],
     queryFn:  () => api.get(`/lots/pr/${prId}`).then(r => r.data),
@@ -142,7 +143,10 @@ export default function PurchaseOrders({ pr, canManage }) {
               </div>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <Field label="Total Amount"><span className="font-bold text-blue-700">{fmtCurrency(po.total_amount)}</span></Field>
+              <Field label="Total Amount">
+                <span className="font-bold text-blue-700">{fmtCurrency(po.total_amount)}</span>
+                {po.closed_at && <span className="block text-xs font-normal text-[--color-text-muted]">Payable {fmtCurrency(Number(po.total_amount) - Number(po.short_amount || 0))}</span>}
+              </Field>
               <Field label="Issued">{fmtDate(po.issued_date)}</Field>
               {po.expected_delivery_date && (
                 <Field label="Expected Delivery">
@@ -160,8 +164,18 @@ export default function PurchaseOrders({ pr, canManage }) {
               </p>
             )}
             {po.delivery_notes && <p className="text-ui-xs text-[--color-text-secondary] leading-relaxed">{po.delivery_notes}</p>}
+            {po.closed_at && (
+              <p className="flex items-start gap-2 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-ui-xs text-slate-800">
+                <Lock className="size-3.5 shrink-0 mt-0.5" />
+                <span>
+                  <span className="font-semibold">Balance closed {fmtDate(po.closed_at)}:</span> {po.close_reason}
+                  {' '}Not delivered, not paid: {fmtCurrency(po.short_amount)}
+                  {Number(po.penalty_amount) > 0 ? `; late-delivery penalty ${fmtCurrency(po.penalty_amount)}` : ''}.
+                </span>
+              </p>
+            )}
 
-            {(po.can_record_delivery || po.can_reschedule || po.can_cancel) && (
+            {(po.can_record_delivery || po.can_reschedule || po.can_cancel || po.can_close) && (
               <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[--color-border] pt-4">
                 {po.can_cancel && (
                   <p className="mr-auto text-ui-xs text-[--color-text-secondary]">Supplier backed out? Cancel this PO before any delivery to award its items again.</p>
@@ -169,6 +183,14 @@ export default function PurchaseOrders({ pr, canManage }) {
                 {po.can_cancel && (
                   <Button variant="outline" size="sm" className="gap-1.5 border-red-300 text-red-600 hover:bg-red-50" onClick={() => setAction({ kind: 'cancel', po })}>
                     <XCircle className="size-3.5" /> Cancel PO
+                  </Button>
+                )}
+                {po.can_close && (
+                  <p className="mr-auto text-ui-xs text-[--color-text-secondary]">Supplier can't deliver the rest? Close the balance to award it again.</p>
+                )}
+                {po.can_close && (
+                  <Button variant="outline" size="sm" className="gap-1.5 border-red-300 text-red-600 hover:bg-red-50" onClick={() => setAction({ kind: 'close', po })}>
+                    <Lock className="size-3.5" /> Close Balance
                   </Button>
                 )}
                 {po.can_reschedule && (
@@ -223,6 +245,7 @@ export default function PurchaseOrders({ pr, canManage }) {
       {action?.kind === 'receive' && <ReceiveDialog poId={action.po.id} open onClose={() => setAction(null)} />}
       {action?.kind === 'reschedule' && <RescheduleDialog po={action.po} onClose={() => setAction(null)} />}
       {action?.kind === 'cancel' && <CancelPODialog po={action.po} onClose={() => setAction(null)} />}
+      {action?.kind === 'close' && <CloseBalanceDialog poId={action.po.id} onClose={() => setAction(null)} />}
     </Card>
   )
 }

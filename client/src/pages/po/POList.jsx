@@ -143,7 +143,10 @@ export default function POList() {
                               {!po.is_overdue && po.rescheduled_at && <span className="block text-[11px] text-[--color-text-muted]" title={po.reschedule_reason}>Moved</span>}
                             </TableCell>
                             <TableCell className="text-xs text-[--color-text-secondary] whitespace-nowrap">{receivedText(po) || <span className="text-[--color-text-muted]">—</span>}</TableCell>
-                            <TableCell>{po.po_status === 'cancelled' ? <POStatusBadge status="cancelled" /> : <DeliveryStatusBadge status={po.delivery_status} />}</TableCell>
+                            <TableCell>
+                              {po.po_status === 'cancelled' ? <POStatusBadge status="cancelled" /> : <DeliveryStatusBadge status={po.delivery_status} />}
+                              {po.closed_at && <span className="block text-[11px] text-[--color-text-muted]" title="The supplier couldn't deliver the rest">Balance closed</span>}
+                            </TableCell>
                             <TableCell>
                               <div className="flex items-center justify-end gap-1" onClick={e => e.stopPropagation()}>
                                 {canReceive && openPO && (

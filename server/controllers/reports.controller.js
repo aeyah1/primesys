@@ -16,7 +16,7 @@ exports.summary = async (req, res) => {
     const [byQuarter] = await pool.execute(`
       SELECT q.id, q.label, q.year, q.budget, q.start_date, q.end_date,
              COUNT(DISTINCT pr.id)              AS pr_count,
-             COALESCE(SUM(po.total_amount), 0)  AS total_spending
+             COALESCE(SUM(po.total_amount - COALESCE(po.short_amount, 0)), 0)  AS total_spending
       FROM quarters q
       LEFT JOIN purchase_requests pr ON pr.quarter_id = q.id AND pr.status != 'cancelled' AND ${scope.sql}
       LEFT JOIN purchase_orders po   ON po.purchase_request_id = pr.id AND po.po_status = 'active'
@@ -28,7 +28,7 @@ exports.summary = async (req, res) => {
     const [byCategory] = await pool.execute(`
       SELECT pr.category,
              COUNT(DISTINCT pr.id)             AS pr_count,
-             COALESCE(SUM(po.total_amount), 0) AS total
+             COALESCE(SUM(po.total_amount - COALESCE(po.short_amount, 0)), 0) AS total
       FROM purchase_orders po
       JOIN purchase_requests pr ON pr.id = po.purchase_request_id
       WHERE po.po_status = 'active' AND ${scope.sql}
@@ -49,7 +49,7 @@ exports.summary = async (req, res) => {
       SELECT
         DATE_FORMAT(po.created_at, '%Y-%m')     AS month,
         COUNT(DISTINCT po.purchase_request_id)  AS pr_count,
-        COALESCE(SUM(po.total_amount), 0)       AS total_spending
+        COALESCE(SUM(po.total_amount - COALESCE(po.short_amount, 0)), 0)       AS total_spending
       FROM purchase_orders po
       WHERE po.created_at >= DATE_SUB(NOW(), INTERVAL 12 MONTH) AND po.po_status = 'active'
       GROUP BY month
@@ -66,7 +66,7 @@ exports.summary = async (req, res) => {
     `, scope.params)
 
     const [poSpending] = await pool.execute(
-      `SELECT COALESCE(SUM(total_amount), 0) AS total_spending FROM purchase_orders WHERE po_status = 'active'`
+      `SELECT COALESCE(SUM(total_amount - COALESCE(short_amount, 0)), 0) AS total_spending FROM purchase_orders WHERE po_status = 'active'`
     )
 
     res.json({
@@ -130,7 +130,7 @@ exports.summaryPdf = asyncHandler(async (req, res) => {
            COALESCE(NULLIF(d.name, ''), NULLIF(pr.department, ''), '') AS office,
            (SELECT COALESCE(SUM(i.quantity * i.estimated_cost), 0)
               FROM pr_items i WHERE i.pr_id = pr.id) AS estimated,
-           (SELECT COALESCE(SUM(po.total_amount), 0)
+           (SELECT COALESCE(SUM(po.total_amount - COALESCE(po.short_amount, 0)), 0)
               FROM purchase_orders po
              WHERE po.purchase_request_id = pr.id AND po.po_status = 'active') AS awarded
       FROM purchase_requests pr
@@ -141,7 +141,7 @@ exports.summaryPdf = asyncHandler(async (req, res) => {
 
   const [orders] = await pool.execute(`
     SELECT po.po_number, pr.pr_number, po.supplier_name, po.issued_date,
-           po.delivery_status, po.total_amount
+           po.delivery_status, po.total_amount - COALESCE(po.short_amount, 0) AS total_amount
       FROM purchase_orders po
       JOIN purchase_requests pr ON pr.id = po.purchase_request_id
      WHERE po.po_status = 'active'

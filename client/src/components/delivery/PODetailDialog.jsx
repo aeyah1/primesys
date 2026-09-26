@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { FileDown, Truck, CalendarDays, XCircle, Paperclip, ChevronDown, ChevronRight, ExternalLink } from 'lucide-react'
+import { FileDown, Truck, CalendarDays, XCircle, Paperclip, ChevronDown, ChevronRight, ExternalLink, Lock, AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
@@ -16,6 +16,7 @@ import { hundredths, qty } from './shared'
 import ReceiveDialog from './ReceiveDialog'
 import RescheduleDialog from './RescheduleDialog'
 import CancelPODialog from './CancelPODialog'
+import CloseBalanceDialog from './CloseBalanceDialog'
 
 const pdf = (endpoint, what) => openPdf(endpoint).catch(async (err) => toast.error(await blobErrorMessage(err, `Could not open the ${what}`)))
 
@@ -68,7 +69,7 @@ function DeliveryRow({ d, canUpload, canDelete }) {
    and what is still to come), its deliveries, and the actions this user may take. */
 export default function PODetailDialog({ poId, onClose }) {
   const { user } = useAuth()
-  const [action, setAction] = useState(null)   // 'receive' | 'reschedule' | 'cancel'
+  const [action, setAction] = useState(null)   // 'receive' | 'reschedule' | 'cancel' | 'close'
   const { data: po, isLoading } = useQuery({
     queryKey: ['po-detail', String(poId)],
     queryFn:  () => api.get(`/po/${poId}`).then(r => r.data),
@@ -95,6 +96,38 @@ export default function PODetailDialog({ poId, onClose }) {
               </div>
             )}
 
+            {po.closed_at && (
+              <div className="flex items-start gap-3 rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-800">
+                <Lock className="size-4 text-slate-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold">Balance closed {fmtDate(po.closed_at)}{po.closed_by_name ? ` by ${po.closed_by_name}` : ''}</p>
+                  {po.close_reason && <p className="mt-0.5">{po.close_reason}</p>}
+                  <p className="mt-1 text-xs text-slate-600">
+                    Not delivered, not paid: <strong>{fmtCurrency(po.short_amount)}</strong>
+                    {Number(po.penalty_amount) > 0 && <> · Late-delivery penalty recorded: <strong>{fmtCurrency(po.penalty_amount)}</strong></>}
+                    . The undelivered items went back to canvass.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {po.late && (
+              <div className={`flex items-start gap-3 rounded-xl border px-4 py-3 text-sm ${po.late.may_terminate ? 'border-red-300 bg-red-50 text-red-800' : 'border-amber-300 bg-amber-50 text-amber-900'}`}>
+                <AlertTriangle className="size-4 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold">
+                    {po.late.days_late} days late
+                    {po.late.amount != null ? ` · penalty so far ${fmtCurrency(po.late.amount)}` : ''}
+                  </p>
+                  <p className="mt-0.5 text-xs">
+                    1/10 of 1% of the value not yet delivered{po.late.undelivered != null ? ` (${fmtCurrency(po.late.undelivered)})` : ''} per day, per the PO's penalty clause
+                    {po.late.amount == null ? "; it can't be worked out here because this award has no unit prices" : ''}.
+                    {po.late.may_terminate && ' It has reached 10% of the contract: the office may terminate the PO for default.'}
+                  </p>
+                </div>
+              </div>
+            )}
+
             <div className="flex flex-wrap items-center gap-2">
               <POStatusBadge status={po.po_status} />
               {po.po_status === 'active' && <DeliveryStatusBadge status={po.delivery_status} />}
@@ -108,7 +141,10 @@ export default function PODetailDialog({ poId, onClose }) {
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <Field label="Total"><span className="font-bold text-blue-800">{fmtCurrency(po.total_amount)}</span></Field>
+              <Field label="Total">
+                <span className="font-bold text-blue-800">{fmtCurrency(po.total_amount)}</span>
+                {po.closed_at && <span className="block text-xs font-normal text-[--color-text-muted]">Payable {fmtCurrency(Number(po.total_amount) - Number(po.short_amount || 0))}</span>}
+              </Field>
               <Field label="Issued">{fmtDate(po.issued_date)}{po.issued_by_name ? <span className="block text-xs font-normal text-[--color-text-muted]">by {po.issued_by_name}</span> : null}</Field>
               <Field label="Expected">
                 <span className={po.is_overdue ? 'text-red-700' : ''}>{po.expected_delivery_date ? fmtDate(po.expected_delivery_date) : 'Not set'}</span>
@@ -142,7 +178,7 @@ export default function PODetailDialog({ poId, onClose }) {
                         {po.has_lines && <td className="px-3 py-2.5 text-right tabular-nums text-[--color-text-secondary]">{qty(l.received)}</td>}
                         {po.has_lines && (
                           <td className={`px-3 py-2.5 text-right tabular-nums ${l.remaining > 0 ? 'font-semibold text-[--color-text-primary]' : 'text-[--color-text-muted]'}`}>
-                            {l.remaining > 0 ? qty(l.remaining) : 'None'}
+                            {l.remaining > 0 ? qty(l.remaining) : Number(l.short) > 0 ? <span className="text-red-700">{qty(l.short)} not delivered</span> : 'None'}
                           </td>
                         )}
                         <td className="px-3 py-2.5 text-right tabular-nums text-[--color-text-secondary] whitespace-nowrap">{lineCost(l) != null ? fmtCurrency(lineCost(l)) : '—'}</td>
@@ -180,6 +216,11 @@ export default function PODetailDialog({ poId, onClose }) {
                   <XCircle className="size-3.5" /> Cancel PO
                 </Button>
               )}
+              {po.permissions?.close && (
+                <Button variant="outline" size="sm" className="gap-1.5 border-red-300 text-red-600 hover:bg-red-50" onClick={() => setAction('close')}>
+                  <Lock className="size-3.5" /> Close Balance
+                </Button>
+              )}
               {po.permissions?.receive && (
                 <Button size="sm" className="gap-1.5" onClick={() => setAction('receive')}>
                   <Truck className="size-3.5" /> Record Delivery
@@ -192,6 +233,7 @@ export default function PODetailDialog({ poId, onClose }) {
         {po && <ReceiveDialog poId={po.id} open={action === 'receive'} onClose={() => setAction(null)} />}
         {po && action === 'reschedule' && <RescheduleDialog po={po} onClose={() => setAction(null)} />}
         {po && action === 'cancel' && <CancelPODialog po={po} onClose={() => setAction(null)} />}
+        {po && action === 'close' && <CloseBalanceDialog poId={po.id} onClose={() => setAction(null)} />}
       </DialogContent>
     </Dialog>
   )

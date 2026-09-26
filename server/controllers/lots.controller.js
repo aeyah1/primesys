@@ -14,6 +14,7 @@ const drawAbstract   = require('../pdf/abstractOfQuotations')
 const { loadOrgSettings } = require('../utils/orgSettings')
 const notify = require('../utils/notify')
 const { sendAwardNotices } = require('../utils/awardNotice')
+const { failedSuppliers, failedBlock } = require('../utils/shortDelivery')
 const { awardDenied, modeMissing, bacAwards, adoptResolution, releaseIfDone } = require('../utils/bacWorkflow')
 const { sealedBlock } = require('../utils/rfqWorkflow')
 const { resolveSupplier, supplierDetails } = require('../utils/suppliers')
@@ -177,6 +178,12 @@ exports.create = asyncHandler(async (req, res) => {
       details = Object.fromEntries(SUPPLIER_COLUMNS.map(c => [c, req.body[c] || same?.[c] || null]))
     }
 
+    // A supplier that failed to deliver one of these items before can't be awarded it again.
+    const failedFor = await failedSuppliers(conn, pr.id)
+    for (const item of covered) {
+      const failed = failedBlock(failedFor, item, supplier)
+      if (failed) throw httpError(failed.status, failed.message)
+    }
     const noMode = modeMissing(pr, bacOn)
     if (noMode) throw httpError(noMode.status, noMode.message)
     const resolution = bacOn ? await adoptResolution(conn, pr.id, req.user.id) : null

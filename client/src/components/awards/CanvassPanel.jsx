@@ -213,6 +213,10 @@ export default function CanvassPanel({ pr, view = 'award' }) {
                   <td className="px-3 py-2.5 min-w-40 text-[--color-text-primary]">
                     {i.group_label && <span className="text-[--color-text-muted]">{i.group_label}: </span>}
                     <span className={i.state === 'dropped' ? 'line-through text-[--color-text-muted]' : ''}>{i.item_name}</span>
+                    {i.balance_of && (
+                      <span className="ml-1.5 rounded-full border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
+                        title="The undelivered quantity of an earlier award, back for a new award">Balance</span>
+                    )}
                   </td>
                   <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap">{Number(i.quantity)} {i.unit || ''}</td>
                   <td className="px-3 py-2.5 text-right tabular-nums text-[--color-text-secondary] whitespace-nowrap">

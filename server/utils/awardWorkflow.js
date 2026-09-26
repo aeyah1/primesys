@@ -64,17 +64,19 @@ function budgetBlock(amountCents, estimateCents, who = 'The contract amount') {
 }
 
 // Each PR item with its award state: 'awarded' (in an awarded lot, `award`
-// says which), 'dropped', or 'pending' (still needs an award).
+// says which), 'dropped', or 'pending' (still needs an award). A line whose PO
+// closed with none of it delivered no longer counts: its item needs an award again.
 async function itemStates(db, prId) {
   const [items] = await db.execute(
-    `SELECT i.id, i.item_name, i.quantity, i.unit, i.estimated_cost, i.group_label,
+    `SELECT i.id, i.item_name, i.quantity, i.unit, i.estimated_cost, i.group_label, i.notes, i.balance_of,
             i.dropped_at, i.drop_reason, du.name AS dropped_by_name
        FROM pr_items i LEFT JOIN users du ON du.id = i.dropped_by
       WHERE i.pr_id = ? ORDER BY i.id`, [prId])
   const [links] = await db.execute(
     `SELECT li.pr_item_id, li.unit_price, l.id AS lot_id, l.lot_number, l.awarded_to, l.po_id
        FROM lot_items li JOIN lots l ON l.id = li.lot_id
-      WHERE l.purchase_request_id = ? AND l.status = 'awarded' AND li.pr_item_id IS NOT NULL`, [prId])
+      WHERE l.purchase_request_id = ? AND l.status = 'awarded' AND li.pr_item_id IS NOT NULL
+        AND li.quantity > li.short_quantity`, [prId])
   const [[{ whole }]] = await db.execute(
     `SELECT EXISTS (SELECT 1 FROM lots l WHERE l.purchase_request_id = ? AND l.status = 'awarded'
                       AND NOT EXISTS (SELECT 1 FROM lot_items li WHERE li.lot_id = l.id AND li.pr_item_id IS NOT NULL)) AS whole`, [prId])
