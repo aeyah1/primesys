@@ -45,10 +45,16 @@ async function resolveSupplier(conn, body, userId, { nameField = 'supplier_name'
   return supplier
 }
 
+// The listed supplier of that name (ignoring case and spacing), or null.
+async function supplierIdByName(db, name) {
+  const [[s]] = await db.execute('SELECT id FROM suppliers WHERE name_key = ?', [supplierKey(name)])
+  return s?.id ?? null
+}
+
 // A supplier row as the supplier_* columns of a quotation or an award.
 const supplierDetails = (s) => ({
   supplier_contact: s.contact_person, supplier_address: s.address, supplier_phone: s.phone,
   supplier_email: s.email, supplier_tin: s.tin,
 })
 
-module.exports = { resolveSupplier, supplierDetails }
+module.exports = { resolveSupplier, supplierDetails, supplierIdByName }

@@ -116,7 +116,7 @@ function statusFromAwards(p) {
 // nothing consistent to order.
 async function awardsForPO(db, prId, supplier) {
   const [lots] = await db.execute(
-    `SELECT id, lot_number, awarded_to, awarded_amount, supplier_contact, supplier_address
+    `SELECT id, lot_number, awarded_to, supplier_id, awarded_amount, supplier_contact, supplier_address
        FROM lots WHERE purchase_request_id = ? AND status = 'awarded' AND po_id IS NULL ORDER BY id`, [prId])
   if (!lots.length) throw httpError(409, 'No award on this PR is waiting for a purchase order. Record the award in Lots & Awards first.')
   const groups = new Map()
@@ -141,6 +141,7 @@ async function awardsForPO(db, prId, supplier) {
     lotIds:           chosen.map(l => l.id),
     lotNumbers:       chosen.map(l => l.lot_number),
     supplier_name:    chosen[0].awarded_to,
+    supplier_id:      chosen.find(l => l.supplier_id)?.supplier_id ?? null,
     supplier_contact: chosen.find(l => l.supplier_contact)?.supplier_contact ?? null,
     supplier_address: chosen.find(l => l.supplier_address)?.supplier_address ?? null,
     total_amount:     (chosen.reduce((s, l) => s + cents(l.awarded_amount), 0) / 100).toFixed(2),
@@ -168,14 +169,14 @@ async function poItems(db, poId, prId) {
 // of the PR items it covers. `prices`: each item's awarded unit price (from a
 // quotation), or none for a lump-sum award. `resolutionId`: the BAC Resolution
 // that made it, when the BAC awards. Resolves with { id, lot_number }.
-async function recordAward(db, { resolutionId = null, prId, supplier, amount, details = {}, title = null, notes = null, fewQuotationsReason = null, quotationId = null, userId, items, prices = null }) {
+async function recordAward(db, { resolutionId = null, prId, supplier, supplierId = null, amount, details = {}, title = null, notes = null, fewQuotationsReason = null, quotationId = null, userId, items, prices = null }) {
   const [[{ n }]] = await db.execute('SELECT COUNT(*) AS n FROM lots WHERE purchase_request_id = ?', [prId])
   const lot_number = `LOT-${String(Number(n) + 1).padStart(3, '0')}`
   const [lot] = await db.execute(
-    `INSERT INTO lots (purchase_request_id, lot_number, title, status, awarded_to, awarded_amount,
+    `INSERT INTO lots (purchase_request_id, lot_number, title, status, awarded_to, supplier_id, awarded_amount,
                        ${SUPPLIER_COLUMNS.join(', ')}, notes, few_quotations_reason, quotation_id, resolution_id, created_by)
-     VALUES (?, ?, ?, 'awarded', ?, ?, ${SUPPLIER_COLUMNS.map(() => '?').join(', ')}, ?, ?, ?, ?, ?)`,
-    [prId, lot_number, title, supplier, amount, ...SUPPLIER_COLUMNS.map(c => details[c] || null), notes, fewQuotationsReason, quotationId, resolutionId, userId]
+     VALUES (?, ?, ?, 'awarded', ?, ?, ?, ${SUPPLIER_COLUMNS.map(() => '?').join(', ')}, ?, ?, ?, ?, ?)`,
+    [prId, lot_number, title, supplier, supplierId, amount, ...SUPPLIER_COLUMNS.map(c => details[c] || null), notes, fewQuotationsReason, quotationId, resolutionId, userId]
   )
   if (items.length) {
     await db.execute(

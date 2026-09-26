@@ -202,10 +202,10 @@ exports.create = asyncHandler(async (req, res) => {
       try {
         const [result] = await conn.execute(
           `INSERT INTO purchase_orders
-             (po_number, purchase_request_id, supplier_name, supplier_contact, supplier_address,
+             (po_number, purchase_request_id, supplier_name, supplier_id, supplier_contact, supplier_address,
               issued_date, total_amount, expected_delivery_date, notes, po_status, issued_by)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
-          [po_number, pr.id, award.supplier_name, award.supplier_contact, award.supplier_address,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
+          [po_number, pr.id, award.supplier_name, award.supplier_id, award.supplier_contact, award.supplier_address,
            issued_date, award.total_amount, expected_delivery_date || null, notes || null, req.user.id]
         )
         // Those awards are now this PO's (and fixed with it).

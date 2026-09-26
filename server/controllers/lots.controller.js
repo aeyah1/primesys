@@ -17,7 +17,7 @@ const { sendAwardNotices } = require('../utils/awardNotice')
 const { failedSuppliers, failedBlock } = require('../utils/shortDelivery')
 const { awardDenied, modeMissing, bacAwards, adoptResolution, releaseIfDone } = require('../utils/bacWorkflow')
 const { sealedBlock } = require('../utils/rfqWorkflow')
-const { resolveSupplier, supplierDetails } = require('../utils/suppliers')
+const { resolveSupplier, supplierDetails, supplierIdByName } = require('../utils/suppliers')
 
 // The lot and its PR's facts; with `lock` (inside a transaction), the PR row
 // first and then the lot, the same order as every other award write.
@@ -164,10 +164,11 @@ exports.create = asyncHandler(async (req, res) => {
 
     // A supplier from the list brings its own details. One typed in by name
     // keeps the name as first written on an earlier award here, and any detail left out.
-    let supplier, details
+    let supplier, details, supplierId
     if (req.body.supplier_id) {
       const listed = await resolveSupplier(conn, req.body, req.user.id)
       supplier = listed.name
+      supplierId = listed.id
       details = supplierDetails(listed)
     } else {
       if (!awarded_to?.trim()) throw httpError(400, 'Choose the supplier')
@@ -176,6 +177,7 @@ exports.create = asyncHandler(async (req, res) => {
       const same = awards.find(a => supplierKey(a.awarded_to) === supplierKey(awarded_to))
       supplier = same ? same.awarded_to : awarded_to.trim()
       details = Object.fromEntries(SUPPLIER_COLUMNS.map(c => [c, req.body[c] || same?.[c] || null]))
+      supplierId = await supplierIdByName(conn, supplier)
     }
 
     // A supplier that failed to deliver one of these items before can't be awarded it again.
@@ -188,7 +190,7 @@ exports.create = asyncHandler(async (req, res) => {
     if (noMode) throw httpError(noMode.status, noMode.message)
     const resolution = bacOn ? await adoptResolution(conn, pr.id, req.user.id) : null
     const lot = await recordAward(conn, {
-      resolutionId: resolution?.id ?? null, prId: pr.id, supplier, amount: (amount / 100).toFixed(2), details, title: title || null, userId: req.user.id, items: covered,
+      resolutionId: resolution?.id ?? null, prId: pr.id, supplier, supplierId, amount: (amount / 100).toFixed(2), details, title: title || null, userId: req.user.id, items: covered,
     })
     const by = resolution ? ` (BAC Resolution No. ${resolution.resolution_number})` : ''
     await syncPRProgress(conn, pr.id, { user: req.user, note: `${lot.lot_number} awarded to ${supplier}${by}` })
@@ -263,6 +265,11 @@ exports.update = asyncHandler(async (req, res) => {
           WHERE id IN (${ids.map(() => '?').join(', ')})`,
         [...supplier, ...ids]
       )
+      // A new name may be a different listed supplier (or none).
+      if (awarded_to?.trim()) {
+        await conn.execute(`UPDATE lots SET supplier_id = ? WHERE id IN (${ids.map(() => '?').join(', ')})`,
+          [await supplierIdByName(conn, awarded_to), ...ids])
+      }
     }
     return { reopened: false }
   })
