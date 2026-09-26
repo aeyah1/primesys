@@ -8,7 +8,7 @@ const { prScope }     = require('../middleware/scope.middleware')
 const { paging }      = require('../middleware/validate')
 const { loadPR, syncPRProgress } = require('../utils/prWorkflow')
 const { supplierKey, announceAwards } = require('../utils/awardWorkflow')
-const { BAC_DECIDERS, nextResolutionNumber } = require('../utils/bacWorkflow')
+const { BAC_DECIDERS, BAC_READERS, nextResolutionNumber } = require('../utils/bacWorkflow')
 const { loadOrgSettings } = require('../utils/orgSettings')
 const { M }            = require('../pdf/campusForm')
 const drawResolution   = require('../pdf/bacResolution')
@@ -99,7 +99,7 @@ exports.summary = asyncHandler(async (req, res) => {
   res.json({
     pending: { lots: pending.length, total: pending.reduce((s, l) => s + Math.round(Number(l.awarded_amount) * 100), 0) / 100 },
     resolutions: resolutions.map(r => ({ ...r, lots: lots.filter(l => l.resolution_id === r.id) })),
-    permissions: { decide: BAC_DECIDERS.includes(req.user.role) && pending.length > 0 },
+    permissions: { decide: BAC_DECIDERS.includes(req.user.role) && pending.length > 0, print: BAC_READERS.includes(req.user.role) },
   })
 })
 
