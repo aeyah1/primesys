@@ -1,6 +1,7 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { Search, Plus, Pencil, Store, Mail, Phone, MapPin, CreditCard, User, Ban, BadgeCheck } from 'lucide-react'
+import { Search, Plus, Pencil, Store, Mail, Phone, MapPin, CreditCard, User, Ban, BadgeCheck, AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -8,13 +9,21 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
-import { fmtDate } from '@/lib/utils'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { CategoryBadge } from '@/components/shared/StatusBadge'
+import { fmtDate, fmtCurrency, CATEGORY_LABELS } from '@/lib/utils'
 import api from '@/lib/axios'
 
 const TABS = [
   { key: '',            label: 'All' },
   { key: 'active',      label: 'Active' },
   { key: 'blacklisted', label: 'Blacklisted' },
+]
+const SORTS = [
+  { key: 'name',   label: 'Name' },
+  { key: 'awards', label: 'Most awards' },
+  { key: 'value',  label: 'Largest contracts' },
+  { key: 'recent', label: 'Recently active' },
 ]
 const EMPTY = { name: '', tin: '', address: '', contact_person: '', email: '', phone: '', status: 'active', status_note: '' }
 const FIELDS = [
@@ -25,7 +34,7 @@ const FIELDS = [
 ]
 
 // Whether the supplier's email on file is the one it proved by quoting through an emailed RFQ.
-const isConfirmed = (s) => !!s.email && !!s.email_confirmed && s.email.toLowerCase() === s.email_confirmed.toLowerCase()
+export const isConfirmed = (s) => !!s.email && !!s.email_confirmed && s.email.toLowerCase() === s.email_confirmed.toLowerCase()
 
 /* ── Add or edit one supplier. onSaved(id): the saved supplier's id, e.g.
    to pick a supplier just added from the canvass. ──────────────────── */
@@ -95,13 +104,24 @@ export default function SupplierList() {
   const [search, setSearch] = useState('')
   const [page, setPage]     = useState(1)
   const [editing, setEditing] = useState(null)   // { supplier } or { supplier: null } for a new one
+  const [issues, setIssues]           = useState(false)
+  const [unconfirmed, setUnconfirmed] = useState(false)
+  const [category, setCategory]       = useState('all')
+  const [sort, setSort]               = useState('name')
+  const filters = { status, search, page, limit: 25, stats: 1, sort,
+    ...(issues ? { issues: 1 } : {}), ...(unconfirmed ? { email: 'unconfirmed' } : {}), ...(category !== 'all' ? { category } : {}) }
+  const filtered = !!(search || status || issues || unconfirmed || category !== 'all')
+  const reset = (fn) => (v) => { fn(v); setPage(1) }
 
   const { data, isLoading } = useQuery({
-    queryKey: ['suppliers', { status, search, page }],
-    queryFn: () => api.get(`/suppliers?${new URLSearchParams({ status, search, page, limit: 25 })}`).then(r => r.data),
+    queryKey: ['suppliers', filters],
+    queryFn: () => api.get(`/suppliers?${new URLSearchParams(filters)}`).then(r => r.data),
     placeholderData: keepPreviousData,
   })
   const rows = data?.data ?? []
+  const chip = (on) => `rounded-full border px-3 py-1 text-ui-xs font-medium transition-colors ${
+    on ? 'border-[--color-brand] bg-[--color-brand] text-white'
+      : 'border-[--color-border-strong] bg-white text-[--color-text-secondary] hover:border-[--color-brand] hover:text-[--color-brand]'}`
 
   return (
     <div className="space-y-4">
@@ -119,15 +139,26 @@ export default function SupplierList() {
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {TABS.map(t => (
-          <button key={t.key} onClick={() => { setStatus(t.key); setPage(1) }}
-            className={`rounded-full border px-3 py-1 text-ui-xs font-medium transition-colors ${
-              status === t.key ? 'border-[--color-brand] bg-[--color-brand] text-white'
-                : 'border-[--color-border-strong] bg-white text-[--color-text-secondary] hover:border-[--color-brand] hover:text-[--color-brand]'}`}>
-            {t.label}
-          </button>
+          <button key={t.key} onClick={() => reset(setStatus)(t.key)} className={chip(status === t.key)}>{t.label}</button>
         ))}
+        <span className="mx-1 h-5 w-px bg-[--color-border-strong]" />
+        <button onClick={() => reset(setIssues)(!issues)} className={chip(issues)}>Has issues</button>
+        <button onClick={() => reset(setUnconfirmed)(!unconfirmed)} className={chip(unconfirmed)}>Email not confirmed</button>
+        <div className="ml-auto flex items-center gap-2">
+          <Select value={category} onValueChange={reset(setCategory)}>
+            <SelectTrigger className="h-8 w-52 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Supplies anything</SelectItem>
+              {Object.entries(CATEGORY_LABELS).map(([k, label]) => <SelectItem key={k} value={k}>Supplies {label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={sort} onValueChange={reset(setSort)}>
+            <SelectTrigger className="h-8 w-48 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>{SORTS.map(o => <SelectItem key={o.key} value={o.key}>Sort: {o.label}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
       </div>
 
       <Card>
@@ -138,15 +169,15 @@ export default function SupplierList() {
               ? (
                 <div className="px-6 py-16 text-center">
                   <Store className="size-10 text-[--color-text-muted] mx-auto mb-3" />
-                  <p className="text-ui-sm font-semibold text-[--color-text-primary]">{search || status ? 'No suppliers match.' : 'No suppliers yet'}</p>
-                  {!search && !status && <p className="text-ui-xs text-[--color-text-muted] mt-1">Add the suppliers you canvass, with their email, to send them RFQs.</p>}
+                  <p className="text-ui-sm font-semibold text-[--color-text-primary]">{filtered ? 'No suppliers match.' : 'No suppliers yet'}</p>
+                  {!filtered && <p className="text-ui-xs text-[--color-text-muted] mt-1">Add the suppliers you canvass, with their email, to send them RFQs.</p>}
                 </div>
               )
               : rows.map(s => (
                 <div key={s.id} className="flex flex-wrap items-start justify-between gap-3 px-6 py-4 border-b border-[--color-border] last:border-0">
                   <div className="min-w-0 flex-1">
                     <p className="flex items-center gap-2 text-sm font-semibold text-[--color-text-primary]">
-                      {s.name}
+                      <Link to={`/suppliers/${s.id}`} className="hover:text-[--color-brand] hover:underline">{s.name}</Link>
                       {s.status === 'blacklisted' && (
                         <span className="inline-flex items-center gap-1 rounded-full border border-red-300 bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-red-700"><Ban className="size-3" /> Blacklisted</span>
                       )}
@@ -167,9 +198,24 @@ export default function SupplierList() {
                       {s.address && <span className="flex items-center gap-1"><MapPin className="size-3" /> {s.address}</span>}
                     </div>
                     {s.status === 'blacklisted' && s.status_note && <p className="mt-1 text-xs text-red-700">{s.status_note}</p>}
+                    {s.categories?.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5">{s.categories.map(c => <CategoryBadge key={c} category={c} />)}</div>}
                   </div>
-                  <div className="flex items-center gap-3 shrink-0">
-                    <span className="text-xs text-[--color-text-muted]">{Number(s.invitations)} RFQ{Number(s.invitations) === 1 ? '' : 's'} sent</span>
+                  <div className="flex items-center gap-4 shrink-0">
+                    <div className="text-right text-xs leading-relaxed">
+                      <p className="font-semibold text-[--color-text-primary]">
+                        {s.awards} award{s.awards === 1 ? '' : 's'}{s.contract_value > 0 ? ` · ${fmtCurrency(s.contract_value)}` : ''}
+                      </p>
+                      <p className="text-[--color-text-secondary]">
+                        {s.invitations ? `Answered ${s.answered} of ${s.invitations} RFQs` : 'No RFQs sent'}
+                        {s.delivered ? ` · On time ${s.on_time} of ${s.delivered}` : ''}
+                      </p>
+                      {(s.closed_short > 0 || s.overdue > 0 || s.delivered > s.on_time) && (
+                        <p className="inline-flex items-center gap-1 font-semibold text-red-700">
+                          <AlertTriangle className="size-3" />
+                          {[s.overdue && `${s.overdue} overdue`, s.closed_short && `${s.closed_short} failed to finish`, s.delivered > s.on_time && `${s.delivered - s.on_time} late`].filter(Boolean).join(', ')}
+                        </p>
+                      )}
+                    </div>
                     <Button size="sm" variant="ghost" className="gap-1" onClick={() => setEditing({ supplier: s })}><Pencil className="size-3.5" /> Edit</Button>
                   </div>
                 </div>
