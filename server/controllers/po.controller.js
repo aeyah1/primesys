@@ -237,7 +237,8 @@ exports.generatePDF = asyncHandler(async (req, res) => {
 
   const [rows] = await pool.execute(`
     SELECT po.*, pr.pr_number, pr.title AS pr_title, pr.id AS pr_id,
-           pr.mode_of_procurement, pr.department,
+           pr.mode_of_procurement, pr.department, pr.fund_cluster,
+           (SELECT l.supplier_tin FROM lots l WHERE l.po_id = po.id AND l.supplier_tin IS NOT NULL LIMIT 1) AS supplier_tin,
            u.name AS issued_by_name,
            q.label AS quarter_label, q.year AS quarter_year
     FROM purchase_orders po

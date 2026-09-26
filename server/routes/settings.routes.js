@@ -40,6 +40,8 @@ router.patch('/',  auth, authorize('admin'),
   textRule('allotment_by_designation', 'Allotment certified by designation', 150),
   textRule('app_certified_by_name', 'APP certified by name', 150),
   textRule('app_certified_by_designation', 'APP certified by designation', 150),
+  textRule('chief_accountant_name', 'Chief Accountant name', 150),
+  textRule('chief_accountant_designation', 'Chief Accountant designation', 150),
 
   // Request for Quotation signatories
   textRule('bac_vice_chairman_name', 'BAC Vice Chairman name', 150),
