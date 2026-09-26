@@ -111,6 +111,8 @@ CREATE TABLE `purchase_requests` (
   -- How this is procured (server/utils/procurementModes.js). Set by
   -- Procurement, not asked of the person filing the request.
   `mode_of_procurement`        VARCHAR(60)  NULL,
+  -- When quotations close, set by "Open for quotations" (emailed RFQs share it as their deadline).
+  `quotations_due`             DATETIME     NULL,
   -- Submitted by Procurement (the BAC Secretariat) for the BAC to evaluate and
   -- award; cleared when the BAC awards every item or returns it (with why).
   `bac_submitted_at`           DATETIME     NULL,

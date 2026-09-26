@@ -239,7 +239,7 @@ export default function CanvassPanel({ pr }) {
       )}
 
       {/* RFQs emailed to suppliers, who quote through their own link */}
-      <RfqPanel prId={prId} rfq={canvass.rfq} can={can} />
+      <RfqPanel prId={prId} rfq={canvass.rfq} schedule={canvass.schedule} can={can} />
 
       {/* The suppliers' quotations */}
       {quotations.length > 0 ? (

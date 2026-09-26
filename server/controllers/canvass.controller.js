@@ -54,6 +54,8 @@ exports.summary = asyncHandler(async (req, res) => {
     `SELECT i.id, i.deadline, i.sent_at, i.send_error, i.reminded_at, i.opened_at, i.submitted_at, s.name AS supplier_name, s.email
        FROM rfq_invitations i JOIN suppliers s ON s.id = i.supplier_id
       WHERE i.purchase_request_id = ? ORDER BY s.name`, [pr.id])
+  const [[schedule]] = await pool.execute(
+    'SELECT quotations_due AS due, quotations_due > NOW() AS open FROM purchase_requests WHERE id = ?', [pr.id])
   const awarded = new Set(items.filter(i => i.state === 'awarded').map(i => i.id))
   const staff = STAFF.includes(req.user.role) && !pr.deleted_at
   const bidding = !pr.deleted_at && pr.status === 'bidding'
@@ -78,6 +80,8 @@ exports.summary = asyncHandler(async (req, res) => {
         locked: mine.some(p => awarded.has(p.pr_item_id)),
       }
     }),
+    // When quotations close (a canvass on paper has only this); emailed RFQs are sealed until then.
+    schedule: { due: schedule?.due ?? null, open: !!Number(schedule?.open) },
     rfq: {
       open: sealed,
       deadline: invitations.reduce((d, i) => (!d || i.deadline > d ? i.deadline : d), null),

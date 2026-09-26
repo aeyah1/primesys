@@ -116,9 +116,10 @@ function InviteStatus({ inv }) {
   return chip('border-slate-300 bg-slate-50 text-slate-600', 'Sent')
 }
 
-/* The RFQs emailed for one PR: who was invited, where each stands, and the
-   deadline until which their prices stay sealed. rfq / can: from the canvass. */
-export default function RfqPanel({ prId, rfq, can }) {
+/* The canvass schedule and the RFQs emailed for one PR: when quotations
+   close, who was invited, where each stands. Emailed prices stay sealed until
+   the close. rfq / schedule / can: from the canvass. */
+export default function RfqPanel({ prId, rfq, schedule, can }) {
   const refresh = useRefreshAwards(prId)
   const [sending, setSending]   = useState(false)
   const [extending, setExtending] = useState(false)
@@ -128,27 +129,30 @@ export default function RfqPanel({ prId, rfq, can }) {
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to resend'),
   })
   const invites = rfq?.invitations ?? []
-  if (!invites.length && !can.canvass) return null
+  if (!invites.length && !schedule?.due && !can.canvass) return null
 
   return (
     <div className="space-y-2">
       <SectionTitle action={can.canvass && (
         <div className="flex items-center gap-2">
-          {rfq.open && <Button size="sm" variant="ghost" className="gap-1.5 text-xs" onClick={() => setExtending(true)}><CalendarClock className="size-3.5" /> Extend deadline</Button>}
+          {schedule?.open && <Button size="sm" variant="ghost" className="gap-1.5 text-xs" onClick={() => setExtending(true)}><CalendarClock className="size-3.5" /> Extend deadline</Button>}
           <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setSending(true)}><Mail className="size-3.5" /> Send RFQ by email</Button>
         </div>
       )}>
-        RFQs emailed{invites.length ? ` (${invites.length})` : ''}
+        Quotations{invites.length ? ` · RFQ emailed to ${invites.length}` : ''}
       </SectionTitle>
+
+      {schedule?.due && (
+        <p className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${schedule.open ? 'border-indigo-300 bg-indigo-50 text-indigo-900' : 'border-[--color-border] bg-[--color-canvas] text-[--color-text-secondary]'}`}>
+          <Lock className="size-3.5 shrink-0" />
+          {schedule.open
+            ? <>Quotations close <span className="font-semibold">{fmtDatetime(schedule.due)}</span>.{rfq.open ? ' Prices sent online stay sealed until then, and the canvass cannot be decided yet.' : ''}</>
+            : <>Quotations closed {fmtDatetime(schedule.due)}.{invites.length ? ' The prices are open.' : ''}</>}
+        </p>
+      )}
 
       {invites.length > 0 && (
         <>
-          <p className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${rfq.open ? 'border-indigo-300 bg-indigo-50 text-indigo-900' : 'border-[--color-border] bg-[--color-canvas] text-[--color-text-secondary]'}`}>
-            <Lock className="size-3.5 shrink-0" />
-            {rfq.open
-              ? <>Open until <span className="font-semibold">{fmtDatetime(rfq.deadline)}</span>. Prices sent online stay sealed until then, and the canvass can't be decided.</>
-              : <>Closed {fmtDatetime(rfq.deadline)}. The prices are open.</>}
-          </p>
           <div className="rounded-xl border border-[--color-border] divide-y divide-[--color-border]">
             {invites.map(inv => (
               <div key={inv.id} className="flex flex-wrap items-center gap-3 px-4 py-2.5">
@@ -170,7 +174,7 @@ export default function RfqPanel({ prId, rfq, can }) {
         </>
       )}
 
-      {sending && <SendDialog prId={prId} invited={invites.map(i => i.supplier_name)} openDeadline={rfq.open ? rfq.deadline : null} onClose={() => setSending(false)} />}
+      {sending && <SendDialog prId={prId} invited={invites.map(i => i.supplier_name)} openDeadline={schedule?.open ? schedule.due : null} onClose={() => setSending(false)} />}
       {extending && <ExtendDialog prId={prId} current={rfq.deadline} onClose={() => setExtending(false)} />}
     </div>
   )

@@ -331,6 +331,9 @@ exports.queue = asyncHandler(async (req, res) => {
                               WHEN SUM(px.delivery_status = 'delivered') = COUNT(*) THEN 'delivered'
                               WHEN SUM(px.delivery_status <> 'pending') > 0 THEN 'partial'
                               ELSE 'pending' END`)} AS delivery_status,
+           pr.quotations_due, pr.quotations_due > NOW() AS quotations_open,
+           (SELECT COUNT(*) FROM rfq_invitations ri WHERE ri.purchase_request_id = pr.id) AS invited,
+           (SELECT COUNT(*) FROM quotations qq WHERE qq.purchase_request_id = pr.id) AS quotations,
            COALESCE((SELECT MAX(sl.created_at) FROM pr_status_logs sl WHERE sl.pr_id = pr.id AND sl.to_status = pr.status), pr.created_at) AS stage_since
       FROM purchase_requests pr
       JOIN users u ON u.id = pr.created_by
