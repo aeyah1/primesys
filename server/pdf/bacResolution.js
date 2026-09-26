@@ -21,8 +21,8 @@ const COLS = [
 ]
 const X = COLS.reduce((acc, c) => [...acc, acc[acc.length - 1] + c.width], [M])
 
-// data: { resolution, pr, abc, lots: [{ lot_number, awarded_to, awarded_amount, notes, few_quotations_reason, items: [{ item_name }] }], quoteCount, orgSettings }
-module.exports = function drawBacResolution(doc, { resolution, pr, abc, lots, quoteCount, orgSettings = {} }) {
+// data: { resolution, pr, abc, disqualified: [{ supplier, reason }], lots: [{ lot_number, awarded_to, awarded_amount, notes, few_quotations_reason, items: [{ item_name }] }], quoteCount, orgSettings }
+module.exports = function drawBacResolution(doc, { resolution, pr, abc, lots, quoteCount, disqualified = [], orgSettings = {} }) {
   const f = forms(doc)
   const s = (key, fallback = '') => (orgSettings[key] || '').trim() || fallback
   const total = lots.reduce((sum, l) => sum + Math.round(Number(l.awarded_amount || 0) * 100), 0) / 100
@@ -49,6 +49,9 @@ module.exports = function drawBacResolution(doc, { resolution, pr, abc, lots, qu
   para('WHEREAS,', quoteCount > 0
     ? `Requests for Quotation were issued and ${quoteCount} quotation${quoteCount === 1 ? ' was' : 's were'} received and evaluated, as shown in the Abstract of Quotations;`
     : 'the offers below were evaluated by the Committee;')
+  if (disqualified.length) {
+    para('WHEREAS,', `the Committee found the following offers not responsive to the specifications: ${disqualified.map(d => `${d.supplier} (${d.reason})`).join('; ')};`)
+  }
   para('WHEREAS,', 'after evaluation, the offers below were found to be the lowest calculated and responsive quotations, except where a reason is stated;')
   const few = [...new Set(lots.map(l => l.few_quotations_reason).filter(Boolean))]
   if (few.length) para('WHEREAS,', `the award rests on fewer quotations than the campus requires, for this reason: ${few.join('; ')};`)

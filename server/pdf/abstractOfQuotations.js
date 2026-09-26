@@ -12,9 +12,6 @@ const { cents, lineCents, supplierKey } = require('../utils/awardWorkflow')
 // supplier across it, each one's quoted price, and which supplier won each item
 // with the lowest marked. That is the document proving the canvass happened.
 
-// Awards that hold their items: approved, or recommended to the BAC.
-const HELD = ['awarded', 'recommended']
-
 module.exports = function drawAbstract(doc, { pr, quotes, prices, lots, lotItems, items, orgSettings = {} }) {
   const f = forms(doc)
   const s = (key, fallback = '') => (orgSettings[key] || '').trim() || fallback
@@ -53,7 +50,8 @@ module.exports = function drawAbstract(doc, { pr, quotes, prices, lots, lotItems
     return row ? Number(row.unit_price) : null
   }
   const lowestFor = (itemId) => {
-    const offered = quotes.map(qt => priceOf(qt.id, itemId)).filter(p => p != null)
+    // An offer that failed the specifications doesn't count as the lowest.
+    const offered = quotes.filter(qt => !qt.disqualified_reason).map(qt => priceOf(qt.id, itemId)).filter(p => p != null)
     return offered.length ? Math.min(...offered) : null
   }
   // Which supplier each item went to. An award made over the whole request
@@ -76,7 +74,7 @@ module.exports = function drawAbstract(doc, { pr, quotes, prices, lots, lotItems
       { header: 'Item', width: ITEM_W, align: 'left' },
       { header: 'Qty',  width: QTY_W,  align: 'center' },
       { header: 'Unit', width: UNIT_W, align: 'center' },
-      ...quotes.map(qt => ({ header: qt.supplier_name || '', width: SUP_W, align: 'right' })),
+      ...quotes.map(qt => ({ header: `${qt.supplier_name || ''}${qt.disqualified_reason ? ' (failed specs)' : ''}`, width: SUP_W, align: 'right' })),
       { header: 'Awarded to', width: AWARD_W, align: 'left' },
     ]
     const X = COLS.reduce((acc, c) => [...acc, acc[acc.length - 1] + c.width], [M])
@@ -114,7 +112,7 @@ module.exports = function drawAbstract(doc, { pr, quotes, prices, lots, lotItems
     // Each supplier's total for what they actually won. Matched on the same
     // normalised name the awards use, so spacing or case cannot split a total.
     const wonTotal = (supplier) => lots
-      .filter(l => HELD.includes(l.status) && supplierKey(l.awarded_to) === supplierKey(supplier))
+      .filter(l => l.status === 'awarded' && supplierKey(l.awarded_to) === supplierKey(supplier))
       .reduce((sum, l) => sum + cents(l.awarded_amount), 0) / 100
     COLS.forEach((c, i) => f.rect(X[i], y, c.width, ROW_H))
     f.put('Awarded total', X[0], y, COLS[0].width, ROW_H, { font: 'Times-Bold' })
@@ -130,15 +128,13 @@ module.exports = function drawAbstract(doc, { pr, quotes, prices, lots, lotItems
   }
 
   // ── Awards, and why any of them was not the lowest ──────────────────
-  // A recommendation waiting for the BAC is listed and marked as such.
-  const awarded = lots.filter(l => HELD.includes(l.status))
+  const awarded = lots.filter(l => l.status === 'awarded')
   if (awarded.length) {
     doc.font('Times-Bold').fontSize(9).fillColor(BLACK).text('Awards', M, y, { width: W })
     y = doc.y + 3
     for (const lot of awarded) {
       const note = [lot.notes, lot.few_quotations_reason].filter(Boolean).join(' - ')
       const text = `${lot.lot_number}: ${lot.awarded_to} - ${amount(lot.awarded_amount)}`
-        + `${lot.status === 'recommended' ? ' (recommended, awaiting BAC approval)' : ''}`
         + `${lot.po_number ? ` (${lot.po_number})` : ''}${note ? `\n${note}` : ''}`
       const h = f.heightIn('Times-Roman', 8.5, text, W - PAD * 2) + PAD * 2
       if (y + h > BOTTOM - 80) { doc.addPage(); y = M }
@@ -148,6 +144,17 @@ module.exports = function drawAbstract(doc, { pr, quotes, prices, lots, lotItems
     }
     y += 10
   }
+
+  // ── Offers the BAC found failing the specifications ────────────────
+  for (const qt of quotes.filter(q => q.disqualified_reason)) {
+    const text = `${qt.supplier_name} failed the specifications: ${qt.disqualified_reason}`
+    const h = f.heightIn('Times-Roman', 8.5, text, W - PAD * 2) + PAD * 2
+    if (y + h > BOTTOM - 80) { doc.addPage(); y = M }
+    f.rect(M, y, W, h)
+    f.put(text, M, y, W, h, { size: 8.5 })
+    y += h
+  }
+  if (quotes.some(q => q.disqualified_reason)) y += 10
 
   // ── Signatures ─────────────────────────────────────────────────────
   if (y > BOTTOM - 76) { doc.addPage(); y = M }

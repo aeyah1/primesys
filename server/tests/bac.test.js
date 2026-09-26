@@ -1,6 +1,7 @@
-// The Bids and Awards Committee: Procurement's award is only a recommendation
-// until the BAC approves it in a numbered resolution, and no purchase order can
-// be issued before that. Real HTTP against a throwaway database (harness.js).
+// The Bids and Awards Committee evaluates and awards. Procurement (its
+// Secretariat) records the quotations and submits the PR; the BAC marks offers
+// that fail the specs, awards (adopting a numbered BAC Resolution) or returns
+// the PR. Real HTTP against a throwaway database (harness.js).
 const path = require('path')
 const H    = require('./harness')
 
@@ -42,7 +43,11 @@ async function http(who, method, p, body) {
 }
 const show = (r) => `${r.status} ${JSON.stringify(r.data ?? r.type)}`.slice(0, 220)
 
-// A PR under canvass with one quotation pricing its two items.
+const supplier = (name, n) => ({
+  supplier_name: name, supplier_contact: 'A Person', supplier_address: 'Cantilan',
+  supplier_phone: '09171234567', supplier_email: `s${n}@x.invalid`,
+})
+// A PR under canvass with two quotations: Beta is cheaper on the laptops, Alpha on the mice.
 async function prUnderCanvass(title) {
   const made = await http(2, 'POST', '/pr', { title, items: [
     { item_name: 'Laptop', quantity: 2, estimated_cost: 50000 },
@@ -52,15 +57,13 @@ async function prUnderCanvass(title) {
   await http(2, 'PATCH', `/pr/${id}/status`, { status: 'submitted' })
   await http(4, 'POST', `/twg/${id}/review`, { action: 'approve' })
   await http(2, 'PATCH', `/pr/${id}/status`, { status: 'bidding' })
-  const items = (await http(2, 'GET', `/canvass/${id}`)).data.items.map(i => i.id)
-  const q = await http(2, 'POST', `/canvass/${id}/quotations`, {
-    supplier_name: 'Alpha Computers', supplier_contact: 'Ana Reyes', supplier_address: 'Cantilan',
-    supplier_phone: '09171234567', supplier_email: 'alpha@x.invalid',
-    prices: [{ item: items[0], unit_price: 48000 }, { item: items[1], unit_price: 450 }],
-  })
-  return { id, items, quote: q.data.id }
+  const [laptop, mouse] = (await http(2, 'GET', `/canvass/${id}`)).data.items.map(i => i.id)
+  const alpha = (await http(2, 'POST', `/canvass/${id}/quotations`, { ...supplier('Alpha Computers', 1),
+    prices: [{ item: laptop, unit_price: 48000 }, { item: mouse, unit_price: 450 }] })).data.id
+  const beta = (await http(2, 'POST', `/canvass/${id}/quotations`, { ...supplier('Beta Tech', 2),
+    prices: [{ item: laptop, unit_price: 47000 }, { item: mouse, unit_price: 480 }] })).data.id
+  return { id, laptop, mouse, alpha, beta }
 }
-const pickAll = (p) => ({ picks: p.items.map(item => ({ item, quotation: p.quote })) })
 
 async function run() {
   const t = H.suite('BAC')
@@ -69,7 +72,7 @@ async function run() {
     t.check(g, label, ok(r), `${show(r)}${want ? ` (want ${want})` : ''}`)
     return r
   }
-  const lotsOf = (prId) => H.sql(TEST_DB, 'SELECT id, status, resolution_id, notes FROM lots WHERE purchase_request_id = ? ORDER BY id', [prId])
+  const lotsOf = (prId) => H.sql(TEST_DB, 'SELECT id, status, resolution_id, awarded_to FROM lots WHERE purchase_request_id = ? ORDER BY id', [prId])
   const notices = (userId, like) => H.sql(TEST_DB, 'SELECT id FROM notifications WHERE user_id = ? AND message LIKE ?', [userId, like])
 
   // ── Who the BAC is ──────────────────────────────────────────────────
@@ -79,103 +82,94 @@ async function run() {
   await is('Role', 'an admin can make someone a BAC member', 1, 'PATCH', '/users/3', { name: 'Req One', role: 'bac' }, r => r.status === 200)
   await is('Role', '…and back', 1, 'PATCH', '/users/3', { name: 'Req One', role: 'requestor' }, r => r.status === 200)
 
-  // ── A recommendation, not an award ──────────────────────────────────
+  // ── The Secretariat's part ──────────────────────────────────────────
   const a = await prUnderCanvass('Laptops for the lab')
-  await is('Scope', 'the BAC sees a PR under canvass', 5, 'GET', `/pr/${a.id}`, undefined, r => r.status === 200)
-  await is('Scope', '…and its quotations', 5, 'GET', `/canvass/${a.id}`, undefined, r => r.status === 200 && r.data.quotations.length === 1)
-  await is('Gate', 'the BAC can\'t record an award itself', 5, 'POST', `/canvass/${a.id}/award`, pickAll(a), r => r.status === 403, '403')
-  await is('Gate', 'no recommendation before the mode is set', 2, 'POST', `/canvass/${a.id}/award`, pickAll(a), r => r.status === 409 && /mode of procurement/.test(r.data.message), '409')
-  await is('Gate', 'the BAC may set the mode', 5, 'PATCH', `/pr/${a.id}/mode`, { mode_of_procurement: 'Small Value Procurement' }, r => r.status === 200)
-  await is('Gate', 'Procurement recommends the award', 2, 'POST', `/canvass/${a.id}/award`, pickAll(a), r => r.status === 201 && r.data.status === 'recommended', '201 recommended')
-  let lots = await lotsOf(a.id)
-  t.check('Gate', 'the lot is recommended, not awarded', lots.length === 1 && lots[0].status === 'recommended', JSON.stringify(lots))
-  await is('Gate', 'the PR stays under canvass', 2, 'GET', `/pr/${a.id}`, undefined, r => r.data.status === 'bidding', 'bidding')
-  await is('Gate', 'its items are held by the recommendation', 2, 'GET', `/canvass/${a.id}`, undefined,
-    r => r.data.items.every(i => i.state === 'recommended'))
-  await is('Gate', 'they can\'t be awarded again', 2, 'POST', `/canvass/${a.id}/award`, pickAll(a), r => r.status === 409, '409')
-  await is('Gate', 'the quotation is kept as it is', 2, 'DELETE', `/canvass/${a.id}/quotations/${a.quote}`, undefined, r => r.status === 409, '409')
-  await is('Gate', 'no purchase order yet', 2, 'POST', '/po', { purchase_request_id: a.id, issued_date: today() }, r => r.status === 409, '409')
-  await is('Gate', 'the mode is now fixed', 2, 'PATCH', `/pr/${a.id}/mode`, { mode_of_procurement: 'Shopping' }, r => r.status === 409, '409')
-  await is('Gate', '…and the PR page says so', 2, 'GET', `/pr/${a.id}`, undefined, r => r.data.permissions.set_mode === false)
-  t.check('Gate', 'the BAC is told', (await notices(5, `%${'waiting for the BAC'}%`)).length === 1)
-  t.check('Gate', 'supply is not told yet', (await notices(6, '%awarded%')).length === 0)
+  const pickLowest = { picks: [{ item: a.laptop, quotation: a.beta }, { item: a.mouse, quotation: a.alpha }] }
+  await is('Secretariat', 'Procurement no longer awards', 2, 'POST', `/canvass/${a.id}/award`, pickLowest, r => r.status === 403, '403')
+  await is('Secretariat', 'nor records an award by hand', 2, 'POST', '/lots', { purchase_request_id: a.id, awarded_to: 'X', awarded_amount: 100 }, r => r.status === 403, '403')
+  await is('Secretariat', 'the BAC can\'t award before it is submitted', 5, 'POST', `/canvass/${a.id}/award`, pickLowest, r => r.status === 409, '409')
+  await is('Secretariat', 'the canvass offers Procurement the submit', 2, 'GET', `/bac/${a.id}`, undefined, r => r.data.permissions.submit === true && r.data.with_bac === false)
+  await is('Secretariat', 'the BAC can\'t submit it', 5, 'POST', `/bac/${a.id}/submit`, undefined, r => r.status === 403, '403')
+  await is('Secretariat', 'Procurement submits it', 2, 'POST', `/bac/${a.id}/submit`, undefined, r => r.status === 200)
+  await is('Secretariat', 'not twice', 2, 'POST', `/bac/${a.id}/submit`, undefined, r => r.status === 409, '409')
+  t.check('Secretariat', 'the BAC is told', (await notices(5, '%submitted to the BAC%')).length === 1)
+  await is('Secretariat', 'quotations lock while the BAC has it', 2, 'DELETE', `/canvass/${a.id}/quotations/${a.alpha}`, undefined, r => r.status === 409, '409')
+  await is('Secretariat', 'items can\'t be dropped either', 2, 'POST', `/canvass/${a.id}/items/${a.mouse}/drop`, { reason: 'x' }, r => r.status === 409, '409')
+  await is('Secretariat', 'Procurement sees it under With the BAC', 2, 'GET', '/lots/queue?stage=with_bac', undefined, r => r.data.counts.stages.with_bac === 1)
+  await is('Secretariat', '…and no longer under Canvassing', 2, 'GET', '/lots/queue?stage=needs_award', undefined, r => r.data.counts.stages.needs_award === 0)
 
-  // ── The queues ──────────────────────────────────────────────────────
-  await is('Queue', 'the BAC sees one PR waiting', 5, 'GET', '/bac/queue', undefined,
-    r => r.status === 200 && r.data.counts.pending === 1 && r.data.data[0].id === a.id && Number(r.data.data[0].total) === 96900)
-  await is('Queue', 'Procurement sees it under "With the BAC"', 2, 'GET', '/lots/queue?stage=with_bac', undefined,
-    r => r.data.counts.stages.with_bac === 1)
-  await is('Queue', 'a requestor has no BAC queue', 3, 'GET', '/bac/queue', undefined, r => r.status === 403, '403')
-  await is('Queue', 'the PR summary lets the BAC decide', 5, 'GET', `/bac/${a.id}`, undefined,
-    r => r.data.permissions.decide === true && r.data.pending.lots === 1)
-  await is('Queue', '…but not Procurement', 2, 'GET', `/bac/${a.id}`, undefined, r => r.data.permissions.decide === false)
-
-  // ── Returned ────────────────────────────────────────────────────────
-  await is('Return', 'Procurement can\'t decide', 2, 'POST', `/bac/${a.id}/return`, { reason: 'x' }, r => r.status === 403, '403')
-  await is('Return', 'a reason is required', 5, 'POST', `/bac/${a.id}/return`, {}, r => r.status === 400, '400')
-  await is('Return', 'the BAC returns it', 5, 'POST', `/bac/${a.id}/return`, { reason: 'Check the warranty terms' }, r => r.status === 200)
-  lots = await lotsOf(a.id)
-  t.check('Return', 'the recommendation is cancelled with the reason', lots[0].status === 'cancelled' && /Returned by the BAC \(Bac One\): Check the warranty/.test(lots[0].notes), JSON.stringify(lots[0]))
-  await is('Return', 'the items need an award again', 2, 'GET', `/canvass/${a.id}`, undefined, r => r.data.items.every(i => i.state === 'pending'))
-  t.check('Return', 'Procurement is told', (await notices(2, '%returned%')).length === 1)
-  await is('Return', 'nothing left to return', 5, 'POST', `/bac/${a.id}/return`, { reason: 'again' }, r => r.status === 409, '409')
-
-  // ── Approved ────────────────────────────────────────────────────────
-  await is('Approve', 'recommended again', 2, 'POST', `/canvass/${a.id}/award`, pickAll(a), r => r.status === 201)
-  await is('Approve', 'a future resolution date is refused', 5, 'POST', `/bac/${a.id}/approve`, { resolved_on: `${YEAR + 1}-01-01` }, r => r.status === 400, '400')
-  await is('Approve', 'a nonsense date is refused', 5, 'POST', `/bac/${a.id}/approve`, { resolved_on: 'soon' }, r => r.status === 400, '400')
-  const ok = await is('Approve', 'the BAC approves', 5, 'POST', `/bac/${a.id}/approve`, { notes: 'Unanimous' },
-    r => r.status === 201 && r.data.resolution_number === `${YEAR}-001`, `201 ${YEAR}-001`)
-  lots = await lotsOf(a.id)
-  const live = lots.filter(l => l.status !== 'cancelled')
-  t.check('Approve', 'the award is now awarded, in the resolution', live.length === 1 && live[0].status === 'awarded' && live[0].resolution_id === ok.data.id, JSON.stringify(live))
-  await is('Approve', 'the PR is ready for a PO', 2, 'GET', `/pr/${a.id}`, undefined, r => r.data.status === 'for_po', 'for_po')
-  t.check('Approve', 'supply is told of the award', (await notices(6, '%awarded%')).length === 1)
-  t.check('Approve', 'Procurement is told of the approval', (await notices(2, '%the BAC approved the award%')).length === 1)
-  await is('Approve', 'nothing left to approve', 5, 'POST', `/bac/${a.id}/approve`, {}, r => r.status === 409, '409')
-  await is('Approve', 'the purchase order can now be issued', 2, 'POST', '/po', { purchase_request_id: a.id, issued_date: today() }, r => r.status === 201, '201')
-  await is('Approve', 'the resolution is listed', 5, 'GET', '/bac/queue?view=approved', undefined,
+  // ── The BAC evaluates ───────────────────────────────────────────────
+  await is('Evaluate', 'the BAC\'s queue lists it', 5, 'GET', '/bac/queue', undefined,
+    r => r.data.counts.pending === 1 && r.data.data[0].id === a.id && Number(r.data.data[0].quotations) === 2)
+  await is('Evaluate', 'the canvass lets the BAC award and mark offers', 5, 'GET', `/canvass/${a.id}`, undefined,
+    r => r.data.permissions.award === true && r.data.permissions.disqualify === true && r.data.permissions.canvass === false)
+  await is('Evaluate', 'Procurement may not mark offers', 2, 'PATCH', `/canvass/${a.id}/quotations/${a.beta}/qualification`, { disqualified: true, reason: 'x' }, r => r.status === 403, '403')
+  await is('Evaluate', 'a mark needs its reason', 5, 'PATCH', `/canvass/${a.id}/quotations/${a.beta}/qualification`, { disqualified: true }, r => r.status === 400, '400')
+  await is('Evaluate', 'the BAC finds Beta failing the specs', 5, 'PATCH', `/canvass/${a.id}/quotations/${a.beta}/qualification`,
+    { disqualified: true, reason: 'Offered 8GB RAM, 16GB required' }, r => r.status === 200)
+  await is('Evaluate', 'Beta can\'t be awarded now', 5, 'POST', `/canvass/${a.id}/award`, pickLowest, r => r.status === 409 && /failed the specifications/.test(r.data.message), '409')
+  await is('Evaluate', 'the award needs a mode of procurement first', 5, 'POST', `/canvass/${a.id}/award`,
+    { picks: [{ item: a.laptop, quotation: a.alpha }, { item: a.mouse, quotation: a.alpha }] }, r => r.status === 409 && /mode of procurement/.test(r.data.message), '409')
+  await is('Evaluate', 'the BAC sets the mode', 5, 'PATCH', `/pr/${a.id}/mode`, { mode_of_procurement: 'Small Value Procurement' }, r => r.status === 200)
+  const awarded = await is('Evaluate', 'Alpha, now the lowest responsive offer, needs no reason', 5, 'POST', `/canvass/${a.id}/award`,
+    { picks: [{ item: a.laptop, quotation: a.alpha }, { item: a.mouse, quotation: a.alpha }] },
+    r => r.status === 201 && r.data.resolution?.resolution_number === `${YEAR}-001`, `201 ${YEAR}-001`)
+  const lots = await lotsOf(a.id)
+  t.check('Evaluate', 'the award is made, in the resolution', lots.length === 1 && lots[0].status === 'awarded' && lots[0].resolution_id === awarded.data.resolution?.id, JSON.stringify(lots))
+  await is('Evaluate', 'the PR is ready for a PO and has left the BAC', 2, 'GET', `/pr/${a.id}`, undefined, r => r.data.status === 'for_po' && r.data.bac_submitted_at == null)
+  t.check('Evaluate', 'Procurement is told of the award', (await notices(2, '%the BAC awarded it in Resolution%')).length === 1)
+  t.check('Evaluate', 'supply is told too', (await notices(6, '%awarded%')).length === 1)
+  await is('Evaluate', 'the purchase order can be issued', 2, 'POST', '/po', { purchase_request_id: a.id, issued_date: today() }, r => r.status === 201, '201')
+  await is('Evaluate', 'the resolution is listed', 5, 'GET', '/bac/queue?view=approved', undefined,
     r => r.data.counts.approved === 1 && r.data.data[0].resolution_number === `${YEAR}-001`)
+  await is('Evaluate', 'its amount is fixed', 2, 'PATCH', `/lots/${lots[0].id}`, { awarded_amount: 1 }, r => r.status === 409, '409')
 
   // ── The documents ───────────────────────────────────────────────────
-  const rid = ok.data.id
-  const lotId = live[0].id
+  const rid = awarded.data.resolution.id
   const isPdf = (r) => r.status === 200 && r.type.includes('pdf') && r.bytes.subarray(0, 5).toString() === '%PDF-'
   await is('Documents', 'the BAC Resolution prints', 5, 'GET', `/bac/${a.id}/resolutions/${rid}/pdf`, undefined, isPdf)
-  await is('Documents', 'the Notice of Award prints', 2, 'GET', `/bac/${a.id}/resolutions/${rid}/notice/${lotId}`, undefined, isPdf)
+  await is('Documents', 'the Notice of Award prints', 2, 'GET', `/bac/${a.id}/resolutions/${rid}/notice/${lots[0].id}`, undefined, isPdf)
+  await is('Documents', 'the Abstract prints with a failed offer', 5, 'GET', `/lots/pr/${a.id}/pdf`, undefined, isPdf)
   await is('Documents', 'a lot outside the resolution is 404', 2, 'GET', `/bac/${a.id}/resolutions/${rid}/notice/99999`, undefined, r => r.status === 404, '404')
-  await is('Documents', 'a resolution of another PR is 404', 2, 'GET', `/bac/${draft.data.id}/resolutions/${rid}/pdf`, undefined, r => r.status === 404, '404')
   await is('Documents', 'a requestor can\'t print them', 3, 'GET', `/bac/${a.id}/resolutions/${rid}/pdf`, undefined, r => r.status === 403, '403')
 
-  // ── Numbering, an admin deciding, a hand-recorded award ─────────────
+  // ── Returned, then awarded in parts ─────────────────────────────────
   const b = await prUnderCanvass('Mice for the office')
   await http(2, 'PATCH', `/pr/${b.id}/mode`, { mode_of_procurement: 'Shopping' })
-  await is('More', 'an award by hand is a recommendation too', 2, 'POST', '/lots',
-    { purchase_request_id: b.id, awarded_to: 'Beta Supply', awarded_amount: 90000 }, r => r.status === 201 && r.data.status === 'recommended')
-  await is('More', 'admins supervise, they do not approve (403)', 1, 'POST', `/bac/${b.id}/approve`, { resolved_on: today() }, r => r.status === 403, '403')
-  await is('More', 'the BAC approves the second PR', 5, 'POST', `/bac/${b.id}/approve`, { resolved_on: today() },
-    r => r.status === 201 && r.data.resolution_number === `${YEAR}-002`, `${YEAR}-002`)
+  await http(2, 'POST', `/bac/${b.id}/submit`)
+  await is('Return', 'Procurement can\'t return it', 2, 'POST', `/bac/${b.id}/return`, { reason: 'x' }, r => r.status === 403, '403')
+  await is('Return', 'a reason is required', 5, 'POST', `/bac/${b.id}/return`, {}, r => r.status === 400, '400')
+  await is('Return', 'the BAC returns it for a third quotation', 5, 'POST', `/bac/${b.id}/return`, { reason: 'Get a third quotation' }, r => r.status === 200)
+  await is('Return', 'Procurement sees why, and can edit again', 2, 'GET', `/bac/${b.id}`, undefined,
+    r => r.data.return_reason === 'Get a third quotation' && r.data.permissions.submit === true)
+  t.check('Return', 'Procurement is told', (await notices(2, '%returned by the BAC%')).length === 1)
+  await is('Return', 'the quotations unlock', 2, 'POST', `/canvass/${b.id}/quotations`, { ...supplier('Gamma Office', 3), prices: [{ item: b.mouse, unit_price: 400 }] }, r => r.status === 201)
+  await http(2, 'POST', `/bac/${b.id}/submit`)
+  await is('Parts', 'the BAC awards only the laptops', 5, 'POST', `/canvass/${b.id}/award`, { picks: [{ item: b.laptop, quotation: b.beta }] },
+    r => r.status === 201 && r.data.resolution?.resolution_number === `${YEAR}-002`, `${YEAR}-002`)
+  await is('Parts', 'the PR stays with the BAC for the mouse', 2, 'GET', `/bac/${b.id}`, undefined, r => r.data.with_bac === true)
+  await is('Parts', 'a hand-recorded award is the BAC\'s too', 5, 'POST', '/lots',
+    { purchase_request_id: b.id, awarded_to: 'Gamma Office', awarded_amount: 800, pr_item_ids: [b.mouse] },
+    r => r.status === 201 && r.data.resolution?.resolution_number === `${YEAR}-003`, `${YEAR}-003`)
+  await is('Parts', 'with every item awarded it leaves the BAC', 2, 'GET', `/pr/${b.id}`, undefined, r => r.data.status === 'for_po' && r.data.bac_submitted_at == null)
+
+  // ── Admins supervise ────────────────────────────────────────────────
+  const c = await prUnderCanvass('Admin tries')
+  await http(2, 'PATCH', `/pr/${c.id}/mode`, { mode_of_procurement: 'Shopping' })
+  await http(2, 'POST', `/bac/${c.id}/submit`)
+  await is('Admin', 'an admin can\'t award for the BAC', 1, 'POST', `/canvass/${c.id}/award`, { picks: [{ item: c.laptop, quotation: c.alpha }] }, r => r.status === 403, '403')
+  await is('Admin', 'nor return it', 1, 'POST', `/bac/${c.id}/return`, { reason: 'x' }, r => r.status === 403, '403')
 
   // ── Switched off ────────────────────────────────────────────────────
   await is('Setting', 'only 0 or 1', 1, 'PATCH', '/settings', { bac_approval_required: 'yes' }, r => r.status === 400, '400')
-  await is('Setting', 'an admin switches the approval off', 1, 'PATCH', '/settings', { bac_approval_required: '0' }, r => r.status === 200)
-  const c = await prUnderCanvass('Straight to award')
-  await is('Setting', 'awards are final again, with no mode needed', 2, 'POST', `/canvass/${c.id}/award`, pickAll(c),
-    r => r.status === 201 && r.data.status === 'awarded')
-  await is('Setting', '…and the PR is ready for a PO', 2, 'GET', `/pr/${c.id}`, undefined, r => r.data.status === 'for_po')
+  await is('Setting', 'an admin switches the BAC off', 1, 'PATCH', '/settings', { bac_approval_required: '0' }, r => r.status === 200)
+  const d = await prUnderCanvass('Straight to award')
+  await is('Setting', 'there is nothing to submit', 2, 'POST', `/bac/${d.id}/submit`, undefined, r => r.status === 409, '409')
+  await is('Setting', 'Procurement awards directly, no mode needed', 2, 'POST', `/canvass/${d.id}/award`,
+    { picks: [{ item: d.laptop, quotation: d.beta }, { item: d.mouse, quotation: d.alpha }] }, r => r.status === 201 && r.data.resolution === null)
+  await is('Setting', '…and the PR is ready for a PO', 2, 'GET', `/pr/${d.id}`, undefined, r => r.data.status === 'for_po')
 
-  // One item awarded while the approval was off, the other recommended once it is back on.
-  const d = await prUnderCanvass('Half and half')
-  await http(2, 'POST', `/canvass/${d.id}/award`, { picks: [{ item: d.items[0], quotation: d.quote }] })
-  await http(1, 'PATCH', '/settings', { bac_approval_required: '1' })
-  await http(2, 'PATCH', `/pr/${d.id}/mode`, { mode_of_procurement: 'Shopping' })
-  await is('Mixed', 'the rest is recommended', 2, 'POST', `/canvass/${d.id}/award`, { picks: [{ item: d.items[1], quotation: d.quote }] },
-    r => r.status === 201 && r.data.status === 'recommended')
-  await is('Mixed', 'the PR waits for the BAC, not for a PO', 2, 'GET', `/pr/${d.id}`, undefined, r => r.data.status === 'bidding', 'bidding')
-  await is('Mixed', 'once approved it is ready for a PO', 5, 'POST', `/bac/${d.id}/approve`, {}, r => r.status === 201)
-  await is('Mixed', '…and it is', 2, 'GET', `/pr/${d.id}`, undefined, r => r.data.status === 'for_po', 'for_po')
-
-  // ── The documents drawn directly, with every member and a long award ─
+  // ── The documents drawn directly ────────────────────────────────────
   const PDFDocument = serverReq('pdfkit')
   const drawResolution = require(path.join(H.SERVER, 'pdf', 'bacResolution'))
   const drawNotice = require(path.join(H.SERVER, 'pdf', 'noticeOfAward'))
@@ -195,7 +189,8 @@ async function run() {
   }))
   const pr = { pr_number: 'CSO 2026-001', title: 'Office supplies', department: 'DCS', created_at: '2026-09-01', mode_of_procurement: 'Shopping' }
   const res = { resolution_number: '2026-001', resolved_on: '2026-09-26', notes: null }
-  const rp = await pages(doc => drawResolution(doc, { resolution: res, pr, abc: 20000, lots: manyLots, quoteCount: 3, orgSettings: org }))
+  const rp = await pages(doc => drawResolution(doc, { resolution: res, pr, abc: 20000, lots: manyLots, quoteCount: 3,
+    disqualified: [{ supplier: 'Beta Tech', reason: 'Offered 8GB RAM' }], orgSettings: org }))
   t.check('Drawing', 'a long resolution runs on to more pages without failing', rp >= 2 && rp <= 4, `${rp} pages`)
   const np = await pages(doc => drawNotice(doc, { resolution: res, pr, supplier: { name: 'Supplier 1' }, lots: manyLots.slice(0, 1), orgSettings: org }))
   t.check('Drawing', 'a one-supplier notice fits on one page', np === 1, `${np} pages`)

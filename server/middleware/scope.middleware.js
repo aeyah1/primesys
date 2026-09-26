@@ -13,7 +13,7 @@ const { IN_AREA } = require('../utils/twgAreas')
 //                 by the TWG, plus any PR they made a TWG decision on. Never drafts.
 // supply      -> PRs with an awarded lot or a purchase order
 // bac         -> PRs the TWG approved (from Approved by TWG on, and ones
-//                 cancelled after that approval), for the awards they approve
+//                 cancelled after that approval), for the canvasses they evaluate
 // requestor   -> only PRs they created (also the fallback for unknown roles)
 //
 // Everyone can also see PRs they created themselves. Deleted PRs are archived:

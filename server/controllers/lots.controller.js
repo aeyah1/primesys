@@ -12,7 +12,8 @@ const { paging }     = require('../middleware/validate')
 const { CATEGORIES } = require('../utils/categories')
 const drawAbstract   = require('../pdf/abstractOfQuotations')
 const { loadOrgSettings } = require('../utils/orgSettings')
-const { newAwardStatus, notifyBac } = require('../utils/bacWorkflow')
+const notify = require('../utils/notify')
+const { awardDenied, modeMissing, bacAwards, adoptResolution, releaseIfDone } = require('../utils/bacWorkflow')
 
 // The lot and its PR's facts; with `lock` (inside a transaction), the PR row
 // first and then the lot, the same order as every other award write.
@@ -121,8 +122,8 @@ exports.deleteItem = asyncHandler(async (req, res) => {
 
 // Records an award by hand (no quotation): a supplier, the PR items it
 // covers (by default every item not yet awarded), and a lump-sum contract
-// amount, which can't exceed the items' approved budget. A recommendation
-// while the BAC must approve awards.
+// amount, which can't exceed the items' approved budget. While the BAC awards,
+// only the BAC may, and the award is its resolution.
 exports.create = asyncHandler(async (req, res) => {
   const { purchase_request_id, title, awarded_to, awarded_amount, pr_item_ids } = req.body
   // checked in the route (amount required: a PO's total is the sum of its awards)
@@ -139,6 +140,9 @@ exports.create = asyncHandler(async (req, res) => {
     const pr = await loadPR(conn, purchase_request_id, { lock: true })
     const blocked = awardBlock(pr)
     if (blocked) throw httpError(blocked.status, blocked.message)
+    const bacOn = await bacAwards(conn)
+    const denied = awardDenied(req.user, pr, bacOn)
+    if (denied) throw httpError(denied.status, denied.message)
 
     const { items } = await itemStates(conn, pr.id)
     let covered = items.filter(i => i.state === 'pending')
@@ -157,26 +161,30 @@ exports.create = asyncHandler(async (req, res) => {
     // The same supplier's earlier award here: keep their name as first
     // written, and any detail left out.
     const [awards] = await conn.execute(
-      `SELECT awarded_to, ${SUPPLIER_COLUMNS.join(', ')} FROM lots WHERE purchase_request_id = ? AND status IN ('recommended', 'awarded') ORDER BY id`, [pr.id])
+      `SELECT awarded_to, ${SUPPLIER_COLUMNS.join(', ')} FROM lots WHERE purchase_request_id = ? AND status = 'awarded' ORDER BY id`, [pr.id])
     const same = awards.find(a => supplierKey(a.awarded_to) === supplierKey(awarded_to))
     const supplier = same ? same.awarded_to : awarded_to.trim()
     const details = Object.fromEntries(SUPPLIER_COLUMNS.map(c => [c, req.body[c] || same?.[c] || null]))
 
-    const status = await newAwardStatus(conn)
-    if (status === 'recommended' && !pr.mode_of_procurement) {
-      throw httpError(409, 'Set the mode of procurement before recommending an award to the BAC')
-    }
+    const noMode = modeMissing(pr, bacOn)
+    if (noMode) throw httpError(noMode.status, noMode.message)
+    const resolution = bacOn ? await adoptResolution(conn, pr.id, req.user.id) : null
     const lot = await recordAward(conn, {
-      status, prId: pr.id, supplier, amount: (amount / 100).toFixed(2), details, title: title || null, userId: req.user.id, items: covered,
+      resolutionId: resolution?.id ?? null, prId: pr.id, supplier, amount: (amount / 100).toFixed(2), details, title: title || null, userId: req.user.id, items: covered,
     })
-    const verb = status === 'recommended' ? 'recommended for award to' : 'awarded to'
-    await syncPRProgress(conn, pr.id, { user: req.user, note: `${lot.lot_number} ${verb} ${supplier}` })
-    return { ...lot, pr, status, awarded_to: supplier, items: covered.length }
+    const by = resolution ? ` (BAC Resolution No. ${resolution.resolution_number})` : ''
+    await syncPRProgress(conn, pr.id, { user: req.user, note: `${lot.lot_number} awarded to ${supplier}${by}` })
+    if (bacOn) await releaseIfDone(conn, pr.id, (await itemStates(conn, pr.id)).items.filter(i => i.state === 'pending').length)
+    return { ...lot, pr, resolution, awarded_to: supplier, items: covered.length }
   })
 
-  if (created.status === 'recommended') await notifyBac(req.io, created.pr.id, created.pr.pr_number, [created])
-  else await announceAwards(req.io, created.pr.pr_number, [created])
-  res.status(201).json({ id: created.id, lot_number: created.lot_number, status: created.status, awarded_to: created.awarded_to, items: created.items })
+  await announceAwards(req.io, created.pr.pr_number, [created])
+  if (created.resolution && created.pr.bac_submitted_by) {
+    await notify(req.io, created.pr.bac_submitted_by,
+      `PR ${created.pr.pr_number}: the BAC awarded it in Resolution No. ${created.resolution.resolution_number}. The purchase orders can be issued.`,
+      'info', created.pr.id, 'pr')
+  }
+  res.status(201).json({ id: created.id, lot_number: created.lot_number, resolution: created.resolution, awarded_to: created.awarded_to, items: created.items })
 })
 
 // Edits an award, or cancels it (status 'cancelled', with a reason). The
@@ -209,6 +217,7 @@ exports.update = asyncHandler(async (req, res) => {
 
     if (lot.status !== 'awarded') throw httpError(409, 'Only an awarded lot can be edited')
     if (awarded_amount != null && awarded_amount !== '') {
+      if (lot.resolution_id) throw httpError(409, 'This amount was awarded in a BAC Resolution, so it is fixed')
       if (lot.quotation_id) throw httpError(409, 'This award\'s amount comes from the supplier\'s quoted prices, so it can\'t be edited')
       const [covered] = await conn.execute(
         `SELECT i.quantity, i.estimated_cost FROM lot_items li JOIN pr_items i ON i.id = li.pr_item_id WHERE li.lot_id = ?`, [lot.id])
@@ -249,15 +258,15 @@ exports.update = asyncHandler(async (req, res) => {
 // PRs by what they need next. A PR awarded in part can be in more than one:
 //   to_canvass   approved by the TWG, canvass not started yet
 //   needs_award  under canvass (Bidding): some items still need an award
-//   with_bac     recommended awards waiting for the BAC's approval
+//   with_bac     submitted to the BAC, which evaluates and awards
 //   awaiting_po  awards with no purchase order yet
 //   po_issued    at least one active purchase order
 //   cancelled    cancelled after an award was recorded
 const HAS_LOTS  = 'EXISTS (SELECT 1 FROM lots hl WHERE hl.purchase_request_id = pr.id)'
 const STAGES = {
   to_canvass:  "pr.status = 'twg_review'",
-  needs_award: "pr.status = 'bidding'",
-  with_bac:    "EXISTS (SELECT 1 FROM lots bl WHERE bl.purchase_request_id = pr.id AND bl.status = 'recommended')",
+  needs_award: "(pr.status = 'bidding' AND pr.bac_submitted_at IS NULL)",
+  with_bac:    "(pr.status = 'bidding' AND pr.bac_submitted_at IS NOT NULL)",
   awaiting_po: "(pr.status IN ('bidding', 'for_po') AND EXISTS (SELECT 1 FROM lots wl WHERE wl.purchase_request_id = pr.id AND wl.status = 'awarded' AND wl.po_id IS NULL))",
   po_issued:   "EXISTS (SELECT 1 FROM purchase_orders apo WHERE apo.purchase_request_id = pr.id AND apo.po_status = 'active')",
   cancelled:   `(pr.status = 'cancelled' AND ${HAS_LOTS})`,

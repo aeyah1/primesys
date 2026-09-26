@@ -99,7 +99,7 @@ exports.list = asyncHandler(async (req, res) => {
            (SELECT COALESCE(SUM(i.quantity * i.estimated_cost), 0) FROM pr_items i WHERE i.pr_id = pr.id) AS estimated_total,
            EXISTS (SELECT 1 FROM purchase_orders px WHERE px.purchase_request_id = pr.id) AS has_any_po,
            EXISTS (SELECT 1 FROM lots lx WHERE lx.purchase_request_id = pr.id)           AS has_lot,
-           EXISTS (SELECT 1 FROM lots la WHERE la.purchase_request_id = pr.id AND la.status IN ('recommended', 'awarded')) AS has_award
+           EXISTS (SELECT 1 FROM lots la WHERE la.purchase_request_id = pr.id AND la.status = 'awarded') AS has_award
     FROM purchase_requests pr
     JOIN users u ON pr.created_by = u.id
     LEFT JOIN users du           ON du.id = pr.deleted_by
@@ -197,7 +197,7 @@ exports.getById = asyncHandler(async (req, res) => {
 
   const [[{ has_lot, has_award }]] = await pool.execute(
     `SELECT EXISTS (SELECT 1 FROM lots WHERE purchase_request_id = ?) AS has_lot,
-            EXISTS (SELECT 1 FROM lots WHERE purchase_request_id = ? AND status IN ('recommended', 'awarded')) AS has_award`,
+            EXISTS (SELECT 1 FROM lots WHERE purchase_request_id = ? AND status = 'awarded') AS has_award`,
     [req.params.id, req.params.id]
   )
   // Who last sent the PR back for changes, and why: the TWG (from Submitted)
@@ -469,7 +469,7 @@ exports.update = asyncHandler(async (req, res) => {
 // PATCH /pr/:id/mode - how this purchase is procured. Procurement or the BAC
 // decides it, usually once the TWG has approved and the canvass is being set
 // up, so it is separate from the request's own details. Fixed once a supplier
-// is awarded or recommended (prWorkflow.modeBlock).
+// is awarded (prWorkflow.modeBlock).
 exports.setProcurementMode = asyncHandler(async (req, res) => {
   await withTransaction(async (conn) => {
     const pr = await loadPR(conn, req.params.id, { lock: true })

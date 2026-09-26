@@ -111,6 +111,11 @@ CREATE TABLE `purchase_requests` (
   -- How this is procured (server/utils/procurementModes.js). Set by
   -- Procurement, not asked of the person filing the request.
   `mode_of_procurement`        VARCHAR(60)  NULL,
+  -- Submitted by Procurement (the BAC Secretariat) for the BAC to evaluate and
+  -- award; cleared when the BAC awards every item or returns it (with why).
+  `bac_submitted_at`           DATETIME     NULL,
+  `bac_submitted_by`           INT UNSIGNED NULL,
+  `bac_return_reason`          VARCHAR(500) NULL,
   `responsibility_center_code` VARCHAR(50)  NULL,
   `department`                 VARCHAR(150) NULL,   -- as printed in Office/Section
   `department_id`              INT UNSIGNED NULL,
@@ -152,7 +157,8 @@ CREATE TABLE `purchase_requests` (
   CONSTRAINT `fk_pr_department`   FOREIGN KEY (`department_id`)   REFERENCES `departments` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_pr_quarter`      FOREIGN KEY (`quarter_id`)      REFERENCES `quarters` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_pr_twg_reviewer` FOREIGN KEY (`twg_reviewed_by`) REFERENCES `users` (`id`)    ON DELETE SET NULL,
-  CONSTRAINT `fk_pr_deleted_by`   FOREIGN KEY (`deleted_by`)      REFERENCES `users` (`id`)    ON DELETE SET NULL
+  CONSTRAINT `fk_pr_deleted_by`   FOREIGN KEY (`deleted_by`)      REFERENCES `users` (`id`)    ON DELETE SET NULL,
+  CONSTRAINT `fk_pr_bac_submitted_by` FOREIGN KEY (`bac_submitted_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE `pr_items` (
@@ -252,13 +258,17 @@ CREATE TABLE `quotations` (
   `supplier_tin`        VARCHAR(50)  NULL,
   `quoted_at`           DATE         NULL,
   `notes`               TEXT         NULL,
+  -- Set by the BAC when the offer fails the specifications; it can't be awarded.
+  `disqualified_reason` VARCHAR(500) NULL,
+  `disqualified_by`     INT UNSIGNED NULL,
   `created_by`          INT UNSIGNED NOT NULL,
   `created_at`          TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at`          TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_quotations_pr_id` (`purchase_request_id`),
   CONSTRAINT `fk_quotations_pr`   FOREIGN KEY (`purchase_request_id`) REFERENCES `purchase_requests` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_quotations_user` FOREIGN KEY (`created_by`)          REFERENCES `users` (`id`)
+  CONSTRAINT `fk_quotations_user` FOREIGN KEY (`created_by`)          REFERENCES `users` (`id`),
+  CONSTRAINT `fk_quotations_disqualified_by` FOREIGN KEY (`disqualified_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE `quotation_items` (
@@ -275,16 +285,15 @@ CREATE TABLE `quotation_items` (
 -- A lot records the supplier awarded some of a PR's items (lot_items with
 -- pr_item_id; different items may go to different suppliers), maybe from a
 -- quotation, and the purchase order issued for it (po_id, one supplier's POs).
--- While awards need BAC approval (org_settings.bac_approval_required) a new
--- award is 'recommended' until the BAC approves it in a resolution
--- (resolution_id), and only an 'awarded' lot can get a purchase order.
+-- While the BAC awards (org_settings.bac_approval_required) every award is made
+-- by the BAC in a BAC Resolution (resolution_id).
 CREATE TABLE `lots` (
   `id`                  INT UNSIGNED  NOT NULL AUTO_INCREMENT,
   `purchase_request_id` INT UNSIGNED  NOT NULL,
   `lot_number`          VARCHAR(20)   NOT NULL,
   `title`               VARCHAR(200)  NULL,
   `description`         TEXT          NULL,
-  `status`              ENUM('draft','open','closed','recommended','awarded','cancelled') NOT NULL DEFAULT 'draft',
+  `status`              ENUM('draft','open','closed','awarded','cancelled') NOT NULL DEFAULT 'draft',
   `opening_date`        DATE          NULL,
   `closing_date`        DATE          NULL,
   `awarded_to`          VARCHAR(200)  NULL,
@@ -542,7 +551,7 @@ INSERT INTO `org_settings` (`setting_key`, `setting_value`) VALUES
   ('canvasser_designation',         'Canvasser'),
   -- How many supplier quotations the campus expects before an award.
   ('minimum_quotations',            '3'),
-  -- Awards wait for the BAC's approval ('1'), and the committee as it prints
+  -- The BAC evaluates the quotations and awards ('1'), and the committee as it prints
   -- on the BAC Resolution (bac_members: one name per line).
   ('bac_approval_required',         '1'),
   ('bac_chairman_name',             NULL),
