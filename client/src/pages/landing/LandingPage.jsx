@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
+import { useAuth } from '@/context/AuthContext'
 import {
   FileText, Gavel, Package, ArrowRight,
   Clock, Users, BarChart3, ChevronDown,
@@ -158,6 +159,8 @@ function MetricCounter({ value, suffix, label, icon: Icon, delay }) {
 /* ── page ─────────────────────────────────────────────────────── */
 
 export default function LandingPage() {
+  // Signed in already: offer the way back in, not a sign-in the user doesn't need.
+  const { user } = useAuth()
   const containerRef = useRef(null)
   const { scrolled, progress } = useContainerScroll(containerRef)
 
@@ -190,14 +193,23 @@ export default function LandingPage() {
           </Link>
 
           <div className="flex items-center gap-2" style={{ animation: 'fade-in-left 0.45s 0.05s ease-out both' }}>
-            <Button asChild variant="ghost" size="sm"
-              className={scrolled ? '' : 'text-white font-semibold hover:text-white hover:bg-white/15'}>
-              <Link to="/login">Sign in</Link>
-            </Button>
-            <Button asChild size="sm"
-              className={scrolled ? '' : 'bg-white text-[hsl(222,62%,18%)] hover:bg-white/92 font-bold shadow-lg shadow-black/20'}>
-              <Link to="/register">Get started</Link>
-            </Button>
+            {user ? (
+              <Button asChild size="sm"
+                className={scrolled ? '' : 'bg-white text-[hsl(222,62%,18%)] hover:bg-white/92 font-bold shadow-lg shadow-black/20'}>
+                <Link to="/dashboard">Go to dashboard</Link>
+              </Button>
+            ) : (
+              <>
+                <Button asChild variant="ghost" size="sm"
+                  className={scrolled ? '' : 'text-white font-semibold hover:text-white hover:bg-white/15'}>
+                  <Link to="/login">Sign in</Link>
+                </Button>
+                <Button asChild size="sm"
+                  className={scrolled ? '' : 'bg-white text-[hsl(222,62%,18%)] hover:bg-white/92 font-bold shadow-lg shadow-black/20'}>
+                  <Link to="/register">Get started</Link>
+                </Button>
+              </>
+            )}
           </div>
         </div>
       </header>
@@ -248,16 +260,27 @@ export default function LandingPage() {
 
           <div className="flex items-center justify-center gap-3 flex-wrap mb-12"
             style={{ animation: 'fade-in-up 0.5s 0.36s cubic-bezier(0.22,1,0.36,1) both' }}>
-            <Button asChild size="lg"
-              className="h-12 px-8 text-[15px] bg-white text-[hsl(222,62%,16%)] hover:bg-white/94 font-bold shadow-2xl shadow-black/35">
-              <Link to="/register">
-                <span className="flex items-center gap-2">Get started free <ArrowRight className="size-4" /></span>
-              </Link>
-            </Button>
-            <Button asChild size="lg" variant="ghost"
-              className="h-12 px-8 text-[15px] text-white/80 hover:text-white hover:bg-white/10 border border-white/18">
-              <Link to="/login">Sign in</Link>
-            </Button>
+            {user ? (
+              <Button asChild size="lg"
+                className="h-12 px-8 text-[15px] bg-white text-[hsl(222,62%,16%)] hover:bg-white/94 font-bold shadow-2xl shadow-black/35">
+                <Link to="/dashboard">
+                  <span className="flex items-center gap-2">Go to dashboard <ArrowRight className="size-4" /></span>
+                </Link>
+              </Button>
+            ) : (
+              <>
+                <Button asChild size="lg"
+                  className="h-12 px-8 text-[15px] bg-white text-[hsl(222,62%,16%)] hover:bg-white/94 font-bold shadow-2xl shadow-black/35">
+                  <Link to="/register">
+                    <span className="flex items-center gap-2">Get started free <ArrowRight className="size-4" /></span>
+                  </Link>
+                </Button>
+                <Button asChild size="lg" variant="ghost"
+                  className="h-12 px-8 text-[15px] text-white/80 hover:text-white hover:bg-white/10 border border-white/18">
+                  <Link to="/login">Sign in</Link>
+                </Button>
+              </>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-2"
@@ -448,16 +471,27 @@ export default function LandingPage() {
                   accountability, and zero paperwork.
                 </p>
                 <div className="flex items-center justify-center gap-4 flex-wrap">
-                  <Button asChild size="lg"
-                    className="h-12 px-10 text-[15px] bg-white text-[hsl(222,62%,16%)] hover:bg-white/94 font-bold shadow-2xl shadow-black/35">
-                    <Link to="/register">
-                      <span className="flex items-center gap-2">Create free account <ArrowRight className="size-4" /></span>
-                    </Link>
-                  </Button>
-                  <Button asChild size="lg" variant="ghost"
-                    className="h-12 px-8 text-[15px] text-white/75 hover:text-white hover:bg-white/10 border border-white/18">
-                    <Link to="/login">Sign in instead</Link>
-                  </Button>
+                  {user ? (
+                    <Button asChild size="lg"
+                      className="h-12 px-10 text-[15px] bg-white text-[hsl(222,62%,16%)] hover:bg-white/94 font-bold shadow-2xl shadow-black/35">
+                      <Link to="/dashboard">
+                        <span className="flex items-center gap-2">Go to dashboard <ArrowRight className="size-4" /></span>
+                      </Link>
+                    </Button>
+                  ) : (
+                    <>
+                      <Button asChild size="lg"
+                        className="h-12 px-10 text-[15px] bg-white text-[hsl(222,62%,16%)] hover:bg-white/94 font-bold shadow-2xl shadow-black/35">
+                        <Link to="/register">
+                          <span className="flex items-center gap-2">Create free account <ArrowRight className="size-4" /></span>
+                        </Link>
+                      </Button>
+                      <Button asChild size="lg" variant="ghost"
+                        className="h-12 px-8 text-[15px] text-white/75 hover:text-white hover:bg-white/10 border border-white/18">
+                        <Link to="/login">Sign in instead</Link>
+                      </Button>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -479,8 +513,14 @@ export default function LandingPage() {
               </div>
             </div>
             <div className="flex items-center gap-8 text-sm text-[--color-text-muted]">
-              <Link to="/login"    className="hover:text-[--color-brand] transition-colors">Sign in</Link>
-              <Link to="/register" className="hover:text-[--color-brand] transition-colors">Register</Link>
+              {user ? (
+                <Link to="/dashboard" className="hover:text-[--color-brand] transition-colors">Dashboard</Link>
+              ) : (
+                <>
+                  <Link to="/login"    className="hover:text-[--color-brand] transition-colors">Sign in</Link>
+                  <Link to="/register" className="hover:text-[--color-brand] transition-colors">Register</Link>
+                </>
+              )}
             </div>
             <p className="text-[--color-text-muted] text-sm">&copy; {new Date().getFullYear()} NEMSU Cantilan Campus</p>
           </div>
