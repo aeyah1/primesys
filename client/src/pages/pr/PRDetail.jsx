@@ -23,7 +23,6 @@ import RequestProgress from '@/components/shared/RequestProgress'
 import CategorySpecFields from '@/components/shared/CategorySpecFields'
 import UnitInput from '@/components/shared/UnitInput'
 import RequestContextDisplay from '@/components/shared/RequestContextDisplay'
-import CanvassPanel from '@/components/awards/CanvassPanel'
 import PurchaseOrders from './PurchaseOrders'
 import ProcurementActions from './ProcurementActions'
 import { useAuth } from '@/context/AuthContext'
@@ -875,11 +874,24 @@ export default function PRDetail() {
       {/* Canvass & awards: quotations, awards by supplier, and the BAC's approval (procurement, admin, BAC) */}
       {showCanvass && (
         <Card>
-          <CardHeader className="flex flex-row items-center gap-2">
-            <Gavel className="size-4 text-[--color-text-muted]" />
-            <CardTitle>Canvass & Awards</CardTitle>
-          </CardHeader>
-          <CardContent><CanvassPanel pr={pr} /></CardContent>
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
+            <div className="flex items-start gap-3 min-w-0">
+              <Gavel className="size-5 text-[--color-brand] mt-0.5 shrink-0" />
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-[--color-text-primary]">Canvass &amp; Award</p>
+                <p className="text-xs text-[--color-text-secondary] mt-0.5">
+                  {pr.status === 'bidding' && pr.bac_submitted_at ? 'With the BAC for evaluation.'
+                    : pr.status === 'bidding' && pr.quotations_due && new Date(pr.quotations_due) > new Date() ? `Quotations close ${fmtDate(pr.quotations_due)}.`
+                    : pr.status === 'bidding' ? 'Quotations are in; the canvass is being decided.'
+                    : pr.status === 'cancelled' ? 'The canvass record is kept.'
+                    : 'Awarded. The quotations, the award and its resolution are on the canvass page.'}
+                </p>
+              </div>
+            </div>
+            <Button size="sm" variant="outline" asChild className="gap-1.5 shrink-0">
+              <Link to={`/pr/${pr.id}/canvass`}>Open Canvass &amp; Award</Link>
+            </Button>
+          </CardContent>
         </Card>
       )}
 
