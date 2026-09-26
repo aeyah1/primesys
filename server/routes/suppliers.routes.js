@@ -20,6 +20,7 @@ const fields = (required) => [
 ]
 
 router.get('/', c.list)
+router.get('/:id', c.profile)
 router.post('/', fields(true), handle, c.create)
 router.patch('/:id', fields(false), handle, c.update)
 
