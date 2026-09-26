@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
 import { fmtCurrency, fmtDate, fmtDatetime } from '@/lib/utils'
 import { openPdf, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
-import { SectionTitle, nameKey, useRefreshAwards } from './supplier'
+import { nameKey, useRefreshAwards } from './supplier'
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 
@@ -42,10 +42,10 @@ function ReturnDialog({ prId, onClose }) {
   )
 }
 
-/* Where a canvass stands with the BAC: Procurement submits it, the BAC
-   evaluates and awards on the canvass below or returns it, and each award
-   is a BAC Resolution with its Notices of Award. */
-export default function BacPanel({ prId }) {
+/* Where a canvass stands with the BAC. part 'status': Procurement submits
+   it, the BAC evaluates and awards or returns it. part 'resolutions': each
+   award's BAC Resolution with its Notices of Award. */
+export default function BacPanel({ prId, part = 'status' }) {
   const refresh = useRefreshAwards(prId)
   const [returning, setReturning] = useState(false)
   const { data } = useQuery({
@@ -58,6 +58,9 @@ export default function BacPanel({ prId }) {
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to submit it'),
   })
   if (!data || (!data.required && !data.resolutions.length)) return null
+  if (part === 'resolutions' && !data.resolutions.length) {
+    return <p className="text-sm text-[--color-text-muted]">No award has been made in a BAC Resolution yet.</p>
+  }
 
   const can = data.permissions
   const print = (endpoint, label) => openPdf(endpoint)
@@ -65,7 +68,7 @@ export default function BacPanel({ prId }) {
 
   return (
     <div className="space-y-3">
-      {data.with_bac && (
+      {part === 'status' && data.with_bac && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-3">
           <p className="flex items-center gap-2 text-sm text-indigo-900">
             <Scale className="size-4 shrink-0" />
@@ -82,14 +85,14 @@ export default function BacPanel({ prId }) {
         </div>
       )}
 
-      {data.return_reason && (
+      {part === 'status' && data.return_reason && (
         <p className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           <AlertTriangle className="size-4 shrink-0 mt-0.5" />
           <span><span className="font-semibold">Returned by the BAC:</span> {data.return_reason}</span>
         </p>
       )}
 
-      {can.submit && (
+      {part === 'status' && can.submit && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[--color-border] bg-[--color-canvas] px-4 py-3">
           <p className="text-sm text-[--color-text-secondary]">
             Once the quotations are in, submit the canvass to the BAC. It evaluates them and makes the award.
@@ -101,8 +104,7 @@ export default function BacPanel({ prId }) {
         </div>
       )}
 
-      {data.resolutions.length > 0 && <SectionTitle>BAC Resolutions</SectionTitle>}
-      {data.resolutions.map(r => {
+      {part === 'resolutions' && data.resolutions.map(r => {
         // One Notice of Award per supplier in the resolution.
         const suppliers = [...new Map(r.lots.map(l => [nameKey(l.awarded_to), l])).values()]
         return (

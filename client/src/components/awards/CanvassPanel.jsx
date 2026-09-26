@@ -14,7 +14,6 @@ import QuotationDialog from './QuotationDialog'
 import AwardFromQuotesDialog from './AwardFromQuotesDialog'
 import RecordAwardDialog from './RecordAwardDialog'
 import AwardList from './AwardList'
-import BacPanel from './BacPanel'
 import RfqPanel from './RfqPanel'
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
@@ -109,10 +108,12 @@ function ItemStatus({ item }) {
   return <span className="inline-flex rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Needs award</span>
 }
 
-/* The canvass of one PR: its items and where each stands, the suppliers'
-   quotations, the award actions, and the awards by supplier. Used on the PR
-   page and in the Work Queue. pr: { id, pr_number, title, status }. */
-export default function CanvassPanel({ pr }) {
+/* One tab of a PR's canvass (pages/pr/CanvassPage.jsx). view 'quotations':
+   the schedule, the RFQs emailed, and the suppliers' quotations (where the BAC
+   marks failed offers). view 'award': each item and where it stands, the
+   award actions, and the awards by supplier. pr: { id, pr_number, title, status }. */
+export default function CanvassPanel({ pr, view = 'award' }) {
+  const onQuotes = view === 'quotations'
   const prId = String(pr.id)
   const { user } = useAuth()
   const canManage = ['admin', 'procurement'].includes(user?.role)
@@ -160,28 +161,31 @@ export default function CanvassPanel({ pr }) {
 
   return (
     <div className="space-y-5">
-      {/* Where the canvass stands with the BAC: submit, return, and its resolutions */}
-      <BacPanel prId={prId} />
-
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-[--color-text-secondary]">
-          <span className="font-semibold text-[--color-text-primary]">{awarded} of {items.length - dropped}</span> items awarded
-          {dropped > 0 && `, ${dropped} dropped`}
-          {suppliers > 0 && `, from ${plural(suppliers, 'supplier')}`}
-        </p>
-        {(can.canvass || can.award) && (
+        {onQuotes ? (
+          <p className="text-sm text-[--color-text-secondary]">
+            <span className="font-semibold text-[--color-text-primary]">{plural(quotations.length, 'quotation')}</span> recorded
+          </p>
+        ) : (
+          <p className="text-sm text-[--color-text-secondary]">
+            <span className="font-semibold text-[--color-text-primary]">{awarded} of {items.length - dropped}</span> items awarded
+            {dropped > 0 && `, ${dropped} dropped`}
+            {suppliers > 0 && `, from ${plural(suppliers, 'supplier')}`}
+          </p>
+        )}
+        {(onQuotes ? can.canvass : can.award) && (
           <div className="flex flex-wrap items-center gap-2">
-            {can.canvass && (
+            {onQuotes && can.canvass && (
               <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setQuote({ quotation: null })}>
                 <FilePlus className="size-3.5" /> Add Quotation
               </Button>
             )}
-            {can.award && pending.length > 0 && quotesForPending.length > 0 && (
+            {!onQuotes && can.award && pending.length > 0 && quotesForPending.length > 0 && (
               <Button size="sm" className="gap-1.5" onClick={() => setFromQuotes(true)}>
                 <Trophy className="size-3.5" /> Award from Quotations
               </Button>
             )}
-            {can.award && pending.length > 0 && (
+            {!onQuotes && can.award && pending.length > 0 && (
               <Button size="sm" variant={quotesForPending.length ? 'secondary' : 'primary'} className="gap-1.5" onClick={() => setManual(true)}>
                 {!quotesForPending.length && <Trophy className="size-3.5" />} Record Award{quotesForPending.length ? ' by Hand' : ''}
               </Button>
@@ -191,7 +195,7 @@ export default function CanvassPanel({ pr }) {
       </div>
 
       {/* The items and where each stands */}
-      {items.length > 0 && (
+      {!onQuotes && items.length > 0 && (
         <div className="rounded-xl border border-[--color-border] overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -239,10 +243,10 @@ export default function CanvassPanel({ pr }) {
       )}
 
       {/* RFQs emailed to suppliers, who quote through their own link */}
-      <RfqPanel prId={prId} rfq={canvass.rfq} schedule={canvass.schedule} can={can} />
+      {onQuotes && <RfqPanel prId={prId} rfq={canvass.rfq} schedule={canvass.schedule} can={can} />}
 
       {/* The suppliers' quotations */}
-      {quotations.length > 0 ? (
+      {onQuotes && (quotations.length > 0 ? (
         <div className="space-y-2">
           <SectionTitle>Quotations ({quotations.length})</SectionTitle>
           <div className="rounded-xl border border-[--color-border] divide-y divide-[--color-border]">
@@ -308,10 +312,10 @@ export default function CanvassPanel({ pr }) {
           Record each supplier's quotation to compare their prices item by item (they appear in the Abstract of Quotations),
           then award each item to the lowest. Different items can go to different suppliers, each with its own purchase order.
         </p>
-      )}
+      ))}
 
       {/* The awards, by supplier */}
-      <AwardList lots={lots} canManage={canManage} prStatus={pr.status} />
+      {!onQuotes && <AwardList lots={lots} canManage={canManage} prStatus={pr.status} />}
 
       {quote && <QuotationDialog pr={pr} items={items} quotation={quote.quotation} open onClose={() => setQuote(null)} />}
       {fromQuotes && <AwardFromQuotesDialog pr={pr} items={items} quotations={quotations} open onClose={() => setFromQuotes(false)} />}

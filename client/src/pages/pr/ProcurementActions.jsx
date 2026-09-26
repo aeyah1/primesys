@@ -19,11 +19,15 @@ const chip = (Icon, text, cls = 'border-[--color-border] bg-[--color-canvas] tex
 /* Procurement's actions on a request: the one next step for where it stands,
    and the rest under More. pr: the request with its permissions;
    updateStatus({ status, notes }) / isPending: the page's status change;
-   onReturn(): opens "Return for revision"; downloadRFQ / downloadAbstract. */
-export default function ProcurementActions({ pr, updateStatus, isPending, onReturn, downloadRFQ, downloadAbstract }) {
+   onReturn(): opens "Return for revision"; downloadRFQ / downloadAbstract.
+   compact: the next step and the PDFs only (the status changes stay on the request page). */
+export default function ProcurementActions({ pr, updateStatus, isPending, onReturn, downloadRFQ, downloadAbstract, compact = false }) {
   const refresh = useRefreshAwards(String(pr.id))
   const [opening, setOpening] = useState(false)
-  const next = pr.permissions?.next_statuses || []
+  const moves = pr.permissions?.next_statuses || []
+  // The next step reads the moves; the status changes under More need the request page.
+  const next = moves
+  const changes = compact ? [] : moves
   const bidding = pr.status === 'bidding'
   const quotationsOpen = bidding && pr.quotations_due && new Date(pr.quotations_due) > new Date()
 
@@ -86,7 +90,7 @@ export default function ProcurementActions({ pr, updateStatus, isPending, onRetu
     }
   }
   const printable = !['draft', 'submitted', 'revision_requested', 'rejected'].includes(pr.status)
-  const hasMore = printable || next.includes('revision_requested') || next.includes('cancelled') || (pr.status === 'for_po' && next.includes('bidding'))
+  const hasMore = printable || changes.includes('revision_requested') || changes.includes('cancelled') || (pr.status === 'for_po' && changes.includes('bidding'))
 
   return (
     <>
@@ -101,14 +105,14 @@ export default function ProcurementActions({ pr, updateStatus, isPending, onRetu
           <DropdownMenuContent align="end">
             {printable && <DropdownMenuItem onClick={downloadRFQ} className="gap-2"><FileDown className="size-3.5" /> Request for Quotation (PDF)</DropdownMenuItem>}
             {printable && pr.status !== 'twg_review' && <DropdownMenuItem onClick={downloadAbstract} className="gap-2"><FileDown className="size-3.5" /> Abstract of Quotations (PDF)</DropdownMenuItem>}
-            {(next.includes('revision_requested') || (pr.status === 'for_po' && next.includes('bidding')) || next.includes('cancelled')) && printable && <DropdownMenuSeparator />}
-            {next.includes('revision_requested') && (
+            {(changes.includes('revision_requested') || (pr.status === 'for_po' && changes.includes('bidding')) || changes.includes('cancelled')) && printable && <DropdownMenuSeparator />}
+            {changes.includes('revision_requested') && (
               <DropdownMenuItem onClick={onReturn} className="gap-2"><Undo2 className="size-3.5" /> Return for revision</DropdownMenuItem>
             )}
-            {pr.status === 'for_po' && next.includes('bidding') && (
+            {pr.status === 'for_po' && changes.includes('bidding') && (
               <DropdownMenuItem onClick={recanvass} className="gap-2"><RotateCcw className="size-3.5" /> Recanvass</DropdownMenuItem>
             )}
-            {next.includes('cancelled') && (
+            {changes.includes('cancelled') && (
               <DropdownMenuItem onClick={cancel} className="gap-2 text-red-600"><XCircle className="size-3.5" /> Cancel request</DropdownMenuItem>
             )}
           </DropdownMenuContent>

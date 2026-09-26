@@ -1,15 +1,13 @@
 import { useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
-import { Trophy, ChevronRight, FileDown, Search, ShoppingCart, Gavel, ExternalLink } from 'lucide-react'
+import { Trophy, ChevronRight, FileDown, Search, ShoppingCart, Gavel } from 'lucide-react'
 import { toast } from 'sonner'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { CategoryBadge, DeliveryStatusBadge, PRStatusBadge } from '@/components/shared/StatusBadge'
-import CanvassPanel from '@/components/awards/CanvassPanel'
 import OpenQuotationsDialog from '@/components/awards/OpenQuotationsDialog'
 import { fmtCurrency, fmtDatetime, CATEGORY_LABELS } from '@/lib/utils'
 import { openPdf, blobErrorMessage } from '@/lib/download'
@@ -148,69 +146,6 @@ function AwardRow({ row, stage, canManage, onOpen, onStart }) {
   )
 }
 
-/* ── The canvass of one PR, in a window over the list ─────────────────
-   Opened by ?pr=ID, so one PR is open at a time, and a refresh, a link, or
-   coming back from the PR page opens it again. The PR is loaded on its own,
-   so the window stays open when an award moves the PR to another tab. */
-function CanvassDialog({ prId, row, canManage, onClose }) {
-  const id = prId ? String(prId) : ''
-  const { data: loaded } = useQuery({
-    queryKey: ['pr', id],
-    queryFn:  () => api.get(`/pr/${id}`).then(r => r.data),
-    enabled:  !!id,
-  })
-  // The same queries as the canvass panel inside (shared, not fetched twice).
-  const { data: lots = [] } = useQuery({
-    queryKey: ['lots', id],
-    queryFn:  () => api.get(`/lots/pr/${id}`).then(r => r.data),
-    enabled:  !!id,
-  })
-  const { data: canvass } = useQuery({
-    queryKey: ['canvass', id],
-    queryFn:  () => api.get(`/canvass/${id}`).then(r => r.data),
-    enabled:  !!id,
-  })
-  const pr = loaded || row
-  const hasRecord  = lots.length > 0 || canvass?.quotations?.length > 0
-  const waitingPO  = canManage && lots.some(l => l.status === 'awarded' && !l.po_id)
-
-  return (
-    <Dialog open={!!id} onOpenChange={v => { if (!v) onClose() }}>
-      <DialogContent title="Canvass & Awards" description={pr ? `${pr.pr_number} · ${pr.title || 'Untitled request'}` : 'Loading…'} className="max-w-4xl">
-        {!pr ? (
-          <div className="space-y-3">{Array(5).fill(0).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
-        ) : (
-          <div className="space-y-5">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-[--color-border] bg-[--color-canvas] px-4 py-3">
-              <CategoryBadge category={pr.category} />
-              <PRStatusBadge status={pr.status} />
-              <span className="text-xs text-[--color-text-secondary]">
-                {pr.created_by_name}{pr.department ? `, ${pr.department}` : ''}
-              </span>
-              <div className="flex flex-wrap items-center gap-1.5 ml-auto">
-                {hasRecord && (
-                  <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => abstractPdf(id)}>
-                    <FileDown className="size-3.5" /> Abstract
-                  </Button>
-                )}
-                {waitingPO && (
-                  <Button size="sm" asChild className="gap-1.5">
-                    <Link to={`/pr/${id}#purchase-order`}><ShoppingCart className="size-3.5" /> Issue PO</Link>
-                  </Button>
-                )}
-                <Button variant="outline" size="sm" asChild className="gap-1.5">
-                  <Link to={`/pr/${id}`}>Open PR <ExternalLink className="size-3" /></Link>
-                </Button>
-              </div>
-            </div>
-            <CanvassPanel pr={pr} />
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
-  )
-}
-
 /* ── Main Page ────────────────────────────────────────────────────────── */
 export default function Bidding() {
   const { user } = useAuth()
@@ -219,6 +154,7 @@ export default function Bidding() {
   // Stage, category, search, and page live in the URL, so the back button,
   // a refresh, and a shared link all keep the same view.
   const [params, setParams] = useSearchParams()
+  const navigate = useNavigate()
   const stage    = STAGES.some(s => s.key === params.get('stage')) ? params.get('stage') : canManage ? 'to_canvass' : 'po_issued'
   const category = CATEGORY_KEYS.includes(params.get('category')) ? params.get('category') : ''
   const page     = Math.max(parseInt(params.get('page')) || 1, 1)
@@ -246,7 +182,6 @@ export default function Bidding() {
   const counts  = data?.counts
   const inStage = Object.values(counts?.categories || {}).reduce((a, b) => a + b, 0)
   const current = STAGES.find(s => s.key === stage)
-  const openId  = params.get('pr')
 
   return (
     <div className="space-y-5">
@@ -314,7 +249,7 @@ export default function Bidding() {
           </div>
         ) : (
           rows.map(row => (
-            <AwardRow key={row.id} row={row} stage={stage} canManage={canManage} onOpen={() => update({ pr: row.id })}
+            <AwardRow key={row.id} row={row} stage={stage} canManage={canManage} onOpen={() => navigate(`/pr/${row.id}/canvass`)}
               onStart={() => setOpening(row)} />
           ))
         )}
@@ -332,9 +267,8 @@ export default function Bidding() {
 
       {opening && (
         <OpenQuotationsDialog pr={opening} onClose={() => setOpening(null)}
-          onOpened={() => update({ stage: 'needs_award', page: '', pr: opening.id })} />
+          onOpened={() => navigate(`/pr/${opening.id}/canvass`)} />
       )}
-      <CanvassDialog prId={openId} row={rows.find(r => String(r.id) === openId)} canManage={canManage} onClose={() => update({ pr: '' })} />
     </div>
   )
 }

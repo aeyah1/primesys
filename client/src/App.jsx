@@ -23,6 +23,7 @@ const PRList            = page(() => import('@/pages/pr/PRList'))
 const PRCreate          = page(() => import('@/pages/pr/PRUpload'))
 const PRDetail          = page(() => import('@/pages/pr/PRDetail'))
 const PREdit            = page(() => import('@/pages/pr/PREdit'))
+const CanvassPage       = page(() => import('@/pages/pr/CanvassPage'))
 const POList            = page(() => import('@/pages/po/POList'))
 const DeliveryList      = page(() => import('@/pages/delivery/DeliveryList'))
 const Bidding           = page(() => import('@/pages/bidding/Bidding'))
@@ -89,6 +90,7 @@ export default function App() {
           <Route path="pr"          element={<PRList />} />
           <Route path="pr/create"  element={<ProtectedRoute roles={['procurement','admin','requestor']}><PRCreate /></ProtectedRoute>} />
           <Route path="pr/:id"     element={<PRDetail />} />
+          <Route path="pr/:id/canvass" element={<ProtectedRoute roles={['procurement','admin','bac']}><CanvassPage /></ProtectedRoute>} />
           <Route path="pr/:id/edit" element={<ProtectedRoute roles={['procurement','admin','requestor']}><PREdit /></ProtectedRoute>} />
 
           <Route path="po"         element={<ProtectedRoute roles={['procurement','admin','supply','requestor']}><POList /></ProtectedRoute>} />
