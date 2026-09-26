@@ -4,7 +4,7 @@ const c         = require('../controllers/lots.controller')
 const auth      = require('../middleware/auth.middleware')
 const authorize = require('../middleware/authorize.middleware')
 const { requireAccess } = require('../middleware/scope.middleware')
-const { handle, textRule, moneyRule, quantityRule, idRule, oneOfRule } = require('../middleware/validate')
+const { handle, textRule, emailRule, moneyRule, quantityRule, idRule, oneOfRule } = require('../middleware/validate')
 
 router.use(auth)
 
@@ -19,8 +19,7 @@ const supplierFields = [
   textRule('supplier_contact', 'Contact person', 100),
   textRule('supplier_address', 'Business address', 500),
   textRule('supplier_phone', 'Phone number', 50),
-  textRule('supplier_email', 'Email address', 150),
-  body('supplier_email').if(v => !!v).isEmail().withMessage('Email address is not valid'),
+  emailRule('supplier_email', 'Email address'),
   textRule('supplier_tin', 'TIN', 50),
 ]
 

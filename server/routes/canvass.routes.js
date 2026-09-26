@@ -4,7 +4,7 @@ const c         = require('../controllers/canvass.controller')
 const auth      = require('../middleware/auth.middleware')
 const authorize = require('../middleware/authorize.middleware')
 const { requireAccess } = require('../middleware/scope.middleware')
-const { handle, textRule, phoneRule, moneyRule, dateRule, idRule } = require('../middleware/validate')
+const { handle, textRule, emailRule, phoneRule, moneyRule, dateRule, idRule } = require('../middleware/validate')
 
 // A PR's canvass: suppliers' quotations, the award from them, dropped items.
 // Scoped (C2): 404 unless this user may see the PR.
@@ -22,8 +22,7 @@ const quotationRules = [
   // Blank counts as missing, so a typed-in supplier is told the phone is required.
   body('supplier_phone').customSanitizer(v => (typeof v === 'string' && !v.trim() ? '' : v)),
   phoneRule('supplier_phone', 'Phone number'),
-  textRule('supplier_email', 'Email address', 150),
-  body('supplier_email').if(v => !!v).isEmail().withMessage('Email address is not valid'),
+  emailRule('supplier_email', 'Email address'),
   textRule('supplier_tin', 'TIN', 50),
   dateRule('quoted_at', 'Quotation date'),
   textRule('notes', 'Notes', 2000),
