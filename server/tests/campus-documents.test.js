@@ -92,7 +92,9 @@ const ORG = {
   approved_above_name: 'MARIA L. SANTOS, Ph. D.',
   approved_above_designation: 'University President',
   allotment_by_name: 'ROSA T. DELA CRUZ',
-  allotment_by_designation: 'Campus Accountant',
+  allotment_by_designation: 'AO IV/Budget Officer II',
+  chief_accountant_name: 'CARMELA D. REYES, CPA',
+  chief_accountant_designation: 'Chief Accountant',
   app_certified_by_name: 'LITO M. ANDRADE',
   app_certified_by_designation: 'BAC Secretariat',
   bac_vice_chairman_name: 'ANA C. GARCIA, Ph. D.',
@@ -106,7 +108,7 @@ const PO = {
   supplier_name: 'ABC Trading Corporation',
   supplier_address: 'Poblacion, Cantilan, Surigao del Sur',
   supplier_contact: '0917-123-4567',
-  issued_date: '2026-02-20', expected_delivery_date: '2026-03-05',
+  issued_date: '2026-02-20', expected_delivery_date: '2026-03-05', supplier_tin: '123-456-789-000', fund_cluster: '05-206441',
   po_status: 'active', mode_of_procurement: 'Small Value Procurement',
   total_amount: 54450,
 }
@@ -199,7 +201,9 @@ async function run() {
     ['the supplier', 'ABC Trading Corporation'], ['its address', 'Poblacion, Cantilan, Surigao del Sur'],
     ['the P.O. number', 'PO-2026-001'], ['the PR it came from', 'CSO 2026-002'],
     ['the issue date', 'February 20, 2026'], ['the mode of procurement', 'Small Value Procurement'],
-    ['the expected delivery', 'Expected on March 5, 2026'],
+    ['the date of delivery', 'March 5, 2026'], ['the supplier TIN', '123-456-789-000'],
+    ['the fund cluster', 'Fund Cluster: 05-206441'], ['the ORS/BURS box', 'ORS/BURS No.:'],
+    ['the delivery term', 'Delivery Term'], ['the payment term', 'Payment Term'],
   ]) t.check('Purchase Order', `prints ${label}`, has(poPages[0], value))
   t.check('Purchase Order', 'groups items under their section heading', has(poPages[0], 'OFFICE SUPPLIES'))
   t.check('Purchase Order', 'extends each line', has(poPages[0], '10,200.00') && has(poPages[0], '44,250.00'))
@@ -208,8 +212,13 @@ async function run() {
     has(poPages[0], 'Fifty-Four Thousand Four Hundred Fifty Pesos and 00/100'))
   t.check('Purchase Order', 'leaves the supplier a conforme to sign',
     has(poPages[0], 'Conforme:') && has(poPages[0], 'Signature over Printed Name of Supplier'))
-  t.check('Purchase Order', 'certifies funds are available',
-    has(poPages[0], 'Funds Available') && has(poPages[0], 'ROSA T. DELA CRUZ'))
+  t.check('Purchase Order', 'the Chief Accountant certifies funds are available (COA App. 61)',
+    has(poPages[0], 'Funds Available') && has(poPages[0], 'CARMELA D. REYES, CPA') && !has(poPages[0], 'ROSA T. DELA CRUZ'))
+  t.check('Purchase Order', 'carries the penalty clause for late delivery',
+    hasWrapped(poPages[0], 'one-tenth (1/10) of one percent for every day of delay'))
+  const undated = parse(await render(drawPO, { po: { ...PO, expected_delivery_date: null }, items: PO_ITEMS, priced: true, orgSettings: ORG }), PORTRAIT.h)[0]
+  t.check('Purchase Order', 'with no delivery date, the seven-day rule is printed',
+    hasWrapped(undated, 'Within seven (7) calendar days after receipt of this P.O.'))
 
   // Who signs depends on the amount, the same rule as the PR form.
   t.check('Purchase Order', 'above the threshold the President approves',

@@ -517,6 +517,9 @@ INSERT INTO `org_settings` (`setting_key`, `setting_value`) VALUES
   ('allotment_by_designation',     'AO IV/Budget Officer II'),
   ('app_certified_by_name',        NULL),
   ('app_certified_by_designation', 'BAC Secretariat'),
+  -- Certifies Funds Available on the Purchase Order (COA Appendix 61).
+  ('chief_accountant_name',        NULL),
+  ('chief_accountant_designation', 'Chief Accountant'),
   -- The Request for Quotation's letterhead.
   ('entity_full_name',              'NORTH EASTERN MINDANAO STATE UNIVERSITY'),
   ('entity_campus',                 'Cantilan Campus'),

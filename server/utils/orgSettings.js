@@ -29,6 +29,8 @@ const SETTING_KEYS = [
   'allotment_by_designation',
   'app_certified_by_name',        // certifies it is in the APP
   'app_certified_by_designation',
+  'chief_accountant_name',        // certifies Funds Available on the Purchase Order (COA App. 61)
+  'chief_accountant_designation',
 
   // Request for Quotation signatories
   'bac_vice_chairman_name',

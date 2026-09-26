@@ -24,6 +24,10 @@ const COLS = [
 ]
 const X = COLS.reduce((acc, c) => [...acc, acc[acc.length - 1] + c.width], [M])
 
+// COA Appendix 61's penalty clause, word for word.
+const PENALTY = 'In case of failure to make the full delivery within the time specified above, a penalty of '
+  + 'one-tenth (1/10) of one percent for every day of delay shall be imposed on the undelivered item/s.'
+
 module.exports = function drawPurchaseOrder(doc, { po, items, priced, orgSettings = {} }) {
   const f = forms(doc)
   const s = (key, fallback = '') => (orgSettings[key] || '').trim() || fallback
@@ -52,17 +56,22 @@ module.exports = function drawPurchaseOrder(doc, { po, items, priced, orgSetting
   box(M + HALF, y, HALF / 2, 30, 'Date', fmtDate(po.issued_date))
   box(M + HALF + HALF / 2, y, HALF / 2, 30, 'PR No.', po.pr_number)
   y += 30
-  box(M,        y, HALF, 26, 'Contact', po.supplier_contact || '', 'Times-Roman')
-  box(M + HALF, y, HALF, 26, 'Mode of Procurement', po.mode_of_procurement || '', 'Times-Roman')
+  box(M,            y, HALF / 2, 26, 'TIN', po.supplier_tin || '', 'Times-Roman')
+  box(M + HALF / 2, y, HALF / 2, 26, 'Contact', po.supplier_contact || '', 'Times-Roman')
+  box(M + HALF,     y, HALF, 26, 'Mode of Procurement', po.mode_of_procurement || '', 'Times-Roman')
   y += 26
-
-  f.rect(M, y, W, 24)
-  doc.font('Times-Roman').fontSize(7.5).fillColor(BLACK).text('Place and date of delivery', M + PAD, y + 2, { width: W - PAD * 2 })
-  f.put(po.expected_delivery_date ? `Expected on ${fmtDate(po.expected_delivery_date)}` : '', M, y + 9, W, 15, { font: 'Times-Roman' })
-  y += 24
+  // COA Appendix 61: with no date stated, delivery is due seven calendar days after the supplier receives the PO.
+  box(M,        y, HALF, 26, 'Place of Delivery', s('entity_name', s('entity_campus')), 'Times-Roman')
+  box(M + HALF, y, HALF, 26, 'Date of Delivery', po.expected_delivery_date
+    ? fmtDate(po.expected_delivery_date) : 'Within seven (7) calendar days after receipt of this P.O.', 'Times-Roman')
+  y += 26
+  // Left blank for the office to fill in, as on the COA form.
+  box(M,        y, HALF, 22, 'Delivery Term', '')
+  box(M + HALF, y, HALF, 22, 'Payment Term', '')
+  y += 22
 
   doc.font('Times-Roman').fontSize(8).fillColor(BLACK)
-    .text('Gentlemen: Please furnish this Office the following articles subject to the terms and conditions listed above.',
+    .text('Gentlemen: Please furnish this Office the following articles subject to the terms and conditions contained herein.',
       M, y + 4, { width: W })
   y = doc.y + 6
 
@@ -106,8 +115,8 @@ module.exports = function drawPurchaseOrder(doc, { po, items, priced, orgSetting
   }
 
   // Everything that must stay with the last line: the total, the amount in
-  // words, and both signatures.
-  const FOOTER_H = ROW_H + 22 + 64 + 56
+  // words, the penalty clause, both signatures, and the funds block.
+  const FOOTER_H = ROW_H + 22 + 26 + 64 + 66
 
   for (const row of rows) {
     if (y + row.height > BOTTOM - ROW_H) { doc.addPage(); y = f.columnHeader(COLS, M, M, 24) }
@@ -129,7 +138,11 @@ module.exports = function drawPurchaseOrder(doc, { po, items, priced, orgSetting
   f.rect(M, y, W, 22)
   doc.font('Times-Roman').fontSize(7.5).fillColor(BLACK).text('Total amount in words', M + PAD, y + 2, { width: W - PAD * 2 })
   f.put(pesosInWords(total), M, y + 9, W, 13, { font: 'Times-Bold', size: 9 })
-  y += 22 + 10
+  y += 22
+
+  f.rect(M, y, W, 22)
+  f.put(PENALTY, M, y, W, 22, { size: 8 })
+  y += 22 + 4
 
   // ── Signatures ─────────────────────────────────────────────────────
   // The supplier's conforme on one side, the approving official on the other.
@@ -143,11 +156,22 @@ module.exports = function drawPurchaseOrder(doc, { po, items, priced, orgSetting
   })
   y += 64
 
-  f.certBox(M + W / 4, y, W / 2, 52, {
-    title: 'Funds Available',
-    name: s('allotment_by_name'),
-    designation: s('allotment_by_designation'),
-  })
+  // The funds block: Accounting certifies funds on the left, Budget's obligation (ORS/BURS) on the right.
+  const H = 62
+  f.rect(M, y, HALF, H)
+  f.rect(M + HALF, y, HALF, H)
+  doc.font('Times-Roman').fontSize(8.5).fillColor(BLACK)
+  doc.text(`Fund Cluster: ${po.fund_cluster || '________________'}`, M + PAD * 2, y + 5, { width: HALF - PAD * 4 })
+  doc.text('Funds Available: ________________', M + PAD * 2, y + 17, { width: HALF - PAD * 4 })
+  f.rule(M + 20, y + H - 20, M + HALF - 20)
+  f.put(s('chief_accountant_name'), M, y + H - 19, HALF, 10, { font: 'Times-Bold', size: 8.5, align: 'center' })
+  f.put(s('chief_accountant_designation', 'Chief Accountant/Head of Accounting Division/Unit'),
+    M, y + H - 10, HALF, 9, { size: 7.5, align: 'center' })
+  const R = M + HALF + PAD * 2
+  doc.font('Times-Roman').fontSize(8.5).fillColor(BLACK)
+  doc.text('ORS/BURS No.: ____________________', R, y + 8, { width: HALF - PAD * 4 })
+  doc.text('Date of the ORS/BURS: ______________', R, y + 26, { width: HALF - PAD * 4 })
+  doc.text('Amount: __________________________', R, y + 44, { width: HALF - PAD * 4 })
 
   doc.fillColor(BLACK).strokeColor(BLACK)
 }
