@@ -13,6 +13,9 @@ const { hashToken }   = require('../utils/rfqWorkflow')
 // same 404, so tokens can't be probed. A supplier sees only this PR's items
 // still under canvass and their own earlier prices, never anyone else's.
 
+// How many times one invitation may be submitted: the first time and two changes.
+const MAX_SUBMISSIONS = 3
+
 const NOT_FOUND = 'This link is not valid. Use the link in the most recent email from the procurement office.'
 
 async function invitationBy(db, token, { lock = false } = {}) {
@@ -55,13 +58,15 @@ exports.view = asyncHandler(async (req, res) => {
     abc: pending.reduce((s, i) => s + lineCents(i.quantity, i.estimated_cost), 0) / 100,
     items: pending.map(i => ({ id: i.id, item_name: i.item_name, quantity: i.quantity, unit: i.unit, group_label: i.group_label })),
     submitted_at: inv.submitted_at,
+    max_submissions: MAX_SUBMISSIONS,
+    changes_left: Math.max(MAX_SUBMISSIONS - inv.submit_count, 0),
     prices: Object.fromEntries(mine.map(p => [p.pr_item_id, p.unit_price])),
     terms: terms || { delivery_period: null, warranty: null, price_validity: null, notes: null },
   })
 })
 
 // POST /public/quote/:token - { prices: [{ item, unit_price }], delivery_period, warranty, price_validity, notes }
-// Saves the supplier's quotation, or replaces it, until the deadline.
+// Saves the supplier's quotation, or replaces it, until the deadline and at most MAX_SUBMISSIONS times.
 exports.submit = asyncHandler(async (req, res) => {
   const { prices, delivery_period, warranty, price_validity, notes } = req.body   // checked in the route
   const done = await withTransaction(async (conn) => {
@@ -71,6 +76,9 @@ exports.submit = asyncHandler(async (req, res) => {
     const inv = await invitationBy(conn, req.params.token, { lock: true })
     if (!inv || !pr || pr.deleted_at) throw httpError(404, NOT_FOUND)
     if (!quotable(inv, pr)) throw httpError(409, 'This Request for Quotation is closed, so quotations can no longer be changed')
+    if (inv.submit_count >= MAX_SUBMISSIONS) {
+      throw httpError(429, `Your quotation can be sent at most ${MAX_SUBMISSIONS} times, so it can no longer be changed. Contact the procurement office if something is wrong.`)
+    }
 
     const { items } = await itemStates(conn, pr.id)
     const seen = new Set()
@@ -100,7 +108,7 @@ exports.submit = asyncHandler(async (req, res) => {
       `INSERT INTO quotation_items (quotation_id, pr_item_id, unit_price) VALUES ${prices.map(() => '(?, ?, ?)').join(', ')}`,
       prices.flatMap(p => [quotationId, p.item, p.unit_price]))
     const first = !inv.submitted_at
-    await conn.execute('UPDATE rfq_invitations SET submitted_at = NOW(), quotation_id = ? WHERE id = ?', [quotationId, inv.id])
+    await conn.execute('UPDATE rfq_invitations SET submitted_at = NOW(), submit_count = submit_count + 1, quotation_id = ? WHERE id = ?', [quotationId, inv.id])
     return { inv, pr, first }
   })
   // Procurement learns that a quotation arrived, not what it says: it stays sealed until the deadline.

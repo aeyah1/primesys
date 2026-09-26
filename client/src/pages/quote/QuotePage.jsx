@@ -57,6 +57,8 @@ export default function QuotePage() {
   }
 
   const filled = data.items.filter(i => cents(prices[i.id]) > 0)
+  // Inputs lock once the RFQ closes or the supplier has used every submission.
+  const editable = data.open && data.changes_left > 0
   const bad = data.items.some(i => prices[i.id] !== '' && prices[i.id] != null && !(cents(prices[i.id]) > 0))
   const total = filled.reduce((s, i) => s + Math.round(Number(i.quantity) * cents(prices[i.id])), 0)
   const submit = () => mutate({
@@ -81,7 +83,8 @@ export default function QuotePage() {
           <p className="flex items-start gap-2 rounded-xl border border-blue-300 bg-blue-50 px-4 py-3 text-sm text-blue-900">
             <Lock className="size-4 shrink-0 mt-0.5" />
             <span>Open until <span className="font-semibold">{fmtDatetime(data.deadline)}</span>. Your prices are sealed: nobody sees them before then,
-              and you may change them until the deadline.{data.submitted_at ? ` Last saved ${fmtDatetime(data.submitted_at)}.` : ''}</span>
+              and you may send them up to {data.max_submissions} times before the deadline ({data.changes_left} left).
+              {data.submitted_at ? ` Last saved ${fmtDatetime(data.submitted_at)}.` : ''}</span>
           </p>
         ) : (
           <p className="flex items-start gap-2 rounded-xl border border-[--color-border] bg-[--color-canvas] px-4 py-3 text-sm text-[--color-text-secondary]">
@@ -111,7 +114,7 @@ export default function QuotePage() {
                       </td>
                       <td className="px-4 py-2.5 text-right tabular-nums whitespace-nowrap">{Number(i.quantity)} {i.unit || ''}</td>
                       <td className="px-4 py-2 text-right">
-                        <Input type="number" min="0.01" step="0.01" inputMode="decimal" className="ml-auto w-32 text-right" disabled={!data.open}
+                        <Input type="number" min="0.01" step="0.01" inputMode="decimal" className="ml-auto w-32 text-right" disabled={!editable}
                           value={prices[i.id] ?? ''} placeholder="Not offered" onChange={e => setPrices(p => ({ ...p, [i.id]: e.target.value }))} />
                       </td>
                       <td className="px-4 py-2.5 text-right tabular-nums whitespace-nowrap">
@@ -139,13 +142,13 @@ export default function QuotePage() {
               {TERMS.map(t => (
                 <div key={t.key} className="space-y-1.5">
                   <Label>{t.label}</Label>
-                  <Input value={terms[t.key]} disabled={!data.open} placeholder={t.placeholder} onChange={e => setTerms(p => ({ ...p, [t.key]: e.target.value }))} />
+                  <Input value={terms[t.key]} disabled={!editable} placeholder={t.placeholder} onChange={e => setTerms(p => ({ ...p, [t.key]: e.target.value }))} />
                 </div>
               ))}
             </div>
             <div className="space-y-1.5">
               <Label>Notes <span className="text-[--color-text-muted] font-normal text-xs">(optional)</span></Label>
-              <textarea rows={3} maxLength={1000} disabled={!data.open} value={terms.notes} onChange={e => setTerms(p => ({ ...p, notes: e.target.value }))}
+              <textarea rows={3} maxLength={1000} disabled={!editable} value={terms.notes} onChange={e => setTerms(p => ({ ...p, notes: e.target.value }))}
                 placeholder="e.g. brand and model offered"
                 className="w-full rounded-md border border-[--color-border] bg-[--color-surface] px-3 py-2 text-sm text-[--color-text-primary] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent resize-y disabled:opacity-60" />
             </div>
@@ -155,9 +158,9 @@ export default function QuotePage() {
         {data.open && (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-xs text-[--color-text-muted]">
-              {bad ? 'Each price must be more than zero.' : `${filled.length} of ${data.items.length} items priced.`}
+              {!editable ? 'Your quotation is saved and can no longer be changed.' : bad ? 'Each price must be more than zero.' : `${filled.length} of ${data.items.length} items priced.`}
             </p>
-            <Button className="gap-2" disabled={isPending || bad || !filled.length} onClick={submit}>
+            <Button className="gap-2" disabled={isPending || bad || !filled.length || !editable} onClick={submit}>
               {data.submitted_at ? <CheckCircle2 className="size-4" /> : <Send className="size-4" />}
               {isPending ? 'Saving…' : data.submitted_at ? 'Update my quotation' : 'Submit my quotation'}
             </Button>
