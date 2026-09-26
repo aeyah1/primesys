@@ -54,7 +54,7 @@ export function requestProgress(pr) {
         next: 'The Supply Office records the delivery when the items arrive.' }
     case 'completed':
       return { step: 5, tone: 'done', title: 'Delivered', who: 'No one, it is finished',
-        next: 'Your request is complete. It stays in the Archive.' }
+        next: 'Your request is complete. It stays under Done in My Requests.' }
     case 'rejected':
       return { step: 1, tone: 'stopped', title: 'Not approved by the TWG', who: 'No one, it is closed',
         next: 'See the TWG comment for the reason. You can file a new request.' }

@@ -20,10 +20,10 @@ const TYPE_ICON = {
 }
 
 // Keyed by notifications.reference_type: the page a notice opens. An award
-// notice carries its lot id, so it opens the awards list rather than nothing.
+// notice carries its lot id, so it opens the reader's home list.
 const TYPE_LINK = {
   pr:       (id) => `/pr/${id}`,
-  lot:      () => '/bidding',
+  lot:      () => '/dashboard',
   delivery: () => '/delivery',
 }
 

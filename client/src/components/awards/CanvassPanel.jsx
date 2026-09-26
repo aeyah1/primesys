@@ -83,7 +83,7 @@ function ItemStatus({ item }) {
 
 /* The canvass of one PR: its items and where each stands, the suppliers'
    quotations, the award actions, and the awards by supplier. Used on the PR
-   page and in Lots & Awards. pr: { id, pr_number, title, status }. */
+   page and in the Work Queue. pr: { id, pr_number, title, status }. */
 export default function CanvassPanel({ pr }) {
   const prId = String(pr.id)
   const { user } = useAuth()

@@ -3,50 +3,66 @@ import {
   LayoutDashboard, FileText, ShoppingCart, Truck,
   Users, Calendar, ChevronRight, Bell, Archive,
   LogOut, Settings as SettingsIcon, Gavel, AlarmClock, BookOpen,
-  ClipboardCheck, BarChart3, Scale,
+  ClipboardCheck, BarChart3, Scale, FilePlus, PackageCheck, Building2,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 
-const ALL = ['admin','procurement','requestor','supply','twg','bac']
+// One menu per role, holding only that role's own work. The home page (/dashboard)
+// is each role's to-do list, so its label names that list.
+const HOME_LABELS = {
+  requestor: 'My Requests', twg: 'Home', procurement: 'Work Queue', bac: 'For Approval', supply: 'To Receive', admin: 'Overview',
+}
+const HOME_ICONS = { requestor: FileText, twg: LayoutDashboard, procurement: Gavel, bac: Scale, supply: Truck, admin: LayoutDashboard }
 
-// Menu groups by purpose; the Procurement group follows the order a PR moves through the office.
-const NAV_GROUPS = [
-  { label: 'Overview', items: [
-    { to: '/dashboard',     label: 'Dashboard',         icon: LayoutDashboard, roles: ALL, end: true },
-    { to: '/notifications', label: 'Notifications',     icon: Bell,            roles: ALL },
-    { to: '/reminders',     label: 'Reminders',         icon: AlarmClock,      roles: ALL },
-  ] },
-  { label: 'Procurement', items: [
-    { to: '/pr',            label: 'Purchase Requests', icon: FileText,        roles: ['admin','procurement','requestor','bac'] },
-    { to: '/twg/reviews',   label: 'TWG Reviews',       icon: ClipboardCheck,  roles: ['twg','admin'] },
-    { to: '/bac',           label: 'BAC Approvals',     icon: Scale,           roles: ['bac','admin','procurement'] },
-    { to: '/bidding',       label: 'Lots & Awards',     icon: Gavel,           roles: ['admin','procurement','supply'] },
-    { to: '/po',            label: 'Purchase Orders',   icon: ShoppingCart,    roles: ['admin','procurement','supply'] },
-    { to: '/delivery',      label: 'Deliveries',        icon: Truck,           roles: ['admin','procurement','supply'] },
-  ] },
-  { label: 'Records', items: [
-    { to: '/reports',       label: 'Reports',           icon: BarChart3,       roles: ['admin','procurement'] },
-    { to: '/archive',       label: 'Archive',           icon: Archive,         roles: ALL },
-  ] },
-  { label: 'Administration', items: [
-    { to: '/users',         label: 'User Management',   icon: Users,           roles: ['admin'] },
-    { to: '/quarters',      label: 'Quarters',          icon: Calendar,        roles: ['admin'] },
-  ] },
-  { label: 'Help', items: [
-    { to: '/guide',         label: 'User Guide',        icon: BookOpen,        roles: ALL },
-  ] },
-]
+const NOTIFICATIONS = { to: '/notifications', label: 'Notifications',   icon: Bell }
+const REMINDERS     = { to: '/reminders',     label: 'Reminders',       icon: AlarmClock }
+const GUIDE         = { to: '/guide',         label: 'User Guide',      icon: BookOpen }
+const ALL_REQUESTS  = { to: '/pr',            label: 'All Requests',    icon: FileText }
+const RECORDS       = { label: 'Records', items: [
+  { to: '/reports', label: 'Reports', icon: BarChart3 },
+  { to: '/archive', label: 'Archive', icon: Archive },
+] }
+
+function menuFor(role) {
+  const home = { to: '/dashboard', label: HOME_LABELS[role] || 'Home', icon: HOME_ICONS[role] || LayoutDashboard, end: true }
+  switch (role) {
+    case 'requestor':
+      return [{ label: 'My Work', items: [home, { to: '/pr/create', label: 'New Request', icon: FilePlus }] },
+              { label: 'Help', items: [NOTIFICATIONS, GUIDE] }]
+    case 'twg':
+      return [{ label: 'My Work', items: [home, { to: '/twg/reviews', label: 'To Review', icon: ClipboardCheck }] },
+              { label: 'Help', items: [NOTIFICATIONS, GUIDE] }]
+    case 'procurement':
+      return [{ label: 'My Work', items: [home, ALL_REQUESTS, { to: '/po', label: 'Purchase Orders', icon: ShoppingCart }] },
+              RECORDS, { label: 'Help', items: [NOTIFICATIONS, REMINDERS, GUIDE] }]
+    case 'bac':
+      return [{ label: 'My Work', items: [home] }, { label: 'Help', items: [NOTIFICATIONS, GUIDE] }]
+    case 'supply':
+      return [{ label: 'My Work', items: [home, { to: '/po', label: 'Purchase Orders', icon: ShoppingCart }, { to: '/delivery', label: 'Received', icon: PackageCheck }] },
+              { label: 'Help', items: [NOTIFICATIONS, GUIDE] }]
+    case 'admin':
+      return [{ label: 'Overview', items: [home, ALL_REQUESTS] }, RECORDS,
+              { label: 'Administration', items: [
+                { to: '/users', label: 'User Management', icon: Users },
+                { to: '/settings?tab=organization', label: 'Organization', icon: Building2 },
+                { to: '/quarters', label: 'Quarters', icon: Calendar },
+              ] },
+              { label: 'Help', items: [NOTIFICATIONS, REMINDERS, GUIDE] }]
+    default:
+      return [{ label: 'Help', items: [home, NOTIFICATIONS, GUIDE] }]
+  }
+}
+
+export { HOME_LABELS }
 
 const ROLE_LABELS = { admin: 'Administrator', procurement: 'Procurement', requestor: 'Requestor', supply: 'Supply Officer', twg: 'Technical Working Group', bac: 'Bids and Awards Committee' }
 
 export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
-  const groups = NAV_GROUPS
-    .map(g => ({ ...g, items: g.items.filter(n => n.roles.includes(user?.role)) }))
-    .filter(g => g.items.length)
+  const groups = menuFor(user?.role)
   const initials = user?.name?.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'U'
 
   return (
