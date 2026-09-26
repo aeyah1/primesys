@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { Search, Plus, Pencil, Store, Mail, Phone, MapPin, CreditCard, User, Ban } from 'lucide-react'
+import { Search, Plus, Pencil, Store, Mail, Phone, MapPin, CreditCard, User, Ban, BadgeCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
+import { fmtDate } from '@/lib/utils'
 import api from '@/lib/axios'
 
 const TABS = [
@@ -18,10 +19,13 @@ const TABS = [
 const EMPTY = { name: '', tin: '', address: '', contact_person: '', email: '', phone: '', status: 'active', status_note: '' }
 const FIELDS = [
   { key: 'contact_person', label: 'Contact person',   placeholder: 'e.g. Ana Reyes' },
-  { key: 'email',          label: 'Email address',    placeholder: 'sales@supplier.com', hint: 'RFQs are emailed here.' },
+  { key: 'email',          label: 'Email address',    placeholder: 'sales@supplier.com', hint: 'RFQs and awards are emailed here. Copy it from the business permit or letterhead, not a text message.' },
   { key: 'phone',          label: 'Phone number',     placeholder: '0917 123 4567' },
   { key: 'tin',            label: 'TIN',              placeholder: '123-456-789-000' },
 ]
+
+// Whether the supplier's email on file is the one it proved by quoting through an emailed RFQ.
+const isConfirmed = (s) => !!s.email && !!s.email_confirmed && s.email.toLowerCase() === s.email_confirmed.toLowerCase()
 
 /* ── Add or edit one supplier. onSaved(id): the saved supplier's id, e.g.
    to pick a supplier just added from the canvass. ──────────────────── */
@@ -54,6 +58,9 @@ export function SupplierDialog({ supplier, onClose, onSaved }) {
                 <Label>{f.label}</Label>
                 <Input value={form[f.key]} onChange={e => setF(f.key, e.target.value)} placeholder={f.placeholder} />
                 {f.hint && <p className="text-[11px] text-[--color-text-muted]">{f.hint}</p>}
+                {f.key === 'email' && supplier && isConfirmed(supplier) && form.email.trim().toLowerCase() !== supplier.email.toLowerCase() && (
+                  <p className="text-[11px] text-amber-700">The current address is confirmed. A new one is confirmed only once the supplier quotes through an RFQ sent there.</p>
+                )}
               </div>
             ))}
           </div>
@@ -146,7 +153,14 @@ export default function SupplierList() {
                     </p>
                     <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[--color-text-secondary]">
                       {s.contact_person && <span className="flex items-center gap-1"><User className="size-3" /> {s.contact_person}</span>}
-                      {s.email ? <span className="flex items-center gap-1"><Mail className="size-3" /> {s.email}</span>
+                      {s.email ? (
+                        <span className="flex items-center gap-1">
+                          <Mail className="size-3" /> {s.email}
+                          {isConfirmed(s)
+                            ? <span className="inline-flex items-center gap-0.5 text-emerald-700" title="The supplier quoted through an RFQ sent to this address"><BadgeCheck className="size-3" /> Confirmed {fmtDate(s.email_confirmed_at)}</span>
+                            : <span className="text-[--color-text-muted]" title="Confirmed once the supplier quotes through an RFQ sent to this address">(not confirmed yet)</span>}
+                        </span>
+                      )
                         : <span className="flex items-center gap-1 text-amber-700"><Mail className="size-3" /> No email: can't be sent RFQs</span>}
                       {s.phone && <span className="flex items-center gap-1"><Phone className="size-3" /> {s.phone}</span>}
                       {s.tin && <span className="flex items-center gap-1"><CreditCard className="size-3" /> TIN {s.tin}</span>}

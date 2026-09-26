@@ -5,6 +5,7 @@ const withTransaction = require('../db/transaction')
 const { loadPR, syncPRProgress } = require('../utils/prWorkflow')
 const notify          = require('../utils/notify')
 const { loadOrgSettings } = require('../utils/orgSettings')
+const { sendAwardNotices } = require('../utils/awardNotice')
 const { BAC_DECIDERS, awardDenied, modeMissing, withBacBlock, bacAwards, adoptResolution, releaseIfDone } = require('../utils/bacWorkflow')
 const { rfqOpen, sealedBlock } = require('../utils/rfqWorkflow')
 const { resolveSupplier, supplierDetails } = require('../utils/suppliers')
@@ -280,6 +281,8 @@ exports.awardFromQuotes = asyncHandler(async (req, res) => {
       `PR ${created.pr.pr_number}: the BAC awarded it in Resolution No. ${created.resolution.resolution_number}. The purchase orders can be issued.`,
       'info', created.pr.id, 'pr')
   }
+  // The winners with a confirmed email get their Notice of Award; the rest are delivered by hand.
+  if (created.resolution) await sendAwardNotices(created.pr.id, created.resolution.id).catch(err => console.error('[award] notices:', err.message))
   res.status(201).json({ lots: created.lots, resolution: created.resolution })
 })
 

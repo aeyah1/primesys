@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
-import { Lock, CheckCircle2, AlertTriangle, Send } from 'lucide-react'
+import { Lock, CheckCircle2, AlertTriangle, Send, Award } from 'lucide-react'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -17,6 +17,56 @@ const TERMS = [
   { key: 'warranty',        label: 'Warranty',        placeholder: 'e.g. 1 year on parts and service' },
   { key: 'price_validity',  label: 'Price validity',  placeholder: 'e.g. 30 days' },
 ]
+
+// What a closed RFQ says to this supplier; it never names another supplier.
+const CLOSED_TEXT = {
+  evaluation:   'The quotations are being evaluated. This page will show the result for your company.',
+  not_selected: 'The award has been made, and your quotation was not selected this time. Thank you for quoting.',
+  cancelled:    'This purchase request was cancelled, so no award will be made. Thank you for quoting.',
+  awarded:      'Congratulations: your quotation was awarded.',
+}
+
+// This supplier's own award: its items, prices, and what to do next.
+function AwardCard({ result }) {
+  return (
+    <Card className="border-emerald-300">
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center gap-2 text-emerald-800"><Award className="size-4" /> Awarded to your company</CardTitle>
+      </CardHeader>
+      <CardContent className="p-0">
+        <div className="overflow-x-auto overflow-y-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-[--color-canvas] text-left text-xs font-bold uppercase tracking-wider text-[--color-text-secondary]">
+                <th className="px-4 py-2.5">Item</th>
+                <th className="px-4 py-2.5 text-right whitespace-nowrap">Quantity</th>
+                <th className="px-4 py-2.5 text-right whitespace-nowrap">Unit price</th>
+              </tr>
+            </thead>
+            <tbody>
+              {result.items.map((i, k) => (
+                <tr key={k} className="border-t border-[--color-border]">
+                  <td className="px-4 py-2.5 text-[--color-text-primary]">{i.item_name}</td>
+                  <td className="px-4 py-2.5 text-right tabular-nums whitespace-nowrap">{Number(i.quantity)} {i.unit || ''}</td>
+                  <td className="px-4 py-2.5 text-right tabular-nums whitespace-nowrap">{i.unit_price != null ? fmtCurrency(i.unit_price) : '—'}</td>
+                </tr>
+              ))}
+              <tr className="border-t border-[--color-border] bg-[--color-canvas]">
+                <td colSpan={2} className="px-4 py-2.5 text-right text-xs font-bold uppercase tracking-wider text-[--color-text-secondary]">Contract price</td>
+                <td className="px-4 py-2.5 text-right font-bold tabular-nums">{fmtCurrency(result.total)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p className="px-4 py-3 text-xs text-[--color-text-secondary] border-t border-[--color-border]">
+          {result.notice_emailed
+            ? 'The Notice of Award was emailed to you. Please sign its conforme and return a copy to the procurement office; the purchase order will follow.'
+            : 'The procurement office will deliver the Notice of Award to you. Please sign its conforme and return a copy; the purchase order will follow.'}
+        </p>
+      </CardContent>
+    </Card>
+  )
+}
 
 // The page a supplier opens from an emailed RFQ, without an account: enter a
 // price for each item you can supply, and change it until the deadline.
@@ -89,12 +139,17 @@ export default function QuotePage() {
         ) : (
           <p className="flex items-start gap-2 rounded-xl border border-[--color-border] bg-[--color-canvas] px-4 py-3 text-sm text-[--color-text-secondary]">
             <Lock className="size-4 shrink-0 mt-0.5" />
-            <span>This Request for Quotation is closed{data.submitted_at ? `. Your quotation was received ${fmtDatetime(data.submitted_at)}` : ''}. Thank you.</span>
+            <span>
+              This Request for Quotation is closed{data.submitted_at ? `. Your quotation was received ${fmtDatetime(data.submitted_at)}` : ''}.
+              {' '}{CLOSED_TEXT[data.result?.state] || 'Thank you.'}
+            </span>
           </p>
         )}
 
+        {data.result?.state === 'awarded' && <AwardCard result={data.result} />}
+
         <Card>
-          <CardHeader className="pb-2"><CardTitle>Your price per item</CardTitle></CardHeader>
+          <CardHeader className="pb-2"><CardTitle>{data.open ? 'Your price per item' : 'Your quotation'}</CardTitle></CardHeader>
           <CardContent className="p-0">
             <div className="overflow-x-auto overflow-y-hidden">
               <table className="w-full text-sm">
@@ -129,9 +184,11 @@ export default function QuotePage() {
                 </tbody>
               </table>
             </div>
-            <p className="px-4 py-3 text-xs text-[--color-text-muted] border-t border-[--color-border]">
-              Leave an item blank if you don't offer it. Prices should include all taxes and delivery to the campus.
-            </p>
+            {data.open && (
+              <p className="px-4 py-3 text-xs text-[--color-text-muted] border-t border-[--color-border]">
+                Leave an item blank if you don't offer it. Prices should include all taxes and delivery to the campus.
+              </p>
+            )}
           </CardContent>
         </Card>
 
