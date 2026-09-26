@@ -93,7 +93,7 @@ export default function QuotePage() {
         <Card>
           <CardHeader className="pb-2"><CardTitle>Your price per item</CardTitle></CardHeader>
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto overflow-y-hidden">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-[--color-canvas] text-left text-xs font-bold uppercase tracking-wider text-[--color-text-secondary]">
@@ -174,10 +174,11 @@ export default function QuotePage() {
   )
 }
 
-// The page frame: the campus seal and name, no app menu.
+// The page frame: the campus seal and name, no app menu. It scrolls itself,
+// because the app locks the window's scroll (index.css), as the landing page does.
 function Shell({ entity, children }) {
   return (
-    <div className="min-h-screen" style={{ background: 'var(--color-canvas)' }}>
+    <div className="h-screen overflow-y-auto" style={{ background: 'var(--color-canvas)' }}>
       <header className="border-b border-[--color-border] bg-white">
         <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-3">
           <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-9 object-contain" />
