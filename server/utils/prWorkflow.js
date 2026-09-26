@@ -12,7 +12,7 @@ const { cancelAwards, awardProgress, statusFromAwards } = require('./awardWorkfl
 //
 // Rules take a "PR facts" object:
 //   { status, created_by, deleted_at, hasPO (an active PO), hasAnyPO (any PO,
-//     including cancelled ones), hasLot, hasAward (an awarded or recommended lot), itemCount (when known) }
+//     including cancelled ones), hasLot, hasAward (an awarded lot), itemCount (when known) }
 
 const STATUS_LABELS = {
   draft: 'Draft', submitted: 'Submitted', twg_review: 'Approved by TWG',
@@ -126,14 +126,14 @@ function deleteBlock(user, pr) {
 }
 
 // The mode of procurement: Procurement's or the BAC's call, fixed once a
-// supplier is awarded or recommended, because it prints on the Abstract, the
+// supplier is awarded, because it prints on the Abstract, the
 // BAC Resolution and the PO. A mode never set can still be filled in, since
 // awards made before it was required would otherwise block the rest for good.
 function modeBlock(user, pr) {
   if (pr.deleted_at) return DELETED
   if (![...STAFF, 'bac'].includes(user.role)) return deny(403, 'Only Procurement or the BAC can set the mode of procurement')
   if (FINAL.includes(pr.status)) return deny(409, 'This PR is closed, so its mode of procurement is kept as it is')
-  if (pr.hasAward && pr.mode_of_procurement) return deny(409, 'A supplier is already awarded or recommended on this PR, so its mode of procurement is fixed')
+  if (pr.hasAward && pr.mode_of_procurement) return deny(409, 'A supplier is already awarded on this PR, so its mode of procurement is fixed')
   return null
 }
 
@@ -165,11 +165,11 @@ function prPermissions(user, pr) {
 // concurrent workflow writes to the same PR run one after another.
 async function loadPR(db, prId, { lock = false } = {}) {
   const [rows] = await db.execute(
-    `SELECT pr.id, pr.status, pr.created_by, pr.pr_number, pr.title, pr.category, pr.mode_of_procurement, pr.deleted_at,
+    `SELECT pr.id, pr.status, pr.created_by, pr.pr_number, pr.title, pr.category, pr.mode_of_procurement, pr.bac_submitted_at, pr.bac_submitted_by, pr.deleted_at,
             EXISTS (SELECT 1 FROM purchase_orders po WHERE po.purchase_request_id = pr.id AND po.po_status = 'active') AS has_po,
             EXISTS (SELECT 1 FROM purchase_orders po WHERE po.purchase_request_id = pr.id)                            AS has_any_po,
             EXISTS (SELECT 1 FROM lots l WHERE l.purchase_request_id = pr.id)                                        AS has_lot,
-            EXISTS (SELECT 1 FROM lots l WHERE l.purchase_request_id = pr.id AND l.status IN ('recommended', 'awarded')) AS has_award,
+            EXISTS (SELECT 1 FROM lots l WHERE l.purchase_request_id = pr.id AND l.status = 'awarded')               AS has_award,
             (SELECT COUNT(*) FROM pr_items i WHERE i.pr_id = pr.id)                                                  AS item_count
        FROM purchase_requests pr
       WHERE pr.id = ?${lock ? ' FOR UPDATE' : ''}`,

@@ -32,7 +32,8 @@ router.get('/pr/:prId/pdf',      prAccess, c.generateAbstract)
 router.get('/pr/:prId',          prAccess, c.listByPR)
 router.get('/:id/items', lotAccess, c.getItems)
 
-router.post('/', authorize('procurement', 'admin'),
+// The BAC's while it evaluates the PR, else Procurement's (checked in the controller).
+router.post('/', authorize('procurement', 'admin', 'bac'),
   idRule('purchase_request_id', 'Pick the purchase request', { required: true }),
   textRule('awarded_to', 'Supplier / contractor name', 200, { required: true }),
   moneyRule('awarded_amount', 'Contract amount', { required: true, positive: true }),

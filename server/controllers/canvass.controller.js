@@ -3,8 +3,9 @@ const asyncHandler    = require('../utils/asyncHandler')
 const httpError       = require('../utils/httpError')
 const withTransaction = require('../db/transaction')
 const { loadPR, syncPRProgress } = require('../utils/prWorkflow')
-const { loadOrgSettings, bacApprovalRequired } = require('../utils/orgSettings')
-const { notifyBac } = require('../utils/bacWorkflow')
+const notify          = require('../utils/notify')
+const { loadOrgSettings } = require('../utils/orgSettings')
+const { BAC_DECIDERS, awardDenied, modeMissing, withBacBlock, bacAwards, adoptResolution, releaseIfDone } = require('../utils/bacWorkflow')
 const DEFAULT_MINIMUM_QUOTATIONS = 3
 const {
   SUPPLIER_COLUMNS, short, cents, lineCents,
@@ -17,15 +18,17 @@ const {
 // award per supplier), and items dropped from the procurement. Recorded while
 // the PR is under canvass (Bidding). A quotation is kept as it is once an item
 // it prices is awarded: it is then part of the record (Abstract of Quotations).
+// While the BAC awards (utils/bacWorkflow.js), Procurement records the
+// quotations and submits the PR; the BAC marks any that fail the specs and
+// awards, in a BAC Resolution.
 
 const STAFF = ['procurement', 'admin']
-// The BAC Resolution names the mode, so a recommendation needs one first.
-const MODE_FIRST = 'Set the mode of procurement before recommending an award to the BAC'
 
+// The Secretariat's changes to the canvass: while under canvass, and not while the BAC has it.
 function canvassBlock(pr) {
   if (!pr || pr.deleted_at)   return { status: 404, message: 'PR not found' }
   if (pr.status !== 'bidding') return { status: 409, message: 'Quotations are recorded while the PR is under canvass (Bidding)' }
-  return null
+  return withBacBlock(pr)
 }
 const refuse = (blocked) => { if (blocked) throw httpError(blocked.status, blocked.message) }
 
@@ -43,9 +46,12 @@ async function quotationsOf(db, prId) {
 // with their prices (and whether each is locked), and what this user may do.
 exports.summary = asyncHandler(async (req, res) => {
   const pr = await loadPR(pool, req.params.prId)
-  const [{ items, wholeAward }, { quotes, prices }] = await Promise.all([itemStates(pool, pr.id), quotationsOf(pool, pr.id)])
-  const awarded = new Set(items.filter(i => ['awarded', 'recommended'].includes(i.state)).map(i => i.id))
+  const [{ items, wholeAward }, { quotes, prices }, bacOn] = await Promise.all([itemStates(pool, pr.id), quotationsOf(pool, pr.id), bacAwards(pool)])
+  const awarded = new Set(items.filter(i => i.state === 'awarded').map(i => i.id))
   const staff = STAFF.includes(req.user.role) && !pr.deleted_at
+  const bidding = !pr.deleted_at && pr.status === 'bidding'
+  const withBac = bidding && !!pr.bac_submitted_at
+  const bacMember = BAC_DECIDERS.includes(req.user.role)
   res.json({
     status: pr.status,
     whole_award: wholeAward,
@@ -62,9 +68,12 @@ exports.summary = asyncHandler(async (req, res) => {
         locked: mine.some(p => awarded.has(p.pr_item_id)),
       }
     }),
+    bac: { required: bacOn, with_bac: withBac },
     permissions: {
-      canvass: staff && pr.status === 'bidding',                       // quotations, awards, dropping items
-      restore: staff && ['bidding', 'for_po'].includes(pr.status),     // bringing a dropped item back
+      canvass:    staff && bidding && !withBac,                          // quotations, dropping items
+      award:      bidding && !awardDenied(req.user, pr, bacOn),         // awarding (the BAC's while it evaluates)
+      disqualify: bacOn && bacMember && withBac,                        // marking a quotation as failing the specs
+      restore:    staff && !withBac && ['bidding', 'for_po'].includes(pr.status),   // bringing a dropped item back
     },
   })
 })
@@ -100,7 +109,7 @@ async function openQuotation(conn, prId, quotationId) {
   if (!q) throw httpError(404, 'Quotation not found')
   const { items } = await itemStates(conn, prId)
   const [mine] = await conn.execute('SELECT pr_item_id FROM quotation_items WHERE quotation_id = ?', [q.id])
-  const awarded = mine.map(m => items.find(i => i.id === m.pr_item_id)).find(i => ['awarded', 'recommended'].includes(i?.state))
+  const awarded = mine.map(m => items.find(i => i.id === m.pr_item_id)).find(i => i?.state === 'awarded')
   if (awarded) throw httpError(409, `"${short(awarded.item_name)}" is ${awarded.state}, so this quotation is kept as it is`)
   return { q, items }
 }
@@ -154,24 +163,29 @@ exports.deleteQuotation = asyncHandler(async (req, res) => {
 // Each picked item goes to the supplier of its quotation at the quoted unit
 // price: one award per supplier, each within the approved budget of its items.
 // Picking a price above the lowest quotation for an item needs a reason, which
-// is kept on that award. While the BAC must approve awards they are recorded
-// as recommendations.
+// is kept on that award. While the BAC awards, only the BAC may, while it
+// evaluates the PR, and the award adopts a BAC Resolution. Offers the BAC found
+// failing the specifications neither compete nor count as the lowest.
 exports.awardFromQuotes = asyncHandler(async (req, res) => {
   const { picks, reason, few_quotations_reason } = req.body   // checked in the route
   const created = await withTransaction(async (conn) => {
     const pr = await loadPR(conn, req.params.prId, { lock: true })
     refuse(awardBlock(pr))
     const { items } = await itemStates(conn, pr.id)
-    const { quotes, prices } = await quotationsOf(conn, pr.id)
+    const all = await quotationsOf(conn, pr.id)
 
     // Canvassing exists to compare suppliers, so awarding on fewer quotations
     // than the campus expects needs saying why. The count is a setting; the
     // reason is kept on every award made in this round, because that is the
     // record an auditor asks for.
     const org = await loadOrgSettings(conn)
+    const bacOn = await bacAwards(conn)
+    refuse(awardDenied(req.user, pr, bacOn))
+    // Only offers that meet the specifications compete.
+    const qualified = all.quotes.filter(q => !q.disqualified_reason)
+    const quotes = qualified
+    const prices = all.prices.filter(p => qualified.some(q => q.id === p.quotation_id))
     const wanted = Math.max(parseInt(org.minimum_quotations, 10) || DEFAULT_MINIMUM_QUOTATIONS, 1)
-    const status = bacApprovalRequired(org) ? 'recommended' : 'awarded'
-    if (status === 'recommended' && !pr.mode_of_procurement) throw httpError(409, MODE_FIRST)
     const tooFew = quotes.length < wanted
     const fewReason = few_quotations_reason?.trim() || null
     if (tooFew && !fewReason) {
@@ -191,7 +205,11 @@ exports.awardFromQuotes = asyncHandler(async (req, res) => {
       seen.add(item.id)
       if (item.state !== 'pending') throw httpError(409, `"${short(item.item_name)}" is already ${item.state}`)
       const quote = quotes.find(q => q.id === pick.quotation)
-      if (!quote) throw httpError(400, 'Some of the chosen quotations are not on this PR')
+      if (!quote) {
+        const failed = all.quotes.find(q => q.id === pick.quotation)
+        throw failed ? httpError(409, `${failed.supplier_name}'s quotation failed the specifications, so it can't be awarded`)
+          : httpError(400, 'Some of the chosen quotations are not on this PR')
+      }
       const price = prices.find(p => p.quotation_id === quote.id && p.pr_item_id === item.id)
       if (!price) throw httpError(400, `${quote.supplier_name} did not quote "${short(item.item_name)}"`)
       if (cents(price.unit_price) > lowest(item.id)) notLowest.add(item.id)
@@ -203,6 +221,9 @@ exports.awardFromQuotes = asyncHandler(async (req, res) => {
       throw httpError(400, `Give a reason for not choosing the lowest quotation for "${short(first.item_name)}"`)
     }
 
+    refuse(modeMissing(pr, bacOn))
+    // The BAC's award is its resolution; adopted first so each award names it.
+    const resolution = bacOn ? await adoptResolution(conn, pr.id, req.user.id) : null
     const lots = []
     for (const [quoteId, rows] of groups) {
       const quote = quotes.find(q => q.id === quoteId)
@@ -211,22 +232,27 @@ exports.awardFromQuotes = asyncHandler(async (req, res) => {
       const over = budgetBlock(amount, estimate, `The award to ${quote.supplier_name}`)
       if (over) throw httpError(over.status, over.message)
       const lot = await recordAward(conn, {
-        status, prId: pr.id, supplier: quote.supplier_name.trim(), amount: (amount / 100).toFixed(2),
+        resolutionId: resolution?.id ?? null, prId: pr.id, supplier: quote.supplier_name.trim(), amount: (amount / 100).toFixed(2),
         details: quote, quotationId: quote.id, userId: req.user.id,
         notes: rows.some(r => notLowest.has(r.item.id)) ? `Not the lowest quotation: ${reason.trim()}` : null,
         fewQuotationsReason: tooFew ? fewReason : null,
         items: rows.map(r => r.item), prices: rows.map(r => r.price),
       })
-      lots.push({ ...lot, status, awarded_to: quote.supplier_name.trim(), awarded_amount: (amount / 100).toFixed(2), items: rows.length })
+      lots.push({ ...lot, awarded_to: quote.supplier_name.trim(), awarded_amount: (amount / 100).toFixed(2), items: rows.length })
     }
-    const verb = status === 'recommended' ? 'recommended for award to' : 'awarded to'
-    await syncPRProgress(conn, pr.id, { user: req.user, note: lots.map(l => `${l.lot_number} ${verb} ${l.awarded_to}`).join('; ') })
-    return { pr, lots, status }
+    const by = resolution ? ` (BAC Resolution No. ${resolution.resolution_number})` : ''
+    await syncPRProgress(conn, pr.id, { user: req.user, note: lots.map(l => `${l.lot_number} awarded to ${l.awarded_to}`).join('; ') + by })
+    if (bacOn) await releaseIfDone(conn, pr.id, (await itemStates(conn, pr.id)).items.filter(i => i.state === 'pending').length)
+    return { pr, lots, resolution }
   })
 
-  if (created.status === 'recommended') await notifyBac(req.io, created.pr.id, created.pr.pr_number, created.lots)
-  else await announceAwards(req.io, created.pr.pr_number, created.lots)
-  res.status(201).json({ lots: created.lots, status: created.status })
+  await announceAwards(req.io, created.pr.pr_number, created.lots)
+  if (created.resolution && created.pr.bac_submitted_by) {
+    await notify(req.io, created.pr.bac_submitted_by,
+      `PR ${created.pr.pr_number}: the BAC awarded it in Resolution No. ${created.resolution.resolution_number}. The purchase orders can be issued.`,
+      'info', created.pr.id, 'pr')
+  }
+  res.status(201).json({ lots: created.lots, resolution: created.resolution })
 })
 
 // POST /canvass/:prId/items/:itemId/drop - { reason }: an item that can't be
@@ -238,6 +264,7 @@ exports.dropItem = asyncHandler(async (req, res) => {
   const status = await withTransaction(async (conn) => {
     const pr = await loadPR(conn, req.params.prId, { lock: true })
     if (pr.deleted_at || pr.status !== 'bidding') throw httpError(409, 'Items can be dropped while the PR is under canvass (Bidding)')
+    refuse(withBacBlock(pr))
     const { items } = await itemStates(conn, pr.id)
     const item = items.find(i => i.id === Number(req.params.itemId))
     if (!item) throw httpError(404, 'Item not found')
@@ -258,6 +285,7 @@ exports.restoreItem = asyncHandler(async (req, res) => {
     if (pr.deleted_at || !['bidding', 'for_po'].includes(pr.status)) {
       throw httpError(409, 'Dropped items can be brought back until the PR is completed')
     }
+    refuse(withBacBlock(pr))
     const [[item]] = await conn.execute('SELECT id, item_name, dropped_at FROM pr_items WHERE id = ? AND pr_id = ?', [req.params.itemId, pr.id])
     if (!item) throw httpError(404, 'Item not found')
     if (!item.dropped_at) throw httpError(409, 'This item is not dropped')
@@ -265,4 +293,23 @@ exports.restoreItem = asyncHandler(async (req, res) => {
     return syncPRProgress(conn, pr.id, { user: req.user, note: `"${short(item.item_name)}" brought back to canvass` })
   })
   res.json({ message: 'Item brought back', status })
+})
+
+// PATCH /canvass/:prId/quotations/:qid/qualification - { disqualified, reason }:
+// the BAC marks an offer as failing the specifications (reason required), or
+// clears the mark. A failed offer can't be awarded and doesn't count as the
+// lowest. Only while the BAC evaluates the PR, and not once one of its items is awarded.
+exports.setQualification = asyncHandler(async (req, res) => {
+  const disqualify = req.body.disqualified === true
+  const reason = req.body.reason?.trim() || null
+  if (disqualify && !reason) return res.status(400).json({ message: 'Give the reason the offer fails the specifications' })
+  await withTransaction(async (conn) => {
+    const pr = await loadPR(conn, req.params.prId, { lock: true })
+    if (!pr || pr.deleted_at) throw httpError(404, 'PR not found')
+    if (pr.status !== 'bidding' || !pr.bac_submitted_at) throw httpError(409, 'Offers are evaluated while the PR is with the BAC')
+    const { q } = await openQuotation(conn, pr.id, req.params.qid)
+    await conn.execute('UPDATE quotations SET disqualified_reason = ?, disqualified_by = ? WHERE id = ?',
+      [disqualify ? reason : null, disqualify ? req.user.id : null, q.id])
+  })
+  res.json({ message: disqualify ? 'Marked as failing the specifications' : 'Mark cleared' })
 })

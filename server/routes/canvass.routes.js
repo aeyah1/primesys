@@ -32,7 +32,8 @@ router.get('/:prId', authorize('procurement', 'admin', 'supply', 'bac'), prAcces
 router.post('/:prId/quotations',        staff, prAccess, quotationRules, handle, c.createQuotation)
 router.patch('/:prId/quotations/:qid',  staff, prAccess, quotationRules, handle, c.updateQuotation)
 router.delete('/:prId/quotations/:qid', staff, prAccess, c.deleteQuotation)
-router.post('/:prId/award', staff, prAccess,
+// Awarding is the BAC's while it evaluates the PR, else Procurement's (checked in the controller).
+router.post('/:prId/award', authorize('procurement', 'admin', 'bac'), prAccess,
   body('picks').isArray({ min: 1, max: 500 }).withMessage('Choose the supplier for at least one item'),
   body('picks.*.item').isInt({ min: 1 }).withMessage('Unknown item').toInt(),
   body('picks.*.quotation').isInt({ min: 1 }).withMessage('Unknown quotation').toInt(),
@@ -40,6 +41,12 @@ router.post('/:prId/award', staff, prAccess,
   textRule('few_quotations_reason', 'Reason for awarding on fewer quotations', 500),
   handle,
   c.awardFromQuotes)
+// The BAC marks an offer as failing the specifications, or clears the mark.
+router.patch('/:prId/quotations/:qid/qualification', authorize('bac'), prAccess,
+  body('disqualified').isBoolean().withMessage('Say whether the offer fails the specifications'),
+  textRule('reason', 'Reason', 500),
+  handle,
+  c.setQualification)
 router.post('/:prId/items/:itemId/drop', staff, prAccess, textRule('reason', 'Reason', 500), handle, c.dropItem)
 router.post('/:prId/items/:itemId/restore', staff, prAccess, c.restoreItem)
 
