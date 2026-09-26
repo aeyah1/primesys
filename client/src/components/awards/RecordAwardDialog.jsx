@@ -7,20 +7,15 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
-import { fmtCurrency, fmtDate } from '@/lib/utils'
+import { fmtCurrency } from '@/lib/utils'
 import api from '@/lib/axios'
-import {
-  DETAIL_FIELDS, SupplierFields, SectionTitle, Optional, cents, lineCents,
-  useSupplierSuggestions, withSuggestion, useRefreshAwards,
-} from './supplier'
+import { SectionTitle, Optional, cents, lineCents, useRefreshAwards } from './supplier'
+import SupplierPicker from './SupplierPicker'
 
-const EMPTY_FORM = {
-  awarded_to: '', supplier_tin: '', supplier_contact: '', supplier_phone: '', supplier_email: '', supplier_address: '',
-  awarded_amount: '', title: '',
-}
+const EMPTY_FORM = { supplier_id: '', awarded_amount: '', title: '' }
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 
-/* Records an award by hand (no quotation): a supplier, which of the items
+/* Records an award by hand (no quotation): a supplier from the list, which of the items
    still needing an award it covers (all ticked at first), and a lump-sum
    contract amount, which can't exceed those items' approved budget.
    pr: { id, pr_number, title }. */
@@ -29,7 +24,6 @@ export default function RecordAwardDialog({ pr, open, onClose }) {
   const refresh = useRefreshAwards(prId)
   const [form, setForm]             = useState(EMPTY_FORM)
   const [picked, setPicked]         = useState(null)   // chosen PR item ids; null until the items load
-  const [filledFrom, setFilledFrom] = useState(null)
   const setF = (k, v) => setForm(p => ({ ...p, [k]: v }))
 
   const { data: canvass } = useQuery({
@@ -37,22 +31,16 @@ export default function RecordAwardDialog({ pr, open, onClose }) {
     queryFn:  () => api.get(`/canvass/${prId}`).then(r => r.data),
     enabled:  open && !!prId,
   })
-  const suppliers = useSupplierSuggestions(open)
   const pending = (canvass?.items || []).filter(i => i.state === 'pending')
 
   // Every opening starts fresh, with each item still needing an award ticked.
   useEffect(() => {
-    if (!open) { setForm(EMPTY_FORM); setPicked(null); setFilledFrom(null) }
+    if (!open) { setForm(EMPTY_FORM); setPicked(null) }
   }, [open])
   useEffect(() => {
     if (open && canvass && picked === null) setPicked(new Set(canvass.items.filter(i => i.state === 'pending').map(i => i.id)))
   }, [open, canvass, picked])
 
-  const onName = (value) => {
-    const [next, match] = withSuggestion(form, 'awarded_to', value, suppliers)
-    setForm(next)
-    setFilledFrom(match)
-  }
   const toggle = (id) => setPicked(p => {
     const next = new Set(p)
     if (next.has(id)) next.delete(id); else next.add(id)
@@ -79,15 +67,14 @@ export default function RecordAwardDialog({ pr, open, onClose }) {
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to record the award'),
   })
-  const canSave = !!canvass && !!picked && picked.size > 0 && !!form.awarded_to.trim() && amount > 0 && !over && !isPending
+  const canSave = !!canvass && !!picked && picked.size > 0 && !!form.supplier_id && amount > 0 && !over && !isPending
   const submit = () => {
     if (!canSave) return
     mutate({
       purchase_request_id: pr.id,
       title:          form.title.trim() || undefined,
-      awarded_to:     form.awarded_to.trim(),
+      supplier_id:    form.supplier_id,
       awarded_amount: form.awarded_amount.trim(),
-      ...Object.fromEntries(DETAIL_FIELDS.map(k => [k, form[k].trim() || undefined])),
       pr_item_ids:    [...picked],
     })
   }
@@ -102,13 +89,7 @@ export default function RecordAwardDialog({ pr, open, onClose }) {
         ) : (
           <div className="space-y-6">
             <section className="space-y-3">
-              <SectionTitle>Supplier</SectionTitle>
-              <SupplierFields form={form} setF={setF} suggestions={suppliers} onName={onName} />
-              {filledFrom && (
-                <p className="text-xs text-[--color-text-muted]">
-                  Details filled in from {filledFrom.name}'s earlier records (last used {fmtDate(filledFrom.last_used_at)}). Check they are still right.
-                </p>
-              )}
+              <SupplierPicker value={form.supplier_id} onChange={(id) => setF('supplier_id', id)} />
             </section>
 
             <section className="space-y-3">

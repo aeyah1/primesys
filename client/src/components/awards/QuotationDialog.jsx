@@ -6,45 +6,43 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
-import { fmtCurrency, fmtDate, localToday } from '@/lib/utils'
+import { fmtCurrency, localToday } from '@/lib/utils'
 import api from '@/lib/axios'
-import {
-  EMPTY_SUPPLIER, DETAIL_FIELDS, QUOTE_REQUIRED, SupplierFields, SectionTitle, Optional, cents, lineCents, isPhone,
-  useSupplierSuggestions, withSuggestion, useRefreshAwards,
-} from './supplier'
+import { SectionTitle, Optional, cents, lineCents, useRefreshAwards } from './supplier'
+import SupplierPicker from './SupplierPicker'
 
-/* Records (or corrects) one supplier's quotation: their unit price for each
-   item still needing an award that they quoted (leave the rest blank).
+// The terms an RFQ asks the supplier to state.
+const TERMS = [
+  { key: 'delivery_period', label: 'Delivery period', placeholder: 'e.g. 7 days' },
+  { key: 'warranty',        label: 'Warranty',        placeholder: 'e.g. 1 year' },
+  { key: 'price_validity',  label: 'Price validity',  placeholder: 'e.g. 30 days' },
+]
+
+/* Records (or corrects) one supplier's quotation handed in on paper: the
+   supplier from the Suppliers list, and their unit price for each item still
+   needing an award that they quoted (leave the rest blank).
    pr: { id, pr_number }; items: the canvass items; quotation: the one being
    edited, or none for a new one. */
 export default function QuotationDialog({ pr, items, quotation, open, onClose }) {
   const prId = String(pr.id)
   const refresh = useRefreshAwards(prId)
-  const suppliers = useSupplierSuggestions(open)
   const pending = items.filter(i => i.state === 'pending')
   const [form, setForm]     = useState(null)
   const [prices, setPrices] = useState({})
-  const [filledFrom, setFilledFrom] = useState(null)
   const setF = (k, v) => setForm(p => ({ ...p, [k]: v }))
 
   // Every opening starts from the quotation being edited, or blank (only on
   // opening: a background refetch must not wipe what is being typed).
   useEffect(() => {
-    if (!open) { setForm(null); setPrices({}); setFilledFrom(null); return }
+    if (!open) { setForm(null); setPrices({}); return }
     setForm({
-      ...EMPTY_SUPPLIER,
-      ...(quotation ? Object.fromEntries(['supplier_name', ...DETAIL_FIELDS].map(k => [k, quotation[k] || ''])) : {}),
+      supplier_id: quotation?.supplier_id || '',
       quoted_at: quotation?.quoted_at ? String(quotation.quoted_at).slice(0, 10) : localToday(),
       notes: quotation?.notes || '',
+      ...Object.fromEntries(TERMS.map(t => [t.key, quotation?.[t.key] || ''])),
     })
     setPrices(quotation ? Object.fromEntries(Object.entries(quotation.prices).map(([k, v]) => [k, String(Number(v))])) : {})
   }, [open])
-
-  const onName = (value) => {
-    const [next, match] = withSuggestion(form, 'supplier_name', value, suppliers)
-    setForm(next)
-    setFilledFrom(match)
-  }
 
   const entered = pending.filter(i => cents(prices[i.id]) > 0)
   const total = entered.reduce((s, i) => s + lineCents(i.quantity, prices[i.id]), 0)
@@ -54,19 +52,18 @@ export default function QuotationDialog({ pr, items, quotation, open, onClose })
       ? api.patch(`/canvass/${prId}/quotations/${quotation.id}`, body)
       : api.post(`/canvass/${prId}/quotations`, body)),
     onSuccess: () => {
-      toast.success(quotation ? 'Quotation updated' : `${form.supplier_name.trim()}'s quotation recorded`)
+      toast.success(quotation ? 'Quotation updated' : 'Quotation recorded')
       refresh()
       onClose()
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to save the quotation'),
   })
-  const canSave = !!form && !!form.supplier_name.trim() && QUOTE_REQUIRED.every(k => form[k].trim())
-    && isPhone(form.supplier_phone) && entered.length > 0 && !isPending
+  const canSave = !!form && !!form.supplier_id && entered.length > 0 && !isPending
   const submit = () => {
     if (!canSave) return
     mutate({
-      supplier_name: form.supplier_name.trim(),
-      ...Object.fromEntries(DETAIL_FIELDS.map(k => [k, form[k].trim() || undefined])),
+      supplier_id: form.supplier_id,
+      ...Object.fromEntries(TERMS.map(t => [t.key, form[t.key].trim() || undefined])),
       quoted_at: form.quoted_at || undefined,
       notes:     form.notes.trim() || undefined,
       prices:    entered.map(i => ({ item: i.id, unit_price: String(prices[i.id]).trim() })),
@@ -79,13 +76,16 @@ export default function QuotationDialog({ pr, items, quotation, open, onClose })
         {form && (
           <div className="space-y-6">
             <section className="space-y-3">
-              <SectionTitle>Supplier</SectionTitle>
-              <SupplierFields form={form} setF={setF} nameField="supplier_name" suggestions={suppliers} onName={onName} required={QUOTE_REQUIRED} />
-              {filledFrom && (
-                <p className="text-xs text-[--color-text-muted]">
-                  Details filled in from {filledFrom.name}'s earlier records (last used {fmtDate(filledFrom.last_used_at)}). Check they are still right.
-                </p>
-              )}
+              <SupplierPicker value={form.supplier_id} onChange={(id) => setF('supplier_id', id)}
+                hint={quotation && !quotation.supplier_id ? `This quotation was typed in as "${quotation.supplier_name}". Choose them from the list.` : undefined} />
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {TERMS.map(t => (
+                  <div key={t.key} className="space-y-1.5">
+                    <Label>{t.label} <Optional /></Label>
+                    <Input placeholder={t.placeholder} value={form[t.key]} onChange={e => setF(t.key, e.target.value)} />
+                  </div>
+                ))}
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label>Date on the quotation <Optional /></Label>
@@ -93,7 +93,7 @@ export default function QuotationDialog({ pr, items, quotation, open, onClose })
                 </div>
                 <div className="space-y-1.5">
                   <Label>Notes <Optional /></Label>
-                  <Input placeholder="e.g. Valid for 30 days, delivery in 7 days" value={form.notes} onChange={e => setF('notes', e.target.value)} />
+                  <Input placeholder="e.g. brand and model offered" value={form.notes} onChange={e => setF('notes', e.target.value)} />
                 </div>
               </div>
             </section>

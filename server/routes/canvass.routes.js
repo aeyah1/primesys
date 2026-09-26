@@ -4,7 +4,7 @@ const c         = require('../controllers/canvass.controller')
 const auth      = require('../middleware/auth.middleware')
 const authorize = require('../middleware/authorize.middleware')
 const { requireAccess } = require('../middleware/scope.middleware')
-const { handle, textRule, phoneRule, moneyRule, dateRule } = require('../middleware/validate')
+const { handle, textRule, phoneRule, moneyRule, dateRule, idRule } = require('../middleware/validate')
 
 // A PR's canvass: suppliers' quotations, the award from them, dropped items.
 // Scoped (C2): 404 unless this user may see the PR.
@@ -12,17 +12,24 @@ router.use(auth)
 const prAccess = requireAccess('pr', 'prId')
 const staff    = authorize('procurement', 'admin')
 
-// Fields sized to the quotations columns; a quotation needs the supplier's contact details, TIN stays optional.
+// A quotation names a supplier from the list (supplier_id), or types one in by
+// name with its contact details, which puts it on the list (utils/suppliers.js).
 const quotationRules = [
-  textRule('supplier_name', 'Supplier name', 200, { required: true }),
-  textRule('supplier_contact', 'Contact person', 100, { required: true }),
-  textRule('supplier_address', 'Business address', 500, { required: true }),
-  phoneRule('supplier_phone', 'Phone number', { required: true }),
-  textRule('supplier_email', 'Email address', 150, { required: true }),
+  idRule('supplier_id', 'Unknown supplier'),
+  textRule('supplier_name', 'Supplier name', 200),
+  textRule('supplier_contact', 'Contact person', 100),
+  textRule('supplier_address', 'Business address', 500),
+  // Blank counts as missing, so a typed-in supplier is told the phone is required.
+  body('supplier_phone').customSanitizer(v => (typeof v === 'string' && !v.trim() ? '' : v)),
+  phoneRule('supplier_phone', 'Phone number'),
+  textRule('supplier_email', 'Email address', 150),
   body('supplier_email').if(v => !!v).isEmail().withMessage('Email address is not valid'),
   textRule('supplier_tin', 'TIN', 50),
   dateRule('quoted_at', 'Quotation date'),
   textRule('notes', 'Notes', 2000),
+  textRule('delivery_period', 'Delivery period', 100),
+  textRule('warranty', 'Warranty', 100),
+  textRule('price_validity', 'Price validity', 100),
   body('prices').isArray({ min: 1, max: 500 }).withMessage('Enter at least one quoted price'),
   body('prices.*.item').isInt({ min: 1 }).withMessage('Unknown item').toInt(),
   moneyRule('prices.*.unit_price', 'Each quoted price', { required: true, positive: true }),

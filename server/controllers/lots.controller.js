@@ -15,6 +15,7 @@ const { loadOrgSettings } = require('../utils/orgSettings')
 const notify = require('../utils/notify')
 const { awardDenied, modeMissing, bacAwards, adoptResolution, releaseIfDone } = require('../utils/bacWorkflow')
 const { sealedBlock } = require('../utils/rfqWorkflow')
+const { resolveSupplier, supplierDetails } = require('../utils/suppliers')
 
 // The lot and its PR's facts; with `lock` (inside a transaction), the PR row
 // first and then the lot, the same order as every other award write.
@@ -159,13 +160,21 @@ exports.create = asyncHandler(async (req, res) => {
     const over = budgetBlock(amount, estimateCents(covered))
     if (over) throw httpError(over.status, over.message)
 
-    // The same supplier's earlier award here: keep their name as first
-    // written, and any detail left out.
-    const [awards] = await conn.execute(
-      `SELECT awarded_to, ${SUPPLIER_COLUMNS.join(', ')} FROM lots WHERE purchase_request_id = ? AND status = 'awarded' ORDER BY id`, [pr.id])
-    const same = awards.find(a => supplierKey(a.awarded_to) === supplierKey(awarded_to))
-    const supplier = same ? same.awarded_to : awarded_to.trim()
-    const details = Object.fromEntries(SUPPLIER_COLUMNS.map(c => [c, req.body[c] || same?.[c] || null]))
+    // A supplier from the list brings its own details. One typed in by name
+    // keeps the name as first written on an earlier award here, and any detail left out.
+    let supplier, details
+    if (req.body.supplier_id) {
+      const listed = await resolveSupplier(conn, req.body, req.user.id)
+      supplier = listed.name
+      details = supplierDetails(listed)
+    } else {
+      if (!awarded_to?.trim()) throw httpError(400, 'Choose the supplier')
+      const [awards] = await conn.execute(
+        `SELECT awarded_to, ${SUPPLIER_COLUMNS.join(', ')} FROM lots WHERE purchase_request_id = ? AND status = 'awarded' ORDER BY id`, [pr.id])
+      const same = awards.find(a => supplierKey(a.awarded_to) === supplierKey(awarded_to))
+      supplier = same ? same.awarded_to : awarded_to.trim()
+      details = Object.fromEntries(SUPPLIER_COLUMNS.map(c => [c, req.body[c] || same?.[c] || null]))
+    }
 
     const noMode = modeMissing(pr, bacOn)
     if (noMode) throw httpError(noMode.status, noMode.message)
@@ -351,41 +360,6 @@ exports.queue = asyncHandler(async (req, res) => {
       categories: Object.fromEntries(CATEGORIES.map(c => [c, Number(byCategory.find(x => x.category === c)?.n || 0)])),
     },
   })
-})
-
-// GET /lots/suppliers - suppliers awarded or quoting before, latest first,
-// each under the spelling used most and with the latest known value of every
-// detail, so a new quotation or award can reuse them.
-exports.suppliers = asyncHandler(async (req, res) => {
-  const scope = prScope(req.user)   // C2
-  const cols = SUPPLIER_COLUMNS.join(', ')
-  const [rows] = await pool.execute(`
-    SELECT name, ${cols}, created_at, kind FROM (
-      SELECT l.awarded_to AS name, ${SUPPLIER_COLUMNS.map(c => `l.${c}`).join(', ')}, l.created_at, 'award' AS kind
-        FROM lots l JOIN purchase_requests pr ON pr.id = l.purchase_request_id
-       WHERE ${scope.sql} AND l.awarded_to IS NOT NULL AND TRIM(l.awarded_to) <> ''
-      UNION ALL
-      SELECT q.supplier_name, ${SUPPLIER_COLUMNS.map(c => `q.${c}`).join(', ')}, q.created_at, 'quote'
-        FROM quotations q JOIN purchase_requests pr ON pr.id = q.purchase_request_id
-       WHERE ${scope.sql}
-    ) s
-    ORDER BY created_at DESC
-    LIMIT 2000`, [...scope.params, ...scope.params])
-  const byName = new Map()
-  for (const r of rows) {
-    const name = r.name.trim().replace(/\s+/g, ' ')
-    const key  = supplierKey(name)
-    if (!byName.has(key)) byName.set(key, { spellings: new Map(), awards: 0, quotes: 0, last_used_at: r.created_at })
-    const s = byName.get(key)
-    s[r.kind === 'award' ? 'awards' : 'quotes'] += 1
-    s.spellings.set(name, (s.spellings.get(name) || 0) + 1)
-    for (const c of SUPPLIER_COLUMNS) if (!s[c] && r[c]) s[c] = r[c]
-  }
-  // Each supplier under the spelling used most (the latest one on a tie).
-  res.json([...byName.values()].slice(0, 500).map(({ spellings, ...s }) => ({
-    name: [...spellings].reduce((best, cur) => (cur[1] > best[1] ? cur : best))[0],
-    ...s,
-  })))
 })
 
 // Abstract of Quotations (PDF)
