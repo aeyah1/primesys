@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Save, Building2, PenLine, FileText, Coins } from 'lucide-react'
+import { Save, Building2, PenLine, FileText, Coins, Scale } from 'lucide-react'
 import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -53,8 +53,11 @@ const SIGNATORIES = [
   { key: 'app_certified_by', title: 'Included in the APP',
     hint: 'Certifies the request is in the Annual Procurement Plan.',
     namePlaceholder: 'e.g. ANA C. GARCIA, Ph.D.', designationPlaceholder: 'BAC Secretariat' },
-  { key: 'bac_vice_chairman', title: 'Request for Quotation — signed by',
-    hint: 'Signs the RFQ sent out to suppliers.',
+  { key: 'bac_chairman', title: 'BAC Resolution — BAC Chairman',
+    hint: 'Signs the BAC Resolution first, with the Vice Chairman and the members listed below.',
+    namePlaceholder: 'e.g. ROSA L. MENDOZA, Ph. D.', designationPlaceholder: 'BAC Chairman' },
+  { key: 'bac_vice_chairman', title: 'BAC Vice Chairman',
+    hint: 'Signs the RFQ sent out to suppliers and the BAC Resolution.',
     namePlaceholder: 'e.g. JOSE T. RAMOS, Ph. D.', designationPlaceholder: 'BAC Vice Chairman' },
   { key: 'canvasser', title: 'Request for Quotation — canvasser',
     hint: 'Named at the foot of the RFQ.',
@@ -65,6 +68,7 @@ const KEYS = [
   ...[...FIELDS, ...LETTERHEAD, ...FUND_CODES].map(f => f.key),
   'approver_threshold',
   ...SIGNATORIES.flatMap(s => [`${s.key}_name`, `${s.key}_designation`]),
+  'bac_approval_required', 'bac_members',
 ]
 const EMPTY = Object.fromEntries(KEYS.map(k => [k, '']))
 
@@ -187,6 +191,41 @@ export default function OrganizationTab() {
               </div>
             </div>
           ))}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Scale className="size-4 text-[--color-text-muted]" />
+            <CardTitle>Bids and Awards Committee</CardTitle>
+          </div>
+          <CardDescription>
+            Give BAC members the BAC role in User Management; they approve or return the awards
+            Procurement recommends.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input type="checkbox" className="mt-0.5 size-4 accent-[--color-brand]" disabled={isLoading}
+              checked={form.bac_approval_required === '1'}
+              onChange={e => setF('bac_approval_required', e.target.checked ? '1' : '0')} />
+            <span>
+              <span className="block text-ui-sm font-semibold text-[--color-text-primary]">Awards need the BAC's approval</span>
+              <span className="block text-[11px] text-[--color-text-muted] mt-0.5">
+                An award becomes a recommendation until the BAC approves it in a resolution, and no purchase
+                order can be issued before that. Turned off, Procurement's awards are final at once.
+              </span>
+            </span>
+          </label>
+          <div className="space-y-1.5">
+            <Label htmlFor="org-bac_members">Members</Label>
+            <textarea id="org-bac_members" rows={4} value={form.bac_members} disabled={isLoading}
+              onChange={e => setF('bac_members', e.target.value)}
+              placeholder={'One name per line, e.g.\nCARLO P. VILLANUEVA\nLIZA M. TORRES'}
+              className="w-full rounded-md border border-[--color-border] bg-[--color-surface] px-3 py-2 text-sm text-[--color-text-primary] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent resize-y" />
+            <p className="text-[11px] text-[--color-text-muted]">Each signs the BAC Resolution as a BAC Member. The chairman and vice chairman are set under Signatories.</p>
+          </div>
         </CardContent>
       </Card>
 

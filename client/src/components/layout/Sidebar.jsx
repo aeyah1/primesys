@@ -3,13 +3,13 @@ import {
   LayoutDashboard, FileText, ShoppingCart, Truck,
   Users, Calendar, ChevronRight, Bell, Archive,
   LogOut, Settings as SettingsIcon, Gavel, AlarmClock, BookOpen,
-  ClipboardCheck, BarChart3,
+  ClipboardCheck, BarChart3, Scale,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 
-const ALL = ['admin','procurement','requestor','supply','twg']
+const ALL = ['admin','procurement','requestor','supply','twg','bac']
 
 // Menu groups by purpose; the Procurement group follows the order a PR moves through the office.
 const NAV_GROUPS = [
@@ -19,8 +19,9 @@ const NAV_GROUPS = [
     { to: '/reminders',     label: 'Reminders',         icon: AlarmClock,      roles: ALL },
   ] },
   { label: 'Procurement', items: [
-    { to: '/pr',            label: 'Purchase Requests', icon: FileText,        roles: ['admin','procurement','requestor'] },
+    { to: '/pr',            label: 'Purchase Requests', icon: FileText,        roles: ['admin','procurement','requestor','bac'] },
     { to: '/twg/reviews',   label: 'TWG Reviews',       icon: ClipboardCheck,  roles: ['twg','admin'] },
+    { to: '/bac',           label: 'BAC Approvals',     icon: Scale,           roles: ['bac','admin','procurement'] },
     { to: '/bidding',       label: 'Lots & Awards',     icon: Gavel,           roles: ['admin','procurement','supply'] },
     { to: '/po',            label: 'Purchase Orders',   icon: ShoppingCart,    roles: ['admin','procurement','supply'] },
     { to: '/delivery',      label: 'Deliveries',        icon: Truck,           roles: ['admin','procurement','supply'] },
@@ -38,7 +39,7 @@ const NAV_GROUPS = [
   ] },
 ]
 
-const ROLE_LABELS = { admin: 'Administrator', procurement: 'Procurement', requestor: 'Requestor', supply: 'Supply Officer', twg: 'Technical Working Group' }
+const ROLE_LABELS = { admin: 'Administrator', procurement: 'Procurement', requestor: 'Requestor', supply: 'Supply Officer', twg: 'Technical Working Group', bac: 'Bids and Awards Committee' }
 
 export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }) {
   const { user, logout } = useAuth()

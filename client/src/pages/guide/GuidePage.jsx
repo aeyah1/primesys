@@ -15,6 +15,7 @@ const ROLE_LABELS = {
   requestor:   'Requestor',
   supply:      'Supply Officer',
   twg:         'Technical Working Group',
+  bac:         'Bids and Awards Committee',
 }
 
 const ROLE_COLORS = {
@@ -23,6 +24,7 @@ const ROLE_COLORS = {
   requestor:   'bg-teal-50 border-teal-200 text-teal-800',
   supply:      'bg-blue-50 border-blue-200 text-blue-800',
   twg:         'bg-cyan-50 border-cyan-200 text-cyan-800',
+  bac:         'bg-indigo-50 border-indigo-200 text-indigo-800',
 }
 
 function Section({ icon: Icon, title, children, defaultOpen = true }) {
@@ -126,6 +128,23 @@ function RoleGuide({ role }) {
     </div>
   )
 
+  if (role === 'bac') return (
+    <div className="space-y-4 pt-3">
+      <p className="text-sm text-[--color-text-secondary] leading-relaxed">
+        As a member of the <strong>Bids and Awards Committee (BAC)</strong>, you approve the awards Procurement
+        recommends before any Purchase Order is issued.
+      </p>
+      <div className="space-y-1">
+        <Step number={1} icon={ClipboardCheck} title="Open BAC Approvals"   description="PRs with a recommended award wait under BAC Approvals, the oldest first, with the suppliers, the amount and the mode of procurement. You are notified when one arrives." />
+        <Step number={2} icon={Eye}            title="Review the canvass"    description="Open the PR. Canvass & Awards shows each supplier's quoted prices and who each item is recommended to. Print the Abstract of Quotations to compare them side by side." />
+        <Step number={3} icon={CheckCircle}    title="Approve"               description="Click Approve, set the resolution date, and add any notes. The awards become final in a numbered BAC Resolution, and Procurement can issue the Purchase Orders." />
+        <Step number={4} icon={RotateCcw}      title="Or return it"          description="If something needs to change, click Return and give the reason. The recommendation is cancelled and kept on record, and Procurement canvasses those items again." />
+        <Step number={5} icon={Download}       title="Print the documents"   description="Each resolution on the PR prints the BAC Resolution and a Notice of Award for every supplier in it." />
+      </div>
+      <Tip>You approve or return all of a PR's waiting recommendations together. The BAC can also set the mode of procurement until a supplier is awarded.</Tip>
+    </div>
+  )
+
   if (role === 'procurement') return (
     <div className="space-y-4 pt-3">
       <p className="text-sm text-[--color-text-secondary] leading-relaxed">
@@ -134,7 +153,7 @@ function RoleGuide({ role }) {
       </p>
       <div className="space-y-1">
         <Step number={1} icon={Eye}          title="Canvass approved PRs"    description="PRs approved by the TWG show as Approved by TWG. The Ready to Canvass card on your dashboard groups them by category, and Purchase Requests has category filters and a sort for the oldest approvals. Open one and click Canvass PR to move it to Bidding." />
-        <Step number={2} icon={Gavel}        title="Record the award"        description="Under Canvass & Awards on the PR (or in Lots & Awards), click Add Quotation for each supplier's prices, then Award from Quotations: each item goes to the lowest price, and different items can go to different suppliers. Without quotations, use Record Award by Hand. An award can't exceed the approved budget of its items. Once every item is awarded (or dropped, with a reason), the PR is Ready for PO." />
+        <Step number={2} icon={Gavel}        title="Record the award"        description="Under Canvass & Awards on the PR (or in Lots & Awards), click Add Quotation for each supplier's prices, then Award from Quotations: each item goes to the lowest price, and different items can go to different suppliers. Without quotations, use Record Award by Hand. An award can't exceed the approved budget of its items. When the BAC's approval is required, set the mode of procurement first: your award is then a recommendation until the BAC approves it. Once every item is awarded (or dropped, with a reason), the PR is Ready for PO." />
         <Step number={3} icon={ShoppingCart} title="Issue a Purchase Order"  description="Each supplier awarded gets its own PO. Under Purchase Orders on the PR, set the dates and click Issue PO for each supplier. A supplier's PO can go out while other items are still being canvassed. Supply and the requestor are notified." />
         <Step number={4} icon={Truck}        title="Track delivery"          description="Supply records how many of each item arrived, and you can record a delivery from the PR page or the Purchase Orders page too. The Overdue tab on Purchase Orders lists every PO past its expected date. If the supplier gives a new date, click Change Expected Date on the PO and give the reason; the requestor and supply are told. Once every PO is fully delivered, and no item is left to award, the PR is Completed automatically." />
         <Step number={5} icon={XCircle}      title="If a supplier backs out" description="Before anything is delivered, click Cancel PO on that supplier's PO, with a reason. Only its items go back to canvass for a new award; other suppliers' POs stay." />

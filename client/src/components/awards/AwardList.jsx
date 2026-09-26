@@ -132,6 +132,8 @@ function LotRow({ lot, canManage, prStatus }) {
   const [cancelling, setCancel] = useState(false)
   const items     = lot.items || []
   const editable  = canManage && lot.status === 'awarded' && !lot.locked
+  // A recommendation waiting for the BAC can be withdrawn, not edited.
+  const withdrawable = canManage && lot.status === 'recommended' && !lot.locked
   const cancelled = lot.status === 'cancelled'
 
   return (
@@ -197,10 +199,10 @@ function LotRow({ lot, canManage, prStatus }) {
               </tbody>
             </table>
           </div>
-          {editable && (
+          {(editable || withdrawable) && (
             <div className="flex justify-end">
               <Button variant="outline" size="sm" className="text-xs text-red-600 hover:text-red-700 hover:border-red-300" onClick={() => setCancel(true)}>
-                Cancel this award
+                {withdrawable ? 'Withdraw this recommendation' : 'Cancel this award'}
               </Button>
             </div>
           )}
@@ -219,19 +221,21 @@ export default function AwardList({ lots, canManage, prStatus }) {
   const [showCancelled, setShowCancelled] = useState(false)
 
   const groups = []
-  for (const lot of lots.filter(l => l.status === 'awarded')) {
+  const HELD = ['awarded', 'recommended']
+  for (const lot of lots.filter(l => HELD.includes(l.status))) {
     let g = groups.find(x => x.key === nameKey(lot.awarded_to))
     if (!g) groups.push(g = { key: nameKey(lot.awarded_to), lots: [] })
     g.lots.push(lot)
   }
-  const cancelled = lots.filter(l => l.status !== 'awarded')
+  const cancelled = lots.filter(l => !HELD.includes(l.status))
 
   if (!lots.length) return null
   return (
     <div className="space-y-3">
       {groups.map(g => {
         const lead    = g.lots.find(l => l.supplier_contact || l.supplier_phone || l.supplier_email || l.supplier_address || l.supplier_tin) || g.lots[0]
-        const waiting = g.lots.filter(l => !l.po_id)
+        const waiting = g.lots.filter(l => !l.po_id && l.status === 'awarded')
+        const withBac = g.lots.filter(l => l.status === 'recommended').length
         const total   = g.lots.reduce((s, l) => s + cents(l.awarded_amount), 0)
         const pos     = [...new Map(g.lots.filter(l => l.po_number).map(l => [l.po_number, l])).values()]
         return (
@@ -258,6 +262,11 @@ export default function AwardList({ lots, canManage, prStatus }) {
                 {waiting.length > 0 && (
                   <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
                     {plural(waiting.length, 'award')} waiting for a PO
+                  </span>
+                )}
+                {withBac > 0 && (
+                  <span className="inline-flex items-center rounded-full border border-indigo-300 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-800">
+                    {plural(withBac, 'award')} for BAC approval
                   </span>
                 )}
                 {canManage && waiting.length > 0 && (

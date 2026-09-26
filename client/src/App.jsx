@@ -34,6 +34,7 @@ const SettingsPage      = page(() => import('@/pages/settings/Settings'))
 const GuidePage         = page(() => import('@/pages/guide/GuidePage'))
 const TwgReviewList     = page(() => import('@/pages/twg/TwgReviewList'))
 const TwgReviewDetail   = page(() => import('@/pages/twg/TwgReviewDetail'))
+const BacApprovals      = page(() => import('@/pages/bac/BacApprovals'))
 
 // Fetches every signed-in page's code while the browser is idle, so a first visit opens without a loading screen.
 function usePreloadPages(signedIn) {
@@ -102,6 +103,7 @@ export default function App() {
 
           <Route path="twg/reviews"     element={<ProtectedRoute roles={['twg','admin']}><TwgReviewList /></ProtectedRoute>} />
           <Route path="twg/reviews/:id" element={<ProtectedRoute roles={['twg','admin']}><TwgReviewDetail /></ProtectedRoute>} />
+          <Route path="bac"             element={<ProtectedRoute roles={['bac','admin','procurement']}><BacApprovals /></ProtectedRoute>} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

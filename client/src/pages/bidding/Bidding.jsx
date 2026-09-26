@@ -23,6 +23,7 @@ const PAGE_SIZE = 20
 // suppliers wait for their POs.
 const STAGES = [
   { key: 'needs_award', label: 'Needs award', empty: 'No PRs are waiting for an award.' },
+  { key: 'with_bac',    label: 'With the BAC', empty: 'No awards are waiting for BAC approval.' },
   { key: 'awaiting_po', label: 'Awaiting PO', empty: 'No awards are waiting for a purchase order.' },
   { key: 'po_issued',   label: 'PO issued',   empty: 'No purchase orders have been issued yet.' },
   { key: 'cancelled',   label: 'Cancelled',   empty: 'No PRs were cancelled after an award.' },

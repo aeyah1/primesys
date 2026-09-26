@@ -143,6 +143,33 @@ const SLIDES = {
     },
   ],
 
+  bac: [
+    {
+      logo: true,
+      color: 'from-indigo-400 to-blue-400',
+      title: 'Welcome to PRimeSys!',
+      body:  "You're logged in as a member of the Bids and Awards Committee. You approve the awards Procurement recommends before any Purchase Order is issued.",
+    },
+    {
+      Icon:  ClipboardCheck,
+      color: 'from-amber-400 to-orange-400',
+      title: 'BAC Approvals',
+      body:  'Recommended awards wait under BAC Approvals. Open a PR to see the quotations and who each item is recommended to.',
+    },
+    {
+      Icon:  CheckCircle,
+      color: 'from-emerald-400 to-teal-400',
+      title: 'Approve or Return',
+      body:  'Approve to make the awards final in a numbered BAC Resolution, or Return them to Procurement with a reason.',
+    },
+    {
+      Icon:  Download,
+      color: 'from-indigo-500 to-blue-500',
+      title: "You're all set!",
+      body:  'Each resolution prints the BAC Resolution and a Notice of Award for every supplier. The User Guide has more details.',
+    },
+  ],
+
   admin: [
     {
       logo: true,
@@ -154,7 +181,7 @@ const SLIDES = {
       Icon:  Users,
       color: 'from-blue-400 to-indigo-400',
       title: 'Manage Users',
-      body:  'Go to User Management to create accounts, assign roles (Admin, Procurement, Requestor, Supply, TWG), and activate or deactivate users. Public sign-up always creates Requestors.',
+      body:  'Go to User Management to create accounts, assign roles (Admin, Procurement, Requestor, Supply, TWG, BAC), and activate or deactivate users. Public sign-up always creates Requestors.',
     },
     {
       Icon:  Calendar,

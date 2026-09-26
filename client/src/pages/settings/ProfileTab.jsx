@@ -16,6 +16,8 @@ const ROLE_LABELS = {
   procurement: 'Procurement Officer',
   requestor:   'Requestor',
   supply:      'Supply Officer',
+  twg:         'Technical Working Group',
+  bac:         'Bids and Awards Committee',
 }
 
 export default function ProfileTab() {

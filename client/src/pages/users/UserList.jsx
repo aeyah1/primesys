@@ -31,12 +31,13 @@ const ROLE_TABS = [
   { key: 'admin',       label: 'Admins' },
   { key: 'twg',         label: 'TWG' },
   { key: 'procurement', label: 'Procurement' },
+  { key: 'bac',         label: 'BAC' },
   { key: 'supply',      label: 'Supply' },
   { key: 'requestor',   label: 'Requestors' },
 ]
 const GROUP_ORDER = ROLE_TABS.slice(1).map(t => t.key)
 const GROUP_LABELS = {
-  admin: 'Admins', twg: 'TWG members', procurement: 'Procurement officers', supply: 'Supply officers', requestor: 'Requestors',
+  admin: 'Admins', twg: 'TWG members', procurement: 'Procurement officers', bac: 'BAC members', supply: 'Supply officers', requestor: 'Requestors',
 }
 const STATUSES = [
   { key: '',           label: 'Any status' },
@@ -588,6 +589,7 @@ export default function UserList() {
                   <SelectItem value="requestor">Requestor</SelectItem>
                   <SelectItem value="supply">Supply Officer</SelectItem>
                   <SelectItem value="twg">TWG (Technical Working Group)</SelectItem>
+                  <SelectItem value="bac">BAC (Bids and Awards Committee)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -690,6 +692,7 @@ export default function UserList() {
                   <SelectItem value="requestor">Requestor</SelectItem>
                   <SelectItem value="supply">Supply Officer</SelectItem>
                   <SelectItem value="twg">TWG (Technical Working Group)</SelectItem>
+                  <SelectItem value="bac">BAC (Bids and Awards Committee)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
