@@ -103,7 +103,7 @@ add('Permissions', 'procurement, for_po with PO',   2, 'GET', '/pr/19', undefine
 add('Permissions', 'procurement, TWG-approved',     2, 'GET', '/pr/20', undefined, perms(P_(false, true, ['bidding', 'revision_requested', 'cancelled'], false, true)), 'locked; canvass, return, cancel')
 add('Permissions', 'procurement, own draft',        2, 'GET', '/pr/24', undefined, perms(P_(true, true, ['submitted', 'cancelled'], false, true)), 'submit own')
 add('Permissions', "procurement, someone's submitted", 2, 'GET', '/pr/25', undefined, perms(P_(false, false, [], false, true)), 'locked; cancel and delete are admin-only at the TWG (WF-6, WF-7)')
-add('Permissions', "admin, someone's submitted",      1, 'GET', '/pr/25', undefined, perms(P_(false, true, ['draft', 'cancelled'], true, true)), 'admin may still cancel, delete, or review')
+add('Permissions', "admin, someone's submitted",      1, 'GET', '/pr/25', undefined, perms(P_(false, true, ['draft', 'cancelled'], false, true)), 'admin may still cancel, delete, or review')
 add('Permissions', 'admin, completed',              1, 'GET', '/pr/16', undefined, perms(P_(false, false, [])), 'final: kept, not deletable')
 add('Permissions', 'list rows carry permissions',   3, 'GET', '/pr?limit=100', undefined,
   (r) => { const row = (id) => r.data.data.find(x => x.id === id)

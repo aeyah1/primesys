@@ -7,8 +7,8 @@ const { loadOrgSettings, bacApprovalRequired } = require('./orgSettings')
 // Procurement records is only a recommendation ('recommended' lot) until a
 // BAC member or an admin approves it in a BAC Resolution (bac.controller.js).
 
-// Who may approve or return recommended awards.
-const BAC_DECIDERS = ['bac', 'admin']
+// Who may approve or return recommended awards: the BAC alone (admins supervise).
+const BAC_DECIDERS = ['bac']
 // Who may read the BAC's queue and print its documents.
 const BAC_READERS = ['bac', 'admin', 'procurement']
 
@@ -17,14 +17,18 @@ async function newAwardStatus(db) {
   return bacApprovalRequired(await loadOrgSettings(db)) ? 'recommended' : 'awarded'
 }
 
-// Tells the BAC that awards on a PR wait for its approval; the admins when no
-// BAC member is active, so the recommendation is never left unseen.
+// Tells the BAC that awards on a PR wait for its approval. With no active BAC
+// member the admins are warned instead, since nobody could approve them.
 async function notifyBac(io, prId, prNumber, lots) {
-  let [users] = await pool.execute("SELECT id FROM users WHERE role = 'bac' AND is_active = 1")
-  if (!users.length) [users] = await pool.execute("SELECT id FROM users WHERE role = 'admin' AND is_active = 1")
   const who = [...new Set(lots.map(l => l.awarded_to))].join(', ')
-  const message = `PR ${prNumber}: award to ${who} recommended, waiting for the BAC's approval.`
-  await Promise.all(users.map(u => notify(io, u.id, message, 'info', prId, 'pr')))
+  const [members] = await pool.execute("SELECT id FROM users WHERE role = 'bac' AND is_active = 1")
+  if (members.length) {
+    const message = `PR ${prNumber}: award to ${who} recommended, waiting for the BAC's approval.`
+    return Promise.all(members.map(u => notify(io, u.id, message, 'info', prId, 'pr')))
+  }
+  const [admins] = await pool.execute("SELECT id FROM users WHERE role = 'admin' AND is_active = 1")
+  const warning = `PR ${prNumber}: an award to ${who} waits for the BAC, but no BAC member is active. Assign one in User Management.`
+  return Promise.all(admins.map(u => notify(io, u.id, warning, 'warning', prId, 'pr')))
 }
 
 // Current year's next resolution number, "2026-001". Called under the PR row

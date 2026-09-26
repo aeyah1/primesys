@@ -112,7 +112,8 @@ async function run() {
   await is(G3, 'ICT reviewer approves the hardware PR → 200', 5, 'POST', '/twg/60/review', { action: 'approve' }, code(200))
   await is(G3, 'Procurement is told, with the category', 2, 'GET', '/notifications', undefined,
     (r) => r.status === 200 && r.data.some(n => /PR-A-60 .*\(Hardware & Equipment\) was approved by TWG/.test(n.message)))
-  await is(G3, 'admin reviews any area → 200', 1, 'POST', '/twg/61/review', { action: 'revise', comment: 'Add sizes' }, code(200))
+  await is(G3, 'admins supervise, they do not review (403)', 1, 'POST', '/twg/61/review', { action: 'revise', comment: 'Add sizes' }, code(403))
+  await is(G3, 'the events reviewer does', 6, 'POST', '/twg/61/review', { action: 'revise', comment: 'Add sizes' }, code(200))
 
   // A member who decided on a PR keeps seeing it, but can't decide once the area is no longer theirs.
   await is(G3, 'Hardware moves from the ICT reviewer to the chair only', 1, 'PATCH', '/users/5', { name: 'Engr Santos', role: 'twg', areas: ['office_supplies'] }, code(200))
