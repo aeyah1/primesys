@@ -170,6 +170,29 @@ async function run() {
   await is(A, 'and the award goes through', 2, 'POST', `/canvass/${pr}/award`,
     { picks: [{ item: laptop, quotation: alphaQ.id }, { item: mouse, quotation: gammaQ.id }] }, r => r.status === 201, '201')
 
+  // ── One source for supplier details ─────────────────────────────────
+  const L = 'From the list'
+  const pr2 = (await http(2, 'POST', '/pr', { title: 'Printer', items: [{ item_name: 'Printer', quantity: 1, estimated_cost: 12000 }] })).data.id
+  await http(2, 'PATCH', `/pr/${pr2}/status`, { status: 'submitted' })
+  await http(4, 'POST', `/twg/${pr2}/review`, { action: 'approve' })
+  await http(2, 'PATCH', `/pr/${pr2}/status`, { status: 'bidding' })
+  const [printer] = (await http(2, 'GET', `/canvass/${pr2}`)).data.items.map(i => i.id)
+  const q2 = await is(L, 'a quotation names a listed supplier, prices only', 2, 'POST', `/canvass/${pr2}/quotations`,
+    { supplier_id: alpha, prices: [{ item: printer, unit_price: 11000 }], warranty: '2 years' }, r => r.status === 201)
+  const [row] = await H.sql(TEST_DB, 'SELECT * FROM quotations WHERE id = ?', [q2.data.id])
+  t.check(L, 'its details come from the list', row.supplier_name === 'Alpha Computers' && row.supplier_tin === '123-456-789-000'
+    && row.supplier_email === 'alpha@x.invalid' && row.supplier_id === alpha && row.warranty === '2 years', JSON.stringify(row))
+  await is(L, 'a blacklisted supplier can\'t quote', 2, 'POST', `/canvass/${pr2}/quotations`,
+    { supplier_id: banned, prices: [{ item: printer, unit_price: 10000 }] }, r => r.status === 409, '409')
+  await is(L, 'a supplier typed in by name joins the list', 2, 'POST', `/canvass/${pr2}/quotations`,
+    { supplier_name: 'Omega Supply', supplier_contact: 'B', supplier_address: 'Tandag', supplier_phone: '0917 555 1234', supplier_email: 'omega@x.invalid',
+      prices: [{ item: printer, unit_price: 11500 }] }, r => r.status === 201)
+  t.check(L, '…once', (await H.sql(TEST_DB, "SELECT COUNT(*) AS n FROM suppliers WHERE name_key = 'omega supply'"))[0].n === 1)
+  const lot = await is(L, 'an award by hand names a listed supplier', 2, 'POST', '/lots',
+    { purchase_request_id: pr2, supplier_id: gamma, awarded_amount: 11800 }, r => r.status === 201 && r.data.awarded_to === 'Gamma Office')
+  const [lotRow] = await H.sql(TEST_DB, 'SELECT supplier_email FROM lots WHERE id = ?', [lot.data.id])
+  t.check(L, '…with its details from the list', lotRow?.supplier_email === 'gamma@x.invalid', JSON.stringify(lotRow))
+
   return t.summary()
 }
 

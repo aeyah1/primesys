@@ -188,10 +188,10 @@ async function run() {
   await is(G5, '…needs an award again', 2, 'GET', '/canvass/82', undefined, (r) => r.status === 200 && r.data.items.find(i => i.id === 821).state === 'pending')
 
   // Suppliers, and a cancelled PR
-  const G6 = 'Suggestions and cancelling'
-  await is(G6, 'suppliers who only quoted are suggested too', 2, 'GET', '/lots/suppliers', undefined,
-    (r) => r.status === 200 && ['Alpha Computers', 'Beta Supplies', 'Gamma Trading'].every(n => r.data.some(s => s.name === n))
-           && r.data.find(s => s.name === 'Alpha Computers').supplier_phone === '0917 111 0000')
+  const G6 = 'The Suppliers list, and cancelling'
+  await is(G6, 'suppliers typed in on a quotation join the Suppliers list', 2, 'GET', '/suppliers?limit=200', undefined,
+    (r) => r.status === 200 && ['Alpha Computers', 'Beta Supplies', 'Gamma Trading'].every(n => r.data.data.some(s => s.name === n))
+           && r.data.data.find(s => s.name === 'Alpha Computers').phone === '0917 111 0000')
   await is(G6, 'award a PR by hand', 2, 'POST', '/lots', { purchase_request_id: 83, awarded_to: 'Delta Office', awarded_amount: 9000 }, code(201))
   await is(G6, 'cancel that PR (no PO yet)', 2, 'PATCH', '/pr/83/status', { status: 'cancelled' }, code(200))
   await is(G6, '…its award is cancelled with it (was left "awarded")', 2, 'GET', '/lots/pr/83', undefined,

@@ -23,14 +23,20 @@ const FIELDS = [
   { key: 'tin',            label: 'TIN',              placeholder: '123-456-789-000' },
 ]
 
-/* ── Add or edit one supplier ─────────────────────────────────────────── */
-function SupplierDialog({ supplier, onClose }) {
+/* ── Add or edit one supplier. onSaved(id): the saved supplier's id, e.g.
+   to pick a supplier just added from the canvass. ──────────────────── */
+export function SupplierDialog({ supplier, onClose, onSaved }) {
   const qc = useQueryClient()
   const [form, setForm] = useState(supplier ? Object.fromEntries(Object.keys(EMPTY).map(k => [k, supplier[k] || EMPTY[k]])) : EMPTY)
   const setF = (k, v) => setForm(p => ({ ...p, [k]: v }))
   const { mutate, isPending } = useMutation({
     mutationFn: (body) => (supplier ? api.patch(`/suppliers/${supplier.id}`, body) : api.post('/suppliers', body)),
-    onSuccess: () => { toast.success(supplier ? 'Supplier updated' : 'Supplier added'); qc.invalidateQueries({ queryKey: ['suppliers'] }); onClose() },
+    onSuccess: ({ data }) => {
+      toast.success(supplier ? 'Supplier updated' : 'Supplier added')
+      qc.invalidateQueries({ queryKey: ['suppliers'] })
+      onSaved?.(supplier ? supplier.id : data.id)
+      onClose()
+    },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to save the supplier'),
   })
   const save = () => mutate(Object.fromEntries(Object.entries(form).map(([k, v]) => [k, typeof v === 'string' ? v.trim() : v])))

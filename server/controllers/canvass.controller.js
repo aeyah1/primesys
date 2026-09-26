@@ -7,9 +7,10 @@ const notify          = require('../utils/notify')
 const { loadOrgSettings } = require('../utils/orgSettings')
 const { BAC_DECIDERS, awardDenied, modeMissing, withBacBlock, bacAwards, adoptResolution, releaseIfDone } = require('../utils/bacWorkflow')
 const { rfqOpen, sealedBlock } = require('../utils/rfqWorkflow')
+const { resolveSupplier, supplierDetails } = require('../utils/suppliers')
 const DEFAULT_MINIMUM_QUOTATIONS = 3
 const {
-  SUPPLIER_COLUMNS, supplierKey, short, cents, lineCents,
+  SUPPLIER_COLUMNS, short, cents, lineCents,
   awardBlock, budgetBlock, itemStates, recordAward, announceAwards,
 } = require('../utils/awardWorkflow')
 
@@ -106,8 +107,12 @@ function checkPrices(items, prices) {
   })
 }
 
-const QUOTATION_FIELDS = ['supplier_name', ...SUPPLIER_COLUMNS, 'quoted_at', 'notes']
-const quotationValues = (body) => QUOTATION_FIELDS.map(f => (typeof body[f] === 'string' ? body[f].trim() : body[f]) || null)
+// The supplier's name and details come from the supplier list; the rest from the form.
+const QUOTATION_FIELDS = ['supplier_id', 'supplier_name', ...SUPPLIER_COLUMNS, 'quoted_at', 'notes', 'delivery_period', 'warranty', 'price_validity']
+const quotationValues = (body, supplier) => {
+  const from = { ...body, supplier_id: supplier.id, supplier_name: supplier.name, ...supplierDetails(supplier) }
+  return QUOTATION_FIELDS.map(f => (typeof from[f] === 'string' ? from[f].trim() : from[f]) || null)
+}
 
 async function savePrices(conn, quotationId, prices) {
   await conn.execute('DELETE FROM quotation_items WHERE quotation_id = ?', [quotationId])
@@ -138,12 +143,11 @@ exports.createQuotation = asyncHandler(async (req, res) => {
     refuse(canvassBlock(pr))
     const { items } = await itemStates(conn, pr.id)
     const prices = checkPrices(items, req.body.prices)
-    // A supplier on the master list is linked by name.
-    const [[known]] = await conn.execute('SELECT id FROM suppliers WHERE name_key = ?', [supplierKey(req.body.supplier_name)])
+    const supplier = await resolveSupplier(conn, req.body, req.user.id)
     const [r] = await conn.execute(
-      `INSERT INTO quotations (purchase_request_id, supplier_id, ${QUOTATION_FIELDS.join(', ')}, created_by)
-       VALUES (?, ?, ${QUOTATION_FIELDS.map(() => '?').join(', ')}, ?)`,
-      [pr.id, known?.id ?? null, ...quotationValues(req.body), req.user.id]
+      `INSERT INTO quotations (purchase_request_id, ${QUOTATION_FIELDS.join(', ')}, created_by)
+       VALUES (?, ${QUOTATION_FIELDS.map(() => '?').join(', ')}, ?)`,
+      [pr.id, ...quotationValues(req.body, supplier), req.user.id]
     )
     await savePrices(conn, r.insertId, prices)
     return r.insertId
@@ -160,7 +164,7 @@ exports.updateQuotation = asyncHandler(async (req, res) => {
     const prices = checkPrices(items, req.body.prices)
     await conn.execute(
       `UPDATE quotations SET ${QUOTATION_FIELDS.map(f => `${f} = ?`).join(', ')} WHERE id = ?`,
-      [...quotationValues(req.body), q.id]
+      [...quotationValues(req.body, await resolveSupplier(conn, req.body, req.user.id)), q.id]
     )
     await savePrices(conn, q.id, prices)
   })

@@ -25,9 +25,8 @@ const supplierFields = [
 ]
 
 router.get('/',                  c.listAll)
-// The Lots & Awards work queue (PRs by award stage), and suppliers awarded before.
+// The Work Queue (PRs by award stage).
 router.get('/queue',             authorize('procurement', 'admin', 'supply'), c.queue)
-router.get('/suppliers',         authorize('procurement', 'admin'), c.suppliers)
 router.get('/pr/:prId/pdf',      prAccess, c.generateAbstract)
 router.get('/pr/:prId',          prAccess, c.listByPR)
 router.get('/:id/items', lotAccess, c.getItems)
@@ -35,7 +34,9 @@ router.get('/:id/items', lotAccess, c.getItems)
 // The BAC's while it evaluates the PR, else Procurement's (checked in the controller).
 router.post('/', authorize('procurement', 'admin', 'bac'),
   idRule('purchase_request_id', 'Pick the purchase request', { required: true }),
-  textRule('awarded_to', 'Supplier / contractor name', 200, { required: true }),
+  // A supplier from the list (supplier_id), or one typed in by name.
+  idRule('supplier_id', 'Unknown supplier'),
+  textRule('awarded_to', 'Supplier / contractor name', 200),
   moneyRule('awarded_amount', 'Contract amount', { required: true, positive: true }),
   supplierFields,
   // The PR items this award covers (copied from the PR on the server).
