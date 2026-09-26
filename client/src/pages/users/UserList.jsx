@@ -5,7 +5,7 @@ import {
   Search, UserX, UserCheck, UserPlus, Pencil,
   Trash2, MailCheck, KeyRound, Eye, EyeOff, ClipboardCheck, AlertTriangle, ArrowUpDown,
 } from 'lucide-react'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'

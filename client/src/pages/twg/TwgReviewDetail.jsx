@@ -5,7 +5,7 @@ import {
   ArrowLeft, CheckCircle2, RotateCcw, XCircle, Paperclip, FileDown,
   Package, Info, Calendar, User,
 } from 'lucide-react'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'

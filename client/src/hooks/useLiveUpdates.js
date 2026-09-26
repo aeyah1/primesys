@@ -1,32 +1,43 @@
-import { useEffect } from 'react'
+import { useEffect, createElement } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { useAuth } from '@/context/AuthContext'
+import api from '@/lib/axios'
+import { iconFor, linkFor, TYPE_LABEL } from '@/lib/notices'
 
-// The notification types the server actually sends (utils/notify.js callers).
-const TYPE_MESSAGES = {
-  info:        { label: 'Update' },
-  success:     { label: 'Approved' },
-  warning:     { label: 'Needs attention' },
-  error:       { label: 'Not approved' },
-  delivered:   { label: 'Delivery' },
-  lot_updated: { label: 'Award' },
-  reminder:    { label: 'Reminder' },
-}
+// How a live notice pops up: its color follows its severity (lib/notices.js has the icon).
+const TOAST_KIND = { success: 'success', delivered: 'success', warning: 'warning', error: 'error', reminder: 'warning' }
+const ICON_COLOR = { success: 'text-emerald-600', warning: 'text-amber-600', error: 'text-red-600', info: 'text-[--color-brand]' }
 
 export function useLiveUpdates() {
   const { socket } = useAuth()
   const qc         = useQueryClient()
+  const navigate   = useNavigate()
 
   useEffect(() => {
     if (!socket) return
 
     const handler = (notification) => {
-      const meta = TYPE_MESSAGES[notification.type]
-
-      toast(notification.message, {
-        description: meta?.label,
-        duration: 6000,
+      const label = TYPE_LABEL[notification.type]
+      const kind  = TOAST_KIND[notification.type] || 'info'
+      const link  = linkFor(notification)
+      // A live notice fades like the others, even a "not approved" one; the bell keeps it.
+      toast[kind](notification.message, {
+        description: label,
+        duration: 8000,
+        icon: createElement(iconFor(notification.type), { className: `size-4 ${ICON_COLOR[kind]}` }),
+        ...(link ? {
+          action: {
+            label: link.label,
+            onClick: () => {
+              api.patch(`/notifications/${notification.id}/read`)
+                .then(() => qc.invalidateQueries({ queryKey: ['notifications-unread'] }))
+                .catch(() => {})
+              navigate(link.to)
+            },
+          },
+        } : {}),
       })
 
       // Respect user preferences from Settings → Notifications.
@@ -37,7 +48,7 @@ export function useLiveUpdates() {
         Notification.permission === 'granted' &&
         document.visibilityState !== 'visible'    // don't double up when tab is already focused
       ) {
-        new Notification(meta?.label || 'PRimeSys', {
+        new Notification(label || 'PRimeSys', {
           body: notification.message,
           silent: localStorage.getItem('primesys_notif_sound') === 'false',
         })
@@ -72,7 +83,7 @@ export function useLiveUpdates() {
 
     socket.on('notification', handler)
     return () => socket.off('notification', handler)
-  }, [socket, qc])
+  }, [socket, qc, navigate])
 }
 
 // Short 880Hz tone; mirrors the preview chime in NotificationsTab so the

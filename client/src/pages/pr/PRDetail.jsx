@@ -7,7 +7,7 @@ import {
   FileDown, XCircle, Pencil, Send, Undo2, Archive,
 } from 'lucide-react'
 
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -484,6 +484,15 @@ function PRItemsSection({ prId, canEdit, category }) {
   )
 }
 
+// What each move tells the person who made it: what happened, and what comes next.
+const MOVED = {
+  submitted:          (pr) => [`${pr.pr_number} sent to the TWG`, 'You will be notified when they review it.'],
+  draft:              (pr) => [`${pr.pr_number} is back to draft`, 'Edit it, then submit it again.'],
+  revision_requested: (pr) => [`Returned to ${pr.created_by_name} for revision`, 'They are told what to change.'],
+  bidding:            (pr) => [`${pr.pr_number} is open for canvass`],
+  cancelled:          (pr) => [`${pr.pr_number} cancelled`],
+}
+
 export default function PRDetail() {
   const { id }   = useParams()
   const navigate = useNavigate()
@@ -498,8 +507,9 @@ export default function PRDetail() {
 
   const { mutate: updateStatus, isPending } = useMutation({
     mutationFn: ({ status, notes }) => api.patch(`/pr/${id}/status`, { status, notes }),
-    onSuccess: () => {
-      toast.success('Status updated')
+    onSuccess: (_res, { status }) => {
+      const [title, description] = MOVED[status]?.(pr) || ['Status updated']
+      toast.success(title, description ? { description } : undefined)
       qc.invalidateQueries({ queryKey: ['pr', id] })
       qc.invalidateQueries({ queryKey: ['pr-list'] })
       qc.invalidateQueries({ queryKey: ['pr-stats'] })
