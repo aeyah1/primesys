@@ -37,8 +37,9 @@ const quotable = (inv, pr) => !!Number(inv.open) && pr && !pr.deleted_at && pr.s
 async function resultFor(db, inv, pr, items) {
   if (pr.status === 'cancelled') return { state: 'cancelled' }
   const [lots] = await db.execute(
-    "SELECT id, quotation_id, awarded_to, awarded_amount, notice_sent_at FROM lots WHERE purchase_request_id = ? AND status = 'awarded'", [pr.id])
-  const mine = lots.filter(l => (inv.quotation_id && l.quotation_id === inv.quotation_id) || supplierKey(l.awarded_to) === inv.name_key)
+    "SELECT id, quotation_id, supplier_id, awarded_to, awarded_amount, notice_sent_at FROM lots WHERE purchase_request_id = ? AND status = 'awarded'", [pr.id])
+  const mine = lots.filter(l => l.supplier_id === inv.supplier_id || (inv.quotation_id && l.quotation_id === inv.quotation_id)
+    || (!l.supplier_id && supplierKey(l.awarded_to) === inv.name_key))
   if (mine.length) {
     const [rows] = await db.execute(
       `SELECT item_name, quantity, unit, unit_price FROM lot_items WHERE lot_id IN (${mine.map(() => '?').join(', ')}) ORDER BY lot_id, id`,

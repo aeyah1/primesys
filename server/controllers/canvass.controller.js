@@ -264,7 +264,7 @@ exports.awardFromQuotes = asyncHandler(async (req, res) => {
       const over = budgetBlock(amount, estimate, `The award to ${quote.supplier_name}`)
       if (over) throw httpError(over.status, over.message)
       const lot = await recordAward(conn, {
-        resolutionId: resolution?.id ?? null, prId: pr.id, supplier: quote.supplier_name.trim(), amount: (amount / 100).toFixed(2),
+        resolutionId: resolution?.id ?? null, prId: pr.id, supplier: quote.supplier_name.trim(), supplierId: quote.supplier_id ?? null, amount: (amount / 100).toFixed(2),
         details: quote, quotationId: quote.id, userId: req.user.id,
         notes: rows.some(r => notLowest.has(r.item.id)) ? `Not the lowest quotation: ${reason.trim()}` : null,
         fewQuotationsReason: tooFew ? fewReason : null,

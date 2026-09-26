@@ -366,6 +366,7 @@ CREATE TABLE `lots` (
   `opening_date`        DATE          NULL,
   `closing_date`        DATE          NULL,
   `awarded_to`          VARCHAR(200)  NULL,
+  `supplier_id`         INT UNSIGNED  NULL,   -- the supplier on the list (awarded_to keeps its name that day)
   `awarded_amount`      DECIMAL(15,2) NULL,
   `supplier_contact`    VARCHAR(100)  NULL,
   `supplier_address`    TEXT          NULL,
@@ -391,9 +392,11 @@ CREATE TABLE `lots` (
   KEY `idx_lots_quotation_id` (`quotation_id`),
   KEY `idx_lots_po_id` (`po_id`),
   KEY `idx_lots_resolution_id` (`resolution_id`),
+  KEY `idx_lots_supplier_id` (`supplier_id`),
   CONSTRAINT `fk_lots_pr`        FOREIGN KEY (`purchase_request_id`) REFERENCES `purchase_requests` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_lots_user`      FOREIGN KEY (`created_by`)          REFERENCES `users` (`id`),
-  CONSTRAINT `fk_lots_quotation` FOREIGN KEY (`quotation_id`)        REFERENCES `quotations` (`id`) ON DELETE SET NULL
+  CONSTRAINT `fk_lots_quotation` FOREIGN KEY (`quotation_id`)        REFERENCES `quotations` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_lots_supplier`  FOREIGN KEY (`supplier_id`)         REFERENCES `suppliers` (`id`)  ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE `lot_items` (
@@ -444,6 +447,7 @@ CREATE TABLE `purchase_orders` (
   `po_number`              VARCHAR(50)   NOT NULL,
   `purchase_request_id`    INT UNSIGNED  NOT NULL,
   `supplier_name`          VARCHAR(200)  NOT NULL,
+  `supplier_id`            INT UNSIGNED  NULL,   -- the supplier on the list
   `supplier_contact`       VARCHAR(100)  NULL,
   `supplier_address`       TEXT          NULL,
   `issued_date`            DATE          NOT NULL,
@@ -474,10 +478,12 @@ CREATE TABLE `purchase_orders` (
   UNIQUE KEY `uq_po_number`               (`po_number`),
   KEY `idx_po_purchase_request_id`        (`purchase_request_id`),
   KEY `idx_delivery_status`               (`delivery_status`),
+  KEY `idx_po_supplier_id`                (`supplier_id`),
   CONSTRAINT `fk_po_pr`           FOREIGN KEY (`purchase_request_id`) REFERENCES `purchase_requests` (`id`),
   CONSTRAINT `fk_po_issued_by`    FOREIGN KEY (`issued_by`)           REFERENCES `users` (`id`),
   CONSTRAINT `fk_po_cancelled_by` FOREIGN KEY (`cancelled_by`)        REFERENCES `users` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `fk_po_closed_by`    FOREIGN KEY (`closed_by`)           REFERENCES `users` (`id`) ON DELETE SET NULL
+  CONSTRAINT `fk_po_closed_by`    FOREIGN KEY (`closed_by`)           REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_po_supplier`     FOREIGN KEY (`supplier_id`)         REFERENCES `suppliers` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- An award's purchase order (lots come before purchase_orders in this file).

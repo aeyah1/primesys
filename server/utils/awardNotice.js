@@ -29,9 +29,11 @@ async function resolutionOf(prId, resolutionId) {
   return { resolution, pr, lots: lots.map(l => ({ ...l, items: items.filter(i => i.lot_id === l.id) })) }
 }
 
-// The supplier-list row an award went to: its quotation's supplier, else the one of that name.
+// The supplier-list row an award went to: its linked supplier, its quotation's, else the one of that name.
 async function supplierOf(db, lot) {
-  const [[s]] = lot.quotation_id
+  const [[s]] = lot.supplier_id
+    ? await db.execute('SELECT * FROM suppliers WHERE id = ?', [lot.supplier_id])
+    : lot.quotation_id
     ? await db.execute('SELECT s.* FROM quotations q JOIN suppliers s ON s.id = q.supplier_id WHERE q.id = ?', [lot.quotation_id])
     : await db.execute('SELECT * FROM suppliers WHERE name_key = ?', [supplierKey(lot.awarded_to)])
   return s || null
