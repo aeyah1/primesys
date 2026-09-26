@@ -71,6 +71,7 @@ router.post('/:prId/rfq', staff, prAccess,
   handle,
   rfq.invite)
 router.post('/:prId/rfq/:invId/resend', staff, prAccess, rfq.resend)
+router.post('/:prId/rfq/close', staff, prAccess, rfq.close)
 router.patch('/:prId/rfq/deadline', staff, prAccess, textRule('deadline', 'Deadline', 16, { required: true }), handle, rfq.extend)
 router.post('/:prId/items/:itemId/drop', staff, prAccess, textRule('reason', 'Reason', 500), handle, c.dropItem)
 router.post('/:prId/items/:itemId/restore', staff, prAccess, c.restoreItem)
