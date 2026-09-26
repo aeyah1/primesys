@@ -257,6 +257,9 @@ CREATE TABLE `suppliers` (
   `address`        TEXT         NULL,
   `contact_person` VARCHAR(100) NULL,
   `email`          VARCHAR(150) NULL,
+  -- The address the supplier proved by quoting through its emailed link.
+  `email_confirmed`    VARCHAR(150) NULL,
+  `email_confirmed_at` DATETIME     NULL,
   `phone`          VARCHAR(50)  NULL,
   `philgeps_no`    VARCHAR(50)  NULL,
   `status`         ENUM('active','blacklisted') NOT NULL DEFAULT 'active',
@@ -325,6 +328,7 @@ CREATE TABLE `rfq_invitations` (
   `token_hash`          CHAR(64)     NOT NULL,
   `deadline`            DATETIME     NOT NULL,
   `sent_at`             DATETIME     NULL,
+  `sent_to`             VARCHAR(150) NULL,
   `send_error`          VARCHAR(300) NULL,
   `reminded_at`         DATETIME     NULL,
   `opened_at`           DATETIME     NULL,
@@ -370,6 +374,10 @@ CREATE TABLE `lots` (
   `few_quotations_reason` VARCHAR(500) NULL,
   `quotation_id`        INT UNSIGNED  NULL,
   `resolution_id`       INT UNSIGNED  NULL,   -- FK added after bac_resolutions, below
+  -- The Notice of Award emailed to the supplier: when, where, or why it wasn't sent.
+  `notice_sent_at`      DATETIME      NULL,
+  `notice_sent_to`      VARCHAR(150)  NULL,
+  `notice_error`        VARCHAR(300)  NULL,
   `po_id`              INT UNSIGNED  NULL,   -- FK added after purchase_orders, below
   `created_by`          INT UNSIGNED  NOT NULL,
   `created_at`          TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,

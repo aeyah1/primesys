@@ -7,13 +7,13 @@ const withTransaction = require('../db/transaction')
 const { prScope }     = require('../middleware/scope.middleware')
 const { paging }      = require('../middleware/validate')
 const { loadPR }      = require('../utils/prWorkflow')
-const { supplierKey, itemStates } = require('../utils/awardWorkflow')
+const { itemStates } = require('../utils/awardWorkflow')
 const { BAC_DECIDERS, BAC_READERS, SECRETARIAT, bacAwards, notifyBac } = require('../utils/bacWorkflow')
 const { rfqOpen, sealedBlock } = require('../utils/rfqWorkflow')
 const { loadOrgSettings } = require('../utils/orgSettings')
 const { M }            = require('../pdf/campusForm')
 const drawResolution   = require('../pdf/bacResolution')
-const drawNotice       = require('../pdf/noticeOfAward')
+const { resolutionOf, noticeFor, drawOf, emailNotice, noticeStatus } = require('../utils/awardNotice')
 
 // The Bids and Awards Committee's work
 // Procurement (the BAC Secretariat) submits a PR under canvass to the BAC once
@@ -122,7 +122,7 @@ exports.summary = asyncHandler(async (req, res) => {
       FROM bac_resolutions r JOIN users u ON u.id = r.approved_by
      WHERE r.purchase_request_id = ? ORDER BY r.id`, [prId])
   const [lots] = await pool.execute(
-    'SELECT id, lot_number, awarded_to, awarded_amount, status, resolution_id FROM lots WHERE purchase_request_id = ? AND resolution_id IS NOT NULL ORDER BY id', [prId])
+    'SELECT * FROM lots WHERE purchase_request_id = ? AND resolution_id IS NOT NULL ORDER BY id', [prId])
   const bacOn = await bacAwards(pool)
   const bidding = pr.status === 'bidding' && !pr.deleted_at
   const withBac = bidding && !!pr.bac_submitted_at
@@ -135,29 +135,23 @@ exports.summary = asyncHandler(async (req, res) => {
     submitted_at: withBac ? pr.bac_submitted_at : null,
     submitted_by_name: withBac ? pr.submitted_by_name : null,
     return_reason: !withBac && bidding ? pr.bac_return_reason : null,
-    resolutions: resolutions.map(r => ({ ...r, lots: lots.filter(l => l.resolution_id === r.id) })),
+    resolutions: await Promise.all(resolutions.map(async (r) => {
+      const theirs = lots.filter(l => l.resolution_id === r.id)
+      return {
+        ...r,
+        lots: theirs.map(({ id, lot_number, awarded_to, awarded_amount, status, resolution_id }) =>
+          ({ id, lot_number, awarded_to, awarded_amount, status, resolution_id })),
+        notices: await noticeStatus(theirs),
+      }
+    })),
     permissions: {
       submit: bacOn && bidding && !withBac && !sealed && pending > 0 && SECRETARIAT.includes(req.user.role),
       return: withBac && BAC_DECIDERS.includes(req.user.role),
       print:  BAC_READERS.includes(req.user.role),
+      email_notice: SECRETARIAT.includes(req.user.role) && !pr.deleted_at,
     },
   })
 })
-
-// One resolution of this PR, with the PR's facts for the documents.
-async function resolutionOf(prId, resolutionId) {
-  const [[resolution]] = await pool.execute(
-    'SELECT * FROM bac_resolutions WHERE id = ? AND purchase_request_id = ?', [resolutionId, prId])
-  if (!resolution) throw httpError(404, 'Resolution not found')
-  const [[pr]] = await pool.execute(
-    'SELECT id, pr_number, title, purpose, department, mode_of_procurement, created_at FROM purchase_requests WHERE id = ?', [prId])
-  const [lots] = await pool.execute('SELECT * FROM lots WHERE resolution_id = ? ORDER BY id', [resolution.id])
-  const [items] = await pool.execute(
-    `SELECT li.lot_id, li.item_name, li.quantity, li.unit, li.unit_price FROM lot_items li
-      WHERE li.lot_id IN (${lots.map(() => '?').join(', ') || 'NULL'}) ORDER BY li.lot_id, li.pr_item_id IS NULL, li.pr_item_id, li.id`,
-    lots.map(l => l.id))
-  return { resolution, pr, lots: lots.map(l => ({ ...l, items: items.filter(i => i.lot_id === l.id) })) }
-}
 
 function sendPdf(res, filename, draw) {
   const doc = new PDFDocument({ size: 'LETTER', margin: M })
@@ -185,17 +179,14 @@ exports.resolutionPdf = asyncHandler(async (req, res) => {
 // GET /bac/:prId/resolutions/:rid/notice/:lotId - the Notice of Award to the
 // supplier of that lot, covering all their awards in the resolution.
 exports.noticePdf = asyncHandler(async (req, res) => {
-  const { resolution, pr, lots } = await resolutionOf(req.params.prId, req.params.rid)
-  const lead = lots.find(l => String(l.id) === String(req.params.lotId))
-  if (!lead) throw httpError(404, 'That award is not in this resolution')
-  const theirs = lots.filter(l => supplierKey(l.awarded_to) === supplierKey(lead.awarded_to))
-  const supplier = {
-    name: lead.awarded_to,
-    contact: theirs.find(l => l.supplier_contact)?.supplier_contact || null,
-    address: theirs.find(l => l.supplier_address)?.supplier_address || null,
-  }
-  const orgSettings = await loadOrgSettings(pool)
-  const safe = lead.awarded_to.replace(/[^A-Za-z0-9 -]/g, '').trim().replace(/\s+/g, '-').slice(0, 40) || 'Supplier'
-  sendPdf(res, `Notice-of-Award-${resolution.resolution_number}-${safe}.pdf`, (doc) =>
-    drawNotice(doc, { resolution, pr, supplier, lots: theirs, orgSettings }))
+  const n = await noticeFor(req.params.prId, req.params.rid, req.params.lotId)
+  sendPdf(res, n.filename, drawOf(n, await loadOrgSettings(pool)))
+})
+
+// POST /bac/:prId/resolutions/:rid/notice/:lotId/email - emails that supplier
+// its Notice of Award when the award's own email didn't go out (the address
+// was confirmed later, or the send failed).
+exports.emailNotice = asyncHandler(async (req, res) => {
+  const { to } = await emailNotice(req.params.prId, req.params.rid, req.params.lotId)
+  res.json({ message: `Notice of Award emailed to ${to}` })
 })

@@ -13,6 +13,7 @@ const { CATEGORIES } = require('../utils/categories')
 const drawAbstract   = require('../pdf/abstractOfQuotations')
 const { loadOrgSettings } = require('../utils/orgSettings')
 const notify = require('../utils/notify')
+const { sendAwardNotices } = require('../utils/awardNotice')
 const { awardDenied, modeMissing, bacAwards, adoptResolution, releaseIfDone } = require('../utils/bacWorkflow')
 const { sealedBlock } = require('../utils/rfqWorkflow')
 const { resolveSupplier, supplierDetails } = require('../utils/suppliers')
@@ -194,6 +195,8 @@ exports.create = asyncHandler(async (req, res) => {
       `PR ${created.pr.pr_number}: the BAC awarded it in Resolution No. ${created.resolution.resolution_number}. The purchase orders can be issued.`,
       'info', created.pr.id, 'pr')
   }
+  // The winners with a confirmed email get their Notice of Award; the rest are delivered by hand.
+  if (created.resolution) await sendAwardNotices(created.pr.id, created.resolution.id).catch(err => console.error('[award] notices:', err.message))
   res.status(201).json({ id: created.id, lot_number: created.lot_number, resolution: created.resolution, awarded_to: created.awarded_to, items: created.items })
 })
 

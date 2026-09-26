@@ -4,14 +4,15 @@ const asyncHandler    = require('../utils/asyncHandler')
 const httpError       = require('../utils/httpError')
 const withTransaction = require('../db/transaction')
 const { loadPR }      = require('../utils/prWorkflow')
-const { itemStates, cents, lineCents } = require('../utils/awardWorkflow')
+const { itemStates, cents, lineCents, supplierKey } = require('../utils/awardWorkflow')
 const { loadOrgSettings } = require('../utils/orgSettings')
 const { hashToken }   = require('../utils/rfqWorkflow')
 
 // The page a supplier opens from an RFQ email, without an account. The token
 // in the link is the only key: an unknown, replaced, or malformed one gets the
 // same 404, so tokens can't be probed. A supplier sees only this PR's items
-// still under canvass and their own earlier prices, never anyone else's.
+// and their own prices, and after the RFQ closes only their own outcome: never
+// anyone else's prices, rank, or award.
 
 // How many times one invitation may be submitted: the first time and two changes.
 const MAX_SUBMISSIONS = 3
@@ -21,7 +22,7 @@ const NOT_FOUND = 'This link is not valid. Use the link in the most recent email
 async function invitationBy(db, token, { lock = false } = {}) {
   if (typeof token !== 'string' || !/^[0-9a-f]{64}$/.test(token)) return null
   const [[inv]] = await db.execute(
-    `SELECT i.*, i.deadline > NOW() AS open, s.name AS supplier_name, s.contact_person, s.address, s.phone, s.email, s.tin
+    `SELECT i.*, i.deadline > NOW() AS open, s.name AS supplier_name, s.name_key, s.contact_person, s.address, s.phone, s.email, s.tin
        FROM rfq_invitations i JOIN suppliers s ON s.id = i.supplier_id
       WHERE i.token_hash = ?${lock ? ' FOR UPDATE' : ''}`, [hashToken(token)])
   return inv || null
@@ -29,6 +30,29 @@ async function invitationBy(db, token, { lock = false } = {}) {
 
 // Whether the supplier may still quote: the RFQ open and the PR under canvass.
 const quotable = (inv, pr) => !!Number(inv.open) && pr && !pr.deleted_at && pr.status === 'bidding' && !pr.bac_submitted_at
+
+// The supplier's own outcome once quoting has closed. Its awards show as soon
+// as the BAC makes them; "not selected" only once every item is decided, so no
+// one is told they lost while the BAC could still award them.
+async function resultFor(db, inv, pr, items) {
+  if (pr.status === 'cancelled') return { state: 'cancelled' }
+  const [lots] = await db.execute(
+    "SELECT id, quotation_id, awarded_to, awarded_amount, notice_sent_at FROM lots WHERE purchase_request_id = ? AND status = 'awarded'", [pr.id])
+  const mine = lots.filter(l => (inv.quotation_id && l.quotation_id === inv.quotation_id) || supplierKey(l.awarded_to) === inv.name_key)
+  if (mine.length) {
+    const [rows] = await db.execute(
+      `SELECT item_name, quantity, unit, unit_price FROM lot_items WHERE lot_id IN (${mine.map(() => '?').join(', ')}) ORDER BY lot_id, id`,
+      mine.map(l => l.id))
+    return {
+      state: 'awarded',
+      items: rows,
+      total: mine.reduce((s, l) => s + cents(l.awarded_amount), 0) / 100,
+      notice_emailed: mine.some(l => l.notice_sent_at),
+    }
+  }
+  const decided = !items.some(i => i.state === 'pending') && ['for_po', 'completed'].includes(pr.status)
+  return { state: decided ? 'not_selected' : 'evaluation' }
+}
 
 // GET /public/quote/:token
 exports.view = asyncHandler(async (req, res) => {
@@ -47,21 +71,24 @@ exports.view = asyncHandler(async (req, res) => {
     ? await pool.execute('SELECT delivery_period, warranty, price_validity, notes FROM quotations WHERE id = ?', [inv.quotation_id])
     : [[null]]
   const org = await loadOrgSettings(pool)
-  const pending = items.filter(i => i.state === 'pending')
+  const open = quotable(inv, pr)
+  // Open: the items still to quote. Closed: every item the PR still asks for.
+  const shown = items.filter(i => (open ? i.state === 'pending' : i.state !== 'dropped'))
   res.json({
     entity: org.entity_name || org.entity_campus || 'NEMSU',
     contact: org.entity_telefax || null,
     pr: { pr_number: pr.pr_number, purpose: prRow.title || prRow.purpose || '' },
     supplier: { name: inv.supplier_name, contact_person: inv.contact_person },
     deadline: inv.deadline,
-    open: quotable(inv, pr),
-    abc: pending.reduce((s, i) => s + lineCents(i.quantity, i.estimated_cost), 0) / 100,
-    items: pending.map(i => ({ id: i.id, item_name: i.item_name, quantity: i.quantity, unit: i.unit, group_label: i.group_label })),
+    open,
+    abc: shown.reduce((s, i) => s + lineCents(i.quantity, i.estimated_cost), 0) / 100,
+    items: shown.map(i => ({ id: i.id, item_name: i.item_name, quantity: i.quantity, unit: i.unit, group_label: i.group_label })),
     submitted_at: inv.submitted_at,
     max_submissions: MAX_SUBMISSIONS,
     changes_left: Math.max(MAX_SUBMISSIONS - inv.submit_count, 0),
     prices: Object.fromEntries(mine.map(p => [p.pr_item_id, p.unit_price])),
     terms: terms || { delivery_period: null, warranty: null, price_validity: null, notes: null },
+    result: open ? null : await resultFor(pool, inv, pr, items),
   })
 })
 
@@ -109,6 +136,8 @@ exports.submit = asyncHandler(async (req, res) => {
       prices.flatMap(p => [quotationId, p.item, p.unit_price]))
     const first = !inv.submitted_at
     await conn.execute('UPDATE rfq_invitations SET submitted_at = NOW(), submit_count = submit_count + 1, quotation_id = ? WHERE id = ?', [quotationId, inv.id])
+    // Quoting through the link proves the supplier reads that address, while it is still the one on file.
+    await conn.execute('UPDATE suppliers SET email_confirmed = email, email_confirmed_at = NOW() WHERE id = ? AND email = ?', [inv.supplier_id, inv.sent_to])
     return { inv, pr, first }
   })
   // Procurement learns that a quotation arrived, not what it says: it stays sealed until the deadline.

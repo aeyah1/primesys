@@ -16,7 +16,8 @@ const rfqEmail    = require('../emails/rfqInvitation')
 // revise until the deadline. While any invitation on a PR is still open, its
 // online quotations are sealed (prices hidden from everyone) and the canvass
 // can't be awarded or submitted to the BAC. Every send (first, resend,
-// reminder) issues a new token, so only the latest email's link works.
+// reminder) issues a new token, so only the latest email's link works, and
+// `sent_to` keeps the address it went to.
 
 const hashToken = (token) => crypto.createHash('sha256').update(String(token)).digest('hex')
 
@@ -80,7 +81,7 @@ async function sendInvitation(invitationId, { reminder = false, pdf = null } = {
       attachments: [{ filename: `RFQ ${inv.pr_number}.pdf`, content: pdf || await rfqPdfBuffer(pool, inv.purchase_request_id, org) }],
     })
     await pool.execute(
-      `UPDATE rfq_invitations SET send_error = NULL, ${reminder ? 'reminded_at' : 'sent_at'} = NOW() WHERE id = ?`, [inv.id])
+      `UPDATE rfq_invitations SET send_error = NULL, sent_to = ?, ${reminder ? 'reminded_at' : 'sent_at'} = NOW() WHERE id = ?`, [inv.email, inv.id])
     return { sent: true, error: null }
   } catch (err) {
     const error = String(err.message || err).slice(0, 300)

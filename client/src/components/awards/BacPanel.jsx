@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
-import { Scale, FileText, Send, Undo2, AlertTriangle } from 'lucide-react'
+import { Scale, FileText, Send, Undo2, AlertTriangle, Mail } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -39,6 +39,37 @@ function ReturnDialog({ prId, onClose }) {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/* ── Whether a supplier's Notice of Award was emailed, and why not ───── */
+function NoticeEmail({ prId, resolutionId, notice, canSend }) {
+  const refresh = useRefreshAwards(prId)
+  const { mutate, isPending } = useMutation({
+    mutationFn: () => api.post(`/bac/${prId}/resolutions/${resolutionId}/notice/${notice.lot_id}/email`),
+    onSuccess: ({ data }) => { toast.success(data.message); refresh() },
+    onError: (err) => { toast.error(err.response?.data?.message || 'Failed to email the notice'); refresh() },
+  })
+  if (notice.sent_at) {
+    return <span className="inline-flex items-center gap-1 text-[11px] text-emerald-700"><Mail className="size-3" /> Emailed to {notice.sent_to}, {fmtDatetime(notice.sent_at)}</span>
+  }
+  if (!notice.confirmed) {
+    return (
+      <span className="text-[11px] text-amber-700">
+        {notice.email ? `${notice.email} is not confirmed` : 'No email on the supplier list'}: deliver the notice by hand.
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2 text-[11px]">
+      {notice.error && <span className="text-red-700">Email failed: {notice.error}</span>}
+      {canSend && (
+        <button disabled={isPending} onClick={() => mutate()}
+          className="inline-flex items-center gap-1 rounded-full border border-[--color-border-strong] bg-white px-2.5 py-1 font-medium text-[--color-text-secondary] hover:border-[--color-brand] hover:text-[--color-brand] disabled:opacity-60 transition-colors">
+          <Mail className="size-3" /> {isPending ? 'Sending…' : notice.error ? 'Email again' : `Email to ${notice.email}`}
+        </button>
+      )}
+    </span>
   )
 }
 
@@ -125,13 +156,19 @@ export default function BacPanel({ prId, part = 'status' }) {
               )}
             </div>
             {can.print && (
-              <div className="flex flex-wrap gap-2">
-                {suppliers.map(l => (
-                  <button key={l.id} onClick={() => print(`/bac/${prId}/resolutions/${r.id}/notice/${l.id}`, 'Notice of Award')}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-[--color-border-strong] bg-white px-2.5 py-1 text-[11px] font-medium text-[--color-text-secondary] hover:border-[--color-brand] hover:text-[--color-brand] transition-colors">
-                    <FileText className="size-3" /> Notice of Award: {l.awarded_to}
-                  </button>
-                ))}
+              <div className="space-y-1.5">
+                {suppliers.map(l => {
+                  const notice = r.notices?.find(n => nameKey(n.awarded_to) === nameKey(l.awarded_to))
+                  return (
+                    <div key={l.id} className="flex flex-wrap items-center gap-2">
+                      <button onClick={() => print(`/bac/${prId}/resolutions/${r.id}/notice/${l.id}`, 'Notice of Award')}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-[--color-border-strong] bg-white px-2.5 py-1 text-[11px] font-medium text-[--color-text-secondary] hover:border-[--color-brand] hover:text-[--color-brand] transition-colors">
+                        <FileText className="size-3" /> Notice of Award: {l.awarded_to}
+                      </button>
+                      {notice && <NoticeEmail prId={prId} resolutionId={r.id} notice={notice} canSend={can.email_notice} />}
+                    </div>
+                  )
+                })}
               </div>
             )}
           </div>
