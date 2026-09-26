@@ -14,6 +14,7 @@ const rateLimit = require('express-rate-limit')
 const { ipKeyGenerator } = require('express-rate-limit')
 const cron      = require('node-cron')
 const { sendDueReminders } = require('./controllers/reminders.controller')
+const { sendRfqReminders } = require('./utils/rfqWorkflow')
 const { loadUserState, tokenRevoked } = require('./middleware/auth.middleware')
 
 const app    = express()
@@ -91,6 +92,9 @@ app.use('/api/reminders',     require('./routes/reminders.routes'))
 app.use('/api/reports',       require('./routes/reports.routes'))
 app.use('/api/twg',           require('./routes/twg.routes'))
 app.use('/api/bac',           require('./routes/bac.routes'))
+app.use('/api/suppliers',     require('./routes/suppliers.routes'))
+// Reached from emailed RFQ links, without an account (routes/public.routes.js has its own limits).
+app.use('/api/public',        require('./routes/public.routes'))
 
 app.use((err, req, res, next) => {
   // Client-facing 4xx errors (status set explicitly, e.g. a workflow rule
@@ -142,6 +146,11 @@ cron.schedule('* * * * *', async () => {
     await sendDueReminders()
   } catch (err) {
     console.error('[cron] sendDueReminders failed:', err.message)
+  }
+  try {
+    await sendRfqReminders()
+  } catch (err) {
+    console.error('[cron] sendRfqReminders failed:', err.message)
   }
 })
 

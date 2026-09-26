@@ -47,6 +47,16 @@ router.patch('/:prId/quotations/:qid/qualification', authorize('bac'), prAccess,
   textRule('reason', 'Reason', 500),
   handle,
   c.setQualification)
+// RFQs emailed to suppliers on the master list (controllers/rfq.controller.js).
+const rfq = require('../controllers/rfq.controller')
+router.post('/:prId/rfq', staff, prAccess,
+  body('supplier_ids').isArray({ min: 1, max: 50 }).withMessage('Choose at least one supplier'),
+  body('supplier_ids.*').isInt({ min: 1 }).withMessage('Unknown supplier').toInt(),
+  textRule('deadline', 'Deadline', 16),
+  handle,
+  rfq.invite)
+router.post('/:prId/rfq/:invId/resend', staff, prAccess, rfq.resend)
+router.patch('/:prId/rfq/deadline', staff, prAccess, textRule('deadline', 'Deadline', 16, { required: true }), handle, rfq.extend)
 router.post('/:prId/items/:itemId/drop', staff, prAccess, textRule('reason', 'Reason', 500), handle, c.dropItem)
 router.post('/:prId/items/:itemId/restore', staff, prAccess, c.restoreItem)
 

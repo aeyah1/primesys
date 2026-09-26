@@ -244,12 +244,37 @@ CREATE TABLE `twg_assignments` (
   CONSTRAINT `fk_twg_assignments_by`   FOREIGN KEY (`assigned_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Suppliers
+-- The master list Procurement keeps, one row per supplier (name_key: lower
+-- case, single spaces), marked active or blacklisted. RFQs are emailed to them.
+CREATE TABLE `suppliers` (
+  `id`             INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `name`           VARCHAR(200) NOT NULL,
+  `name_key`       VARCHAR(200) NOT NULL,
+  `tin`            VARCHAR(50)  NULL,
+  `address`        TEXT         NULL,
+  `contact_person` VARCHAR(100) NULL,
+  `email`          VARCHAR(150) NULL,
+  `phone`          VARCHAR(50)  NULL,
+  `philgeps_no`    VARCHAR(50)  NULL,
+  `status`         ENUM('active','blacklisted') NOT NULL DEFAULT 'active',
+  `status_note`    VARCHAR(500) NULL,
+  `created_by`     INT UNSIGNED NOT NULL,
+  `created_at`     TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`     TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_supplier_name_key` (`name_key`),
+  CONSTRAINT `fk_suppliers_user` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Canvass: quotations
 -- Each supplier's quoted unit price per PR item, for the Abstract of
 -- Quotations and the award. Items a supplier didn't quote have no row.
 CREATE TABLE `quotations` (
   `id`                  INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `purchase_request_id` INT UNSIGNED NOT NULL,
+  `supplier_id`         INT UNSIGNED NULL,   -- from the master list, when known
+  `source`              ENUM('manual','online') NOT NULL DEFAULT 'manual',   -- typed in, or sent by the supplier
   `supplier_name`       VARCHAR(200) NOT NULL,
   `supplier_contact`    VARCHAR(100) NULL,
   `supplier_address`    TEXT         NULL,
@@ -258,6 +283,10 @@ CREATE TABLE `quotations` (
   `supplier_tin`        VARCHAR(50)  NULL,
   `quoted_at`           DATE         NULL,
   `notes`               TEXT         NULL,
+  -- The terms the RFQ asks the supplier to state.
+  `delivery_period`     VARCHAR(100) NULL,
+  `warranty`            VARCHAR(100) NULL,
+  `price_validity`      VARCHAR(100) NULL,
   -- Set by the BAC when the offer fails the specifications; it can't be awarded.
   `disqualified_reason` VARCHAR(500) NULL,
   `disqualified_by`     INT UNSIGNED NULL,
@@ -266,6 +295,8 @@ CREATE TABLE `quotations` (
   `updated_at`          TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_quotations_pr_id` (`purchase_request_id`),
+  KEY `idx_quotations_supplier` (`supplier_id`),
+  CONSTRAINT `fk_quotations_supplier` FOREIGN KEY (`supplier_id`) REFERENCES `suppliers` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_quotations_pr`   FOREIGN KEY (`purchase_request_id`) REFERENCES `purchase_requests` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_quotations_user` FOREIGN KEY (`created_by`)          REFERENCES `users` (`id`),
   CONSTRAINT `fk_quotations_disqualified_by` FOREIGN KEY (`disqualified_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
@@ -279,6 +310,34 @@ CREATE TABLE `quotation_items` (
   KEY `idx_quotation_items_pr_item` (`pr_item_id`),
   CONSTRAINT `fk_quotation_items_quotation` FOREIGN KEY (`quotation_id`) REFERENCES `quotations` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_quotation_items_pr_item`   FOREIGN KEY (`pr_item_id`)   REFERENCES `pr_items` (`id`)   ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- RFQs emailed to suppliers
+-- One per supplier per PR. The email carries a random token (only its SHA-256
+-- is kept); the supplier answers through that link, without an account, and
+-- may revise until the deadline. Online quotations stay sealed until then.
+CREATE TABLE `rfq_invitations` (
+  `id`                  INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `purchase_request_id` INT UNSIGNED NOT NULL,
+  `supplier_id`         INT UNSIGNED NOT NULL,
+  `token_hash`          CHAR(64)     NOT NULL,
+  `deadline`            DATETIME     NOT NULL,
+  `sent_at`             DATETIME     NULL,
+  `send_error`          VARCHAR(300) NULL,
+  `reminded_at`         DATETIME     NULL,
+  `opened_at`           DATETIME     NULL,
+  `submitted_at`        DATETIME     NULL,
+  `quotation_id`        INT UNSIGNED NULL,
+  `created_by`          INT UNSIGNED NOT NULL,
+  `created_at`          TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_rfq_token` (`token_hash`),
+  UNIQUE KEY `uq_rfq_pr_supplier` (`purchase_request_id`, `supplier_id`),
+  KEY `idx_rfq_due` (`submitted_at`, `reminded_at`, `deadline`),
+  CONSTRAINT `fk_rfq_pr`        FOREIGN KEY (`purchase_request_id`) REFERENCES `purchase_requests` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_rfq_supplier`  FOREIGN KEY (`supplier_id`)         REFERENCES `suppliers` (`id`),
+  CONSTRAINT `fk_rfq_quotation` FOREIGN KEY (`quotation_id`)        REFERENCES `quotations` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_rfq_user`      FOREIGN KEY (`created_by`)          REFERENCES `users` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Lots & awards

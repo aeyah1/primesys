@@ -14,6 +14,7 @@ const drawAbstract   = require('../pdf/abstractOfQuotations')
 const { loadOrgSettings } = require('../utils/orgSettings')
 const notify = require('../utils/notify')
 const { awardDenied, modeMissing, bacAwards, adoptResolution, releaseIfDone } = require('../utils/bacWorkflow')
+const { sealedBlock } = require('../utils/rfqWorkflow')
 
 // The lot and its PR's facts; with `lock` (inside a transaction), the PR row
 // first and then the lot, the same order as every other award write.
@@ -141,7 +142,7 @@ exports.create = asyncHandler(async (req, res) => {
     const blocked = awardBlock(pr)
     if (blocked) throw httpError(blocked.status, blocked.message)
     const bacOn = await bacAwards(conn)
-    const denied = awardDenied(req.user, pr, bacOn)
+    const denied = awardDenied(req.user, pr, bacOn) || await sealedBlock(conn, pr.id)
     if (denied) throw httpError(denied.status, denied.message)
 
     const { items } = await itemStates(conn, pr.id)
@@ -405,6 +406,9 @@ exports.generateAbstract = asyncHandler(async (req, res) => {
       LEFT JOIN quarters q ON q.id = pr.quarter_id
      WHERE pr.id = ?`, [prId])
   if (!pr) return res.status(404).json({ message: 'PR not found' })
+  // The comparison would show sealed prices, so it waits for the RFQ deadline.
+  const sealed = await sealedBlock(pool, prId)
+  if (sealed) return res.status(sealed.status).json({ message: sealed.message })
 
   const [quotes] = await pool.execute('SELECT * FROM quotations WHERE purchase_request_id = ? ORDER BY id', [prId])
   const [prices] = await pool.execute(
