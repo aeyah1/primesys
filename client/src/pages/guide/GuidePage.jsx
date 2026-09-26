@@ -131,17 +131,18 @@ function RoleGuide({ role }) {
   if (role === 'bac') return (
     <div className="space-y-4 pt-3">
       <p className="text-sm text-[--color-text-secondary] leading-relaxed">
-        As a member of the <strong>Bids and Awards Committee (BAC)</strong>, you approve the awards Procurement
-        recommends before any Purchase Order is issued.
+        As a member of the <strong>Bids and Awards Committee (BAC)</strong>, you evaluate the suppliers' quotations
+        and make the award. Procurement, as your Secretariat, gathers the quotations for you.
       </p>
       <div className="space-y-1">
-        <Step number={1} icon={ClipboardCheck} title="Open For Approval"    description="PRs with a recommended award wait under For Approval, your home page, the oldest first, with the suppliers, the amount and the mode of procurement. You are notified when one arrives." />
-        <Step number={2} icon={Eye}            title="Review the canvass"    description="Open the PR. Canvass & Awards shows each supplier's quoted prices and who each item is recommended to. Print the Abstract of Quotations to compare them side by side." />
-        <Step number={3} icon={CheckCircle}    title="Approve"               description="Click Approve, set the resolution date, and add any notes. The awards become final in a numbered BAC Resolution, and Procurement can issue the Purchase Orders." />
-        <Step number={4} icon={RotateCcw}      title="Or return it"          description="If something needs to change, click Return and give the reason. The recommendation is cancelled and kept on record, and Procurement canvasses those items again." />
-        <Step number={5} icon={Download}       title="Print the documents"   description="Each resolution on the PR prints the BAC Resolution and a Notice of Award for every supplier in it." />
+        <Step number={1} icon={ClipboardCheck} title="Open For Evaluation"  description="Canvasses Procurement submitted wait here, your home page, the oldest first, with how many quotations each has. You are notified when one arrives." />
+        <Step number={2} icon={Eye}            title="Compare the offers"   description="Open the request. The canvass lists each supplier's quotation; print the Abstract of Quotations to compare them item by item." />
+        <Step number={3} icon={XCircle}        title="Mark failed offers"   description="If an offer does not meet the specifications, click Fails specs and give the reason. It can't be awarded, doesn't count as the lowest, and the reason prints on the Abstract and the BAC Resolution." />
+        <Step number={4} icon={CheckCircle}    title="Award"                description="Click Award from Quotations: each item starts on the lowest compliant price, and choosing another needs a reason. Set the mode of procurement first if it is blank. The award is a numbered BAC Resolution, and Procurement can then issue the purchase orders." />
+        <Step number={5} icon={RotateCcw}      title="Or return it"         description="If the canvass is not ready, for example a third quotation is needed, click Return to Procurement with the reason. Procurement fixes it and submits it again." />
+        <Step number={6} icon={Download}       title="Print the documents"  description="Each resolution on the request prints the BAC Resolution and a Notice of Award for every supplier in it." />
       </div>
-      <Tip>You approve or return all of a PR's waiting recommendations together. The BAC can also set the mode of procurement until a supplier is awarded.</Tip>
+      <Tip>You can award some items now and the rest later; the request stays with you until every item is awarded or you return it.</Tip>
     </div>
   )
 
@@ -153,7 +154,7 @@ function RoleGuide({ role }) {
       </p>
       <div className="space-y-1">
         <Step number={1} icon={Eye}          title="Canvass approved PRs"    description="Your Work Queue opens on To canvass: every request the TWG approved, the longest waiting first, with category filters. Click Start canvass and the request's canvass opens right there." />
-        <Step number={2} icon={Gavel}        title="Record the award"        description="In the canvass (from the Work Queue or the request page), click Add Quotation for each supplier's prices, then Award from Quotations: each item goes to the lowest price, and different items can go to different suppliers. Without quotations, use Record Award by Hand. An award can't exceed the approved budget of its items. When the BAC's approval is required, set the mode of procurement first: your award is then a recommendation until the BAC approves it. Once every item is awarded (or dropped, with a reason), the PR is Ready for PO." />
+        <Step number={2} icon={Gavel}        title="Gather the quotations"  description="In the canvass (from the Work Queue or the request page), send the RFQ and click Add Quotation for each supplier's prices. Set the mode of procurement. When the quotations are in, click Submit to the BAC: it evaluates them and makes the award in a BAC Resolution, or returns the canvass to you with a reason. (If the BAC switch is off in Settings, you award directly.)" />
         <Step number={3} icon={ShoppingCart} title="Issue a Purchase Order"  description="Each supplier awarded gets its own PO. Under Purchase Orders on the PR, set the dates and click Issue PO for each supplier. A supplier's PO can go out while other items are still being canvassed. Supply and the requestor are notified." />
         <Step number={4} icon={Truck}        title="Track delivery"          description="Supply records how many of each item arrived, and you can record a delivery from the PR page or the Purchase Orders page too. The Overdue tab on Purchase Orders lists every PO past its expected date. If the supplier gives a new date, click Change Expected Date on the PO and give the reason; the requestor and supply are told. Once every PO is fully delivered, and no item is left to award, the PR is Completed automatically." />
         <Step number={5} icon={XCircle}      title="If a supplier backs out" description="Before anything is delivered, click Cancel PO on that supplier's PO, with a reason. Only its items go back to canvass for a new award; other suppliers' POs stay." />

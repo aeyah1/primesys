@@ -73,7 +73,7 @@ export default function RecordAwardDialog({ pr, open, onClose }) {
   const { mutate, isPending } = useMutation({
     mutationFn: (body) => api.post('/lots', body),
     onSuccess: ({ data }) => {
-      toast.success(`${data.lot_number} ${data.status === 'recommended' ? 'recommended to the BAC for award to' : 'awarded to'} ${data.awarded_to}${data.items ? `, for ${plural(data.items, 'item')}` : ''}`)
+      toast.success(`${data.lot_number} awarded to ${data.awarded_to}${data.resolution ? ` (BAC Resolution No. ${data.resolution.resolution_number})` : ''}${data.items ? `, for ${plural(data.items, 'item')}` : ''}`)
       refresh()
       onClose()
     },

@@ -20,8 +20,8 @@ export default function AwardFromQuotesDialog({ pr, items, quotations, open, onC
   const prId = String(pr.id)
   const refresh = useRefreshAwards(prId)
   const pending = items.filter(i => i.state === 'pending')
-  // Only quotations that price something still to award.
-  const quotes = quotations.filter(q => pending.some(i => q.prices[i.id] != null))
+  // Only quotations that price something still to award, and that the BAC did not find failing the specs.
+  const quotes = quotations.filter(q => !q.disqualified_reason && pending.some(i => q.prices[i.id] != null))
 
   // How many quotations the campus expects before an award (Settings >
   // Organization). Three unless it says otherwise.
@@ -63,7 +63,7 @@ export default function AwardFromQuotesDialog({ pr, items, quotations, open, onC
   const { mutate, isPending } = useMutation({
     mutationFn: (body) => api.post(`/canvass/${prId}/award`, body),
     onSuccess: ({ data }) => {
-      toast.success(`${plural(data.lots.length, 'award')} ${data.status === 'recommended' ? 'recommended to the BAC' : 'recorded'}: ${data.lots.map(l => l.awarded_to).join(', ')}`)
+      toast.success(`${plural(data.lots.length, 'award')} made${data.resolution ? ` in BAC Resolution No. ${data.resolution.resolution_number}` : ''}: ${data.lots.map(l => l.awarded_to).join(', ')}`)
       refresh()
       onClose()
     },

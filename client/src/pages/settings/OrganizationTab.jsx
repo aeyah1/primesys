@@ -204,8 +204,8 @@ export default function OrganizationTab() {
             <CardTitle>Bids and Awards Committee</CardTitle>
           </div>
           <CardDescription>
-            Give BAC members the BAC role in User Management; they approve or return the awards
-            Procurement recommends.
+            Give BAC members the BAC role in User Management; they evaluate the quotations Procurement submits
+            and make the award.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -214,10 +214,10 @@ export default function OrganizationTab() {
               checked={form.bac_approval_required === '1'}
               onChange={e => setF('bac_approval_required', e.target.checked ? '1' : '0')} />
             <span>
-              <span className="block text-ui-sm font-semibold text-[--color-text-primary]">Awards need the BAC's approval</span>
+              <span className="block text-ui-sm font-semibold text-[--color-text-primary]">The BAC evaluates and awards</span>
               <span className="block text-[11px] text-[--color-text-muted] mt-0.5">
-                An award becomes a recommendation until the BAC approves it in a resolution, and no purchase
-                order can be issued before that. Turned off, Procurement's awards are final at once.
+                Procurement records the quotations and submits them to the BAC, which evaluates them and awards in a
+                BAC Resolution. Turned off, Procurement awards directly.
               </span>
             </span>
           </label>

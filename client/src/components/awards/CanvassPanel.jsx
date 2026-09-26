@@ -53,15 +53,42 @@ function DropItemDialog({ prId, item, onClose }) {
   )
 }
 
+/* ── The BAC marks an offer as failing the specifications, with the reason ── */
+function FailSpecsDialog({ prId, quotation, onClose }) {
+  const refresh = useRefreshAwards(prId)
+  const [reason, setReason] = useState('')
+  const { mutate, isPending } = useMutation({
+    mutationFn: () => api.patch(`/canvass/${prId}/quotations/${quotation.id}/qualification`, { disqualified: true, reason: reason.trim() }),
+    onSuccess: () => { toast.success(`${quotation.supplier_name}: marked as failing the specifications`); refresh(); onClose() },
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed to mark the offer'),
+  })
+  return (
+    <Dialog open onOpenChange={v => { if (!v) onClose() }}>
+      <DialogContent title="Fails the Specifications">
+        <div className="space-y-3">
+          <p className="text-sm text-[--color-text-secondary]">
+            <span className="font-semibold text-[--color-text-primary]">{quotation.supplier_name}</span>'s offer won't be awarded or count as the lowest.
+            The reason prints on the Abstract and the BAC Resolution.
+          </p>
+          <div className="space-y-1.5">
+            <Label>Reason <span className="text-red-600 text-xs">*</span></Label>
+            <textarea value={reason} onChange={e => setReason(e.target.value)} rows={3} maxLength={500} autoFocus
+              placeholder="e.g. Offered 8GB RAM; the specifications require 16GB"
+              className="w-full rounded-md border border-[--color-border] bg-[--color-surface] px-3 py-2 text-sm text-[--color-text-primary] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent resize-y" />
+          </div>
+        </div>
+        <DialogFooter className="px-0 pb-0 pt-6">
+          <Button variant="outline" onClick={onClose} disabled={isPending}>Cancel</Button>
+          <Button variant="danger" disabled={isPending || !reason.trim()} onClick={() => mutate()}>
+            {isPending ? 'Saving…' : 'Mark as failing'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function ItemStatus({ item }) {
-  if (item.state === 'recommended') {
-    return (
-      <span className="inline-flex flex-wrap items-center gap-x-1.5 rounded-full border border-indigo-300 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-800">
-        {item.awarded_to}{item.lot_number ? `, ${item.lot_number}` : ''}, for BAC approval
-        {item.awarded_price != null && <span className="font-normal">at {fmtCurrency(item.awarded_price)}</span>}
-      </span>
-    )
-  }
   if (item.state === 'awarded') {
     return (
       <span className="inline-flex flex-wrap items-center gap-x-1.5 rounded-full border border-blue-300 bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-800">
@@ -93,6 +120,7 @@ export default function CanvassPanel({ pr }) {
   const [fromQuotes, setFromQuotes] = useState(false)
   const [manual, setManual]       = useState(false)
   const [dropping, setDropping]   = useState(null)    // the item being dropped
+  const [failing, setFailing]     = useState(null)    // the quotation the BAC is marking as failing the specs
 
   const { data: canvass, isLoading } = useQuery({
     queryKey: ['canvass', prId],
@@ -113,6 +141,11 @@ export default function CanvassPanel({ pr }) {
     onSuccess: () => { toast.success('Item brought back to canvass'); refresh() },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to bring the item back'),
   })
+  const { mutate: requalify } = useMutation({
+    mutationFn: (q) => api.patch(`/canvass/${prId}/quotations/${q.id}/qualification`, { disqualified: false }),
+    onSuccess: () => { toast.success('Mark cleared'); refresh() },
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed to clear the mark'),
+  })
 
   if (isLoading || !canvass) return <div className="space-y-2">{Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-12" />)}</div>
 
@@ -120,30 +153,34 @@ export default function CanvassPanel({ pr }) {
   const pending  = items.filter(i => i.state === 'pending')
   const awarded  = items.filter(i => i.state === 'awarded').length
   const dropped  = items.filter(i => i.state === 'dropped').length
-  const withBac  = items.filter(i => i.state === 'recommended').length
-  const suppliers = new Set(lots.filter(l => ['awarded', 'recommended'].includes(l.status)).map(l => l.awarded_to.trim().toLowerCase())).size
-  const quotesForPending = quotations.filter(q => pending.some(i => q.prices[i.id] != null))
+  const suppliers = new Set(lots.filter(l => l.status === 'awarded').map(l => l.awarded_to.trim().toLowerCase())).size
+  // Offers that can win: they price an item still to award and met the specs.
+  const quotesForPending = quotations.filter(q => !q.disqualified_reason && pending.some(i => q.prices[i.id] != null))
 
   return (
     <div className="space-y-5">
+      {/* Where the canvass stands with the BAC: submit, return, and its resolutions */}
+      <BacPanel prId={prId} />
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-[--color-text-secondary]">
           <span className="font-semibold text-[--color-text-primary]">{awarded} of {items.length - dropped}</span> items awarded
-          {withBac > 0 && `, ${withBac} with the BAC`}
           {dropped > 0 && `, ${dropped} dropped`}
           {suppliers > 0 && `, from ${plural(suppliers, 'supplier')}`}
         </p>
-        {can.canvass && (
+        {(can.canvass || can.award) && (
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setQuote({ quotation: null })}>
-              <FilePlus className="size-3.5" /> Add Quotation
-            </Button>
-            {pending.length > 0 && quotesForPending.length > 0 && (
+            {can.canvass && (
+              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setQuote({ quotation: null })}>
+                <FilePlus className="size-3.5" /> Add Quotation
+              </Button>
+            )}
+            {can.award && pending.length > 0 && quotesForPending.length > 0 && (
               <Button size="sm" className="gap-1.5" onClick={() => setFromQuotes(true)}>
                 <Trophy className="size-3.5" /> Award from Quotations
               </Button>
             )}
-            {pending.length > 0 && (
+            {can.award && pending.length > 0 && (
               <Button size="sm" variant={quotesForPending.length ? 'secondary' : 'primary'} className="gap-1.5" onClick={() => setManual(true)}>
                 {!quotesForPending.length && <Trophy className="size-3.5" />} Record Award{quotesForPending.length ? ' by Hand' : ''}
               </Button>
@@ -216,7 +253,21 @@ export default function CanvassPanel({ pr }) {
                       {q.quoted_at ? `Quoted ${fmtDate(q.quoted_at)}, ` : ''}{plural(priced.length, 'item')} for {fmtCurrency(total / 100)}
                       {q.notes ? `. ${q.notes}` : ''}
                     </p>
+                    {q.disqualified_reason && (
+                      <p className="mt-1 inline-block rounded-md border border-red-300 bg-red-50 px-2 py-0.5 text-[11px] text-red-800">
+                        <span className="font-semibold">Failed the specifications:</span> {q.disqualified_reason}
+                      </p>
+                    )}
                   </div>
+                  {can.disqualify && !q.locked && (
+                    q.disqualified_reason ? (
+                      <Button size="sm" variant="ghost" className="text-xs" onClick={() => requalify(q)}>Clear mark</Button>
+                    ) : (
+                      <Button size="sm" variant="outline" className="text-xs text-red-600 hover:text-red-700 hover:border-red-300" onClick={() => setFailing(q)}>
+                        Fails specs
+                      </Button>
+                    )
+                  )}
                   {q.locked ? (
                     <span className="inline-flex items-center gap-1 rounded-full border border-[--color-border-strong] px-2 py-0.5 text-[11px] font-medium text-[--color-text-secondary]"
                       title="An item it prices is awarded, so it is kept as it is for the Abstract of Quotations">
@@ -249,13 +300,11 @@ export default function CanvassPanel({ pr }) {
       {/* The awards, by supplier */}
       <AwardList lots={lots} canManage={canManage} prStatus={pr.status} />
 
-      {/* The BAC's approval of recommended awards, and its resolutions */}
-      <BacPanel prId={prId} />
-
       {quote && <QuotationDialog pr={pr} items={items} quotation={quote.quotation} open onClose={() => setQuote(null)} />}
       {fromQuotes && <AwardFromQuotesDialog pr={pr} items={items} quotations={quotations} open onClose={() => setFromQuotes(false)} />}
       <RecordAwardDialog pr={pr} open={manual} onClose={() => setManual(false)} />
       {dropping && <DropItemDialog prId={prId} item={dropping} onClose={() => setDropping(null)} />}
+      {failing && <FailSpecsDialog prId={prId} quotation={failing} onClose={() => setFailing(null)} />}
     </div>
   )
 }

@@ -12,12 +12,12 @@ import { openPdf, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
 
 const VIEWS = [
-  { key: 'pending',  label: 'Waiting for approval', empty: 'No recommended awards are waiting for the BAC.' },
+  { key: 'pending',  label: 'To evaluate',  empty: 'No canvass is waiting for the BAC.' },
   { key: 'approved', label: 'Resolutions',          empty: 'The BAC has not approved any awards yet.' },
 ]
 
-// The Bids and Awards Committee's queue: PRs whose recommended awards wait for
-// its approval, and the resolutions made. Deciding happens on the PR page.
+// The Bids and Awards Committee's queue: canvasses Procurement submitted for
+// its evaluation, and the resolutions it adopted. The award is made on the PR page.
 export default function BacApprovals() {
   const [view, setView]     = useState('pending')
   const [search, setSearch] = useState('')
@@ -37,9 +37,9 @@ export default function BacApprovals() {
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h2 className="text-ui-2xl font-bold text-[--color-text-primary]">BAC Approvals</h2>
+          <h2 className="text-ui-2xl font-bold text-[--color-text-primary]">For Evaluation</h2>
           <p className="text-ui-sm text-[--color-text-secondary] mt-0.5">
-            Awards recommended by Procurement wait here for the Bids and Awards Committee
+            Canvasses Procurement submitted: evaluate the quotations and make the award
           </p>
         </div>
         <div className="relative max-w-72">
@@ -86,11 +86,9 @@ export default function BacApprovals() {
                     </div>
                     {row.title && <p className="text-ui-sm text-[--color-text-primary] mt-1 line-clamp-2">{row.title}</p>}
                     <p className="text-[10px] text-[--color-text-muted] mt-1.5">
-                      {row.suppliers}
-                      {' · '}<span className="font-semibold text-[--color-text-secondary]">{fmtCurrency(row.total)}</span>
                       {view === 'pending'
-                        ? <>{' · '}{row.mode_of_procurement || 'No mode set'}{' · '}Recommended {fmtDatetime(row.since)}</>
-                        : <>{' · '}Approved {fmtDate(row.resolved_on)} by {row.approved_by_name}</>}
+                        ? <>{row.quotations} quotation{Number(row.quotations) === 1 ? '' : 's'} · {row.items} item{Number(row.items) === 1 ? '' : 's'} · budget <span className="font-semibold text-[--color-text-secondary]">{fmtCurrency(row.total)}</span>{' · '}{row.mode_of_procurement || 'No mode set'}{' · '}Submitted {fmtDatetime(row.since)}</>
+                        : <>{row.suppliers}{' · '}<span className="font-semibold text-[--color-text-secondary]">{fmtCurrency(row.total)}</span>{' · '}Awarded {fmtDate(row.resolved_on)} by {row.approved_by_name}</>}
                     </p>
                   </Link>
                   <div className="flex items-center gap-2 shrink-0">
