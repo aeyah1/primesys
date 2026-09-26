@@ -42,7 +42,8 @@ CREATE TABLE `departments` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Users
--- Public sign-up always creates a requestor; admins assign every other role.
+-- Public sign-up always creates a requestor; admins assign every other role
+-- (bac: a member of the Bids and Awards Committee, who approves awards).
 CREATE TABLE `users` (
   `id`                         INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `name`                       VARCHAR(100) NOT NULL,
@@ -53,7 +54,7 @@ CREATE TABLE `users` (
   `username`                   VARCHAR(50)  NULL,
   `email`                      VARCHAR(150) NOT NULL,
   `password_hash`              VARCHAR(255) NOT NULL,
-  `role`                       ENUM('admin','procurement','requestor','supply','twg') NOT NULL DEFAULT 'requestor',
+  `role`                       ENUM('admin','procurement','requestor','supply','twg','bac') NOT NULL DEFAULT 'requestor',
   `is_active`                  TINYINT(1)   NOT NULL DEFAULT 1,
   `is_verified`                TINYINT(1)   NOT NULL DEFAULT 0,
   -- Sign-in tokens carry this number; changing or resetting the password
@@ -274,13 +275,16 @@ CREATE TABLE `quotation_items` (
 -- A lot records the supplier awarded some of a PR's items (lot_items with
 -- pr_item_id; different items may go to different suppliers), maybe from a
 -- quotation, and the purchase order issued for it (po_id, one supplier's POs).
+-- While awards need BAC approval (org_settings.bac_approval_required) a new
+-- award is 'recommended' until the BAC approves it in a resolution
+-- (resolution_id), and only an 'awarded' lot can get a purchase order.
 CREATE TABLE `lots` (
   `id`                  INT UNSIGNED  NOT NULL AUTO_INCREMENT,
   `purchase_request_id` INT UNSIGNED  NOT NULL,
   `lot_number`          VARCHAR(20)   NOT NULL,
   `title`               VARCHAR(200)  NULL,
   `description`         TEXT          NULL,
-  `status`              ENUM('draft','open','closed','awarded','cancelled') NOT NULL DEFAULT 'draft',
+  `status`              ENUM('draft','open','closed','recommended','awarded','cancelled') NOT NULL DEFAULT 'draft',
   `opening_date`        DATE          NULL,
   `closing_date`        DATE          NULL,
   `awarded_to`          VARCHAR(200)  NULL,
@@ -294,7 +298,8 @@ CREATE TABLE `lots` (
   -- Why this was awarded on fewer quotations than the campus expects.
   `few_quotations_reason` VARCHAR(500) NULL,
   `quotation_id`        INT UNSIGNED  NULL,
-  `po_id`               INT UNSIGNED  NULL,   -- FK added after purchase_orders, below
+  `resolution_id`       INT UNSIGNED  NULL,   -- FK added after bac_resolutions, below
+  `po_id`              INT UNSIGNED  NULL,   -- FK added after purchase_orders, below
   `created_by`          INT UNSIGNED  NOT NULL,
   `created_at`          TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at`          TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -303,6 +308,7 @@ CREATE TABLE `lots` (
   KEY `idx_lots_status` (`status`),
   KEY `idx_lots_quotation_id` (`quotation_id`),
   KEY `idx_lots_po_id` (`po_id`),
+  KEY `idx_lots_resolution_id` (`resolution_id`),
   CONSTRAINT `fk_lots_pr`        FOREIGN KEY (`purchase_request_id`) REFERENCES `purchase_requests` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_lots_user`      FOREIGN KEY (`created_by`)          REFERENCES `users` (`id`),
   CONSTRAINT `fk_lots_quotation` FOREIGN KEY (`quotation_id`)        REFERENCES `quotations` (`id`) ON DELETE SET NULL
@@ -324,6 +330,27 @@ CREATE TABLE `lot_items` (
   CONSTRAINT `fk_lot_items_lot`     FOREIGN KEY (`lot_id`)     REFERENCES `lots` (`id`)     ON DELETE CASCADE,
   CONSTRAINT `fk_lot_items_pr_item` FOREIGN KEY (`pr_item_id`) REFERENCES `pr_items` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- BAC resolutions
+-- One per approval of a PR's recommended awards, numbered per year (2026-001).
+-- Printed as the BAC Resolution; each supplier's awards in it as a Notice of Award.
+CREATE TABLE `bac_resolutions` (
+  `id`                  INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `resolution_number`   VARCHAR(30)  NOT NULL,
+  `purchase_request_id` INT UNSIGNED NOT NULL,
+  `resolved_on`         DATE         NOT NULL,
+  `notes`               TEXT         NULL,
+  `approved_by`         INT UNSIGNED NOT NULL,
+  `created_at`          TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_resolution_number` (`resolution_number`),
+  KEY `idx_bac_resolutions_pr` (`purchase_request_id`),
+  CONSTRAINT `fk_bac_resolutions_pr`   FOREIGN KEY (`purchase_request_id`) REFERENCES `purchase_requests` (`id`),
+  CONSTRAINT `fk_bac_resolutions_user` FOREIGN KEY (`approved_by`)         REFERENCES `users` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE `lots`
+  ADD CONSTRAINT `fk_lots_resolution` FOREIGN KEY (`resolution_id`) REFERENCES `bac_resolutions` (`id`) ON DELETE SET NULL;
 
 -- Purchase orders
 -- One PO per supplier's awards (lots.po_id), so a PR can have several active
@@ -511,4 +538,10 @@ INSERT INTO `org_settings` (`setting_key`, `setting_value`) VALUES
   ('canvasser_name',                NULL),
   ('canvasser_designation',         'Canvasser'),
   -- How many supplier quotations the campus expects before an award.
-  ('minimum_quotations',            '3');
+  ('minimum_quotations',            '3'),
+  -- Awards wait for the BAC's approval ('1'), and the committee as it prints
+  -- on the BAC Resolution (bac_members: one name per line).
+  ('bac_approval_required',         '1'),
+  ('bac_chairman_name',             NULL),
+  ('bac_chairman_designation',      'BAC Chairman'),
+  ('bac_members',                   NULL);

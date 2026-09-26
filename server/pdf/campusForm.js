@@ -33,6 +33,30 @@ const fmtDate = (d) => {
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString('en-PH', { year: 'numeric', month: 'long', day: 'numeric' })
 }
 
+// "Forty-Seven Thousand Nine Hundred Pesos and 00/100" - a purchase order (and a notice of award)
+// states its total in words as well as figures, so the amount cannot be altered
+// after signing.
+const ONES = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten',
+  'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen']
+const TENS = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety']
+
+function inWords(n) {
+  if (n < 20) return ONES[n]
+  if (n < 100) return TENS[Math.floor(n / 10)] + (n % 10 ? `-${ONES[n % 10]}` : '')
+  if (n < 1000) return `${ONES[Math.floor(n / 100)]} Hundred${n % 100 ? ` ${inWords(n % 100)}` : ''}`
+  for (const [size, name] of [[1e9, 'Billion'], [1e6, 'Million'], [1e3, 'Thousand']]) {
+    if (n >= size) return `${inWords(Math.floor(n / size))} ${name}${n % size ? ` ${inWords(n % size)}` : ''}`
+  }
+  return ''
+}
+function pesosInWords(value) {
+  const total = Math.round(Number(value || 0) * 100)
+  const pesos = Math.floor(total / 100)
+  const centavos = String(total % 100).padStart(2, '0')
+  const words = pesos === 0 ? 'Zero' : inWords(pesos)
+  return `${words} Peso${pesos === 1 ? '' : 's'} and ${centavos}/100`
+}
+
 // Returns the drawing helpers bound to one document. Width is read from the
 // page rather than assumed, because the Abstract of Quotations turns landscape
 // once there are enough suppliers to compare.
@@ -132,4 +156,4 @@ function forms(doc) {
   return { put, rect, rule, heightIn, letterhead, columnHeader, blankRow, signature, certBox }
 }
 
-module.exports = { W, M, BLACK, BLUE, LINE, ROW_H, PAD, FS, BOTTOM, amount, qty, fmtDate, forms }
+module.exports = { W, M, BLACK, BLUE, LINE, ROW_H, PAD, FS, BOTTOM, amount, qty, fmtDate, pesosInWords, forms }

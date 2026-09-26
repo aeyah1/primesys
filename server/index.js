@@ -90,6 +90,7 @@ app.use('/api/notifications', require('./routes/notifications.routes'))
 app.use('/api/reminders',     require('./routes/reminders.routes'))
 app.use('/api/reports',       require('./routes/reports.routes'))
 app.use('/api/twg',           require('./routes/twg.routes'))
+app.use('/api/bac',           require('./routes/bac.routes'))
 
 app.use((err, req, res, next) => {
   // Client-facing 4xx errors (status set explicitly, e.g. a workflow rule

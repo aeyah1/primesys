@@ -5,7 +5,8 @@ const asyncHandler    = require('../utils/asyncHandler')
 const prReminderEmail = require('../emails/prReminder')
 const { prScope } = require('../middleware/scope.middleware')
 const withTransaction = require('../db/transaction')
-const { PR_STATUSES, loadPR, editDenied, deleteBlock, poCancelBlock, prPermissions, changePRStatus } = require('../utils/prWorkflow')
+const httpError       = require('../utils/httpError')
+const { PR_STATUSES, loadPR, editDenied, deleteBlock, modeBlock, poCancelBlock, prPermissions, changePRStatus } = require('../utils/prWorkflow')
 const { recordBlock, QTY_ORDERED, QTY_RECEIVED } = require('../utils/deliveryWorkflow')
 const { orderBySection } = require('../utils/itemSections')
 const { currentQuarter } = require('../utils/quarters')
@@ -91,11 +92,11 @@ exports.list = asyncHandler(async (req, res) => {
                           WHEN SUM(px.delivery_status <> 'pending') > 0 THEN 'partial'
                           ELSE 'pending' END`)} AS delivery_status,
            ${ACTIVE("IF(SUM(px.delivery_status = 'delivered') = COUNT(*), MAX(px.delivery_date), NULL)")} AS delivery_date,
-           pr.twg_reviewed_at, tr.name AS twg_reviewer_name,
+           pr.twg_reviewed_at, tr.name AS twg_reviewer_name, pr.mode_of_procurement,
            (SELECT COALESCE(SUM(i.quantity * i.estimated_cost), 0) FROM pr_items i WHERE i.pr_id = pr.id) AS estimated_total,
            EXISTS (SELECT 1 FROM purchase_orders px WHERE px.purchase_request_id = pr.id) AS has_any_po,
            EXISTS (SELECT 1 FROM lots lx WHERE lx.purchase_request_id = pr.id)           AS has_lot,
-           EXISTS (SELECT 1 FROM lots la WHERE la.purchase_request_id = pr.id AND la.status = 'awarded') AS has_award
+           EXISTS (SELECT 1 FROM lots la WHERE la.purchase_request_id = pr.id AND la.status IN ('recommended', 'awarded')) AS has_award
     FROM purchase_requests pr
     JOIN users u ON pr.created_by = u.id
     LEFT JOIN users du           ON du.id = pr.deleted_by
@@ -193,7 +194,7 @@ exports.getById = asyncHandler(async (req, res) => {
 
   const [[{ has_lot, has_award }]] = await pool.execute(
     `SELECT EXISTS (SELECT 1 FROM lots WHERE purchase_request_id = ?) AS has_lot,
-            EXISTS (SELECT 1 FROM lots WHERE purchase_request_id = ? AND status = 'awarded') AS has_award`,
+            EXISTS (SELECT 1 FROM lots WHERE purchase_request_id = ? AND status IN ('recommended', 'awarded')) AS has_award`,
     [req.params.id, req.params.id]
   )
   // Who last sent the PR back for changes, and why: the TWG (from Submitted)
@@ -462,15 +463,18 @@ exports.update = asyncHandler(async (req, res) => {
   res.json({ message: 'PR updated' })
 })
 
-// PATCH /pr/:id/mode - how this purchase is procured. Procurement decides it,
-// usually once the TWG has approved and the canvass is being set up, so it is
-// separate from the request's own details and can be set after submission.
+// PATCH /pr/:id/mode - how this purchase is procured. Procurement or the BAC
+// decides it, usually once the TWG has approved and the canvass is being set
+// up, so it is separate from the request's own details. Fixed once a supplier
+// is awarded or recommended (prWorkflow.modeBlock).
 exports.setProcurementMode = asyncHandler(async (req, res) => {
-  const [r] = await pool.execute(
-    'UPDATE purchase_requests SET mode_of_procurement = ? WHERE id = ? AND deleted_at IS NULL',
-    [req.body.mode_of_procurement, req.params.id]
-  )
-  if (!r.affectedRows) return res.status(404).json({ message: 'PR not found' })
+  await withTransaction(async (conn) => {
+    const pr = await loadPR(conn, req.params.id, { lock: true })
+    if (!pr) throw httpError(404, 'PR not found')
+    const denied = modeBlock(req.user, pr)
+    if (denied) throw httpError(denied.status, denied.message)
+    await conn.execute('UPDATE purchase_requests SET mode_of_procurement = ? WHERE id = ?', [req.body.mode_of_procurement, pr.id])
+  })
   res.json({ message: 'Mode of procurement saved' })
 })
 
