@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'sonner'
+import { ConfirmProvider } from '@/components/shared/ConfirmDialog'
 import { CheckCircle2, XCircle, AlertTriangle, Info } from 'lucide-react'
 import { AuthProvider } from '@/context/AuthContext'
 import GlobalLoadingBar from '@/components/shared/GlobalLoadingBar'
@@ -34,7 +35,7 @@ createRoot(document.getElementById('root')).render(
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <GlobalLoadingBar />
-          <App />
+          <ConfirmProvider><App /></ConfirmProvider>
           {/* Pop-ups in the top-right corner, in the app's card look; errors stay until closed (lib/toast.js). */}
           <Toaster
             position="top-right" visibleToasts={3} gap={10} duration={4000} closeButton

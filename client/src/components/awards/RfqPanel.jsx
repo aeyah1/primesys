@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
 import { fmtDatetime } from '@/lib/utils'
 import api from '@/lib/axios'
 import { SectionTitle, useRefreshAwards } from './supplier'
+import { useConfirm } from '@/components/shared/ConfirmDialog'
 
 const pad = (n) => String(n).padStart(2, '0')
 const asInput = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
@@ -120,6 +121,7 @@ function InviteStatus({ inv }) {
    close, who was invited, where each stands. Emailed prices stay sealed until
    the close. rfq / schedule / can: from the canvass. */
 export default function RfqPanel({ prId, rfq, schedule, can }) {
+  const confirm = useConfirm()
   const refresh = useRefreshAwards(prId)
   const [sending, setSending]   = useState(false)
   const [extending, setExtending] = useState(false)
@@ -144,7 +146,14 @@ export default function RfqPanel({ prId, rfq, schedule, can }) {
         <div className="flex items-center gap-2">
           {canClose && (
             <Button size="sm" variant="ghost" className="gap-1.5 text-xs" disabled={closing}
-              onClick={() => { if (window.confirm(invites.length ? 'Every invited supplier has quoted. Close the quotations now and open the prices?' : 'Close the quotations now?')) closeNow() }}>
+              onClick={async () => {
+                if (await confirm({
+                  title: 'Close the quotations now?', confirmLabel: 'Close quotations',
+                  message: invites.length
+                    ? 'Every invited supplier has quoted. Closing opens their prices to Procurement and the BAC.'
+                    : 'The schedule ends now, and the canvass can go on to the award.',
+                })) closeNow()
+              }}>
               <Lock className="size-3.5" /> {closing ? 'Closing…' : 'Close quotations now'}
             </Button>
           )}

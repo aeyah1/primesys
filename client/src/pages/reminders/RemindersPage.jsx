@@ -12,6 +12,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { fmtDatetime } from '@/lib/utils'
 import { useAuth } from '@/context/AuthContext'
 import api from '@/lib/axios'
+import { useConfirm } from '@/components/shared/ConfirmDialog'
 
 const TABS = [
   { key: 'mine',    label: 'My Reminders' },
@@ -168,6 +169,7 @@ function ReminderForm({ initial, onSubmit, isPending, onCancel }) {
 }
 
 function ReminderCard({ r, tab }) {
+  const confirm = useConfirm()
   const qc = useQueryClient()
   const [editing, setEditing] = useState(false)
   const { user } = useAuth()
@@ -269,8 +271,8 @@ function ReminderCard({ r, tab }) {
             )}
             {canEdit && (
               <button
-                onClick={() => {
-                  if (window.confirm(`Delete reminder "${r.title}"?`)) remove()
+                onClick={async () => {
+                  if (await confirm({ title: 'Delete this reminder?', message: `"${r.title}" is deleted.`, confirmLabel: 'Delete', danger: true })) remove()
                 }}
                 disabled={removing}
                 className="p-1.5 rounded-lg text-[--color-text-muted] hover:text-red-500 hover:bg-red-50 transition-colors">
