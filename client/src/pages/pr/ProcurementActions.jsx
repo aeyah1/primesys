@@ -9,6 +9,7 @@ import { fmtDatetime } from '@/lib/utils'
 import api from '@/lib/axios'
 import OpenQuotationsDialog from '@/components/awards/OpenQuotationsDialog'
 import { useRefreshAwards } from '@/components/awards/supplier'
+import { useConfirm } from '@/components/shared/ConfirmDialog'
 
 const chip = (Icon, text, cls = 'border-[--color-border] bg-[--color-canvas] text-[--color-text-secondary]') => (
   <span className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium shrink-0 ${cls}`}>
@@ -22,6 +23,7 @@ const chip = (Icon, text, cls = 'border-[--color-border] bg-[--color-canvas] tex
    onReturn(): opens "Return for revision"; downloadRFQ / downloadAbstract.
    compact: the next step and the PDFs only (the status changes stay on the request page). */
 export default function ProcurementActions({ pr, updateStatus, isPending, onReturn, downloadRFQ, downloadAbstract, compact = false }) {
+  const confirm = useConfirm()
   const refresh = useRefreshAwards(String(pr.id))
   const [opening, setOpening] = useState(false)
   const moves = pr.permissions?.next_statuses || []
@@ -65,7 +67,7 @@ export default function ProcurementActions({ pr, updateStatus, isPending, onRetu
   } else if (bidding && bac?.permissions?.submit) {
     primary = (
       <Button size="sm" className="gap-2 shrink-0" disabled={submitting}
-        onClick={() => { if (window.confirm('Submit this canvass to the BAC? The quotations lock until the BAC awards or returns it.')) submitToBac() }}>
+        onClick={async () => { if (await confirm({ title: 'Submit this canvass to the BAC?', message: 'The quotations lock until the BAC awards or returns it.', confirmLabel: 'Submit to the BAC' })) submitToBac() }}>
         <Send className="size-4" /> {submitting ? 'Submitting…' : 'Submit to the BAC'}
       </Button>
     )
@@ -79,13 +81,19 @@ export default function ProcurementActions({ pr, updateStatus, isPending, onRetu
     )
   }
 
-  const cancel = () => {
-    if (window.confirm('Cancel this request? It is kept in the Archive, and any award without a purchase order is cancelled with it.')) {
+  const cancel = async () => {
+    if (await confirm({
+      title: 'Cancel this request?', danger: true, confirmLabel: 'Cancel request', cancelLabel: 'Keep it',
+      message: 'It is kept in the Archive, and any award without a purchase order is cancelled with it.',
+    })) {
       updateStatus({ status: 'cancelled' })
     }
   }
-  const recanvass = () => {
-    if (window.confirm('Return this PR to canvassing? Its awards are cancelled, and every item must be awarded again before a PO can be issued.')) {
+  const recanvass = async () => {
+    if (await confirm({
+      title: 'Return this PR to canvassing?', danger: true, confirmLabel: 'Return to canvassing',
+      message: 'Its awards are cancelled, and every item must be awarded again before a PO can be issued.',
+    })) {
       updateStatus({ status: 'bidding', notes: 'Recanvass initiated by procurement' })
     }
   }

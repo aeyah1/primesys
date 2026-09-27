@@ -9,6 +9,7 @@ import { fmtCurrency, fmtDate, fmtDatetime } from '@/lib/utils'
 import { openPdf, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
 import { nameKey, useRefreshAwards } from './supplier'
+import { useConfirm } from '@/components/shared/ConfirmDialog'
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 
@@ -77,6 +78,7 @@ function NoticeEmail({ prId, resolutionId, notice, canSend }) {
    it, the BAC evaluates and awards or returns it. part 'resolutions': each
    award's BAC Resolution with its Notices of Award. */
 export default function BacPanel({ prId, part = 'status' }) {
+  const confirm = useConfirm()
   const refresh = useRefreshAwards(prId)
   const [returning, setReturning] = useState(false)
   const { data } = useQuery({
@@ -129,7 +131,7 @@ export default function BacPanel({ prId, part = 'status' }) {
             Once the quotations are in, submit the canvass to the BAC. It evaluates them and makes the award.
           </p>
           <Button size="sm" className="gap-1.5" disabled={submitting}
-            onClick={() => { if (window.confirm('Submit this canvass to the BAC? The quotations lock until the BAC awards or returns it.')) submit() }}>
+            onClick={async () => { if (await confirm({ title: 'Submit this canvass to the BAC?', message: 'The quotations lock until the BAC awards or returns it.', confirmLabel: 'Submit to the BAC' })) submit() }}>
             <Send className="size-3.5" /> {submitting ? 'Submitting…' : 'Submit to the BAC'}
           </Button>
         </div>

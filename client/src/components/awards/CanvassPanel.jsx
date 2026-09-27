@@ -15,6 +15,7 @@ import AwardFromQuotesDialog from './AwardFromQuotesDialog'
 import RecordAwardDialog from './RecordAwardDialog'
 import AwardList from './AwardList'
 import RfqPanel from './RfqPanel'
+import { useConfirm } from '@/components/shared/ConfirmDialog'
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 
@@ -113,6 +114,7 @@ function ItemStatus({ item }) {
    marks failed offers). view 'award': each item and where it stands, the
    award actions, and the awards by supplier. pr: { id, pr_number, title, status }. */
 export default function CanvassPanel({ pr, view = 'award' }) {
+  const confirm = useConfirm()
   const onQuotes = view === 'quotations'
   const prId = String(pr.id)
   const { user } = useAuth()
@@ -300,7 +302,7 @@ export default function CanvassPanel({ pr, view = 'award' }) {
                         className="p-1.5 rounded-lg text-[--color-text-muted] hover:text-[--color-brand] hover:bg-[--color-overlay] transition-colors">
                         <Pencil className="size-3.5" />
                       </button>
-                      <button onClick={() => { if (window.confirm(`Remove ${q.supplier_name}'s quotation?`)) removeQuote(q) }} title="Remove this quotation"
+                      <button onClick={async () => { if (await confirm({ title: 'Remove this quotation?', message: `The quotation of ${q.supplier_name} and its prices are removed from the canvass.`, confirmLabel: 'Remove', danger: true })) removeQuote(q) }} title="Remove this quotation"
                         className="p-1.5 rounded-lg text-[--color-text-muted] hover:text-red-600 hover:bg-red-50 transition-colors">
                         <Trash2 className="size-3.5" />
                       </button>
