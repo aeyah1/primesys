@@ -134,9 +134,10 @@ exports.resend = asyncHandler(async (req, res) => {
   await withTransaction(async (conn) => {
     const pr = await openCanvass(conn, req.params.prId)
     const [[inv]] = await conn.execute(
-      'SELECT id, deadline > NOW() AS open FROM rfq_invitations WHERE id = ? AND purchase_request_id = ?', [req.params.invId, pr.id])
+      'SELECT id, declined_at, deadline > NOW() AS open FROM rfq_invitations WHERE id = ? AND purchase_request_id = ?', [req.params.invId, pr.id])
     if (!inv) throw httpError(404, 'Invitation not found')
     if (!Number(inv.open)) throw httpError(409, 'The deadline has passed. Extend it to send the link again.')
+    if (inv.declined_at) throw httpError(409, 'This supplier declined to quote. Undo that first to send the link again.')
   })
   const result = await sendInvitation(Number(req.params.invId))
   if (!result.sent) return res.status(502).json({ message: `The email could not be sent: ${result.error}` })
@@ -160,7 +161,7 @@ exports.extend = asyncHandler(async (req, res) => {
     await conn.execute('UPDATE purchase_requests SET quotations_due = ? WHERE id = ?', [deadline, pr.id])
     await conn.execute('UPDATE rfq_invitations SET deadline = ?, reminded_at = NULL WHERE purchase_request_id = ?', [deadline, pr.id])
     const [pending] = await conn.execute(
-      'SELECT id FROM rfq_invitations WHERE purchase_request_id = ? AND submitted_at IS NULL', [pr.id])
+      'SELECT id FROM rfq_invitations WHERE purchase_request_id = ? AND submitted_at IS NULL AND declined_at IS NULL', [pr.id])
     return { prId: pr.id, pending: pending.map(p => p.id) }
   })
   const results = await sendAll(prId, pending)
@@ -168,20 +169,60 @@ exports.extend = asyncHandler(async (req, res) => {
 })
 
 // POST /canvass/:prId/rfq/close - ends the schedule now. With RFQs emailed,
-// only once every invited supplier has quoted: the others were promised the
-// deadline. A canvass on paper alone can close whenever Procurement is done.
+// only once every invited supplier has quoted or declined: the others were
+// promised the deadline. A canvass on paper alone can close whenever Procurement is done.
 exports.close = asyncHandler(async (req, res) => {
   await withTransaction(async (conn) => {
     const pr = await openCanvass(conn, req.params.prId)
     if (!(await openSchedule(conn, pr.id))) throw httpError(409, 'Quotations are already closed')
     const [waiting] = await conn.execute(
       `SELECT s.name FROM rfq_invitations i JOIN suppliers s ON s.id = i.supplier_id
-        WHERE i.purchase_request_id = ? AND i.submitted_at IS NULL ORDER BY s.name`, [pr.id])
+        WHERE i.purchase_request_id = ? AND i.submitted_at IS NULL AND i.declined_at IS NULL ORDER BY s.name`, [pr.id])
     if (waiting.length) {
-      throw httpError(409, `${waiting.map(w => w.name).join(', ')} ${waiting.length === 1 ? 'has' : 'have'} not quoted yet, so the RFQ stays open until its deadline`)
+      throw httpError(409, `${waiting.map(w => w.name).join(', ')} ${waiting.length === 1 ? 'has' : 'have'} not quoted or declined yet, so the RFQ stays open until its deadline`)
     }
     await conn.execute('UPDATE purchase_requests SET quotations_due = NOW() WHERE id = ?', [pr.id])
     await conn.execute('UPDATE rfq_invitations SET deadline = NOW() WHERE purchase_request_id = ?', [pr.id])
   })
   res.json({ message: 'Quotations closed. The prices are open.' })
+})
+
+// An invitation of this PR, locked, while its quotations are still open.
+async function openInvitation(conn, prId, invId) {
+  const pr = await openCanvass(conn, prId)
+  const [[inv]] = await conn.execute(
+    `SELECT i.*, s.name AS supplier_name, i.deadline > NOW() AS open
+       FROM rfq_invitations i JOIN suppliers s ON s.id = i.supplier_id
+      WHERE i.id = ? AND i.purchase_request_id = ? FOR UPDATE`, [invId, pr.id])
+  if (!inv) throw httpError(404, 'Invitation not found')
+  if (!Number(inv.open)) throw httpError(409, 'The quotations are closed')
+  return inv
+}
+
+// POST /canvass/:prId/rfq/:invId/decline - { reason }: the supplier said it
+// won't quote. Its link stops taking a quotation, it gets no reminder, and the
+// quotations can close early once everyone else has quoted or declined.
+exports.decline = asyncHandler(async (req, res) => {
+  const reason = req.body.reason.trim()   // required; checked in the route
+  const name = await withTransaction(async (conn) => {
+    const inv = await openInvitation(conn, req.params.prId, req.params.invId)
+    if (inv.submitted_at) throw httpError(409, `${inv.supplier_name} already quoted, so it can't be marked as declined`)
+    if (inv.declined_at) throw httpError(409, `${inv.supplier_name} is already marked as declined`)
+    await conn.execute('UPDATE rfq_invitations SET declined_at = NOW(), declined_by = ?, decline_reason = ? WHERE id = ?',
+      [req.user.id, reason, inv.id])
+    return inv.supplier_name
+  })
+  res.json({ message: `${name} marked as declined` })
+})
+
+// POST /canvass/:prId/rfq/:invId/undecline - a decline recorded by mistake:
+// the supplier is expected to quote again, through its link.
+exports.undecline = asyncHandler(async (req, res) => {
+  const name = await withTransaction(async (conn) => {
+    const inv = await openInvitation(conn, req.params.prId, req.params.invId)
+    if (!inv.declined_at) throw httpError(409, `${inv.supplier_name} is not marked as declined`)
+    await conn.execute('UPDATE rfq_invitations SET declined_at = NULL, declined_by = NULL, decline_reason = NULL WHERE id = ?', [inv.id])
+    return inv.supplier_name
+  })
+  res.json({ message: `${name} can quote again through its link` })
 })

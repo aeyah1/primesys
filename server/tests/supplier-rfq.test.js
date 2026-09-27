@@ -236,7 +236,7 @@ async function run() {
 
   // ── Closing early ───────────────────────────────────────────────────
   const C = 'Close now'
-  await is(C, 'not while an invited supplier has yet to quote', 2, 'POST', `/canvass/${e}/rfq/close`, undefined, r => r.status === 409 && /not quoted yet/.test(r.data.message), '409')
+  await is(C, 'not while an invited supplier has yet to quote', 2, 'POST', `/canvass/${e}/rfq/close`, undefined, r => r.status === 409 && /not quoted or declined yet/.test(r.data.message), '409')
   const [chair] = (await http(2, 'GET', `/canvass/${e}`)).data.items.map(i => i.id)
   for (const tk of eTokens) await http(null, 'POST', `/public/quote/${tk}`, { prices: [{ item: chair, unit_price: 1400 }] })
   await is(C, 'a requestor may not close it', 3, 'POST', `/canvass/${e}/rfq/close`, undefined, r => r.status === 403, '403')

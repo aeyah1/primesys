@@ -337,6 +337,10 @@ CREATE TABLE `rfq_invitations` (
   `opened_at`           DATETIME     NULL,
   `submitted_at`        DATETIME     NULL,
   `submit_count`        TINYINT UNSIGNED NOT NULL DEFAULT 0,
+  -- The supplier said it won't quote (recorded by Procurement, with why).
+  `declined_at`         DATETIME     NULL,
+  `declined_by`         INT UNSIGNED NULL,
+  `decline_reason`      VARCHAR(500) NULL,
   `quotation_id`        INT UNSIGNED NULL,
   `created_by`          INT UNSIGNED NOT NULL,
   `created_at`          TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -347,7 +351,8 @@ CREATE TABLE `rfq_invitations` (
   CONSTRAINT `fk_rfq_pr`        FOREIGN KEY (`purchase_request_id`) REFERENCES `purchase_requests` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_rfq_supplier`  FOREIGN KEY (`supplier_id`)         REFERENCES `suppliers` (`id`),
   CONSTRAINT `fk_rfq_quotation` FOREIGN KEY (`quotation_id`)        REFERENCES `quotations` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `fk_rfq_user`      FOREIGN KEY (`created_by`)          REFERENCES `users` (`id`)
+  CONSTRAINT `fk_rfq_user`      FOREIGN KEY (`created_by`)          REFERENCES `users` (`id`),
+  CONSTRAINT `fk_rfq_declined_by` FOREIGN KEY (`declined_by`)       REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Lots & awards

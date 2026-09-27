@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Mail, Send, RefreshCw, CalendarClock, Lock, AlertTriangle } from 'lucide-react'
+import { Mail, Send, RefreshCw, CalendarClock, Lock, AlertTriangle, UserX, Undo2 } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -108,9 +108,37 @@ function ExtendDialog({ prId, current, onClose }) {
   )
 }
 
+/* ── The supplier said it won't quote: record it, with why ──────────── */
+function DeclineDialog({ prId, inv, onClose }) {
+  const refresh = useRefreshAwards(prId)
+  const [reason, setReason] = useState('')
+  const { mutate, isPending } = useMutation({
+    mutationFn: () => api.post(`/canvass/${prId}/rfq/${inv.id}/decline`, { reason: reason.trim() }),
+    onSuccess: ({ data }) => { toast.success(data.message); refresh(); onClose() },
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed to mark it as declined'),
+  })
+  return (
+    <Dialog open onOpenChange={v => { if (!v) onClose() }}>
+      <DialogContent title="Supplier Declined to Quote" description={`${inv.supplier_name} said it won't quote on this RFQ. Its link stops taking a quotation and it gets no reminder. You can undo this while quotations are open.`}>
+        <div className="space-y-1.5">
+          <Label>Reason <span className="text-red-600 text-xs">*</span></Label>
+          <textarea rows={3} maxLength={500} autoFocus value={reason} onChange={e => setReason(e.target.value)}
+            placeholder="e.g. Called on Sep 28: no stock of the items"
+            className="w-full rounded-md border border-[--color-border] bg-[--color-surface] px-3 py-2 text-sm text-[--color-text-primary] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent resize-y" />
+        </div>
+        <DialogFooter className="px-0 pb-0 pt-6">
+          <Button variant="outline" onClick={onClose} disabled={isPending}>Cancel</Button>
+          <Button onClick={() => mutate()} disabled={isPending || !reason.trim()}>{isPending ? 'Saving…' : 'Mark as declined'}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function InviteStatus({ inv }) {
   const chip = (cls, text) => <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${cls}`}>{text}</span>
   if (inv.submitted_at) return chip('border-emerald-300 bg-emerald-50 text-emerald-700', `Quoted ${fmtDatetime(inv.submitted_at)}`)
+  if (inv.declined_at) return chip('border-slate-400 bg-slate-100 text-slate-700', 'Declined')
   if (inv.send_error && !inv.sent_at) return chip('border-red-300 bg-red-50 text-red-700', 'Email failed')
   if (inv.opened_at) return chip('border-blue-300 bg-blue-50 text-blue-700', 'Opened, not quoted yet')
   if (inv.reminded_at) return chip('border-amber-300 bg-amber-50 text-amber-800', 'Reminded')
@@ -125,14 +153,20 @@ export default function RfqPanel({ prId, rfq, schedule, can }) {
   const refresh = useRefreshAwards(prId)
   const [sending, setSending]   = useState(false)
   const [extending, setExtending] = useState(false)
+  const [declining, setDeclining] = useState(null)   // the invitation being marked as declined
+  const { mutate: undecline, isPending: undoing } = useMutation({
+    mutationFn: (inv) => api.post(`/canvass/${prId}/rfq/${inv.id}/undecline`),
+    onSuccess: ({ data }) => { toast.success(data.message); refresh() },
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed to undo'),
+  })
   const { mutate: resend, isPending: resending, variables: resendingId } = useMutation({
     mutationFn: (inv) => api.post(`/canvass/${prId}/rfq/${inv.id}/resend`),
     onSuccess: ({ data }) => { toast.success(data.message); refresh() },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to resend'),
   })
   const invites = rfq?.invitations ?? []
-  // Closing early: once every invited supplier has quoted (they were promised the deadline), or any time on paper.
-  const canClose = can.canvass && schedule?.open && invites.every(i => i.submitted_at)
+  // Closing early: once every invited supplier has quoted or declined (they were promised the deadline), or any time on paper.
+  const canClose = can.canvass && schedule?.open && invites.every(i => i.submitted_at || i.declined_at)
   const { mutate: closeNow, isPending: closing } = useMutation({
     mutationFn: () => api.post(`/canvass/${prId}/rfq/close`),
     onSuccess: ({ data }) => { toast.success(data.message); refresh() },
@@ -182,9 +216,25 @@ export default function RfqPanel({ prId, rfq, schedule, can }) {
                   <p className="text-sm font-medium text-[--color-text-primary]">{inv.supplier_name}</p>
                   {inv.email && <p className="text-xs text-[--color-text-muted]">{inv.email}</p>}
                   {inv.send_error && <p className="text-xs text-red-700">{inv.send_error}</p>}
+                  {inv.declined_at && (
+                    <p className="text-xs text-[--color-text-secondary]">
+                      Declined: {inv.decline_reason}
+                      <span className="text-[--color-text-muted]"> ({fmtDatetime(inv.declined_at)}{inv.declined_by_name ? `, recorded by ${inv.declined_by_name}` : ''})</span>
+                    </p>
+                  )}
                 </div>
                 <InviteStatus inv={inv} />
-                {can.canvass && rfq.open && (
+                {can.canvass && rfq.open && !inv.submitted_at && !inv.declined_at && (
+                  <Button size="sm" variant="ghost" className="gap-1 text-xs" onClick={() => setDeclining(inv)} title="The supplier said it won't quote">
+                    <UserX className="size-3" /> Declined
+                  </Button>
+                )}
+                {can.canvass && rfq.open && inv.declined_at && (
+                  <Button size="sm" variant="ghost" className="gap-1 text-xs" disabled={undoing} onClick={() => undecline(inv)} title="Recorded by mistake: the supplier can quote again">
+                    <Undo2 className="size-3" /> Undo
+                  </Button>
+                )}
+                {can.canvass && rfq.open && !inv.declined_at && (
                   <Button size="sm" variant="ghost" className="gap-1 text-xs" disabled={resending && resendingId?.id === inv.id}
                     onClick={() => resend(inv)} title="Email a new link; the earlier one stops working">
                     <RefreshCw className="size-3" /> Resend
@@ -198,6 +248,7 @@ export default function RfqPanel({ prId, rfq, schedule, can }) {
 
       {sending && <SendDialog prId={prId} invited={invites.map(i => i.supplier_name)} openDeadline={schedule?.open ? schedule.due : null} onClose={() => setSending(false)} />}
       {extending && <ExtendDialog prId={prId} current={rfq.deadline} onClose={() => setExtending(false)} />}
+      {declining && <DeclineDialog prId={prId} inv={declining} onClose={() => setDeclining(null)} />}
     </div>
   )
 }

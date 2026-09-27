@@ -53,8 +53,9 @@ exports.summary = asyncHandler(async (req, res) => {
   const [{ items, wholeAward }, { quotes, prices }, bacOn, sealed] = await Promise.all([
     itemStates(pool, pr.id), quotationsOf(pool, pr.id), bacAwards(pool), rfqOpen(pool, pr.id)])
   const [invitations] = await pool.execute(
-    `SELECT i.id, i.deadline, i.sent_at, i.send_error, i.reminded_at, i.opened_at, i.submitted_at, s.name AS supplier_name, s.email
-       FROM rfq_invitations i JOIN suppliers s ON s.id = i.supplier_id
+    `SELECT i.id, i.deadline, i.sent_at, i.send_error, i.reminded_at, i.opened_at, i.submitted_at, s.name AS supplier_name, s.email,
+            i.declined_at, i.decline_reason, du.name AS declined_by_name
+       FROM rfq_invitations i JOIN suppliers s ON s.id = i.supplier_id LEFT JOIN users du ON du.id = i.declined_by
       WHERE i.purchase_request_id = ? ORDER BY s.name`, [pr.id])
   const [[schedule]] = await pool.execute(
     'SELECT quotations_due AS due, quotations_due > NOW() AS open FROM purchase_requests WHERE id = ?', [pr.id])

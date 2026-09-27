@@ -23,6 +23,7 @@ const CLOSED_TEXT = {
   evaluation:   'The quotations are being evaluated. This page will show the result for your company.',
   not_selected: 'The award has been made, and your quotation was not selected this time. Thank you for quoting.',
   cancelled:    'This purchase request was cancelled, so no award will be made. Thank you for quoting.',
+  declined:     'The procurement office recorded that you won\u2019t quote on it. Contact them if that is a mistake.',
   awarded:      'Congratulations: your quotation was awarded.',
 }
 
@@ -144,7 +145,7 @@ export default function QuotePage() {
             <Lock className="size-4 shrink-0 mt-0.5" />
             <span>
               This Request for Quotation is closed{data.submitted_at ? `. Your quotation was received ${fmtDatetime(data.submitted_at)}` : ''}.
-              {' '}{CLOSED_TEXT[data.result?.state] || 'Thank you.'}
+              {' '}{data.declined && data.result?.state !== 'awarded' ? CLOSED_TEXT.declined : CLOSED_TEXT[data.result?.state] || 'Thank you.'}
             </span>
           </p>
         )}

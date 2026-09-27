@@ -52,6 +52,7 @@ function resultOf(r) {
   if (r.pr_status === 'cancelled') return 'cancelled'
   if (r.won > 0) return 'awarded'
   if (r.disqualified_reason) return 'failed_specs'
+  if (!r.quotation_id && r.declined_at) return 'declined'
   if (!r.quotation_id) return r.rfq_open ? 'invited' : 'no_reply'
   if (r.rfq_open) return 'submitted'
   return ['for_po', 'completed'].includes(r.pr_status) ? 'not_selected' : 'evaluation'
@@ -63,7 +64,7 @@ function resultOf(r) {
 async function supplierRecord(id) {
   const [rfqRows] = await pool.execute(`
     SELECT pr.id AS pr_id, pr.pr_number, pr.title, pr.status AS pr_status,
-           i.sent_at, i.deadline, i.submitted_at, COALESCE(i.deadline > NOW(), 0) AS rfq_open,
+           i.sent_at, i.deadline, i.submitted_at, i.declined_at, i.decline_reason, COALESCE(i.deadline > NOW(), 0) AS rfq_open,
            q.id AS quotation_id, q.source, q.quoted_at, q.disqualified_reason,
            (SELECT COUNT(*) FROM lots l WHERE l.purchase_request_id = pr.id AND l.supplier_id = ?) AS won
       FROM (SELECT purchase_request_id FROM rfq_invitations WHERE supplier_id = ?
