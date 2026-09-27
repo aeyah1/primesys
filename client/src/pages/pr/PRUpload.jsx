@@ -16,6 +16,7 @@ import { SectionNameInput, SectionHeaderRow } from '@/components/shared/ItemSect
 import CategorySpecFields from '@/components/shared/CategorySpecFields'
 import { useAuth } from '@/context/AuthContext'
 import api from '@/lib/axios'
+import ReviewSubmitDialog from '@/components/shared/ReviewSubmitDialog'
 
 const EMPTY_DRAFT = { group_label: '', stock_property_no: '', category: '', item_name: '', quantity: '1', unit: 'ream', estimated_cost: '', specs: {} }
 
@@ -76,6 +77,7 @@ export default function PRCreate() {
   const setContext = (next) => setForm(p => ({ ...p, ...next }))
 
   const [items, setItems] = useState([])
+  const [reviewing, setReviewing] = useState(false)
   const [draft, setDraft] = useState(EMPTY_DRAFT)
   const setD = (k, v) => setDraft(p => ({ ...p, [k]: v }))
 
@@ -178,8 +180,9 @@ export default function PRCreate() {
 
   // The PR is either sent to the TWG or saved as a draft to finish later
   // (drafts may have no items yet). Only the buttons do this, never Enter.
-  const handleSubmit = (e, { asDraft = false } = {}) => {
-    e.preventDefault()
+  // Submitting shows the review first (ReviewSubmitDialog); its Submit confirms.
+  const handleSubmit = (e, { asDraft = false, confirmed = false } = {}) => {
+    e?.preventDefault()
     if (!form.title.trim()) {
       toast.error('Give your request a purpose')
       return
@@ -189,6 +192,7 @@ export default function PRCreate() {
       toast.error('Add at least one item before submitting, or save it as a draft')
       return
     }
+    if (submitNow && !confirmed) { setReviewing(true); return }
     create({
       title:                      form.title.trim(),
       ...(!isRequestor && form.quarter_id ? { quarter_id: parseInt(form.quarter_id) } : {}),
@@ -576,6 +580,17 @@ export default function PRCreate() {
           </Button>
         </div>
       </form>
+
+      <ReviewSubmitDialog open={reviewing} items={items} pending={isPending}
+        request={{
+          ...form,
+          quarter_label: isRequestor
+            ? (currentQuarter ? `${currentQuarter.label} ${currentQuarter.year}` : null)
+            : (() => { const q = quarters.find(q => String(q.id) === String(form.quarter_id)); return q ? `${q.label} ${q.year}` : null })(),
+          fund_source: isRequestor ? null : form.fund_source,
+        }}
+        onConfirm={() => handleSubmit(null, { confirmed: true })}
+        onClose={() => setReviewing(false)} />
     </div>
   )
 }

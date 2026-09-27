@@ -28,6 +28,7 @@ import ProcurementActions from './ProcurementActions'
 import { useAuth } from '@/context/AuthContext'
 import { openPdf, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
+import ReviewSubmitDialog from '@/components/shared/ReviewSubmitDialog'
 
 const ITH = ({ children, className = '' }) => (
   <th className={`px-4 py-3 text-xs font-bold text-[--color-text-secondary] uppercase tracking-wider bg-[--color-canvas] border-b border-[--color-border] ${className}`}>
@@ -590,6 +591,12 @@ export default function PRDetail() {
 
   // Return for revision (Procurement): a reason is required and shown to the requestor.
   const [returnOpen, setReturnOpen]     = useState(false)
+  const [reviewing, setReviewing]       = useState(false)
+  const { data: reviewItems } = useQuery({
+    queryKey: ['pr-items', id],
+    queryFn: () => api.get(`/pr/${id}/items`).then(r => r.data),
+    enabled: reviewing,
+  })
   const [returnReason, setReturnReason] = useState('')
 
   // Cooldown matches the server-side limiter (1 reminder per PR per hour) and
@@ -691,7 +698,7 @@ export default function PRDetail() {
                 <Button
                   size="sm"
                   className="mt-3 gap-1.5 bg-amber-600 hover:bg-amber-700 text-white border-0"
-                  onClick={() => updateStatus({ status: 'submitted' })}
+                  onClick={() => setReviewing(true)}
                   disabled={isPending}
                 >
                   <Send className="size-4" />
@@ -773,7 +780,7 @@ export default function PRDetail() {
           </Button>
         )}
         {pr.status === 'draft' && pr.permissions?.next_statuses?.includes('submitted') && (
-          <Button size="sm" className="gap-2 shrink-0" onClick={() => updateStatus({ status: 'submitted' })} disabled={isPending}>
+          <Button size="sm" className="gap-2 shrink-0" onClick={() => setReviewing(true)} disabled={isPending}>
             <Send className="size-4" />
             {isPending ? 'Submitting…' : 'Submit to TWG'}
           </Button>
@@ -935,6 +942,14 @@ export default function PRDetail() {
 
       {/* Activity Log */}
       <ActivityLog prId={id} />
+
+      {/* The last look before it goes to the TWG */}
+      <ReviewSubmitDialog open={reviewing} items={reviewItems || null} pending={isPending}
+        request={{ ...pr, fund_source: isRequestor ? null : pr.fund_source, quarter_label: pr.quarter_label ? `${pr.quarter_label} ${pr.quarter_year}` : null }}
+        requestedBy={pr.requested_by_name ? `${pr.requested_by_name}${pr.requested_by_designation ? `, ${pr.requested_by_designation}` : ''}` : null}
+        confirmLabel={pr.status === 'revision_requested' ? 'Resubmit to TWG' : 'Submit to TWG'}
+        onConfirm={() => updateStatus({ status: 'submitted' }, { onSuccess: () => setReviewing(false) })}
+        onClose={() => setReviewing(false)} />
 
       {/* Delete PR confirmation */}
       <Dialog open={showDeletePR} onOpenChange={o => { if (!o) setShowDeletePR(false) }}>
