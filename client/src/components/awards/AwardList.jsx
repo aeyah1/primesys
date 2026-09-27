@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { Trophy, ChevronDown, ChevronRight, Pencil, Phone, Mail, MapPin, CreditCard, User, ShoppingCart } from 'lucide-react'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -9,37 +9,10 @@ import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
 import { LotStatusBadge, DeliveryStatusBadge } from '@/components/shared/StatusBadge'
 import { fmtCurrency } from '@/lib/utils'
 import api from '@/lib/axios'
-import { nameKey, DETAIL_FIELDS, SupplierFields, cents, lineCents, useRefreshAwards } from './supplier'
+import { nameKey, cents, lineCents, useRefreshAwards } from './supplier'
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 const TEXTAREA = 'w-full rounded-md border border-[--color-border] bg-[--color-surface] px-3 py-2 text-sm text-[--color-text-primary] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent resize-y'
-
-/* ── Edit a supplier's name and details (each of their awards with no PO) ── */
-function EditSupplierDialog({ lot, count, onClose }) {
-  const refresh = useRefreshAwards(String(lot.purchase_request_id))
-  const [form, setForm] = useState({ awarded_to: lot.awarded_to || '', ...Object.fromEntries(DETAIL_FIELDS.map(k => [k, lot[k] || ''])) })
-  const setF = (k, v) => setForm(p => ({ ...p, [k]: v }))
-  const { mutate, isPending } = useMutation({
-    mutationFn: (body) => api.patch(`/lots/${lot.id}`, body),
-    onSuccess: () => { toast.success('Supplier details updated'); refresh(); onClose() },
-    onError: (err) => toast.error(err.response?.data?.message || 'Failed to update'),
-  })
-  return (
-    <Dialog open onOpenChange={v => { if (!v) onClose() }}>
-      <DialogContent title="Edit Supplier Details"
-        description={count > 1 ? `This changes the supplier on ${count} of their awards on this PR (those without a PO yet).` : undefined}>
-        <SupplierFields form={form} setF={setF} />
-        <DialogFooter className="px-0 pb-0 pt-6">
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button disabled={isPending || !form.awarded_to.trim()}
-            onClick={() => mutate(Object.fromEntries(['awarded_to', ...DETAIL_FIELDS].map(k => [k, form[k].trim() || null])))}>
-            {isPending ? 'Saving…' : 'Save Changes'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
 
 /* ── Edit one award's title and (lump-sum) amount ─────────────────────── */
 function EditLotDialog({ lot, onClose }) {
@@ -215,7 +188,6 @@ function LotRow({ lot, canManage, prStatus }) {
 
 /* ── A PR's awards, one group per supplier ───────────────────────────── */
 export default function AwardList({ lots, canManage, prStatus }) {
-  const [editSupplier, setEditSupplier] = useState(null)   // { lot, count }
   const [showCancelled, setShowCancelled] = useState(false)
 
   const groups = []
@@ -260,12 +232,6 @@ export default function AwardList({ lots, canManage, prStatus }) {
                     {plural(waiting.length, 'award')} waiting for a PO
                   </span>
                 )}
-                {canManage && waiting.length > 0 && (
-                  <button onClick={() => setEditSupplier({ lot: waiting[0], count: waiting.length })}
-                    className="flex items-center gap-1 text-xs font-medium text-blue-700 hover:text-blue-900 transition-colors">
-                    <Pencil className="size-3" /> Edit supplier
-                  </button>
-                )}
               </div>
             </div>
             {g.lots.map(lot => <LotRow key={lot.id} lot={lot} canManage={canManage} prStatus={prStatus} />)}
@@ -284,7 +250,6 @@ export default function AwardList({ lots, canManage, prStatus }) {
         </div>
       )}
 
-      {editSupplier && <EditSupplierDialog lot={editSupplier.lot} count={editSupplier.count} onClose={() => setEditSupplier(null)} />}
     </div>
   )
 }

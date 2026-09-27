@@ -6,7 +6,10 @@ const items       = require('../controllers/prItems.controller')
 const files       = require('../controllers/prAttachments.controller')
 const auth        = require('../middleware/auth.middleware')
 const authorize   = require('../middleware/authorize.middleware')
-const { handle, textRule, moneyRule, quantityRule, dateRule, idRule } = require('../middleware/validate')
+const { handle, textRule, moneyRule, quantityRule, dateRule, idRule, oneOfRule } = require('../middleware/validate')
+const { FUND_SOURCE_VALUES } = require('../utils/orgSettings')
+const { PROCUREMENT_MODES } = require('../utils/procurementModes')
+const { CATEGORIES } = require('../utils/categories')
 const { requireAccess } = require('../middleware/scope.middleware')
 const makeUploader = require('../utils/upload')
 
@@ -14,6 +17,8 @@ const makeUploader = require('../utils/upload')
 const prFields = (titleRequired) => [
   textRule('title', 'Title', 200, { required: titleRequired }),
   textRule('fund_cluster', 'Fund cluster', 50),
+  // Which of the three campus funds this request is drawn on.
+  oneOfRule('fund_source', 'Pick a valid source of fund', FUND_SOURCE_VALUES),
   textRule('responsibility_center_code', 'Responsibility center code', 50),
   textRule('department', 'Department', 150),
   // The office this PR is filed for; its head signs "Requested by".
@@ -30,6 +35,8 @@ const prFields = (titleRequired) => [
 const itemFields = (prefix, name) => [
   textRule(`${prefix}group_label`, name('section name'), 255),
   textRule(`${prefix}stock_property_no`, name('stock/property no.'), 50),
+  // What kind of thing this is; the request's own category follows from these.
+  oneOfRule(`${prefix}category`, name('category'), CATEGORIES),
   textRule(`${prefix}item_name`, name('name'), 500),
   quantityRule(`${prefix}quantity`, name('quantity')),
   textRule(`${prefix}unit`, name('unit'), 50),
@@ -67,6 +74,8 @@ const prAccess = requireAccess('pr')
 const prRead   = requireAccess('pr', 'id', { includeDeleted: true })
 
 router.get('/:id/pdf',   prRead, c.generatePDF)
+// The Request for Quotation, for the staff who canvass suppliers.
+router.get('/:id/rfq',   authorize('procurement', 'admin'), prRead, c.generateRFQ)
 router.get('/:id',       prRead, c.getById)
 
 router.post('/:id/read', prRead, c.markRead)
@@ -97,6 +106,13 @@ router.patch('/:id',
   handle,
   c.update
 )
+
+// How the purchase is procured: Procurement's or the BAC's call, not the requestor's.
+router.patch('/:id/mode',
+  authorize('procurement', 'admin', 'bac'), prAccess,
+  oneOfRule('mode_of_procurement', 'Pick a valid mode of procurement', PROCUREMENT_MODES, { required: true }),
+  handle,
+  c.setProcurementMode)
 
 router.delete('/:id', authorize('admin', 'procurement', 'requestor'), prAccess, c.remove)
 

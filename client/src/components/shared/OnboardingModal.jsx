@@ -55,7 +55,7 @@ const SLIDES = {
       Icon:  FileText,
       color: 'from-amber-400 to-orange-400',
       title: 'Canvass TWG-Approved PRs',
-      body:  'PRs reach you once the Technical Working Group approves them (Approved by TWG). Open one and click Canvass PR to begin canvassing. Status moves to Bidding.',
+      body:  'Your Work Queue is your home. Requests the TWG approved wait under To canvass; click Open for quotations to set the mode, when quotations close, and the suppliers to email.',
     },
     {
       Icon:  Gavel,
@@ -121,7 +121,7 @@ const SLIDES = {
       Icon:  ClipboardCheck,
       color: 'from-amber-400 to-orange-400',
       title: 'Your Review Queue',
-      body:  'When a Requestor submits a PR, it lands in your TWG Reviews queue. Open it to see every item, quantity, unit cost, and attachment.',
+      body:  'When a Requestor submits a PR, it lands in your To Review list. Open it to see every item, quantity, unit cost, and attachment.',
     },
     {
       Icon:  CheckCircle,
@@ -139,7 +139,34 @@ const SLIDES = {
       Icon:  CheckCircle,
       color: 'from-cyan-500 to-blue-500',
       title: 'You\'re all set!',
-      body:  'Head to TWG Reviews to start. Your dashboard shows pending count, weekly activity, and your recent decisions. The User Guide has more details.',
+      body:  'Open To Review to start. Your dashboard shows pending count, weekly activity, and your recent decisions. The User Guide has more details.',
+    },
+  ],
+
+  bac: [
+    {
+      logo: true,
+      color: 'from-indigo-400 to-blue-400',
+      title: 'Welcome to PRimeSys!',
+      body:  "You're logged in as a member of the Bids and Awards Committee. You evaluate the suppliers' quotations and make the award.",
+    },
+    {
+      Icon:  ClipboardCheck,
+      color: 'from-amber-400 to-orange-400',
+      title: 'For Evaluation',
+      body:  'Canvasses Procurement submits wait under For Evaluation, your home page. Open one to compare the quotations item by item.',
+    },
+    {
+      Icon:  CheckCircle,
+      color: 'from-emerald-400 to-teal-400',
+      title: 'Evaluate and Award',
+      body:  'Mark any offer that fails the specifications, then award each item: the lowest compliant price is chosen for you. The award is a numbered BAC Resolution. Or return the canvass to Procurement with a reason.',
+    },
+    {
+      Icon:  Download,
+      color: 'from-indigo-500 to-blue-500',
+      title: "You're all set!",
+      body:  'Each resolution prints the BAC Resolution and a Notice of Award for every supplier. The User Guide has more details.',
     },
   ],
 
@@ -154,7 +181,7 @@ const SLIDES = {
       Icon:  Users,
       color: 'from-blue-400 to-indigo-400',
       title: 'Manage Users',
-      body:  'Go to User Management to create accounts, assign roles (Admin, Procurement, Requestor, Supply, TWG), and activate or deactivate users. Public sign-up always creates Requestors.',
+      body:  'Go to User Management to create accounts, assign roles (Admin, Procurement, Requestor, Supply, TWG, BAC), and activate or deactivate users. Public sign-up always creates Requestors.',
     },
     {
       Icon:  Calendar,
@@ -166,7 +193,7 @@ const SLIDES = {
       Icon:  Shield,
       color: 'from-blue-600 to-indigo-500',
       title: 'Full System View',
-      body:  'You can see every PR, PO, and delivery. Finished PRs (completed, rejected, or cancelled) are kept in the Archive and can\'t be deleted. Use Reports for system-wide analytics.',
+      body:  'You supervise: All Requests shows every request, and finished ones stay in the Archive. TWG reviews and BAC approvals belong to their members. Use Reports for system-wide analytics.',
     },
     {
       Icon:  CheckCircle,

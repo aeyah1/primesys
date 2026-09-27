@@ -10,7 +10,7 @@ const { CATEGORIES } = require('../utils/categories')
 // creates Requestors). Admin only.
 router.use(auth, authorize('admin'))
 
-const ROLES = ['admin', 'procurement', 'requestor', 'supply', 'twg']
+const ROLES = ['admin', 'procurement', 'requestor', 'supply', 'twg', 'bac']
 const username = (chain) => chain.isString().withMessage('Username is required').bail().trim()
   .matches(/^[a-zA-Z0-9_]{3,50}$/).withMessage('Username must be 3 to 50 letters, numbers, or underscores')
 // A TWG member's review areas: PR categories (utils/categories.js).

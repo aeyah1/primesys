@@ -29,8 +29,9 @@ export function RoleBadge({ role }) {
     requestor:   'bg-teal-50 text-teal-700 border-teal-300',
     supply:      'bg-orange-50 text-orange-700 border-orange-300',
     twg:         'bg-cyan-50 text-cyan-700 border-cyan-300',
+    bac:         'bg-indigo-50 text-indigo-700 border-indigo-300',
   }
-  const labels = { admin: 'Admin', procurement: 'Procurement', requestor: 'Requestor', supply: 'Supply Officer', twg: 'TWG' }
+  const labels = { admin: 'Admin', procurement: 'Procurement', requestor: 'Requestor', supply: 'Supply Officer', twg: 'TWG', bac: 'BAC' }
   return <Badge className={map[role] || 'bg-slate-50 text-slate-600 border-slate-300'}>{labels[role] || role}</Badge>
 }
 

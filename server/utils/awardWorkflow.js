@@ -16,6 +16,9 @@ const { orderBySection } = require('./itemSections')
 // An award is fixed once it has a purchase order or its PR is closed. To
 // change it, cancel the PO (which cancels its awards) and award again.
 //
+// While the BAC awards (orgSettings.bacApprovalRequired, utils/bacWorkflow.js)
+// every award is the BAC's, made in a BAC Resolution (lots.resolution_id).
+//
 // Every award write locks the PR row first (prWorkflow.loadPR with `lock`), so
 // awards, POs, and status moves on one PR run one after another.
 
@@ -61,17 +64,19 @@ function budgetBlock(amountCents, estimateCents, who = 'The contract amount') {
 }
 
 // Each PR item with its award state: 'awarded' (in an awarded lot, `award`
-// says which), 'dropped', or 'pending' (still needs an award).
+// says which), 'dropped', or 'pending' (still needs an award). A line whose PO
+// closed with none of it delivered no longer counts: its item needs an award again.
 async function itemStates(db, prId) {
   const [items] = await db.execute(
-    `SELECT i.id, i.item_name, i.quantity, i.unit, i.estimated_cost, i.group_label,
+    `SELECT i.id, i.item_name, i.quantity, i.unit, i.estimated_cost, i.group_label, i.notes, i.balance_of,
             i.dropped_at, i.drop_reason, du.name AS dropped_by_name
        FROM pr_items i LEFT JOIN users du ON du.id = i.dropped_by
       WHERE i.pr_id = ? ORDER BY i.id`, [prId])
   const [links] = await db.execute(
     `SELECT li.pr_item_id, li.unit_price, l.id AS lot_id, l.lot_number, l.awarded_to, l.po_id
        FROM lot_items li JOIN lots l ON l.id = li.lot_id
-      WHERE l.purchase_request_id = ? AND l.status = 'awarded' AND li.pr_item_id IS NOT NULL`, [prId])
+      WHERE l.purchase_request_id = ? AND l.status = 'awarded' AND li.pr_item_id IS NOT NULL
+        AND li.quantity > li.short_quantity`, [prId])
   const [[{ whole }]] = await db.execute(
     `SELECT EXISTS (SELECT 1 FROM lots l WHERE l.purchase_request_id = ? AND l.status = 'awarded'
                       AND NOT EXISTS (SELECT 1 FROM lot_items li WHERE li.lot_id = l.id AND li.pr_item_id IS NOT NULL)) AS whole`, [prId])
@@ -111,7 +116,7 @@ function statusFromAwards(p) {
 // nothing consistent to order.
 async function awardsForPO(db, prId, supplier) {
   const [lots] = await db.execute(
-    `SELECT id, lot_number, awarded_to, awarded_amount, supplier_contact, supplier_address
+    `SELECT id, lot_number, awarded_to, supplier_id, awarded_amount, supplier_contact, supplier_address
        FROM lots WHERE purchase_request_id = ? AND status = 'awarded' AND po_id IS NULL ORDER BY id`, [prId])
   if (!lots.length) throw httpError(409, 'No award on this PR is waiting for a purchase order. Record the award in Lots & Awards first.')
   const groups = new Map()
@@ -136,6 +141,7 @@ async function awardsForPO(db, prId, supplier) {
     lotIds:           chosen.map(l => l.id),
     lotNumbers:       chosen.map(l => l.lot_number),
     supplier_name:    chosen[0].awarded_to,
+    supplier_id:      chosen.find(l => l.supplier_id)?.supplier_id ?? null,
     supplier_contact: chosen.find(l => l.supplier_contact)?.supplier_contact ?? null,
     supplier_address: chosen.find(l => l.supplier_address)?.supplier_address ?? null,
     total_amount:     (chosen.reduce((s, l) => s + cents(l.awarded_amount), 0) / 100).toFixed(2),
@@ -161,15 +167,16 @@ async function poItems(db, poId, prId) {
 
 // Records an award: the lot (the PR's next LOT number) and its items, copies
 // of the PR items it covers. `prices`: each item's awarded unit price (from a
-// quotation), or none for a lump-sum award. Resolves with { id, lot_number }.
-async function recordAward(db, { prId, supplier, amount, details = {}, title = null, notes = null, quotationId = null, userId, items, prices = null }) {
+// quotation), or none for a lump-sum award. `resolutionId`: the BAC Resolution
+// that made it, when the BAC awards. Resolves with { id, lot_number }.
+async function recordAward(db, { resolutionId = null, prId, supplier, supplierId = null, amount, details = {}, title = null, notes = null, fewQuotationsReason = null, quotationId = null, userId, items, prices = null }) {
   const [[{ n }]] = await db.execute('SELECT COUNT(*) AS n FROM lots WHERE purchase_request_id = ?', [prId])
   const lot_number = `LOT-${String(Number(n) + 1).padStart(3, '0')}`
   const [lot] = await db.execute(
-    `INSERT INTO lots (purchase_request_id, lot_number, title, status, awarded_to, awarded_amount,
-                       ${SUPPLIER_COLUMNS.join(', ')}, notes, quotation_id, created_by)
-     VALUES (?, ?, ?, 'awarded', ?, ?, ${SUPPLIER_COLUMNS.map(() => '?').join(', ')}, ?, ?, ?)`,
-    [prId, lot_number, title, supplier, amount, ...SUPPLIER_COLUMNS.map(c => details[c] || null), notes, quotationId, userId]
+    `INSERT INTO lots (purchase_request_id, lot_number, title, status, awarded_to, supplier_id, awarded_amount,
+                       ${SUPPLIER_COLUMNS.join(', ')}, notes, few_quotations_reason, quotation_id, resolution_id, created_by)
+     VALUES (?, ?, ?, 'awarded', ?, ?, ?, ${SUPPLIER_COLUMNS.map(() => '?').join(', ')}, ?, ?, ?, ?, ?)`,
+    [prId, lot_number, title, supplier, supplierId, amount, ...SUPPLIER_COLUMNS.map(c => details[c] || null), notes, fewQuotationsReason, quotationId, resolutionId, userId]
   )
   if (items.length) {
     await db.execute(

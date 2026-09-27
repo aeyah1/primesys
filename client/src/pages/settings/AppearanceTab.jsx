@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Moon, PanelLeftClose } from 'lucide-react'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 
 // Shared keys with main.jsx (theme) and AppLayout (sidebar default).

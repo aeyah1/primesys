@@ -5,12 +5,14 @@ const asyncHandler    = require('../utils/asyncHandler')
 const prReminderEmail = require('../emails/prReminder')
 const { prScope } = require('../middleware/scope.middleware')
 const withTransaction = require('../db/transaction')
-const { PR_STATUSES, loadPR, editDenied, deleteBlock, poCancelBlock, prPermissions, changePRStatus } = require('../utils/prWorkflow')
+const httpError       = require('../utils/httpError')
+const { PR_STATUSES, loadPR, editDenied, deleteBlock, modeBlock, poCancelBlock, prPermissions, changePRStatus } = require('../utils/prWorkflow')
 const { recordBlock, QTY_ORDERED, QTY_RECEIVED } = require('../utils/deliveryWorkflow')
+const { closeBlock } = require('../utils/shortDelivery')
 const { orderBySection } = require('../utils/itemSections')
 const { currentQuarter } = require('../utils/quarters')
-const { CATEGORIES } = require('../utils/categories')
-const { loadOrgSettings, prNumberPrefix } = require('../utils/orgSettings')
+const { CATEGORIES, isCategory, syncPRCategory } = require('../utils/categories')
+const { loadOrgSettings, prNumberPrefix, fundCodeFor, FUND_SOURCE_VALUES } = require('../utils/orgSettings')
 const { requestedBy, resolveDepartment } = require('../utils/departments')
 const { reviewsCategory, notifyAreaReviewers } = require('../utils/twgAreas')
 const drawPRForm = require('../pdf/prForm')
@@ -62,8 +64,13 @@ exports.list = asyncHandler(async (req, res) => {
   let where = [scope.sql], params = [...scope.params]
 
   if (deletedOnly) where.push('pr.deleted_at IS NOT NULL')
-  if (status)   { where.push('pr.status = ?');   params.push(status) }
+  // One status, or several comma-separated (a tab such as "needs me"); unknown ones are ignored.
+  const statuses = typeof status === 'string' ? status.split(',').filter(x => PR_STATUSES.includes(x)) : []
+  if (statuses.length) { where.push(`pr.status IN (${statuses.map(() => '?').join(', ')})`); params.push(...statuses) }
+  else if (status) where.push('1 = 0')
   if (category) { where.push('pr.category = ?'); params.push(category) }
+  // The quarter a PR was filed under (the Archive).
+  if (/^\d+$/.test(String(req.query.quarter_id ?? ''))) { where.push('pr.quarter_id = ?'); params.push(Number(req.query.quarter_id)) }
   if (search) {
     where.push('(pr.pr_number LIKE ? OR pr.title LIKE ?)')
     params.push(`%${search}%`, `%${search}%`)
@@ -85,13 +92,13 @@ exports.list = asyncHandler(async (req, res) => {
            ${ACTIVE('COUNT(*)')} AS po_count,
            ${ACTIVE('MIN(px.po_number)')} AS po_number,
            ${ACTIVE("GROUP_CONCAT(DISTINCT px.supplier_name ORDER BY px.supplier_name SEPARATOR ', ')")} AS supplier_name,
-           ${ACTIVE('SUM(px.total_amount)')} AS total_amount,
+           ${ACTIVE('SUM(px.total_amount - COALESCE(px.short_amount, 0))')} AS total_amount,
            ${ACTIVE(`CASE WHEN COUNT(*) = 0 THEN NULL
                           WHEN SUM(px.delivery_status = 'delivered') = COUNT(*) THEN 'delivered'
                           WHEN SUM(px.delivery_status <> 'pending') > 0 THEN 'partial'
                           ELSE 'pending' END`)} AS delivery_status,
            ${ACTIVE("IF(SUM(px.delivery_status = 'delivered') = COUNT(*), MAX(px.delivery_date), NULL)")} AS delivery_date,
-           pr.twg_reviewed_at, tr.name AS twg_reviewer_name,
+           pr.twg_reviewed_at, tr.name AS twg_reviewer_name, pr.mode_of_procurement,
            (SELECT COALESCE(SUM(i.quantity * i.estimated_cost), 0) FROM pr_items i WHERE i.pr_id = pr.id) AS estimated_total,
            EXISTS (SELECT 1 FROM purchase_orders px WHERE px.purchase_request_id = pr.id) AS has_any_po,
            EXISTS (SELECT 1 FROM lots lx WHERE lx.purchase_request_id = pr.id)           AS has_lot,
@@ -210,7 +217,7 @@ exports.getById = asyncHandler(async (req, res) => {
   const facts = { ...pr, hasPO: active.length > 0, hasAnyPO: pos.length > 0, hasLot: !!has_lot, hasAward: !!has_award }
   // TWG decision: a submitted PR, by a reviewer of its area or an admin.
   const twgReview = pr.status === 'submitted' && !pr.deleted_at
-    && (req.user.role === 'admin' || (req.user.role === 'twg' && await reviewsCategory(pool, req.user.id, pr.category)))
+    && req.user.role === 'twg' && await reviewsCategory(pool, req.user.id, pr.category)
   res.json({
     ...pr,
     // Each active PO with what this user may do with it.
@@ -219,6 +226,7 @@ exports.getById = asyncHandler(async (req, res) => {
       can_cancel:          !pr.deleted_at && !poCancelBlock(req.user, { ...po, hasDeliveries: !!has_deliveries }),
       can_record_delivery: !pr.deleted_at && !recordBlock(req.user, po),
       can_reschedule:      !pr.deleted_at && ['procurement', 'admin'].includes(req.user.role) && po.delivery_status !== 'delivered',
+      can_close:           Number(po.qty_ordered) > 0 && !closeBlock(req.user, po, pr),
     })),
     cancelled_pos: pos.filter(p => p.po_status === 'cancelled'),
     revision,
@@ -245,7 +253,7 @@ const toSqlDate = (v) => {
 
 exports.create = asyncHandler(async (req, res) => {
   const {
-    quarter_id, title, fund_cluster, responsibility_center_code, status, category,
+    quarter_id, title, fund_cluster, fund_source, responsibility_center_code, status, category,
     department, department_id, purpose_type, purpose, date_needed, recommended_by,
     event_name, event_date, project_name, items,
   } = req.body
@@ -269,7 +277,11 @@ exports.create = asyncHandler(async (req, res) => {
   const isStaff   = ['procurement', 'admin'].includes(req.user.role)
   const quarterId = (isStaff && quarter_id) ? quarter_id : ((await currentQuarter(pool))?.id ?? null)
   const org = await loadOrgSettings(pool)
-  const fundCluster = (isStaff && fund_cluster) || org.fund_cluster || null
+  // Which of the three funds this request is drawn on, and the code that goes
+  // with it. The code is frozen onto the PR, so a later change to the campus's
+  // codes leaves filed requests alone. Staff may still type a code by hand.
+  const fundSource  = FUND_SOURCE_VALUES.includes(fund_source) ? fund_source : 'STF'
+  const fundCluster = (isStaff && fund_cluster) || fundCodeFor(org, fundSource)
   const rcCode      = (isStaff && responsibility_center_code) || org.responsibility_center_code || null
   // The form's "Requested by" names the HEAD of the requesting office, not
   // whoever encoded the request. Both the office and its head are frozen onto
@@ -282,7 +294,7 @@ exports.create = asyncHandler(async (req, res) => {
   // for an office that is not on the list.
   const departmentText = dept ? dept.code : (department?.trim() || null)
 
-  const { prId, pr_number } = await withTransaction(async (conn) => {
+  const { prId, pr_number, category: createdCategory } = await withTransaction(async (conn) => {
     // Retry on UNIQUE-constraint collision (concurrent inserts picking the same suffix).
     const MAX_ATTEMPTS = 5
     let created = null
@@ -291,13 +303,13 @@ exports.create = asyncHandler(async (req, res) => {
       try {
         const [result] = await conn.execute(
           `INSERT INTO purchase_requests (
-             pr_number, quarter_id, title, fund_cluster, responsibility_center_code,
+             pr_number, quarter_id, title, fund_cluster, fund_source, responsibility_center_code,
              department, department_id, purpose_type, purpose, date_needed, recommended_by,
              event_name, event_date, project_name, category, status, created_by,
              requested_by_name, requested_by_designation
-           ) VALUES (?, ?, ?, ?, ?,  ?, ?, ?, ?, ?,  ?, ?, ?, ?, ?, 'draft', ?,  ?, ?)`,
+           ) VALUES (?, ?, ?, ?, ?, ?,  ?, ?, ?, ?, ?,  ?, ?, ?, ?, ?, 'draft', ?,  ?, ?)`,
           [
-            pr_number, quarterId, title || null, fundCluster, rcCode,
+            pr_number, quarterId, title || null, fundCluster, fundSource, rcCode,
             departmentText, dept?.id ?? null,
             prPurposeType,
             purpose?.trim() || null,
@@ -317,12 +329,18 @@ exports.create = asyncHandler(async (req, res) => {
     }
     for (const it of itemList) {
       await conn.execute(
-        `INSERT INTO pr_items (pr_id, stock_property_no, group_label, item_name, quantity, unit, estimated_cost, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [created.prId, it.stock_property_no?.trim() || null, it.group_label?.trim() || null, it.item_name.trim(),
+        `INSERT INTO pr_items (pr_id, stock_property_no, group_label, category, item_name, quantity, unit, estimated_cost, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [created.prId, it.stock_property_no?.trim() || null, it.group_label?.trim() || null,
+         isCategory(it.category) ? it.category : prCategory, it.item_name.trim(),
          it.quantity || 1, it.unit || null, it.estimated_cost || null, it.notes || null]
       )
     }
+    // The request's category follows its items, so it describes what is being
+    // bought rather than what was guessed up front. It decides which TWG
+    // members review it, so it must settle before the submission below.
+    created.category = (await syncPRCategory(conn, created.prId)) || prCategory
+
     // "Submit to TWG" on the new-PR form: the PR is saved as a draft and then
     // submitted through the workflow, so the submission is checked and logged
     // like any other (audit WF-4), all in this one transaction.
@@ -334,7 +352,7 @@ exports.create = asyncHandler(async (req, res) => {
 
   // Created already submitted: tell the reviewers of its area (utils/twgAreas.js).
   if (initialStatus === 'submitted') {
-    await notifyAreaReviewers(req.io, { id: prId, pr_number, title, category: prCategory }, { exceptId: req.user.id })
+    await notifyAreaReviewers(req.io, { id: prId, pr_number, title, category: createdCategory }, { exceptId: req.user.id })
   }
 
   res.status(201).json({ id: prId, pr_number })
@@ -377,7 +395,7 @@ exports.updateStatus = asyncHandler(async (req, res) => {
 
 exports.update = asyncHandler(async (req, res) => {
   const {
-    title, fund_cluster, responsibility_center_code, notes, category,
+    title, fund_cluster, fund_source, responsibility_center_code, notes, category,
     department, department_id, purpose_type, purpose, date_needed, recommended_by,
     event_name, event_date, project_name,
   } = req.body
@@ -401,6 +419,13 @@ exports.update = asyncHandler(async (req, res) => {
   // The office and its signatory move together, and only when the request
   // actually names an office: sending it empty clears all three, so a PR can't
   // end up filed under one office but signed by another's head.
+  // Changing the source of fund re-derives the code printed on the form.
+  const newSource = FUND_SOURCE_VALUES.includes(fund_source) ? fund_source : null
+  const sourceSet = newSource ? `,
+           fund_source                 = ?,
+           fund_cluster                = ?` : ''
+  const sourceValues = newSource ? [newSource, fundCodeFor(await loadOrgSettings(pool), newSource)] : []
+
   const officeSet = dept === undefined ? '' : `,
            department_id               = ?,
            requested_by_name           = ?,
@@ -417,7 +442,7 @@ exports.update = asyncHandler(async (req, res) => {
            responsibility_center_code  = COALESCE(?, responsibility_center_code),
            category                    = COALESCE(?, category),
            notes                       = COALESCE(?, notes),
-           department                  = ?${officeSet},
+           department                  = ?${officeSet}${sourceSet},
            purpose_type                = COALESCE(?, purpose_type),
            purpose                     = ?,
            date_needed                 = ?,
@@ -431,6 +456,7 @@ exports.update = asyncHandler(async (req, res) => {
       newCategory, notes || null,
       departmentText,
       ...officeValues,
+      ...sourceValues,
       newPurposeType,
       purpose?.trim() || null,
       toSqlDate(date_needed),
@@ -442,6 +468,21 @@ exports.update = asyncHandler(async (req, res) => {
     ]
   )
   res.json({ message: 'PR updated' })
+})
+
+// PATCH /pr/:id/mode - how this purchase is procured. Procurement or the BAC
+// decides it, usually once the TWG has approved and the canvass is being set
+// up, so it is separate from the request's own details. Fixed once a supplier
+// is awarded (prWorkflow.modeBlock).
+exports.setProcurementMode = asyncHandler(async (req, res) => {
+  await withTransaction(async (conn) => {
+    const pr = await loadPR(conn, req.params.id, { lock: true })
+    if (!pr) throw httpError(404, 'PR not found')
+    const denied = modeBlock(req.user, pr)
+    if (denied) throw httpError(denied.status, denied.message)
+    await conn.execute('UPDATE purchase_requests SET mode_of_procurement = ? WHERE id = ?', [req.body.mode_of_procurement, pr.id])
+  })
+  res.json({ message: 'Mode of procurement saved' })
 })
 
 exports.remove = asyncHandler(async (req, res) => {
@@ -567,5 +608,35 @@ exports.generatePDF = asyncHandler(async (req, res) => {
   doc.pipe(res)
 
   drawPRForm(doc, { pr, orgSettings, items })
+  doc.end()
+})
+
+// The Request for Quotation sent to suppliers once the PR is under canvass:
+// the items with their quantities, priced columns left blank for the supplier
+// to fill in. One page per lot, since the campus canvasses a lot at a time.
+exports.generateRFQ = asyncHandler(async (req, res) => {
+  const PDFDocument = require('pdfkit')
+  const { M } = require('../utils/pdfHelpers')
+  const drawRFQ = require('../pdf/requestForQuotation')
+
+  const [rows] = await pool.execute(
+    'SELECT pr_number, title, purpose FROM purchase_requests WHERE id = ?', [req.params.id])
+  if (!rows.length) return res.status(404).json({ message: 'PR not found' })
+  const pr = rows[0]
+
+  const orgSettings = await loadOrgSettings(pool)
+  // Dropped items are not canvassed, so they are left off the form.
+  const items = orderBySection((await pool.execute(
+    `SELECT item_name, quantity, unit, estimated_cost, notes, group_label
+       FROM pr_items WHERE pr_id = ? AND dropped_at IS NULL ORDER BY id`,
+    [req.params.id]
+  ))[0])
+
+  const doc = new PDFDocument({ size: 'LETTER', margin: M })
+  res.setHeader('Content-Type', 'application/pdf')
+  res.setHeader('Content-Disposition', `attachment; filename="RFQ ${pr.pr_number}.pdf"`)
+  doc.pipe(res)
+
+  drawRFQ(doc, { pr, orgSettings, items })
   doc.end()
 })

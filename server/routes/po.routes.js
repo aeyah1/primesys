@@ -3,7 +3,7 @@ const { body }  = require('express-validator')
 const c         = require('../controllers/po.controller')
 const auth      = require('../middleware/auth.middleware')
 const authorize = require('../middleware/authorize.middleware')
-const { handle, textRule, dateRule, idRule } = require('../middleware/validate')
+const { handle, textRule, dateRule, idRule, moneyRule } = require('../middleware/validate')
 const { requireAccess } = require('../middleware/scope.middleware')
 
 router.use(auth)
@@ -47,6 +47,17 @@ router.patch('/:id/cancel',
   textRule('reason', 'A reason', 1000),
   handle,
   c.cancel
+)
+
+// The supplier can't deliver the rest of a partly delivered PO: close its balance.
+router.patch('/:id/close',
+  authorize('procurement', 'admin'),
+  poAccess,
+  textRule('reason', 'Reason', 1000, { required: true }),
+  body('carry_quotes').optional().isBoolean().withMessage('carry_quotes must be true or false').toBoolean(),
+  moneyRule('short_amount', 'The value not delivered', { positive: true }),
+  handle,
+  c.close
 )
 
 module.exports = router

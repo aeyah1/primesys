@@ -80,12 +80,12 @@ exports.reviewPR = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: `A comment is required when ${what}` })
   }
 
-  // Only a reviewer of the PR's area (or an admin) decides on it. The route
+  // Only a reviewer of the PR's area decides on it (admins supervise, they don't review). The route
   // already answers 404 for a PR this member can't see; this covers one they
   // can see because they reviewed it before, in an area no longer theirs.
   const [[target]] = await pool.execute('SELECT category FROM purchase_requests WHERE id = ?', [req.params.prId])
   if (!target) return res.status(404).json({ message: 'PR not found' })
-  if (req.user.role !== 'admin' && !(await reviewsCategory(pool, req.user.id, target.category))) {
+  if (!(await reviewsCategory(pool, req.user.id, target.category))) {
     return res.status(403).json({ message: `This PR is in ${categoryLabel(target.category)}, which is not one of your review areas` })
   }
 

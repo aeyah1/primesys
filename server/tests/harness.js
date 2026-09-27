@@ -103,6 +103,10 @@ const listUploads = () => new Set(UPLOADS.flatMap(d => (fs.existsSync(d) ? fs.re
 async function bootServer(base, onMail = () => {}) {
   const mailerId = require.resolve(path.join(SERVER, 'utils', 'mailer.js'))
   require.cache[mailerId] = { id: mailerId, filename: mailerId, loaded: true, exports: async (m) => { await onMail(m) } }
+  // No DNS in tests: a domain starting "nomail." can't receive email, any other can.
+  const domainId = require.resolve(path.join(SERVER, 'utils', 'emailDomain.js'))
+  const mailDomainExists = async (email) => !String(email).split('@').pop().toLowerCase().startsWith('nomail.')
+  require.cache[domainId] = { id: domainId, filename: domainId, loaded: true, exports: { mailDomainExists, checkDomain: async () => true } }
   require(path.join(SERVER, 'index.js'))
   for (let i = 0; i < 50; i++) {
     try { if ((await fetch(`${base}/auth/registration-info`)).ok) return } catch { /* not listening yet */ }

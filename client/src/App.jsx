@@ -12,6 +12,8 @@ const Register          = lazy(() => import('@/pages/auth/Register'))
 const ForgotPassword    = lazy(() => import('@/pages/auth/ForgotPassword'))
 const ResetPassword     = lazy(() => import('@/pages/auth/ResetPassword'))
 const VerifyEmail       = lazy(() => import('@/pages/auth/VerifyEmail'))
+// A supplier's quotation page, from an emailed RFQ link: no account, and open to signed-in users too.
+const QuotePage         = lazy(() => import('@/pages/quote/QuotePage'))
 
 // Signed-in pages are lazy too, and their code is preloaded once someone signs in.
 const signedInPages = []
@@ -21,6 +23,7 @@ const PRList            = page(() => import('@/pages/pr/PRList'))
 const PRCreate          = page(() => import('@/pages/pr/PRUpload'))
 const PRDetail          = page(() => import('@/pages/pr/PRDetail'))
 const PREdit            = page(() => import('@/pages/pr/PREdit'))
+const CanvassPage       = page(() => import('@/pages/pr/CanvassPage'))
 const POList            = page(() => import('@/pages/po/POList'))
 const DeliveryList      = page(() => import('@/pages/delivery/DeliveryList'))
 const Bidding           = page(() => import('@/pages/bidding/Bidding'))
@@ -34,6 +37,9 @@ const SettingsPage      = page(() => import('@/pages/settings/Settings'))
 const GuidePage         = page(() => import('@/pages/guide/GuidePage'))
 const TwgReviewList     = page(() => import('@/pages/twg/TwgReviewList'))
 const TwgReviewDetail   = page(() => import('@/pages/twg/TwgReviewDetail'))
+const BacApprovals      = page(() => import('@/pages/bac/BacApprovals'))
+const SupplierList      = page(() => import('@/pages/suppliers/SupplierList'))
+const SupplierProfile   = page(() => import('@/pages/suppliers/SupplierProfile'))
 
 // Fetches every signed-in page's code while the browser is idle, so a first visit opens without a loading screen.
 function usePreloadPages(signedIn) {
@@ -77,6 +83,7 @@ export default function App() {
         <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
         <Route path="/reset-password"  element={<PublicRoute><ResetPassword /></PublicRoute>} />
         <Route path="/verify-email"    element={<PublicRoute><VerifyEmail /></PublicRoute>} />
+        <Route path="/quote/:token"    element={<QuotePage />} />
 
         <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
           <Route path="dashboard" element={<Dashboard />} />
@@ -84,14 +91,15 @@ export default function App() {
           <Route path="pr"          element={<PRList />} />
           <Route path="pr/create"  element={<ProtectedRoute roles={['procurement','admin','requestor']}><PRCreate /></ProtectedRoute>} />
           <Route path="pr/:id"     element={<PRDetail />} />
+          <Route path="pr/:id/canvass" element={<ProtectedRoute roles={['procurement','admin','bac']}><CanvassPage /></ProtectedRoute>} />
           <Route path="pr/:id/edit" element={<ProtectedRoute roles={['procurement','admin','requestor']}><PREdit /></ProtectedRoute>} />
 
           <Route path="po"         element={<ProtectedRoute roles={['procurement','admin','supply','requestor']}><POList /></ProtectedRoute>} />
-          <Route path="delivery"   element={<ProtectedRoute roles={['procurement','admin','supply','requestor']}><DeliveryList /></ProtectedRoute>} />
-          <Route path="bidding"    element={<ProtectedRoute roles={['procurement','admin','requestor','supply']}><Bidding /></ProtectedRoute>} />
-          <Route path="archive"       element={<ArchivePage />} />
+          <Route path="delivery"   element={<ProtectedRoute roles={['procurement','admin','supply']}><DeliveryList /></ProtectedRoute>} />
+          <Route path="bidding"    element={<ProtectedRoute roles={['procurement','admin']}><Bidding /></ProtectedRoute>} />
+          <Route path="archive"       element={<ProtectedRoute roles={['admin','procurement']}><ArchivePage /></ProtectedRoute>} />
           <Route path="history"       element={<Navigate to="/archive" replace />} />
-          <Route path="reminders"     element={<RemindersPage />} />
+          <Route path="reminders"     element={<ProtectedRoute roles={['admin','procurement']}><RemindersPage /></ProtectedRoute>} />
           <Route path="notifications" element={<NotificationsPage />} />
           <Route path="settings"      element={<SettingsPage />} />
           <Route path="guide"         element={<GuidePage />} />
@@ -100,8 +108,11 @@ export default function App() {
           <Route path="users"         element={<ProtectedRoute roles={['admin']}><UserList /></ProtectedRoute>} />
           <Route path="quarters"      element={<ProtectedRoute roles={['admin']}><QuarterList /></ProtectedRoute>} />
 
-          <Route path="twg/reviews"     element={<ProtectedRoute roles={['twg','admin']}><TwgReviewList /></ProtectedRoute>} />
-          <Route path="twg/reviews/:id" element={<ProtectedRoute roles={['twg','admin']}><TwgReviewDetail /></ProtectedRoute>} />
+          <Route path="twg/reviews"     element={<ProtectedRoute roles={['twg']}><TwgReviewList /></ProtectedRoute>} />
+          <Route path="twg/reviews/:id" element={<ProtectedRoute roles={['twg']}><TwgReviewDetail /></ProtectedRoute>} />
+          <Route path="bac"             element={<ProtectedRoute roles={['bac','admin','procurement']}><BacApprovals /></ProtectedRoute>} />
+          <Route path="suppliers"       element={<ProtectedRoute roles={['procurement','admin']}><SupplierList /></ProtectedRoute>} />
+          <Route path="suppliers/:id"   element={<ProtectedRoute roles={['procurement','admin']}><SupplierProfile /></ProtectedRoute>} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

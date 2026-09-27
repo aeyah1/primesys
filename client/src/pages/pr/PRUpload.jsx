@@ -5,19 +5,20 @@ import { ArrowLeft, Package, Plus, Trash2, Info } from 'lucide-react'
 import ItemCategorySelector from '@/components/shared/ItemCategorySelector'
 import UnitInput from '@/components/shared/UnitInput'
 import RequestContextForm from '@/components/shared/RequestContextForm'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { fmtCurrency, CATEGORY_FORM, buildItemNotes, groupItemsBySection } from '@/lib/utils'
+import { fmtCurrency, CATEGORY_FORM, buildItemNotes, groupItemsBySection, FUND_SOURCES, fundCodeFor, CATEGORY_LABELS } from '@/lib/utils'
 import { SectionNameInput, SectionHeaderRow } from '@/components/shared/ItemSections'
 import CategorySpecFields from '@/components/shared/CategorySpecFields'
 import { useAuth } from '@/context/AuthContext'
 import api from '@/lib/axios'
+import ReviewSubmitDialog from '@/components/shared/ReviewSubmitDialog'
 
-const EMPTY_DRAFT = { group_label: '', stock_property_no: '', item_name: '', quantity: '1', unit: 'ream', estimated_cost: '', specs: {} }
+const EMPTY_DRAFT = { group_label: '', stock_property_no: '', category: '', item_name: '', quantity: '1', unit: 'ream', estimated_cost: '', specs: {} }
 
 const TH = ({ children, className = '' }) => (
   <th className={`px-4 py-3 text-xs font-bold text-[--color-text-secondary] uppercase tracking-wider bg-[--color-canvas] ${className}`}>
@@ -59,13 +60,12 @@ export default function PRCreate() {
     quarter_id: '',
     title: '',
     category: 'office_supplies',
+    fund_source: 'STF',
     // Request Context (the new end-user-centric fields)
     department: '',
     department_id: '',
     purpose_type: 'personal',
-    purpose: '',
     date_needed: '',
-    recommended_by: '',
     event_name: '',
     event_date: '',
     project_name: '',
@@ -77,6 +77,7 @@ export default function PRCreate() {
   const setContext = (next) => setForm(p => ({ ...p, ...next }))
 
   const [items, setItems] = useState([])
+  const [reviewing, setReviewing] = useState(false)
   const [draft, setDraft] = useState(EMPTY_DRAFT)
   const setD = (k, v) => setDraft(p => ({ ...p, [k]: v }))
 
@@ -146,6 +147,7 @@ export default function PRCreate() {
     const newItem = {
       group_label:       draft.group_label,
       stock_property_no: draft.stock_property_no.trim(),
+      category:          draft.category || form.category,
       item_name:         draft.item_name.trim(),
       quantity:          draft.quantity,
       unit:              draft.unit,
@@ -178,10 +180,11 @@ export default function PRCreate() {
 
   // The PR is either sent to the TWG or saved as a draft to finish later
   // (drafts may have no items yet). Only the buttons do this, never Enter.
-  const handleSubmit = (e, { asDraft = false } = {}) => {
-    e.preventDefault()
+  // Submitting shows the review first (ReviewSubmitDialog); its Submit confirms.
+  const handleSubmit = (e, { asDraft = false, confirmed = false } = {}) => {
+    e?.preventDefault()
     if (!form.title.trim()) {
-      toast.error('Give your request a short title')
+      toast.error('Give your request a purpose')
       return
     }
     const submitNow = !asDraft
@@ -189,17 +192,17 @@ export default function PRCreate() {
       toast.error('Add at least one item before submitting, or save it as a draft')
       return
     }
+    if (submitNow && !confirmed) { setReviewing(true); return }
     create({
       title:                      form.title.trim(),
       ...(!isRequestor && form.quarter_id ? { quarter_id: parseInt(form.quarter_id) } : {}),
       category:                   form.category,
+      fund_source:                form.fund_source,
       // Request Context fields — only sent if the requestor filled them
       department:                 form.department?.trim()     || undefined,
       department_id:              form.department_id          || undefined,
       purpose_type:               form.purpose_type,
-      purpose:                    form.purpose?.trim()        || undefined,
       date_needed:                form.date_needed            || undefined,
-      recommended_by:             form.recommended_by?.trim() || undefined,
       event_name:                 form.purpose_type === 'event'   ? (form.event_name?.trim() || undefined) : undefined,
       event_date:                 form.purpose_type === 'event'   ? (form.event_date || undefined)        : undefined,
       project_name:               form.purpose_type === 'project' ? (form.project_name?.trim() || undefined) : undefined,
@@ -254,28 +257,35 @@ export default function PRCreate() {
 
         {/* ── PR Details ─────────────────────────────────────── */}
         <Card>
-          <CardHeader><CardTitle>Title and type</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Purpose and type</CardTitle></CardHeader>
           <CardContent className="space-y-4">
 
             <div className="space-y-2">
               <Label>
-                What kind of items? <span className="text-red-500 text-xs">*</span>
-                <span className="ml-1.5 text-[10px] text-[--color-text-muted] font-normal">pick the closest match; hover the info icon for examples</span>
+                Mostly what kind of items?
+                <span className="ml-1.5 text-[10px] text-[--color-text-muted] font-normal">hover the info icon for examples</span>
               </Label>
               <ItemCategorySelector value={form.category} onChange={setCategory} />
+              <p className="text-[11px] text-[--color-text-muted]">
+                Sets the wording below and the starting kind for each item — change any item that differs.
+                Which TWG area reviews this request is worked out from the items themselves.
+              </p>
             </div>
 
             <div className="space-y-1.5">
               <Label htmlFor="title">
-                Short title <span className="text-red-500 text-xs">*</span>
-                <span className="ml-1.5 text-[10px] text-[--color-text-muted] font-normal">a few words so you can find it later</span>
+                Purpose <span className="text-red-500 text-xs">*</span>
+                <span className="ml-1.5 text-[10px] text-[--color-text-muted] font-normal">a short phrase, printed on the request</span>
               </Label>
               <Input
                 id="title"
-                placeholder="e.g. Snacks for DCS Days"
+                placeholder="e.g. Office Use of the Department of Computer Studies"
                 value={form.title}
                 onChange={e => setF('title', e.target.value)}
               />
+              <p className="text-[11px] text-[--color-text-muted]">
+                Goes in the Purpose line of the printed request, and names it in your list.
+              </p>
             </div>
 
             {isRequestor ? (
@@ -301,9 +311,19 @@ export default function PRCreate() {
                   </Select>
                 </div>
 
-                {/* Fund Cluster & RCC: filled from Organization settings on the server */}
+                {/* Source of fund decides the code printed on the PR form. */}
+                <div className="space-y-1.5">
+                  <Label>Source of Fund</Label>
+                  <Select value={form.fund_source} onValueChange={v => setF('fund_source', v)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {FUND_SOURCES.map(f => <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <AutoField label="Fund Cluster" value={orgSettings.fund_cluster} />
+                  <AutoField label="Fund Cluster" value={fundCodeFor(orgSettings, form.fund_source)} />
                   <AutoField label="Responsibility Center Code" value={orgSettings.responsibility_center_code} />
                 </div>
               </>
@@ -428,18 +448,34 @@ export default function PRCreate() {
             <div className="bg-[--color-canvas] px-4 py-4 space-y-3">
               <p className="text-xs font-semibold text-[--color-text-muted] uppercase tracking-wide">Add Item</p>
 
-              <div className="space-y-1.5">
-                <Label className="text-xs">
-                  {categoryForm.sectionLabel}
-                  <span className="ml-1 font-normal text-[--color-text-muted]">(optional) Items with the same name share one section and subtotal.</span>
-                </Label>
-                <SectionNameInput
-                  id="pr-section"
-                  placeholder={categoryForm.sectionPlaceholder}
-                  value={draft.group_label}
-                  onChange={v => setD('group_label', v)}
-                  sections={grouped.map(g => g.label).filter(Boolean)}
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label className="text-xs">
+                    {categoryForm.sectionLabel}
+                    <span className="ml-1 font-normal text-[--color-text-muted]">(optional) Items with the same name share one section and subtotal.</span>
+                  </Label>
+                  <SectionNameInput
+                    id="pr-section"
+                    placeholder={categoryForm.sectionPlaceholder}
+                    value={draft.group_label}
+                    onChange={v => setD('group_label', v)}
+                    sections={grouped.map(g => g.label).filter(Boolean)}
+                  />
+                </div>
+                {/* What kind of thing this item is. Most requests are all one
+                    kind, so it follows the choice above unless changed here. */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Kind of item</Label>
+                  <Select value={draft.category || form.category} onValueChange={v => setD('category', v)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(CATEGORY_LABELS).map(([k, label]) => (
+                        <SelectItem key={k} value={k}>{label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-[--color-text-muted]">Decides which TWG area reviews the request.</p>
+                </div>
               </div>
 
               <div className="grid grid-cols-12 gap-2 items-end">
@@ -544,6 +580,17 @@ export default function PRCreate() {
           </Button>
         </div>
       </form>
+
+      <ReviewSubmitDialog open={reviewing} items={items} pending={isPending}
+        request={{
+          ...form,
+          quarter_label: isRequestor
+            ? (currentQuarter ? `${currentQuarter.label} ${currentQuarter.year}` : null)
+            : (() => { const q = quarters.find(q => String(q.id) === String(form.quarter_id)); return q ? `${q.label} ${q.year}` : null })(),
+          fund_source: isRequestor ? null : form.fund_source,
+        }}
+        onConfirm={() => handleSubmit(null, { confirmed: true })}
+        onClose={() => setReviewing(false)} />
     </div>
   )
 }

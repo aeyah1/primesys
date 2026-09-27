@@ -3,11 +3,11 @@ import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, FileText, Gavel, Paperclip, History, BellRing, CheckCircle2,
-  Package, Plus, Trash2, ClipboardList, RotateCcw, Eye,
+  Package, Plus, Trash2, RotateCcw, Eye,
   FileDown, XCircle, Pencil, Send, Undo2, Archive,
 } from 'lucide-react'
 
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -17,17 +17,18 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
 import { PRStatusBadge, DeliveryStatusBadge, CategoryBadge } from '@/components/shared/StatusBadge'
 import AttachmentsPanel from '@/components/shared/AttachmentsPanel'
-import { fmtDate, fmtCurrency, PR_STATUS_LABELS, CATEGORY_FORM, buildItemNotes, groupItemsBySection } from '@/lib/utils'
+import { fmtDate, fmtCurrency, PR_STATUS_LABELS, CATEGORY_FORM, buildItemNotes, groupItemsBySection, PROCUREMENT_MODES } from '@/lib/utils'
 import { SectionNameInput, SectionHeaderRow } from '@/components/shared/ItemSections'
 import RequestProgress from '@/components/shared/RequestProgress'
 import CategorySpecFields from '@/components/shared/CategorySpecFields'
 import UnitInput from '@/components/shared/UnitInput'
-import RequestContextDisplay from '@/components/shared/RequestContextDisplay'
-import CanvassPanel from '@/components/awards/CanvassPanel'
+import { RequestContextFields, PurposeTypeBadge, hasRequestContext } from '@/components/shared/RequestContextDisplay'
 import PurchaseOrders from './PurchaseOrders'
+import ProcurementActions from './ProcurementActions'
 import { useAuth } from '@/context/AuthContext'
 import { openPdf, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
+import ReviewSubmitDialog from '@/components/shared/ReviewSubmitDialog'
 
 const ITH = ({ children, className = '' }) => (
   <th className={`px-4 py-3 text-xs font-bold text-[--color-text-secondary] uppercase tracking-wider bg-[--color-canvas] border-b border-[--color-border] ${className}`}>
@@ -40,7 +41,7 @@ const ITD = ({ children, className = '' }) => (
   </td>
 )
 
-const EMPTY_ITEM = { group_label: '', stock_property_no: '', item_name: '', quantity: '1', unit: 'pax', estimated_cost: '', specs: {} }
+const EMPTY_ITEM = { group_label: '', stock_property_no: '', category: '', item_name: '', quantity: '1', unit: 'pax', estimated_cost: '', specs: {} }
 
 function PRItemsSection({ prId, canEdit, category }) {
   const [itemToDelete, setItemToDelete] = useState(null)
@@ -93,6 +94,7 @@ function PRItemsSection({ prId, canEdit, category }) {
     setEditDraft({
       group_label:       item.group_label       || '',
       stock_property_no: item.stock_property_no || '',
+      category:          item.category          || '',
       item_name:      item.item_name      || '',
       quantity:       String(item.quantity ?? '1'),
       unit:           item.unit           || categoryForm.defaultUnit,
@@ -108,6 +110,7 @@ function PRItemsSection({ prId, canEdit, category }) {
       body: {
         group_label:       editDraft.group_label?.trim() || null,
         stock_property_no: editDraft.stock_property_no?.trim() || null,
+        category:          editDraft.category || undefined,
         item_name:      editDraft.item_name.trim(),
         quantity:       editDraft.quantity,
         unit:           editDraft.unit?.trim() || null,
@@ -123,6 +126,7 @@ function PRItemsSection({ prId, canEdit, category }) {
     addItem({
       group_label:       draft.group_label       || undefined,
       stock_property_no: draft.stock_property_no?.trim() || undefined,
+      category:          draft.category || category || undefined,
       item_name:      draft.item_name.trim(),
       quantity:       parseFloat(draft.quantity)       || 1,
       unit:           draft.unit           || undefined,
@@ -481,6 +485,15 @@ function PRItemsSection({ prId, canEdit, category }) {
   )
 }
 
+// What each move tells the person who made it: what happened, and what comes next.
+const MOVED = {
+  submitted:          (pr) => [`${pr.pr_number} sent to the TWG`, 'You will be notified when they review it.'],
+  draft:              (pr) => [`${pr.pr_number} is back to draft`, 'Edit it, then submit it again.'],
+  revision_requested: (pr) => [`Returned to ${pr.created_by_name} for revision`, 'They are told what to change.'],
+  bidding:            (pr) => [`${pr.pr_number} is open for canvass`],
+  cancelled:          (pr) => [`${pr.pr_number} cancelled`],
+}
+
 export default function PRDetail() {
   const { id }   = useParams()
   const navigate = useNavigate()
@@ -495,8 +508,9 @@ export default function PRDetail() {
 
   const { mutate: updateStatus, isPending } = useMutation({
     mutationFn: ({ status, notes }) => api.patch(`/pr/${id}/status`, { status, notes }),
-    onSuccess: () => {
-      toast.success('Status updated')
+    onSuccess: (_res, { status }) => {
+      const [title, description] = MOVED[status]?.(pr) || ['Status updated']
+      toast.success(title, description ? { description } : undefined)
       qc.invalidateQueries({ queryKey: ['pr', id] })
       qc.invalidateQueries({ queryKey: ['pr-list'] })
       qc.invalidateQueries({ queryKey: ['pr-stats'] })
@@ -507,8 +521,9 @@ export default function PRDetail() {
   const canManage   = ['admin', 'procurement'].includes(user?.role)
   const isRequestor = user?.role === 'requestor'
   const isSupply    = user?.role === 'supply'
-  // The canvass and awards: from canvass on (supply sees them once awarded).
-  const showCanvass = (canManage || isSupply) && !!pr && ['bidding', 'for_po', 'completed', 'cancelled'].includes(pr.status)
+  const isBac       = user?.role === 'bac'
+  // The canvass and awards: Procurement's work, and the BAC's to approve (supply sees only the POs).
+  const showCanvass = (canManage || isBac) && !!pr && ['bidding', 'for_po', 'completed', 'cancelled'].includes(pr.status)
   // One delivery status over every PO: delivered once all are, partial once any delivery is in.
   const pos = pr?.pos || []
   const deliveryStatus = !pos.length ? null
@@ -537,6 +552,14 @@ export default function PRDetail() {
 
   const downloadPRForm   = () => openPDF(`/pr/${id}/pdf`,       'PR Form')
   const downloadAbstract = () => openPDF(`/lots/pr/${id}/pdf`,  'Abstract of Quotations')
+  const downloadRFQ      = () => openPDF(`/pr/${id}/rfq`,       'Request for Quotation')
+
+  // How this purchase is procured; Procurement sets it once the canvass is set up.
+  const { mutate: setMode, isPending: settingMode } = useMutation({
+    mutationFn: (body) => api.patch(`/pr/${id}/mode`, body),
+    onSuccess: () => { toast.success('Mode of procurement saved'); qc.invalidateQueries({ queryKey: ['pr', id] }) },
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed to save the mode'),
+  })
 
   // Server-backed read set. Fetched only for procurement/admin (the role that
   // sees the "new submission" banner).
@@ -568,6 +591,12 @@ export default function PRDetail() {
 
   // Return for revision (Procurement): a reason is required and shown to the requestor.
   const [returnOpen, setReturnOpen]     = useState(false)
+  const [reviewing, setReviewing]       = useState(false)
+  const { data: reviewItems } = useQuery({
+    queryKey: ['pr-items', id],
+    queryFn: () => api.get(`/pr/${id}/items`).then(r => r.data),
+    enabled: reviewing,
+  })
   const [returnReason, setReturnReason] = useState('')
 
   // Cooldown matches the server-side limiter (1 reminder per PR per hour) and
@@ -614,6 +643,8 @@ export default function PRDetail() {
       <Button variant="outline" size="sm" className="mt-5" onClick={() => navigate('/pr')}>Back to list</Button>
     </div>
   )
+
+  const showDetails = (!isRequestor && (pr.fund_cluster || pr.responsibility_center_code)) || pr.notes || canManage || pr.permissions?.set_mode
 
   return (
     <div className="space-y-5">
@@ -667,7 +698,7 @@ export default function PRDetail() {
                 <Button
                   size="sm"
                   className="mt-3 gap-1.5 bg-amber-600 hover:bg-amber-700 text-white border-0"
-                  onClick={() => updateStatus({ status: 'submitted' })}
+                  onClick={() => setReviewing(true)}
                   disabled={isPending}
                 >
                   <Send className="size-4" />
@@ -749,7 +780,7 @@ export default function PRDetail() {
           </Button>
         )}
         {pr.status === 'draft' && pr.permissions?.next_statuses?.includes('submitted') && (
-          <Button size="sm" className="gap-2 shrink-0" onClick={() => updateStatus({ status: 'submitted' })} disabled={isPending}>
+          <Button size="sm" className="gap-2 shrink-0" onClick={() => setReviewing(true)} disabled={isPending}>
             <Send className="size-4" />
             {isPending ? 'Submitting…' : 'Submit to TWG'}
           </Button>
@@ -774,47 +805,6 @@ export default function PRDetail() {
             <Trash2 className="size-4" /> Delete PR
           </Button>
         )}
-        {pr.status === 'twg_review' && pr.permissions?.next_statuses?.includes('bidding') && (
-          <Button
-            size="sm"
-            className="gap-2 shrink-0 bg-blue-600 hover:bg-blue-700"
-            onClick={() => updateStatus({ status: 'bidding' })}
-            disabled={isPending}
-          >
-            <ClipboardList className="size-4" />
-            {isPending ? 'Processing…' : 'Canvass PR'}
-          </Button>
-        )}
-        {pr.status === 'for_po' && pr.permissions?.next_statuses?.includes('bidding') && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2 shrink-0 border-amber-300 text-amber-700 hover:bg-amber-50"
-            onClick={() => {
-              if (window.confirm('Return this PR to canvassing? Its awards are cancelled, and every item must be awarded again before a PO can be issued.')) {
-                updateStatus({ status: 'bidding', notes: 'Recanvass initiated by procurement' })
-              }
-            }}
-            disabled={isPending}
-            title="Return to canvassing: its awards are cancelled"
-          >
-            <RotateCcw className="size-4" />
-            {isPending ? 'Processing…' : 'Recanvass'}
-          </Button>
-        )}
-        {/* Items are locked once submitted; Procurement sends an approved PR
-            back to the requestor instead, and it returns through the TWG. */}
-        {canManage && pr.permissions?.next_statuses?.includes('revision_requested') && (
-          <Button
-            variant="outline" size="sm"
-            className="gap-2 shrink-0 border-amber-300 text-amber-700 hover:bg-amber-50"
-            onClick={() => setReturnOpen(true)}
-            disabled={isPending}
-            title="Send it back to the requestor to change; it goes through the TWG again"
-          >
-            <Undo2 className="size-4" /> Return for revision
-          </Button>
-        )}
         {/* Download buttons */}
         <button
           onClick={downloadPRForm}
@@ -823,7 +813,8 @@ export default function PRDetail() {
         >
           <FileDown className="size-3.5" /> PR Form
         </button>
-        {!isRequestor && pr.status !== 'draft' && pr.status !== 'submitted' && (
+        {/* The BAC evaluates from the Abstract of Quotations */}
+        {isBac && pr.status !== 'draft' && pr.status !== 'submitted' && (
           <button
             onClick={downloadAbstract}
             title="Download Abstract of Quotations"
@@ -832,71 +823,101 @@ export default function PRDetail() {
             <FileDown className="size-3.5" /> Abstract
           </button>
         )}
-
-        {canManage && pr.permissions?.next_statuses?.length > 0 && (
-          <div className="shrink-0 w-44">
-            <Select value={pr.status} onValueChange={(status) => updateStatus({ status })} disabled={isPending}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {/* Current status + the moves the server allows this user (prWorkflow).
-                    Return for revision (needs a reason) and Recanvass (cancels the
-                    award, asks first) have their own buttons. */}
-                {[pr.status, ...pr.permissions.next_statuses.filter(s =>
-                  s !== 'revision_requested' && !(pr.status === 'for_po' && s === 'bidding'))].map(s => (
-                  <SelectItem key={s} value={s}>
-                    {PR_STATUS_LABELS[s] || s}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+        {/* Procurement: the one next step for this stage, the rest under More */}
+        {canManage && !pr.deleted_at && (
+          <ProcurementActions pr={pr} updateStatus={updateStatus} isPending={isPending}
+            onReturn={() => setReturnOpen(true)} downloadRFQ={downloadRFQ} downloadAbstract={downloadAbstract} />
         )}
       </div>
 
       {/* Plain-language "where is my request" for the person who filed it */}
       {isRequestor && !pr.deleted_at && <RequestProgress pr={pr} />}
 
-      {/* PR Details (fund codes are procurement's business, not shown to requestors) */}
-      {((!isRequestor && (pr.fund_cluster || pr.responsibility_center_code)) || pr.notes) && (
+      {/* PR Details: the fund codes (not shown to requestors), then who asked and why */}
+      {(showDetails || hasRequestContext(pr)) && (
         <Card>
-          <CardHeader><CardTitle>PR Details</CardTitle></CardHeader>
-          <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {!isRequestor && pr.fund_cluster && (
-              <div>
-                <p className="text-ui-xs text-[--color-text-muted] font-medium uppercase tracking-wide">Fund Cluster</p>
-                <p className="text-ui-sm text-[--color-text-primary] font-medium mt-0.5">{pr.fund_cluster}</p>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle>PR Details</CardTitle>
+            {pr.purpose_type && <PurposeTypeBadge type={pr.purpose_type} />}
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {showDetails && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {!isRequestor && pr.fund_cluster && (
+                  <div>
+                    <p className="text-ui-xs text-[--color-text-muted] font-medium uppercase tracking-wide">
+                      Fund Cluster{pr.fund_source ? ` · ${pr.fund_source}` : ''}
+                    </p>
+                    <p className="text-ui-sm text-[--color-text-primary] font-medium mt-0.5">{pr.fund_cluster}</p>
+                  </div>
+                )}
+                {/* How this is procured: Procurement's or the BAC's call, fixed once a supplier is awarded. */}
+                {pr.permissions?.set_mode && (
+                  <div>
+                    <p className="text-ui-xs text-[--color-text-muted] font-medium uppercase tracking-wide">Mode of Procurement</p>
+                    <Select
+                      value={pr.mode_of_procurement || ''}
+                      onValueChange={(mode_of_procurement) => setMode({ mode_of_procurement })}
+                      disabled={settingMode}
+                    >
+                      <SelectTrigger className="mt-1"><SelectValue placeholder="Not set" /></SelectTrigger>
+                      <SelectContent>
+                        {PROCUREMENT_MODES.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                {!pr.permissions?.set_mode && pr.mode_of_procurement && (
+                  <div>
+                    <p className="text-ui-xs text-[--color-text-muted] font-medium uppercase tracking-wide">Mode of Procurement</p>
+                    <p className="text-ui-sm text-[--color-text-primary] font-medium mt-0.5">{pr.mode_of_procurement}</p>
+                  </div>
+                )}
+                {!isRequestor && pr.responsibility_center_code && (
+                  <div>
+                    <p className="text-ui-xs text-[--color-text-muted] font-medium uppercase tracking-wide">Responsibility Center Code</p>
+                    <p className="text-ui-sm text-[--color-text-primary] font-medium mt-0.5">{pr.responsibility_center_code}</p>
+                  </div>
+                )}
+                {pr.notes && (
+                  <div className="sm:col-span-2">
+                    <p className="text-ui-xs text-[--color-text-muted] font-medium uppercase tracking-wide">Notes</p>
+                    <p className="text-ui-sm text-[--color-text-secondary] mt-0.5 leading-relaxed">{pr.notes}</p>
+                  </div>
+                )}
               </div>
             )}
-            {!isRequestor && pr.responsibility_center_code && (
-              <div>
-                <p className="text-ui-xs text-[--color-text-muted] font-medium uppercase tracking-wide">Responsibility Center Code</p>
-                <p className="text-ui-sm text-[--color-text-primary] font-medium mt-0.5">{pr.responsibility_center_code}</p>
-              </div>
-            )}
-            {pr.notes && (
-              <div className="sm:col-span-2">
-                <p className="text-ui-xs text-[--color-text-muted] font-medium uppercase tracking-wide">Notes</p>
-                <p className="text-ui-sm text-[--color-text-secondary] mt-0.5 leading-relaxed">{pr.notes}</p>
-              </div>
+            {hasRequestContext(pr) && (
+              <RequestContextFields pr={pr} className={showDetails ? 'border-t border-[--color-border] pt-4' : ''} />
             )}
           </CardContent>
         </Card>
       )}
 
-      {/* Request Context — only renders if the PR has any context fields filled */}
-      <RequestContextDisplay pr={pr} />
-
       {/* Items Requested */}
       <PRItemsSection prId={id} canEdit={!!pr.permissions?.edit} category={pr.category} />
 
-      {/* Canvass & awards: quotations, awards by supplier (procurement, admin; supply once awarded) */}
+      {/* Canvass & awards: quotations, awards by supplier, and the BAC's approval (procurement, admin, BAC) */}
       {showCanvass && (
         <Card>
-          <CardHeader className="flex flex-row items-center gap-2">
-            <Gavel className="size-4 text-[--color-text-muted]" />
-            <CardTitle>Canvass & Awards</CardTitle>
-          </CardHeader>
-          <CardContent><CanvassPanel pr={pr} /></CardContent>
+          <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
+            <div className="flex items-start gap-3 min-w-0">
+              <Gavel className="size-5 text-[--color-brand] mt-0.5 shrink-0" />
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-[--color-text-primary]">Canvass &amp; Award</p>
+                <p className="text-xs text-[--color-text-secondary] mt-0.5">
+                  {pr.status === 'bidding' && pr.bac_submitted_at ? 'With the BAC for evaluation.'
+                    : pr.status === 'bidding' && pr.quotations_due && new Date(pr.quotations_due) > new Date() ? `Quotations close ${fmtDate(pr.quotations_due)}.`
+                    : pr.status === 'bidding' ? 'Quotations are in; the canvass is being decided.'
+                    : pr.status === 'cancelled' ? 'The canvass record is kept.'
+                    : 'Awarded. The quotations, the award and its resolution are on the canvass page.'}
+                </p>
+              </div>
+            </div>
+            <Button size="sm" variant="outline" asChild className="gap-1.5 shrink-0">
+              <Link to={`/pr/${pr.id}/canvass`}>Open Canvass &amp; Award</Link>
+            </Button>
+          </CardContent>
         </Card>
       )}
 
@@ -921,6 +942,14 @@ export default function PRDetail() {
 
       {/* Activity Log */}
       <ActivityLog prId={id} />
+
+      {/* The last look before it goes to the TWG */}
+      <ReviewSubmitDialog open={reviewing} items={reviewItems || null} pending={isPending}
+        request={{ ...pr, fund_source: isRequestor ? null : pr.fund_source, quarter_label: pr.quarter_label ? `${pr.quarter_label} ${pr.quarter_year}` : null }}
+        requestedBy={pr.requested_by_name ? `${pr.requested_by_name}${pr.requested_by_designation ? `, ${pr.requested_by_designation}` : ''}` : null}
+        confirmLabel={pr.status === 'revision_requested' ? 'Resubmit to TWG' : 'Submit to TWG'}
+        onConfirm={() => updateStatus({ status: 'submitted' }, { onSuccess: () => setReviewing(false) })}
+        onClose={() => setReviewing(false)} />
 
       {/* Delete PR confirmation */}
       <Dialog open={showDeletePR} onOpenChange={o => { if (!o) setShowDeletePR(false) }}>

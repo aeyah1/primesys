@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { Save } from 'lucide-react'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -16,6 +16,8 @@ const ROLE_LABELS = {
   procurement: 'Procurement Officer',
   requestor:   'Requestor',
   supply:      'Supply Officer',
+  twg:         'Technical Working Group',
+  bac:         'Bids and Awards Committee',
 }
 
 export default function ProfileTab() {

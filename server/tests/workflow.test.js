@@ -65,8 +65,11 @@ async function http(who, method, p, body) {
   const headers = { Authorization: `Bearer ${tok(who)}` }
   if (body !== undefined) headers['Content-Type'] = 'application/json'
   const res = await fetch(BASE + p, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })
-  const data = (res.headers.get('content-type') || '').includes('json') ? await res.json() : null
-  return { status: res.status, data }
+  const type = res.headers.get('content-type') || ''
+  const data = type.includes('json') ? await res.json() : null
+  // A PDF counts only when it was written to the end (not cut off by an error).
+  const pdf = type.includes('pdf') ? Buffer.from(await res.arrayBuffer()).toString('latin1').trimEnd().endsWith('%%EOF') : false
+  return { status: res.status, data, pdf }
 }
 const code  = (c) => (r) => r.status === c
 const perms = (want) => (r) => r.status === 200 && JSON.stringify(r.data.permissions) === JSON.stringify(want)
@@ -79,7 +82,8 @@ const show = (r) => r.data?.permissions ? `${r.status} ${JSON.stringify(r.data.p
 
 const R = []
 const add = (g, label, who, m, p, body, fn, want) => R.push({ g, label, who, m, p, body, fn, want })
-const P_ = (edit, del, next, twg_review = false) => ({ edit, delete: del, next_statuses: next, twg_review })
+// set_mode: Procurement or an admin may still pick the mode of procurement (no award yet, PR not closed).
+const P_ = (edit, del, next, twg_review = false, set_mode = false) => ({ edit, delete: del, next_statuses: next, set_mode, twg_review })
 // What this user may do with the PR's (first) active PO: a PR may have one per supplier.
 const firstPO = (fn) => (r) => r.status === 200 && Array.isArray(r.data.pos) && fn(r.data.pos[0] || {})
 const idsOf = (d) => (Array.isArray(d) ? d : d?.data || []).map(r => r.id).sort((a, b) => a - b)
@@ -90,16 +94,24 @@ const NEW = {}   // ids captured during the run
 add('Permissions', 'requestor, own draft',          3, 'GET', '/pr/12', undefined, perms(P_(true, true, ['submitted'])), 'edit, delete, → submitted')
 add('Permissions', 'requestor, own submitted',      3, 'GET', '/pr/13', undefined, perms(P_(false, false, ['draft'])), 'locked, → draft (withdraw)')
 add('Permissions', 'requestor, TWG-approved',       3, 'GET', '/pr/15', undefined, perms(P_(false, false, [])), 'read-only')
-add('Permissions', 'procurement, for_po no PO',     2, 'GET', '/pr/22', undefined, perms(P_(false, false, ['bidding', 'cancelled'])), 'recanvass/cancel only')
+// PRs 22 and 19 were awarded with no mode on record, so it can still be filled in.
+add('Permissions', 'procurement, for_po no PO',     2, 'GET', '/pr/22', undefined, perms(P_(false, false, ['bidding', 'cancelled'], false, true)), 'recanvass/cancel only')
 add('Permissions', 'procurement, for_po with PO',   2, 'GET', '/pr/19', undefined,
-  (r) => perms(P_(false, false, []))(r) && r.data.pos.length === 1 && r.data.pos[0].can_cancel && r.data.pos[0].can_record_delivery, 'its PO: cancel, record delivery')
+  (r) => perms(P_(false, false, [], false, true))(r) && r.data.pos.length === 1 && r.data.pos[0].can_cancel && r.data.pos[0].can_record_delivery, 'its PO: cancel, record delivery')
 // From submission on, items and details are locked for every role; Procurement
 // can return an approved PR for revision instead (audit WF-1).
-add('Permissions', 'procurement, TWG-approved',     2, 'GET', '/pr/20', undefined, perms(P_(false, true, ['bidding', 'revision_requested', 'cancelled'])), 'locked; canvass, return, cancel')
-add('Permissions', 'procurement, own draft',        2, 'GET', '/pr/24', undefined, perms(P_(true, true, ['submitted', 'cancelled'])), 'submit own')
-add('Permissions', "procurement, someone's submitted", 2, 'GET', '/pr/25', undefined, perms(P_(false, false, [])), 'locked; cancel and delete are admin-only at the TWG (WF-6, WF-7)')
-add('Permissions', "admin, someone's submitted",      1, 'GET', '/pr/25', undefined, perms(P_(false, true, ['draft', 'cancelled'], true)), 'admin may still cancel, delete, or review')
+add('Permissions', 'procurement, TWG-approved',     2, 'GET', '/pr/20', undefined, perms(P_(false, true, ['bidding', 'revision_requested', 'cancelled'], false, true)), 'locked; canvass, return, cancel')
+add('Permissions', 'procurement, own draft',        2, 'GET', '/pr/24', undefined, perms(P_(true, true, ['submitted', 'cancelled'], false, true)), 'submit own')
+add('Permissions', "procurement, someone's submitted", 2, 'GET', '/pr/25', undefined, perms(P_(false, false, [], false, true)), 'locked; cancel and delete are admin-only at the TWG (WF-6, WF-7)')
+add('Permissions', "admin, someone's submitted",      1, 'GET', '/pr/25', undefined, perms(P_(false, true, ['draft', 'cancelled'], false, true)), 'admin may still cancel, delete, or review')
 add('Permissions', 'admin, completed',              1, 'GET', '/pr/16', undefined, perms(P_(false, false, [])), 'final: kept, not deletable')
+
+// A list tab asks for several statuses at once (e.g. a requestor's "Needs me").
+const statusesAre = (want) => (r) => r.status === 200 && r.data.data.length > 0 && r.data.data.every(x => want.includes(x.status))
+add('Lists', 'several statuses at once',            1, 'GET', '/pr?status=twg_review,completed&limit=100', undefined, statusesAre(['twg_review', 'completed']), 'only those two')
+add('Lists', 'an unknown status matches nothing',   1, 'GET', '/pr?status=bogus', undefined, (r) => r.status === 200 && r.data.data.length === 0, 'empty')
+add('Lists', 'Work Queue: To canvass = Approved by TWG', 2, 'GET', '/lots/queue?stage=to_canvass&limit=100', undefined,
+  (r) => r.status === 200 && r.data.data.length > 0 && r.data.data.every(x => x.status === 'twg_review') && r.data.counts.stages.to_canvass === r.data.total, 'twg_review only')
 add('Permissions', 'list rows carry permissions',   3, 'GET', '/pr?limit=100', undefined,
   (r) => { const row = (id) => r.data.data.find(x => x.id === id)
            return r.status === 200 && row(15).permissions.edit === false && row(12).permissions.delete === true && !('has_lot' in row(12)) }, 'row 15 read-only, row 12 deletable')
@@ -300,7 +312,20 @@ add('Reports', '"completed" total sent (was read as "delivered")', 1, 'GET', '/r
   (r) => r.status === 200 && Number(r.data.totals.completed) >= 3 && !('delivered' in r.data.totals), 'completed >= 3')
 add('Reports', 'requestor has no reports',               3, 'GET', '/reports/summary', undefined, code(403), '403')
 add('Reports', 'quarters newest first, also within a year', 1, 'GET', '/reports/summary', undefined,
-  (r) => r.status === 200 && r.data.byQuarter.map(q => `${q.year} ${q.label}`).join() === '2026 Q4,2026 Q3', 'Q4 before Q3')
+  (r) => { NEW.quarterId = r.data?.byQuarter?.[0]?.id; return r.status === 200 && r.data.byQuarter.map(q => `${q.year} ${q.label}`).join() === '2026 Q4,2026 Q3' }, 'Q4 before Q3')
+
+// The printed Procurement Summary Report, over the same figures.
+add('Summary report', 'procurement can print it',        2, 'GET', '/reports/summary/pdf', undefined,
+  (r) => r.status === 200 && r.pdf, 'a complete PDF')
+add('Summary report', 'admin can print it',              1, 'GET', '/reports/summary/pdf', undefined,
+  (r) => r.status === 200 && r.pdf, 'a complete PDF')
+add('Summary report', 'a requestor cannot',              3, 'GET', '/reports/summary/pdf', undefined, code(403), '403')
+add('Summary report', 'a quarter can be asked for',      2, 'GET',
+  () => `/reports/summary/pdf?quarter_id=${NEW.quarterId}`, undefined, (r) => r.status === 200 && r.pdf, 'a complete PDF')
+add('Summary report', 'a period with nothing in it still prints', 2,
+  'GET', '/reports/summary/pdf?from=2019-01-01&to=2019-12-31', undefined, (r) => r.status === 200 && r.pdf, 'a complete PDF')
+add('Summary report', 'a nonsense date falls back, it does not fail', 2,
+  'GET', '/reports/summary/pdf?from=not-a-date&to=%27%20OR%201%3D1--', undefined, (r) => r.status === 200 && r.pdf, 'a complete PDF')
 add('PO notice', 'supply told a PO was issued',          5, 'GET', '/notifications', undefined,
   (r) => r.status === 200 && r.data.some(n => /was issued for PR PR-P2-028/.test(n.message) && n.reference_type === 'pr'), 'notice (was missing)')
 add('PO notice', 'requestor told too',                   4, 'GET', '/notifications', undefined,

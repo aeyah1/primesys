@@ -1,51 +1,86 @@
-import { NavLink, Link } from 'react-router-dom'
+import { NavLink, Link, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, FileText, ShoppingCart, Truck,
   Users, Calendar, ChevronRight, Bell, Archive,
   LogOut, Settings as SettingsIcon, Gavel, AlarmClock, BookOpen,
-  ClipboardCheck, BarChart3,
+  ClipboardCheck, BarChart3, Scale, FilePlus, PackageCheck, Building2, Store,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 
-const ALL = ['admin','procurement','requestor','supply','twg']
+// One menu per role, holding only that role's own work. The home page (/dashboard)
+// is each role's to-do list, so its label names that list.
+const HOME_LABELS = {
+  requestor: 'My Requests', twg: 'Home', procurement: 'Work Queue', bac: 'For Evaluation', supply: 'To Receive', admin: 'Overview',
+}
+const HOME_ICONS = { requestor: FileText, twg: LayoutDashboard, procurement: Gavel, bac: Scale, supply: Truck, admin: LayoutDashboard }
 
-// Menu groups by purpose; the Procurement group follows the order a PR moves through the office.
-const NAV_GROUPS = [
-  { label: 'Overview', items: [
-    { to: '/dashboard',     label: 'Dashboard',         icon: LayoutDashboard, roles: ALL, end: true },
-    { to: '/notifications', label: 'Notifications',     icon: Bell,            roles: ALL },
-    { to: '/reminders',     label: 'Reminders',         icon: AlarmClock,      roles: ALL },
-  ] },
-  { label: 'Procurement', items: [
-    { to: '/pr',            label: 'Purchase Requests', icon: FileText,        roles: ['admin','procurement','requestor'] },
-    { to: '/twg/reviews',   label: 'TWG Reviews',       icon: ClipboardCheck,  roles: ['twg','admin'] },
-    { to: '/bidding',       label: 'Lots & Awards',     icon: Gavel,           roles: ['admin','procurement','supply'] },
-    { to: '/po',            label: 'Purchase Orders',   icon: ShoppingCart,    roles: ['admin','procurement','supply'] },
-    { to: '/delivery',      label: 'Deliveries',        icon: Truck,           roles: ['admin','procurement','supply'] },
-  ] },
-  { label: 'Records', items: [
-    { to: '/reports',       label: 'Reports',           icon: BarChart3,       roles: ['admin','procurement'] },
-    { to: '/archive',       label: 'Archive',           icon: Archive,         roles: ALL },
-  ] },
-  { label: 'Administration', items: [
-    { to: '/users',         label: 'User Management',   icon: Users,           roles: ['admin'] },
-    { to: '/quarters',      label: 'Quarters',          icon: Calendar,        roles: ['admin'] },
-  ] },
-  { label: 'Help', items: [
-    { to: '/guide',         label: 'User Guide',        icon: BookOpen,        roles: ALL },
-  ] },
-]
+const NOTIFICATIONS = { to: '/notifications', label: 'Notifications',   icon: Bell }
+const REMINDERS     = { to: '/reminders',     label: 'Reminders',       icon: AlarmClock }
+const GUIDE         = { to: '/guide',         label: 'User Guide',      icon: BookOpen }
+const ALL_REQUESTS  = { to: '/pr',            label: 'All Requests',    icon: FileText }
+const SUPPLIERS     = { to: '/suppliers',     label: 'Suppliers',       icon: Store }
+const ACCOUNT       = { label: 'Account', items: [{ to: '/settings', label: 'Settings', icon: SettingsIcon }] }
+const RECORDS       = { label: 'Records', items: [
+  { to: '/reports', label: 'Reports', icon: BarChart3 },
+  { to: '/archive', label: 'Archive', icon: Archive },
+] }
 
-const ROLE_LABELS = { admin: 'Administrator', procurement: 'Procurement', requestor: 'Requestor', supply: 'Supply Officer', twg: 'Technical Working Group' }
+function menuFor(role) {
+  const home = { to: '/dashboard', label: HOME_LABELS[role] || 'Home', icon: HOME_ICONS[role] || LayoutDashboard, end: true }
+  switch (role) {
+    case 'requestor':
+      return [{ label: 'My Work', items: [home, { to: '/pr/create', label: 'New Request', icon: FilePlus }] },
+              { label: 'Help', items: [NOTIFICATIONS, GUIDE] }, ACCOUNT]
+    case 'twg':
+      return [{ label: 'My Work', items: [home, { to: '/twg/reviews', label: 'To Review', icon: ClipboardCheck }] },
+              { label: 'Help', items: [NOTIFICATIONS, GUIDE] }, ACCOUNT]
+    case 'procurement':
+      return [{ label: 'My Work', items: [home, ALL_REQUESTS, { to: '/po', label: 'Purchase Orders', icon: ShoppingCart }, SUPPLIERS] },
+              RECORDS, { label: 'Help', items: [NOTIFICATIONS, REMINDERS, GUIDE] }, ACCOUNT]
+    case 'bac':
+      return [{ label: 'My Work', items: [home] }, { label: 'Help', items: [NOTIFICATIONS, GUIDE] }, ACCOUNT]
+    case 'supply':
+      return [{ label: 'My Work', items: [home, { to: '/po', label: 'Purchase Orders', icon: ShoppingCart }, { to: '/delivery', label: 'Received', icon: PackageCheck }] },
+              { label: 'Help', items: [NOTIFICATIONS, GUIDE] }, ACCOUNT]
+    case 'admin':
+      return [{ label: 'Overview', items: [home, ALL_REQUESTS] }, RECORDS,
+              { label: 'Administration', items: [
+                { to: '/users', label: 'User Management', icon: Users },
+                SUPPLIERS,
+                { to: '/settings?tab=organization', label: 'Organization', icon: Building2 },
+                { to: '/quarters', label: 'Quarters', icon: Calendar },
+              ] },
+              { label: 'Help', items: [NOTIFICATIONS, REMINDERS, GUIDE] }, ACCOUNT]
+    default:
+      return [{ label: 'Help', items: [home, NOTIFICATIONS, GUIDE] }, ACCOUNT]
+  }
+}
+
+export { HOME_LABELS }
+
+// Whether a menu link is the current page. A link with a query (the admin's
+// Organization, /settings?tab=organization) needs its query to match too, and
+// a plain link to the same page gives way to it.
+function isCurrent(item, items, { pathname, search }) {
+  const [path, query] = item.to.split('?')
+  const onPath = item.end ? pathname === path : pathname === path || pathname.startsWith(path + '/')
+  if (!onPath) return false
+  const here = new URLSearchParams(search)
+  const matches = (q) => [...new URLSearchParams(q)].every(([k, v]) => here.get(k) === v)
+  if (query) return matches(query)
+  return !items.some(o => o !== item && o.to.startsWith(path + '?') && matches(o.to.split('?')[1]))
+}
+
+const ROLE_LABELS = { admin: 'Administrator', procurement: 'Procurement', requestor: 'Requestor', supply: 'Supply Officer', twg: 'Technical Working Group', bac: 'Bids and Awards Committee' }
 
 export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
-  const groups = NAV_GROUPS
-    .map(g => ({ ...g, items: g.items.filter(n => n.roles.includes(user?.role)) }))
-    .filter(g => g.items.length)
+  const groups = menuFor(user?.role)
+  const location = useLocation()
+  const allItems = groups.flatMap(g => g.items)
   const initials = user?.name?.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'U'
 
   return (
@@ -105,21 +140,21 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
                   key={item.to}
                   to={item.to}
                   end={!!item.end}
-                  className={({ isActive }) => cn(
+                  className={() => cn(
                     'flex items-center gap-3 rounded-xl px-3 py-3 text-[14.5px] font-medium',
                     'transition-all duration-200 ease-out',
-                    isActive
+                    isCurrent(item, allItems, location)
                       ? 'bg-white text-[--color-brand-dark] shadow-sm scale-[1.01]'
                       : 'text-blue-100/80 hover:bg-white/10 hover:text-white hover:translate-x-0.5',
                     collapsed && 'justify-center px-0 py-3.5'
                   )}
                   title={collapsed ? item.label : undefined}
                 >
-                  {({ isActive }) => (
+                  {() => (
                     <>
                       <item.icon className={cn(
                         'size-[18px] shrink-0 transition-transform duration-200',
-                        isActive ? 'text-[--color-brand] scale-110' : 'text-[#ECB22E]'
+                        isCurrent(item, allItems, location) ? 'text-[--color-brand] scale-110' : 'text-[#ECB22E]'
                       )} />
                       {!collapsed && (
                         <span className="truncate transition-all duration-200">{item.label}</span>

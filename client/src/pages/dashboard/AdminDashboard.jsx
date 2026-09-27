@@ -21,6 +21,7 @@ const ROLE_META = [
   { key: 'requestor',   label: 'Requestor',       color: 'bg-teal-500' },
   { key: 'supply',      label: 'Supply Officer',  color: 'bg-orange-500' },
   { key: 'twg',         label: 'TWG',             color: 'bg-cyan-500' },
+  { key: 'bac',         label: 'BAC',             color: 'bg-indigo-500' },
   { key: 'admin',       label: 'Admin',           color: 'bg-purple-500' },
 ]
 

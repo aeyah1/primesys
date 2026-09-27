@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { User, Lock, Bell, Palette, Building2 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { cn } from '@/lib/utils'
@@ -18,7 +19,9 @@ const TABS = [
 
 export default function Settings() {
   const { user } = useAuth()
-  const [active, setActive] = useState('profile')
+  const [params] = useSearchParams()
+  // The menu's Organization link opens that tab (?tab=organization).
+  const [active, setActive] = useState(() => params.get('tab') || 'profile')
 
   const tabs       = TABS.filter(t => !t.adminOnly || user?.role === 'admin')
   const ActiveComp = tabs.find(t => t.key === active)?.Comp ?? ProfileTab

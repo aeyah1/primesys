@@ -13,6 +13,7 @@ router.get('/pending', c.listPending)
 router.get('/stats',   c.stats)
 router.get('/recent',  c.recent)
 // 404 unless the PR is visible to this member (their review areas, C2).
-router.post('/:prId/review', requireAccess('pr', 'prId'), textRule('comment', 'Comment', 2000), handle, c.reviewPR)
+// Deciding is the TWG's alone; admins may read the queue to supervise it.
+router.post('/:prId/review', authorize('twg'), requireAccess('pr', 'prId'), textRule('comment', 'Comment', 2000), handle, c.reviewPR)
 
 module.exports = router

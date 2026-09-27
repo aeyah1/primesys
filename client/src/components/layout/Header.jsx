@@ -5,13 +5,14 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { NotificationBell } from '@/components/shared/NotificationBell'
 import { LogOut, Settings as SettingsIcon, Bell, Menu } from 'lucide-react'
 
-const ROLE_LABELS = { admin: 'Administrator', procurement: 'Procurement', requestor: 'Requestor', supply: 'Supply Officer', twg: 'TWG' }
+const ROLE_LABELS = { admin: 'Administrator', procurement: 'Procurement', requestor: 'Requestor', supply: 'Supply Officer', twg: 'TWG', bac: 'BAC' }
 const ROLE_COLORS = {
   admin:       'bg-purple-100 text-purple-800',
   procurement: 'bg-blue-100 text-blue-800',
   requestor:   'bg-teal-100 text-teal-800',
   supply:      'bg-orange-100 text-orange-800',
   twg:         'bg-cyan-100 text-cyan-800',
+  bac:         'bg-indigo-100 text-indigo-800',
 }
 
 export default function Header({ title, onMobileMenu }) {
