@@ -67,7 +67,8 @@ async function run() {
   t.check(D, 'a new supplier is not confirmed', !(await supplierRow(xyz)).email_confirmed)
 
   const pr = (await http(2, 'POST', '/pr', { title: 'Laptops and mice', items: [
-    { item_name: 'Laptop', quantity: 2, estimated_cost: 50000 }, { item_name: 'Mouse', quantity: 2, estimated_cost: 500 }] })).data.id
+    { item_name: 'Laptop', quantity: 2, estimated_cost: 50000, notes: 'Brand: Lenovo\nSpecifications:\n16GB RAM, 512GB SSD' },
+    { item_name: 'Mouse', quantity: 2, estimated_cost: 500 }] })).data.id
   await http(2, 'PATCH', `/pr/${pr}/status`, { status: 'submitted' })
   await http(4, 'POST', `/twg/${pr}/review`, { action: 'approve' })
   await is(D, 'a typed-in quotation supplier with a bad domain is refused', 2, 'POST', `/canvass/${pr}/quotations`,
@@ -101,6 +102,9 @@ async function run() {
   // ── The quote page after it closes: its own outcome only ────────────
   const P = 'Quote page'
   await is(P, 'while open there is no result', null, 'GET', `/public/quote/${xyzTok}`, undefined, r => r.data.open === true && r.data.result === null)
+  await is(P, 'the supplier sees each item\'s specifications', null, 'GET', `/public/quote/${xyzTok}`, undefined,
+    r => r.data.items.find(i => i.item_name === 'Laptop')?.notes === 'Brand: Lenovo\nSpecifications:\n16GB RAM, 512GB SSD'
+      && r.data.items.find(i => i.item_name === 'Mouse')?.notes === null)
   await is(P, 'Procurement closes the quotations', 2, 'POST', `/canvass/${pr}/rfq/close`, undefined, r => r.status === 200)
   await is(P, 'closed: every item and the whole budget still show', null, 'GET', `/public/quote/${xyzTok}`, undefined,
     r => r.data.open === false && r.data.items.length === 2 && r.data.abc === 101000 && Number(r.data.prices[laptop]) === 47000, 'items 2, abc 101000')
@@ -123,7 +127,7 @@ async function run() {
   t.check(A, 'the award records where the notice went', lotX.notice_sent_to === 'xyz@x.invalid' && !!lotX.notice_sent_at && !lotX.notice_error)
 
   const xView = await is(A, 'XYZ\'s page: awarded, its item and total', null, 'GET', `/public/quote/${xyzTok}`, undefined,
-    r => r.data.result?.state === 'awarded' && r.data.result.items.length === 1 && r.data.result.items[0].item_name === 'Laptop'
+    r => r.data.result?.state === 'awarded' && r.data.result.items.length === 1 && r.data.result.items[0].item_name === 'Laptop' && /16GB RAM/.test(r.data.result.items[0].notes)
       && r.data.result.total === 94000 && r.data.result.notice_emailed === true)
   t.check(A, '…and nothing of the others', !/ABC|Paper|49000|48000/.test(JSON.stringify(xView.data)))
   const aView = await is(A, 'ABC\'s page: still under evaluation (the mouse is open)', null, 'GET', `/public/quote/${abcTok}`, undefined,

@@ -46,7 +46,10 @@ function AwardCard({ result }) {
             <tbody>
               {result.items.map((i, k) => (
                 <tr key={k} className="border-t border-[--color-border]">
-                  <td className="px-4 py-2.5 text-[--color-text-primary]">{i.item_name}</td>
+                  <td className="px-4 py-2.5 text-[--color-text-primary]">
+                    {i.item_name}
+                    {i.notes && <span className="block text-xs text-[--color-text-secondary] whitespace-pre-line">{i.notes}</span>}
+                  </td>
                   <td className="px-4 py-2.5 text-right tabular-nums whitespace-nowrap">{Number(i.quantity)} {i.unit || ''}</td>
                   <td className="px-4 py-2.5 text-right tabular-nums whitespace-nowrap">{i.unit_price != null ? fmtCurrency(i.unit_price) : '—'}</td>
                 </tr>
@@ -164,8 +167,10 @@ export default function QuotePage() {
                 <tbody>
                   {data.items.map(i => (
                     <tr key={i.id} className="border-t border-[--color-border]">
-                      <td className="px-4 py-2.5 text-[--color-text-primary]">
-                        {i.group_label && <span className="text-[--color-text-muted]">{i.group_label}: </span>}{i.item_name}
+                      <td className="px-4 py-2.5 text-[--color-text-primary] align-top">
+                        {i.group_label && <span className="text-[--color-text-muted]">{i.group_label}: </span>}
+                        <span className="font-medium">{i.item_name}</span>
+                        {i.notes && <span className="block mt-0.5 text-xs text-[--color-text-secondary] whitespace-pre-line">{i.notes}</span>}
                       </td>
                       <td className="px-4 py-2.5 text-right tabular-nums whitespace-nowrap">{Number(i.quantity)} {i.unit || ''}</td>
                       <td className="px-4 py-2 text-right">
@@ -186,6 +191,7 @@ export default function QuotePage() {
             </div>
             {data.open && (
               <p className="px-4 py-3 text-xs text-[--color-text-muted] border-t border-[--color-border]">
+                Price each item exactly as described under its name (size, type, brand); if you offer something different, say so in Notes.
                 Leave an item blank if you don't offer it. Prices should include all taxes and delivery to the campus.
               </p>
             )}
