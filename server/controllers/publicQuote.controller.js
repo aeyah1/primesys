@@ -42,7 +42,8 @@ async function resultFor(db, inv, pr, items) {
     || (!l.supplier_id && supplierKey(l.awarded_to) === inv.name_key))
   if (mine.length) {
     const [rows] = await db.execute(
-      `SELECT item_name, quantity, unit, unit_price FROM lot_items WHERE lot_id IN (${mine.map(() => '?').join(', ')}) ORDER BY lot_id, id`,
+      `SELECT li.item_name, pi.notes, li.quantity, li.unit, li.unit_price FROM lot_items li LEFT JOIN pr_items pi ON pi.id = li.pr_item_id
+        WHERE li.lot_id IN (${mine.map(() => '?').join(', ')}) ORDER BY li.lot_id, li.id`,
       mine.map(l => l.id))
     return {
       state: 'awarded',
@@ -83,7 +84,8 @@ exports.view = asyncHandler(async (req, res) => {
     deadline: inv.deadline,
     open,
     abc: shown.reduce((s, i) => s + lineCents(i.quantity, i.estimated_cost), 0) / 100,
-    items: shown.map(i => ({ id: i.id, item_name: i.item_name, quantity: i.quantity, unit: i.unit, group_label: i.group_label })),
+    // notes: the item's specifications (size, type, brand...), as on the printed RFQ.
+    items: shown.map(i => ({ id: i.id, item_name: i.item_name, notes: i.notes || null, quantity: i.quantity, unit: i.unit, group_label: i.group_label })),
     submitted_at: inv.submitted_at,
     max_submissions: MAX_SUBMISSIONS,
     changes_left: Math.max(MAX_SUBMISSIONS - inv.submit_count, 0),
