@@ -10,8 +10,10 @@
 --   ALTER TABLE `rfq_invitations` DROP FOREIGN KEY `fk_rfq_declined_by`;
 --   ALTER TABLE `rfq_invitations` DROP COLUMN `declined_at`, DROP COLUMN `declined_by`, DROP COLUMN `decline_reason`;
 
+-- One change per statement: TiDB (the hosted database) refuses an ALTER that
+-- places a column after another added in the same statement.
+ALTER TABLE `rfq_invitations` ADD COLUMN `declined_at`    DATETIME     NULL AFTER `submit_count`;
+ALTER TABLE `rfq_invitations` ADD COLUMN `declined_by`    INT UNSIGNED NULL AFTER `declined_at`;
+ALTER TABLE `rfq_invitations` ADD COLUMN `decline_reason` VARCHAR(500) NULL AFTER `declined_by`;
 ALTER TABLE `rfq_invitations`
-  ADD COLUMN `declined_at`    DATETIME     NULL AFTER `submit_count`,
-  ADD COLUMN `declined_by`    INT UNSIGNED NULL AFTER `declined_at`,
-  ADD COLUMN `decline_reason` VARCHAR(500) NULL AFTER `declined_by`,
   ADD CONSTRAINT `fk_rfq_declined_by` FOREIGN KEY (`declined_by`) REFERENCES `users` (`id`) ON DELETE SET NULL;
