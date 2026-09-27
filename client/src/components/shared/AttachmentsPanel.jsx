@@ -1,12 +1,13 @@
 import { useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Paperclip, Upload, Trash2, FileText, FileImage, Download } from 'lucide-react'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { fmtDate } from '@/lib/utils'
 import { downloadFile, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
+import { useConfirm } from '@/components/shared/ConfirmDialog'
 
 const MAX_BYTES = 10 * 1024 * 1024   // the server's limit (utils/upload.js)
 
@@ -23,6 +24,7 @@ function fmtSize(bytes) {
 }
 
 export default function AttachmentsPanel({ endpoint, queryKey, canDelete, canUpload }) {
+  const confirm = useConfirm()
   const qc      = useQueryClient()
   const fileRef = useRef()
   const [uploading, setUploading] = useState(false)
@@ -104,8 +106,8 @@ export default function AttachmentsPanel({ endpoint, queryKey, canDelete, canUpl
                 </button>
                 {canDelete && (
                   <button
-                    onClick={() => {
-                      if (window.confirm(`Delete attachment "${att.original_name}"?`)) deleteFile(att.id)
+                    onClick={async () => {
+                      if (await confirm({ title: 'Delete this file?', message: `"${att.original_name}" is removed from this record.`, confirmLabel: 'Delete', danger: true })) deleteFile(att.id)
                     }}
                     title="Remove"
                     className="p-1.5 rounded-lg text-[--color-text-muted] hover:text-red-600 hover:bg-red-50 transition-colors"

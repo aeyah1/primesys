@@ -1,16 +1,15 @@
 import { useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
-import { Trophy, ChevronRight, FileDown, Search, ShoppingCart, Gavel, ExternalLink } from 'lucide-react'
-import { toast } from 'sonner'
+import { Trophy, ChevronRight, FileDown, Search, ShoppingCart, Gavel } from 'lucide-react'
+import { toast } from '@/lib/toast'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { CategoryBadge, DeliveryStatusBadge, PRStatusBadge } from '@/components/shared/StatusBadge'
-import CanvassPanel from '@/components/awards/CanvassPanel'
-import { fmtCurrency, CATEGORY_LABELS } from '@/lib/utils'
+import OpenQuotationsDialog from '@/components/awards/OpenQuotationsDialog'
+import { fmtCurrency, fmtDatetime, CATEGORY_LABELS } from '@/lib/utils'
 import { openPdf, blobErrorMessage } from '@/lib/download'
 import { useAuth } from '@/context/AuthContext'
 import api from '@/lib/axios'
@@ -18,13 +17,15 @@ import api from '@/lib/axios'
 const CATEGORY_KEYS = Object.keys(CATEGORY_LABELS)
 const PAGE_SIZE = 20
 
-// What each PR needs next (lots.controller STAGES). A PR awarded in part can
-// be in more than one: its other items still need an award while the awarded
-// suppliers wait for their POs.
+// Procurement's work, in the order a request moves (lots.controller STAGES).
+// A PR awarded in part can be in more than one: its other items still need an
+// award while the awarded suppliers wait for their POs.
 const STAGES = [
-  { key: 'needs_award', label: 'Needs award', empty: 'No PRs are waiting for an award.' },
-  { key: 'awaiting_po', label: 'Awaiting PO', empty: 'No awards are waiting for a purchase order.' },
-  { key: 'po_issued',   label: 'PO issued',   empty: 'No purchase orders have been issued yet.' },
+  { key: 'to_canvass',  label: 'To canvass',   empty: 'No request approved by the TWG is waiting to be canvassed.' },
+  { key: 'needs_award', label: 'Canvassing',   empty: 'No request is being canvassed.' },
+  { key: 'with_bac',    label: 'With the BAC', empty: 'No request is with the BAC for evaluation.' },
+  { key: 'awaiting_po', label: 'Issue PO',     empty: 'No awards are waiting for a purchase order.' },
+  { key: 'po_issued',   label: 'PO issued',    empty: 'No purchase orders have been issued yet.' },
   { key: 'cancelled',   label: 'Cancelled',   empty: 'No PRs were cancelled after an award.' },
 ]
 const daysSince = (d) => Math.max(0, Math.floor((Date.now() - new Date(d).getTime()) / 864e5))
@@ -50,7 +51,7 @@ const abstractPdf = (prId) => openPdf(`/lots/pr/${prId}/pdf`)
   .catch(async (err) => toast.error(await blobErrorMessage(err, 'Could not open the Abstract of Quotations')))
 
 /* ── One PR in the queue, on one line; a click opens its canvass ──────── */
-function AwardRow({ row, stage, canManage, onOpen }) {
+function AwardRow({ row, stage, canManage, onOpen, onStart }) {
   const days      = daysSince(row.stage_since)
   const estimate  = Number(row.estimated_total)
   const awarded   = Number(row.awarded_total)
@@ -93,7 +94,17 @@ function AwardRow({ row, stage, canManage, onOpen }) {
       </div>
 
       <div className="basis-32 text-xs space-y-1">
-        {(stage === 'needs_award' || stage === 'awaiting_po') && (
+        {stage === 'needs_award' && row.quotations_due ? (
+          // The canvass schedule: when quotations close, and how many are in.
+          <>
+            <p className={Number(row.quotations_open) ? 'text-[--color-text-secondary]' : 'font-semibold text-emerald-700'}>
+              {Number(row.quotations_open) ? `Closes ${fmtDatetime(row.quotations_due)}` : 'Closed: ready for the BAC'}
+            </p>
+            <p className="text-[--color-text-muted]">
+              {plural(Number(row.quotations), 'quotation')}{Number(row.invited) ? ` of ${Number(row.invited)} invited` : ''}
+            </p>
+          </>
+        ) : ['to_canvass', 'needs_award', 'with_bac', 'awaiting_po'].includes(stage) && (
           <p className={days > 3 ? 'font-semibold text-amber-700' : 'text-[--color-text-muted]'}>Waiting {plural(days, 'day')}</p>
         )}
         {row.po_count > 0 && (stage === 'po_issued' || stage === 'awaiting_po') && (
@@ -106,7 +117,11 @@ function AwardRow({ row, stage, canManage, onOpen }) {
       </div>
 
       <div className="flex items-center gap-1.5 ml-auto" onClick={e => e.stopPropagation()}>
-        {canManage && stage === 'needs_award' ? (
+        {canManage && stage === 'to_canvass' ? (
+          <Button size="sm" className="gap-1.5" onClick={onStart}>
+            <Gavel className="size-3.5" /> Open for quotations
+          </Button>
+        ) : canManage && stage === 'needs_award' ? (
           <Button size="sm" className="gap-1.5" onClick={onOpen}>
             <Gavel className="size-3.5" /> Canvass
           </Button>
@@ -131,69 +146,6 @@ function AwardRow({ row, stage, canManage, onOpen }) {
   )
 }
 
-/* ── The canvass of one PR, in a window over the list ─────────────────
-   Opened by ?pr=ID, so one PR is open at a time, and a refresh, a link, or
-   coming back from the PR page opens it again. The PR is loaded on its own,
-   so the window stays open when an award moves the PR to another tab. */
-function CanvassDialog({ prId, row, canManage, onClose }) {
-  const id = prId ? String(prId) : ''
-  const { data: loaded } = useQuery({
-    queryKey: ['pr', id],
-    queryFn:  () => api.get(`/pr/${id}`).then(r => r.data),
-    enabled:  !!id,
-  })
-  // The same queries as the canvass panel inside (shared, not fetched twice).
-  const { data: lots = [] } = useQuery({
-    queryKey: ['lots', id],
-    queryFn:  () => api.get(`/lots/pr/${id}`).then(r => r.data),
-    enabled:  !!id,
-  })
-  const { data: canvass } = useQuery({
-    queryKey: ['canvass', id],
-    queryFn:  () => api.get(`/canvass/${id}`).then(r => r.data),
-    enabled:  !!id,
-  })
-  const pr = loaded || row
-  const hasRecord  = lots.length > 0 || canvass?.quotations?.length > 0
-  const waitingPO  = canManage && lots.some(l => l.status === 'awarded' && !l.po_id)
-
-  return (
-    <Dialog open={!!id} onOpenChange={v => { if (!v) onClose() }}>
-      <DialogContent title="Canvass & Awards" description={pr ? `${pr.pr_number} · ${pr.title || 'Untitled request'}` : 'Loading…'} className="max-w-4xl">
-        {!pr ? (
-          <div className="space-y-3">{Array(5).fill(0).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
-        ) : (
-          <div className="space-y-5">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-[--color-border] bg-[--color-canvas] px-4 py-3">
-              <CategoryBadge category={pr.category} />
-              <PRStatusBadge status={pr.status} />
-              <span className="text-xs text-[--color-text-secondary]">
-                {pr.created_by_name}{pr.department ? `, ${pr.department}` : ''}
-              </span>
-              <div className="flex flex-wrap items-center gap-1.5 ml-auto">
-                {hasRecord && (
-                  <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => abstractPdf(id)}>
-                    <FileDown className="size-3.5" /> Abstract
-                  </Button>
-                )}
-                {waitingPO && (
-                  <Button size="sm" asChild className="gap-1.5">
-                    <Link to={`/pr/${id}#purchase-order`}><ShoppingCart className="size-3.5" /> Issue PO</Link>
-                  </Button>
-                )}
-                <Button variant="outline" size="sm" asChild className="gap-1.5">
-                  <Link to={`/pr/${id}`}>Open PR <ExternalLink className="size-3" /></Link>
-                </Button>
-              </div>
-            </div>
-            <CanvassPanel pr={pr} />
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
-  )
-}
-
 /* ── Main Page ────────────────────────────────────────────────────────── */
 export default function Bidding() {
   const { user } = useAuth()
@@ -202,7 +154,8 @@ export default function Bidding() {
   // Stage, category, search, and page live in the URL, so the back button,
   // a refresh, and a shared link all keep the same view.
   const [params, setParams] = useSearchParams()
-  const stage    = STAGES.some(s => s.key === params.get('stage')) ? params.get('stage') : canManage ? 'needs_award' : 'po_issued'
+  const navigate = useNavigate()
+  const stage    = STAGES.some(s => s.key === params.get('stage')) ? params.get('stage') : canManage ? 'to_canvass' : 'po_issued'
   const category = CATEGORY_KEYS.includes(params.get('category')) ? params.get('category') : ''
   const page     = Math.max(parseInt(params.get('page')) || 1, 1)
   const [search, setSearch] = useState(params.get('q') || '')
@@ -223,21 +176,20 @@ export default function Bidding() {
     placeholderData: keepPreviousData,
     refetchInterval: 30000,
   })
+  // Open for quotations: the request moves under canvass and its canvass opens here.
+  const [opening, setOpening] = useState(null)   // the row being opened
   const rows    = data?.data ?? []
   const counts  = data?.counts
   const inStage = Object.values(counts?.categories || {}).reduce((a, b) => a + b, 0)
   const current = STAGES.find(s => s.key === stage)
-  const openId  = params.get('pr')
 
   return (
     <div className="space-y-5">
       <div className="flex items-end justify-between gap-3 flex-wrap">
         <div>
-          <h2 className="text-ui-2xl font-bold text-[--color-text-primary]">Lots & Awards</h2>
+          <h2 className="text-ui-2xl font-bold text-[--color-text-primary]">Work Queue</h2>
           <p className="text-ui-sm text-[--color-text-secondary] mt-0.5">
-            {canManage
-              ? 'Record suppliers\' quotations, award each item, then issue each supplier\'s purchase order.'
-              : 'The suppliers awarded for each PR, and the items each award covers.'}
+            Every request the TWG approved, by what it needs next: canvass it, send the award to the BAC, then issue the purchase order.
           </p>
         </div>
         <div className="relative w-full sm:w-80">
@@ -292,11 +244,14 @@ export default function Bidding() {
               {search || category ? 'No PRs match these filters.' : current.empty}
             </p>
             {canManage && stage === 'needs_award' && !search && !category && (
-              <p className="text-ui-xs text-[--color-text-muted] mt-1">A PR appears here once you click Canvass PR on it.</p>
+              <p className="text-ui-xs text-[--color-text-muted] mt-1">A request moves here when you open it for quotations under To canvass.</p>
             )}
           </div>
         ) : (
-          rows.map(row => <AwardRow key={row.id} row={row} stage={stage} canManage={canManage} onOpen={() => update({ pr: row.id })} />)
+          rows.map(row => (
+            <AwardRow key={row.id} row={row} stage={stage} canManage={canManage} onOpen={() => navigate(`/pr/${row.id}/canvass`)}
+              onStart={() => setOpening(row)} />
+          ))
         )}
 
         {data && data.totalPages > 1 && (
@@ -310,7 +265,10 @@ export default function Bidding() {
         )}
       </Card>
 
-      <CanvassDialog prId={openId} row={rows.find(r => String(r.id) === openId)} canManage={canManage} onClose={() => update({ pr: '' })} />
+      {opening && (
+        <OpenQuotationsDialog pr={opening} onClose={() => setOpening(null)}
+          onOpened={() => navigate(`/pr/${opening.id}/canvass`)} />
+      )}
     </div>
   )
 }

@@ -4,7 +4,7 @@ const c         = require('../controllers/lots.controller')
 const auth      = require('../middleware/auth.middleware')
 const authorize = require('../middleware/authorize.middleware')
 const { requireAccess } = require('../middleware/scope.middleware')
-const { handle, textRule, moneyRule, quantityRule, idRule, oneOfRule } = require('../middleware/validate')
+const { handle, textRule, emailRule, moneyRule, quantityRule, idRule, oneOfRule } = require('../middleware/validate')
 
 router.use(auth)
 
@@ -19,22 +19,23 @@ const supplierFields = [
   textRule('supplier_contact', 'Contact person', 100),
   textRule('supplier_address', 'Business address', 500),
   textRule('supplier_phone', 'Phone number', 50),
-  textRule('supplier_email', 'Email address', 150),
-  body('supplier_email').if(v => !!v).isEmail().withMessage('Email address is not valid'),
+  emailRule('supplier_email', 'Email address'),
   textRule('supplier_tin', 'TIN', 50),
 ]
 
 router.get('/',                  c.listAll)
-// The Lots & Awards work queue (PRs by award stage), and suppliers awarded before.
+// The Work Queue (PRs by award stage).
 router.get('/queue',             authorize('procurement', 'admin', 'supply'), c.queue)
-router.get('/suppliers',         authorize('procurement', 'admin'), c.suppliers)
 router.get('/pr/:prId/pdf',      prAccess, c.generateAbstract)
 router.get('/pr/:prId',          prAccess, c.listByPR)
 router.get('/:id/items', lotAccess, c.getItems)
 
-router.post('/', authorize('procurement', 'admin'),
+// The BAC's while it evaluates the PR, else Procurement's (checked in the controller).
+router.post('/', authorize('procurement', 'admin', 'bac'),
   idRule('purchase_request_id', 'Pick the purchase request', { required: true }),
-  textRule('awarded_to', 'Supplier / contractor name', 200, { required: true }),
+  // A supplier from the list (supplier_id), or one typed in by name.
+  idRule('supplier_id', 'Unknown supplier'),
+  textRule('awarded_to', 'Supplier / contractor name', 200),
   moneyRule('awarded_amount', 'Contract amount', { required: true, positive: true }),
   supplierFields,
   // The PR items this award covers (copied from the PR on the server).

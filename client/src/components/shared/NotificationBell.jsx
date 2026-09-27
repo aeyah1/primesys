@@ -19,8 +19,12 @@ export function NotificationBell() {
 
   useEffect(() => {
     if (!socket) return
-    socket.on('notification', () => qc.invalidateQueries({ queryKey: ['notifications'] }))
-    return () => socket.off('notification')
+    // Remove only OUR handler: socket.off('notification') with no argument
+    // takes every listener with it, including the one useLiveUpdates registers
+    // for toasts and cache refreshes.
+    const onNotification = () => qc.invalidateQueries({ queryKey: ['notifications'] })
+    socket.on('notification', onNotification)
+    return () => socket.off('notification', onNotification)
   }, [socket, qc])
 
   const unread = notifications.filter(n => !n.is_read).length

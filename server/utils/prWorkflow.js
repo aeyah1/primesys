@@ -125,6 +125,18 @@ function deleteBlock(user, pr) {
   return null
 }
 
+// The mode of procurement: Procurement's or the BAC's call, fixed once a
+// supplier is awarded, because it prints on the Abstract, the
+// BAC Resolution and the PO. A mode never set can still be filled in, since
+// awards made before it was required would otherwise block the rest for good.
+function modeBlock(user, pr) {
+  if (pr.deleted_at) return DELETED
+  if (![...STAFF, 'bac'].includes(user.role)) return deny(403, 'Only Procurement or the BAC can set the mode of procurement')
+  if (FINAL.includes(pr.status)) return deny(409, 'This PR is closed, so its mode of procurement is kept as it is')
+  if (pr.hasAward && pr.mode_of_procurement) return deny(409, 'A supplier is already awarded on this PR, so its mode of procurement is fixed')
+  return null
+}
+
 // Files on a closed or deleted PR stay with the record (audit WF-8).
 function fileDeleteBlock(pr) {
   return pr.deleted_at || FINAL.includes(pr.status) ? deny(409, 'Files on a closed PR are kept on record') : null
@@ -145,6 +157,7 @@ function prPermissions(user, pr) {
     edit:          !editBlock(user, pr),
     delete:        !deleteBlock(user, pr),
     next_statuses: Object.keys(TRANSITIONS[pr.status] || {}).filter(to => !transitionBlock(user, pr, to)),
+    set_mode:      !modeBlock(user, pr),
   }
 }
 
@@ -152,7 +165,7 @@ function prPermissions(user, pr) {
 // concurrent workflow writes to the same PR run one after another.
 async function loadPR(db, prId, { lock = false } = {}) {
   const [rows] = await db.execute(
-    `SELECT pr.id, pr.status, pr.created_by, pr.pr_number, pr.title, pr.category, pr.deleted_at,
+    `SELECT pr.id, pr.status, pr.created_by, pr.pr_number, pr.title, pr.category, pr.mode_of_procurement, pr.bac_submitted_at, pr.bac_submitted_by, pr.deleted_at,
             EXISTS (SELECT 1 FROM purchase_orders po WHERE po.purchase_request_id = pr.id AND po.po_status = 'active') AS has_po,
             EXISTS (SELECT 1 FROM purchase_orders po WHERE po.purchase_request_id = pr.id)                            AS has_any_po,
             EXISTS (SELECT 1 FROM lots l WHERE l.purchase_request_id = pr.id)                                        AS has_lot,
@@ -232,4 +245,4 @@ async function syncPRProgress(conn, prId, { user, note = null }) {
   return to
 }
 
-module.exports = { PR_STATUSES, loadPR, editBlock, editDenied, deleteBlock, fileDeleteBlock, poCancelBlock, prPermissions, changePRStatus, syncPRProgress }
+module.exports = { PR_STATUSES, loadPR, editBlock, editDenied, deleteBlock, fileDeleteBlock, modeBlock, poCancelBlock, prPermissions, changePRStatus, syncPRProgress }

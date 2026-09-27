@@ -5,10 +5,12 @@ const asyncHandler = require('../utils/asyncHandler')
 const { prScope } = require('../middleware/scope.middleware')
 const withTransaction    = require('../db/transaction')
 const { poCancelBlock, loadPR, syncPRProgress } = require('../utils/prWorkflow')
-const { awardsForPO, poItems } = require('../utils/awardWorkflow')
+const { awardsForPO, poItems, cents } = require('../utils/awardWorkflow')
+const { undeliveredCents, penalty, closeBlock, closeShort } = require('../utils/shortDelivery')
 const { poLines, recordBlock, QTY_ORDERED, QTY_RECEIVED } = require('../utils/deliveryWorkflow')
 const httpError = require('../utils/httpError')
 const { paging } = require('../middleware/validate')
+const { loadOrgSettings } = require('../utils/orgSettings')
 const drawPurchaseOrder = require('../pdf/purchaseOrder')
 
 const STAFF = ['procurement', 'admin']
@@ -63,7 +65,7 @@ exports.list = asyncHandler(async (req, res) => {
   const [rows] = await pool.execute(`
     SELECT po.id, po.po_number, po.supplier_name, po.issued_date, po.total_amount,
            po.expected_delivery_date, po.delivery_status, po.delivery_date, po.created_at,
-           po.po_status, po.rescheduled_at, po.reschedule_reason,
+           po.po_status, po.rescheduled_at, po.reschedule_reason, po.closed_at, po.short_amount,
            pr.id AS pr_id, pr.pr_number, pr.title AS pr_title,
            u.name AS issued_by_name,
            ${VIEWS.overdue} AS is_overdue,
@@ -93,7 +95,7 @@ exports.list = asyncHandler(async (req, res) => {
 exports.getById = asyncHandler(async (req, res) => {
   const [rows] = await pool.execute(`
     SELECT po.*, pr.pr_number, pr.title AS pr_title, pr.status AS pr_status, pr.deleted_at AS pr_deleted_at,
-           u.name AS issued_by_name, cu.name AS cancelled_by_name,
+           u.name AS issued_by_name, cu.name AS cancelled_by_name, clu.name AS closed_by_name,
            ${VIEWS.overdue} AS is_overdue,
            IF(${VIEWS.overdue}, DATEDIFF(CURDATE(), po.expected_delivery_date), 0) AS days_late,
            EXISTS (SELECT 1 FROM deliveries d WHERE d.po_id = po.id) AS has_deliveries
@@ -101,6 +103,7 @@ exports.getById = asyncHandler(async (req, res) => {
     JOIN purchase_requests pr ON po.purchase_request_id = pr.id
     JOIN users u              ON po.issued_by = u.id
     LEFT JOIN users cu        ON cu.id = po.cancelled_by
+    LEFT JOIN users clu       ON clu.id = po.closed_by
     WHERE po.id = ?
   `, [req.params.id])
   if (!rows.length) return res.status(404).json({ message: 'PO not found' })
@@ -124,11 +127,14 @@ exports.getById = asyncHandler(async (req, res) => {
     // An older PO without lines lists its PR's items instead (nothing to count against).
     items: lines.length ? lines : (await poItems(pool, po.id, po.purchase_request_id)).map(i => ({ ...i, ordered: i.quantity })),
     has_lines: lines.length > 0,
+    // While it is late: the penalty so far on what hasn't arrived (null amount when a line has no unit price).
+    late: po.is_overdue ? penalty(undeliveredCents(lines), po.days_late, cents(po.total_amount)) : null,
     deliveries: deliveries.map(d => ({ ...d, items: brought.filter(b => b.delivery_id === d.id).map(({ delivery_id, ...b }) => b) })),
     permissions: {
       receive:    open && !recordBlock(req.user, po),
       cancel:     open && !poCancelBlock(req.user, { ...po, hasDeliveries: !!has_deliveries }),
       reschedule: open && STAFF.includes(req.user.role) && po.delivery_status !== 'delivered',
+      close:      open && lines.length > 0 && !closeBlock(req.user, po, { deleted_at: pr_deleted_at }),
     },
   })
 })
@@ -196,10 +202,10 @@ exports.create = asyncHandler(async (req, res) => {
       try {
         const [result] = await conn.execute(
           `INSERT INTO purchase_orders
-             (po_number, purchase_request_id, supplier_name, supplier_contact, supplier_address,
+             (po_number, purchase_request_id, supplier_name, supplier_id, supplier_contact, supplier_address,
               issued_date, total_amount, expected_delivery_date, notes, po_status, issued_by)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
-          [po_number, pr.id, award.supplier_name, award.supplier_contact, award.supplier_address,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
+          [po_number, pr.id, award.supplier_name, award.supplier_id, award.supplier_contact, award.supplier_address,
            issued_date, award.total_amount, expected_delivery_date || null, notes || null, req.user.id]
         )
         // Those awards are now this PO's (and fixed with it).
@@ -236,6 +242,8 @@ exports.generatePDF = asyncHandler(async (req, res) => {
 
   const [rows] = await pool.execute(`
     SELECT po.*, pr.pr_number, pr.title AS pr_title, pr.id AS pr_id,
+           pr.mode_of_procurement, pr.department, pr.fund_cluster,
+           (SELECT l.supplier_tin FROM lots l WHERE l.po_id = po.id AND l.supplier_tin IS NOT NULL LIMIT 1) AS supplier_tin,
            u.name AS issued_by_name,
            q.label AS quarter_label, q.year AS quarter_year
     FROM purchase_orders po
@@ -248,6 +256,7 @@ exports.generatePDF = asyncHandler(async (req, res) => {
   if (!rows.length) return res.status(404).json({ message: 'PO not found' })
   const po = rows[0]
 
+  const orgSettings = await loadOrgSettings(pool)
   const items = await poItems(pool, po.id, po.pr_id)
   // Awarded unit prices when every line has one (awards from quotations);
   // otherwise the PR's estimates, and the contract amount is the total.
@@ -258,7 +267,7 @@ exports.generatePDF = asyncHandler(async (req, res) => {
   res.setHeader('Content-Disposition', `attachment; filename="${po.po_number}.pdf"`)
   doc.pipe(res)
 
-  drawPurchaseOrder(doc, { po, items, priced })
+  drawPurchaseOrder(doc, { po, items, priced, orgSettings })
   doc.end()
 })
 
@@ -305,4 +314,29 @@ exports.cancel = asyncHandler(async (req, res) => {
     'warning', po.pr.id, 'pr'
   )))
   res.json({ message: 'Purchase order cancelled', pr_status: po.status })
+})
+
+// PATCH /po/:id/close - { reason, carry_quotes, short_amount }: the supplier
+// can't deliver the rest of a partly delivered PO. What arrived is kept; the
+// rest goes back to canvass (utils/shortDelivery.js). The requestor, the
+// supply officers, and the BAC are told.
+exports.close = asyncHandler(async (req, res) => {
+  const done = await withTransaction((conn) => closeShort(conn, req.params.id, req.user, {
+    reason: req.body.reason.trim(),
+    carryQuotes: req.body.carry_quotes !== false,
+    shortAmount: req.body.short_amount ?? null,
+  }))
+  const { po, pr, balances } = done
+  const again = balances.length
+    ? ` ${balances.length === 1 ? 'Its undelivered item goes' : `Its ${balances.length} undelivered items go`} back to canvass for a new award.`
+    : ''
+  const [others] = await pool.execute("SELECT id FROM users WHERE role IN ('supply', 'bac') AND is_active = 1")
+  const recipients = [...new Set([pr.created_by, ...others.map(u => u.id)])].filter(id => id !== req.user.id)
+  await Promise.all(recipients.map(id => notify(req.io, id,
+    `${po.po_number} for PR ${pr.pr_number} was closed: ${po.supplier_name} could not deliver the rest.${again}`,
+    'warning', pr.id, 'pr')))
+  res.json({
+    message: `${po.po_number} closed`,
+    short_amount: done.short_amount, penalty: done.penalty, balances, pr_status: done.pr_status,
+  })
 })

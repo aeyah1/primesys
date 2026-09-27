@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { Trophy, AlertTriangle } from 'lucide-react'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
@@ -20,8 +20,18 @@ export default function AwardFromQuotesDialog({ pr, items, quotations, open, onC
   const prId = String(pr.id)
   const refresh = useRefreshAwards(prId)
   const pending = items.filter(i => i.state === 'pending')
-  // Only quotations that price something still to award.
-  const quotes = quotations.filter(q => pending.some(i => q.prices[i.id] != null))
+  // Only quotations that price something still to award, and that the BAC did not find failing the specs.
+  const quotes = quotations.filter(q => !q.disqualified_reason && pending.some(i => q.prices[i.id] != null))
+
+  // How many quotations the campus expects before an award (Settings >
+  // Organization). Three unless it says otherwise.
+  const { data: orgSettings } = useQuery({
+    queryKey: ['org-settings'],
+    queryFn:  () => api.get('/settings').then(r => r.data),
+    staleTime: 5 * 60_000,
+    enabled: open,
+  })
+  const minimumQuotations = Math.max(parseInt(orgSettings?.minimum_quotations, 10) || 3, 1)
   const priceOf = (q, i) => (q.prices[i.id] != null ? cents(q.prices[i.id]) : null)
   const lowestOf = Object.fromEntries(pending.map(i => {
     const offered = quotes.map(q => priceOf(q, i)).filter(p => p != null)
@@ -30,11 +40,13 @@ export default function AwardFromQuotesDialog({ pr, items, quotations, open, onC
 
   const [choice, setChoice] = useState({})   // item id → quotation id, or '' (not now)
   const [reason, setReason] = useState('')
+  const [fewReason, setFewReason] = useState('')
   // Each opening starts with the lowest quotation for each item (the first on a tie).
   useEffect(() => {
     if (!open) return
     setChoice(Object.fromEntries(pending.map(i => [i.id, quotes.find(q => priceOf(q, i) != null && priceOf(q, i) === lowestOf[i.id])?.id ?? ''])))
     setReason('')
+    setFewReason('')
   }, [open])
 
   const chosen = pending.filter(i => choice[i.id])
@@ -51,16 +63,24 @@ export default function AwardFromQuotesDialog({ pr, items, quotations, open, onC
   const { mutate, isPending } = useMutation({
     mutationFn: (body) => api.post(`/canvass/${prId}/award`, body),
     onSuccess: ({ data }) => {
-      toast.success(`${plural(data.lots.length, 'award')} recorded: ${data.lots.map(l => l.awarded_to).join(', ')}`)
+      toast.success(`${plural(data.lots.length, 'award')} made${data.resolution ? ` in BAC Resolution No. ${data.resolution.resolution_number}` : ''}: ${data.lots.map(l => l.awarded_to).join(', ')}`)
       refresh()
       onClose()
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to record the awards'),
   })
-  const canSave = chosen.length > 0 && !overBudget.length && (!notLowest.length || !!reason.trim()) && !isPending
+  // Canvassing compares suppliers, so awarding on fewer quotations than the
+  // campus expects needs a reason (the server holds the same rule).
+  const tooFew = quotes.length < minimumQuotations
+  const canSave = chosen.length > 0 && !overBudget.length && (!notLowest.length || !!reason.trim())
+    && (!tooFew || !!fewReason.trim()) && !isPending
   const submit = () => {
     if (!canSave) return
-    mutate({ picks: chosen.map(i => ({ item: i.id, quotation: choice[i.id] })), reason: reason.trim() || undefined })
+    mutate({
+      picks: chosen.map(i => ({ item: i.id, quotation: choice[i.id] })),
+      reason: reason.trim() || undefined,
+      few_quotations_reason: tooFew ? fewReason.trim() : undefined,
+    })
   }
 
   return (
@@ -149,6 +169,19 @@ export default function AwardFromQuotesDialog({ pr, items, quotations, open, onC
               The award to {a.q.supplier_name} ({fmtCurrency(a.amount / 100)}) is above the approved budget for its items ({fmtCurrency(a.budget / 100)}). Choose another supplier for some items.
             </p>
           ))}
+
+          {tooFew && (
+            <div className="space-y-1.5">
+              <Label>Why award on fewer than {minimumQuotations} quotations? <span className="text-red-600 text-xs">*</span></Label>
+              <p className="text-xs text-[--color-text-muted]">
+                Only {plural(quotes.length, 'quotation')} {quotes.length === 1 ? 'has' : 'have'} been recorded.
+                Canvassing compares suppliers, so the reason is kept with the award.
+              </p>
+              <textarea value={fewReason} onChange={e => setFewReason(e.target.value)} rows={2} maxLength={500}
+                placeholder="e.g. Sole distributor in the province; the other two suppliers declined to quote"
+                className="w-full rounded-md border border-[--color-border] bg-[--color-surface] px-3 py-2 text-sm text-[--color-text-primary] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent resize-y" />
+            </div>
+          )}
 
           {notLowest.length > 0 && (
             <div className="space-y-1.5">

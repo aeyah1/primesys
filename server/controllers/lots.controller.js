@@ -11,6 +11,13 @@ const {
 const { paging }     = require('../middleware/validate')
 const { CATEGORIES } = require('../utils/categories')
 const drawAbstract   = require('../pdf/abstractOfQuotations')
+const { loadOrgSettings } = require('../utils/orgSettings')
+const notify = require('../utils/notify')
+const { sendAwardNotices } = require('../utils/awardNotice')
+const { failedSuppliers, failedBlock } = require('../utils/shortDelivery')
+const { awardDenied, modeMissing, bacAwards, adoptResolution, releaseIfDone } = require('../utils/bacWorkflow')
+const { sealedBlock } = require('../utils/rfqWorkflow')
+const { resolveSupplier, supplierDetails, supplierIdByName } = require('../utils/suppliers')
 
 // The lot and its PR's facts; with `lock` (inside a transaction), the PR row
 // first and then the lot, the same order as every other award write.
@@ -119,7 +126,8 @@ exports.deleteItem = asyncHandler(async (req, res) => {
 
 // Records an award by hand (no quotation): a supplier, the PR items it
 // covers (by default every item not yet awarded), and a lump-sum contract
-// amount, which can't exceed the items' approved budget.
+// amount, which can't exceed the items' approved budget. While the BAC awards,
+// only the BAC may, and the award is its resolution.
 exports.create = asyncHandler(async (req, res) => {
   const { purchase_request_id, title, awarded_to, awarded_amount, pr_item_ids } = req.body
   // checked in the route (amount required: a PO's total is the sum of its awards)
@@ -136,6 +144,9 @@ exports.create = asyncHandler(async (req, res) => {
     const pr = await loadPR(conn, purchase_request_id, { lock: true })
     const blocked = awardBlock(pr)
     if (blocked) throw httpError(blocked.status, blocked.message)
+    const bacOn = await bacAwards(conn)
+    const denied = awardDenied(req.user, pr, bacOn) || await sealedBlock(conn, pr.id)
+    if (denied) throw httpError(denied.status, denied.message)
 
     const { items } = await itemStates(conn, pr.id)
     let covered = items.filter(i => i.state === 'pending')
@@ -151,23 +162,51 @@ exports.create = asyncHandler(async (req, res) => {
     const over = budgetBlock(amount, estimateCents(covered))
     if (over) throw httpError(over.status, over.message)
 
-    // The same supplier's earlier award here: keep their name as first
-    // written, and any detail left out.
-    const [awards] = await conn.execute(
-      `SELECT awarded_to, ${SUPPLIER_COLUMNS.join(', ')} FROM lots WHERE purchase_request_id = ? AND status = 'awarded' ORDER BY id`, [pr.id])
-    const same = awards.find(a => supplierKey(a.awarded_to) === supplierKey(awarded_to))
-    const supplier = same ? same.awarded_to : awarded_to.trim()
-    const details = Object.fromEntries(SUPPLIER_COLUMNS.map(c => [c, req.body[c] || same?.[c] || null]))
+    // A supplier from the list brings its own details. One typed in by name
+    // keeps the name as first written on an earlier award here, and any detail left out.
+    let supplier, details, supplierId
+    if (req.body.supplier_id) {
+      const listed = await resolveSupplier(conn, req.body, req.user.id)
+      supplier = listed.name
+      supplierId = listed.id
+      details = supplierDetails(listed)
+    } else {
+      if (!awarded_to?.trim()) throw httpError(400, 'Choose the supplier')
+      const [awards] = await conn.execute(
+        `SELECT awarded_to, ${SUPPLIER_COLUMNS.join(', ')} FROM lots WHERE purchase_request_id = ? AND status = 'awarded' ORDER BY id`, [pr.id])
+      const same = awards.find(a => supplierKey(a.awarded_to) === supplierKey(awarded_to))
+      supplier = same ? same.awarded_to : awarded_to.trim()
+      details = Object.fromEntries(SUPPLIER_COLUMNS.map(c => [c, req.body[c] || same?.[c] || null]))
+      supplierId = await supplierIdByName(conn, supplier)
+    }
 
+    // A supplier that failed to deliver one of these items before can't be awarded it again.
+    const failedFor = await failedSuppliers(conn, pr.id)
+    for (const item of covered) {
+      const failed = failedBlock(failedFor, item, supplier)
+      if (failed) throw httpError(failed.status, failed.message)
+    }
+    const noMode = modeMissing(pr, bacOn)
+    if (noMode) throw httpError(noMode.status, noMode.message)
+    const resolution = bacOn ? await adoptResolution(conn, pr.id, req.user.id) : null
     const lot = await recordAward(conn, {
-      prId: pr.id, supplier, amount: (amount / 100).toFixed(2), details, title: title || null, userId: req.user.id, items: covered,
+      resolutionId: resolution?.id ?? null, prId: pr.id, supplier, supplierId, amount: (amount / 100).toFixed(2), details, title: title || null, userId: req.user.id, items: covered,
     })
-    await syncPRProgress(conn, pr.id, { user: req.user, note: `${lot.lot_number} awarded to ${supplier}` })
-    return { ...lot, pr, awarded_to: supplier, items: covered.length }
+    const by = resolution ? ` (BAC Resolution No. ${resolution.resolution_number})` : ''
+    await syncPRProgress(conn, pr.id, { user: req.user, note: `${lot.lot_number} awarded to ${supplier}${by}` })
+    if (bacOn) await releaseIfDone(conn, pr.id, (await itemStates(conn, pr.id)).items.filter(i => i.state === 'pending').length)
+    return { ...lot, pr, resolution, awarded_to: supplier, items: covered.length }
   })
 
   await announceAwards(req.io, created.pr.pr_number, [created])
-  res.status(201).json({ id: created.id, lot_number: created.lot_number, awarded_to: created.awarded_to, items: created.items })
+  if (created.resolution && created.pr.bac_submitted_by) {
+    await notify(req.io, created.pr.bac_submitted_by,
+      `PR ${created.pr.pr_number}: the BAC awarded it in Resolution No. ${created.resolution.resolution_number}. The purchase orders can be issued.`,
+      'info', created.pr.id, 'pr')
+  }
+  // The winners with a confirmed email get their Notice of Award; the rest are delivered by hand.
+  if (created.resolution) await sendAwardNotices(created.pr.id, created.resolution.id).catch(err => console.error('[award] notices:', err.message))
+  res.status(201).json({ id: created.id, lot_number: created.lot_number, resolution: created.resolution, awarded_to: created.awarded_to, items: created.items })
 })
 
 // Edits an award, or cancels it (status 'cancelled', with a reason). The
@@ -200,6 +239,7 @@ exports.update = asyncHandler(async (req, res) => {
 
     if (lot.status !== 'awarded') throw httpError(409, 'Only an awarded lot can be edited')
     if (awarded_amount != null && awarded_amount !== '') {
+      if (lot.resolution_id) throw httpError(409, 'This amount was awarded in a BAC Resolution, so it is fixed')
       if (lot.quotation_id) throw httpError(409, 'This award\'s amount comes from the supplier\'s quoted prices, so it can\'t be edited')
       const [covered] = await conn.execute(
         `SELECT i.quantity, i.estimated_cost FROM lot_items li JOIN pr_items i ON i.id = li.pr_item_id WHERE li.lot_id = ?`, [lot.id])
@@ -225,6 +265,11 @@ exports.update = asyncHandler(async (req, res) => {
           WHERE id IN (${ids.map(() => '?').join(', ')})`,
         [...supplier, ...ids]
       )
+      // A new name may be a different listed supplier (or none).
+      if (awarded_to?.trim()) {
+        await conn.execute(`UPDATE lots SET supplier_id = ? WHERE id IN (${ids.map(() => '?').join(', ')})`,
+          [await supplierIdByName(conn, awarded_to), ...ids])
+      }
     }
     return { reopened: false }
   })
@@ -238,20 +283,26 @@ exports.update = asyncHandler(async (req, res) => {
 
 // Lots & Awards work queue
 // PRs by what they need next. A PR awarded in part can be in more than one:
+//   to_canvass   approved by the TWG, canvass not started yet
 //   needs_award  under canvass (Bidding): some items still need an award
+//   with_bac     submitted to the BAC, which evaluates and awards
 //   awaiting_po  awards with no purchase order yet
 //   po_issued    at least one active purchase order
 //   cancelled    cancelled after an award was recorded
 const HAS_LOTS  = 'EXISTS (SELECT 1 FROM lots hl WHERE hl.purchase_request_id = pr.id)'
 const STAGES = {
-  needs_award: "pr.status = 'bidding'",
+  to_canvass:  "pr.status = 'twg_review'",
+  needs_award: "(pr.status = 'bidding' AND pr.bac_submitted_at IS NULL)",
+  with_bac:    "(pr.status = 'bidding' AND pr.bac_submitted_at IS NOT NULL)",
   awaiting_po: "(pr.status IN ('bidding', 'for_po') AND EXISTS (SELECT 1 FROM lots wl WHERE wl.purchase_request_id = pr.id AND wl.status = 'awarded' AND wl.po_id IS NULL))",
   po_issued:   "EXISTS (SELECT 1 FROM purchase_orders apo WHERE apo.purchase_request_id = pr.id AND apo.po_status = 'active')",
   cancelled:   `(pr.status = 'cancelled' AND ${HAS_LOTS})`,
 }
 // Work waiting longest comes first; history shows the latest first.
 const STAGE_ORDER = {
+  to_canvass:  'stage_since ASC, pr.id ASC',
   needs_award: 'stage_since ASC, pr.id ASC',
+  with_bac:    'stage_since ASC, pr.id ASC',
   awaiting_po: 'stage_since ASC, pr.id ASC',
   po_issued:   'stage_since DESC, pr.id DESC',
   cancelled:   'stage_since DESC, pr.id DESC',
@@ -297,6 +348,9 @@ exports.queue = asyncHandler(async (req, res) => {
                               WHEN SUM(px.delivery_status = 'delivered') = COUNT(*) THEN 'delivered'
                               WHEN SUM(px.delivery_status <> 'pending') > 0 THEN 'partial'
                               ELSE 'pending' END`)} AS delivery_status,
+           pr.quotations_due, pr.quotations_due > NOW() AS quotations_open,
+           (SELECT COUNT(*) FROM rfq_invitations ri WHERE ri.purchase_request_id = pr.id) AS invited,
+           (SELECT COUNT(*) FROM quotations qq WHERE qq.purchase_request_id = pr.id) AS quotations,
            COALESCE((SELECT MAX(sl.created_at) FROM pr_status_logs sl WHERE sl.pr_id = pr.id AND sl.to_status = pr.status), pr.created_at) AS stage_since
       FROM purchase_requests pr
       JOIN users u ON u.id = pr.created_by
@@ -328,41 +382,6 @@ exports.queue = asyncHandler(async (req, res) => {
   })
 })
 
-// GET /lots/suppliers - suppliers awarded or quoting before, latest first,
-// each under the spelling used most and with the latest known value of every
-// detail, so a new quotation or award can reuse them.
-exports.suppliers = asyncHandler(async (req, res) => {
-  const scope = prScope(req.user)   // C2
-  const cols = SUPPLIER_COLUMNS.join(', ')
-  const [rows] = await pool.execute(`
-    SELECT name, ${cols}, created_at, kind FROM (
-      SELECT l.awarded_to AS name, ${SUPPLIER_COLUMNS.map(c => `l.${c}`).join(', ')}, l.created_at, 'award' AS kind
-        FROM lots l JOIN purchase_requests pr ON pr.id = l.purchase_request_id
-       WHERE ${scope.sql} AND l.awarded_to IS NOT NULL AND TRIM(l.awarded_to) <> ''
-      UNION ALL
-      SELECT q.supplier_name, ${SUPPLIER_COLUMNS.map(c => `q.${c}`).join(', ')}, q.created_at, 'quote'
-        FROM quotations q JOIN purchase_requests pr ON pr.id = q.purchase_request_id
-       WHERE ${scope.sql}
-    ) s
-    ORDER BY created_at DESC
-    LIMIT 2000`, [...scope.params, ...scope.params])
-  const byName = new Map()
-  for (const r of rows) {
-    const name = r.name.trim().replace(/\s+/g, ' ')
-    const key  = supplierKey(name)
-    if (!byName.has(key)) byName.set(key, { spellings: new Map(), awards: 0, quotes: 0, last_used_at: r.created_at })
-    const s = byName.get(key)
-    s[r.kind === 'award' ? 'awards' : 'quotes'] += 1
-    s.spellings.set(name, (s.spellings.get(name) || 0) + 1)
-    for (const c of SUPPLIER_COLUMNS) if (!s[c] && r[c]) s[c] = r[c]
-  }
-  // Each supplier under the spelling used most (the latest one on a tie).
-  res.json([...byName.values()].slice(0, 500).map(({ spellings, ...s }) => ({
-    name: [...spellings].reduce((best, cur) => (cur[1] > best[1] ? cur : best))[0],
-    ...s,
-  })))
-})
-
 // Abstract of Quotations (PDF)
 // With quotations: every supplier's unit price per PR item side by side (the
 // lowest marked, the awarded ones bold), their totals, then the awards. With
@@ -374,13 +393,16 @@ exports.generateAbstract = asyncHandler(async (req, res) => {
   const prId = req.params.prId
 
   const [[pr]] = await pool.execute(`
-    SELECT pr.id, pr.pr_number, pr.title, pr.created_at,
+    SELECT pr.id, pr.pr_number, pr.title, pr.created_at, pr.purpose, pr.mode_of_procurement,
            u.name AS created_by_name, q.label AS quarter_label, q.year AS quarter_year
       FROM purchase_requests pr
       JOIN users u ON pr.created_by = u.id
       LEFT JOIN quarters q ON q.id = pr.quarter_id
      WHERE pr.id = ?`, [prId])
   if (!pr) return res.status(404).json({ message: 'PR not found' })
+  // The comparison would show sealed prices, so it waits for the RFQ deadline.
+  const sealed = await sealedBlock(pool, prId)
+  if (sealed) return res.status(sealed.status).json({ message: sealed.message })
 
   const [quotes] = await pool.execute('SELECT * FROM quotations WHERE purchase_request_id = ? ORDER BY id', [prId])
   const [prices] = await pool.execute(
@@ -393,11 +415,12 @@ exports.generateAbstract = asyncHandler(async (req, res) => {
     ? await pool.execute(`SELECT * FROM lot_items WHERE lot_id IN (${lotIds.map(() => '?').join(',')}) ORDER BY lot_id, id`, lotIds)
     : [[]]
   const { items } = await itemStates(pool, prId)
+  const orgSettings = await loadOrgSettings(pool)
 
   const doc = new PDFDocument({ size: 'LETTER', layout: quotes.length ? 'landscape' : 'portrait', margin: M })
   res.setHeader('Content-Type', 'application/pdf')
   res.setHeader('Content-Disposition', `attachment; filename="Abstract-${pr.pr_number}.pdf"`)
   doc.pipe(res)
-  drawAbstract(doc, { pr, quotes, prices, lots, lotItems, items })
+  drawAbstract(doc, { pr, quotes, prices, lots, lotItems, items, orgSettings })
   doc.end()
 })

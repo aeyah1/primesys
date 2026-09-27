@@ -1,4 +1,5 @@
 const { body, validationResult } = require('express-validator')
+const { mailDomainExists } = require('../utils/emailDomain')
 
 exports.handle = (req, res, next) => {
   const errors = validationResult(req)
@@ -31,6 +32,18 @@ exports.textRule = (field, label, max, { required = false } = {}) => {
     : body(field).if(present).isString().withMessage(msg(label, 'must be text')).bail().trim()
   return chain.isLength({ max }).withMessage(msg(label, `is too long (${max} characters at most)`))
 }
+
+// A supplier's email: a valid address whose domain can receive mail. A domain
+// that doesn't exist (a typo) is refused; if DNS can't be reached, it passes.
+exports.emailRule = (field, label) => [
+  exports.textRule(field, label, 150),
+  body(field).if(present).isEmail().withMessage(`${label} is not valid`).bail()
+    .custom(async (v) => {
+      if (await mailDomainExists(v) === false) {
+        throw new Error(`${label}: "${v.split('@').pop()}" can't receive email. Check the address for a typo.`)
+      }
+    }),
+]
 
 // Philippine phone numbers: an 11-digit mobile (09XX XXX XXXX) or a 10-digit landline with area code.
 // Spaces, dashes, dots and brackets are ignored, +63 becomes 0, and the number is saved in one layout.

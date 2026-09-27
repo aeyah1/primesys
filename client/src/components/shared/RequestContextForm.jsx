@@ -149,20 +149,10 @@ export default function RequestContextForm({ value = {}, onChange }) {
         </div>
       )}
 
-      <div className="space-y-1.5">
-        <Label htmlFor="ctx-purpose">
-          Why do you need it?
-          <span className="ml-1 font-normal text-[--color-text-muted] text-xs">(what it is for and why; a clear reason helps the TWG approve it)</span>
-        </Label>
-        <textarea
-          id="ctx-purpose"
-          rows={3}
-          placeholder={`e.g. "For the Organic Chem 2 laboratory course, AY 2026-2027. Current microscopes are 15+ years old and students can't complete the cell-observation activity."`}
-          value={value.purpose || ''}
-          onChange={(e) => set('purpose', e.target.value)}
-          className="w-full rounded-md border border-[--color-border] bg-[--color-surface] px-3 py-2 text-sm text-[--color-text-primary] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent resize-y min-h-[72px]"
-        />
-      </div>
+      {/* A request says what it is for in one field, the Purpose, on the form
+          above. The separate justification this section used to ask for is
+          gone; purchase_requests.purpose only carries what was written before
+          it was removed. */}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="space-y-1.5">
@@ -175,18 +165,6 @@ export default function RequestContextForm({ value = {}, onChange }) {
             type="date"
             value={value.date_needed || ''}
             onChange={(e) => set('date_needed', e.target.value)}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="ctx-recommended-by">
-            Office head or adviser
-            <span className="ml-1 font-normal text-[--color-text-muted] text-xs">(who recommended this request)</span>
-          </Label>
-          <Input
-            id="ctx-recommended-by"
-            placeholder="e.g. Dr. Maria Santos"
-            value={value.recommended_by || ''}
-            onChange={(e) => set('recommended_by', e.target.value)}
           />
         </div>
       </div>

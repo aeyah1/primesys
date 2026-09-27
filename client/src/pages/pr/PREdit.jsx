@@ -5,19 +5,21 @@ import { ArrowLeft, Package, Plus, Trash2, Send } from 'lucide-react'
 import ItemCategorySelector from '@/components/shared/ItemCategorySelector'
 import UnitInput from '@/components/shared/UnitInput'
 import RequestContextForm from '@/components/shared/RequestContextForm'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
-import { fmtCurrency, CATEGORY_FORM, buildItemNotes, groupItemsBySection } from '@/lib/utils'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { fmtCurrency, CATEGORY_FORM, buildItemNotes, groupItemsBySection, FUND_SOURCES, fundCodeFor, CATEGORY_LABELS } from '@/lib/utils'
 import { SectionNameInput, SectionHeaderRow } from '@/components/shared/ItemSections'
 import CategorySpecFields from '@/components/shared/CategorySpecFields'
 import { useAuth } from '@/context/AuthContext'
 import api from '@/lib/axios'
+import ReviewSubmitDialog from '@/components/shared/ReviewSubmitDialog'
 
-const EMPTY_DRAFT = { group_label: '', stock_property_no: '', item_name: '', quantity: '1', unit: 'pc', estimated_cost: '', specs: {} }
+const EMPTY_DRAFT = { group_label: '', stock_property_no: '', category: '', item_name: '', quantity: '1', unit: 'pc', estimated_cost: '', specs: {} }
 
 const TH = ({ children, className = '' }) => (
   <th className={`px-4 py-3 text-xs font-bold text-[--color-text-secondary] uppercase tracking-wider bg-[--color-canvas] ${className}`}>
@@ -37,11 +39,12 @@ export default function PREdit() {
   const isRequestor = user?.role === 'requestor'
 
   const [form, setForm]     = useState({
-    title: '', fund_cluster: '', responsibility_center_code: '', category: 'office_supplies',
+    title: '', fund_cluster: '', fund_source: 'STF', responsibility_center_code: '', category: 'office_supplies',
     department: '', department_id: '', purpose_type: 'personal', purpose: '', date_needed: '', recommended_by: '',
     event_name: '', event_date: '', project_name: '',
   })
   const [items, setItems]   = useState([])
+  const [reviewing, setReviewing] = useState(false)
   const [draft, setDraft]   = useState(EMPTY_DRAFT)
   const [initialized, setInitialized] = useState(false)
   const setF = (k, v) => setForm(p => ({ ...p, [k]: v }))
@@ -76,16 +79,19 @@ export default function PREdit() {
       setForm({
         title:                      pr.title                      || '',
         fund_cluster:               pr.fund_cluster               || '',
+        fund_source:                pr.fund_source                || 'STF',
         responsibility_center_code: pr.responsibility_center_code || '',
         category:                   pr.category                   || 'office_supplies',
         department:                 pr.department                 || '',
         department_id:              pr.department_id              || '',
         purpose_type:               pr.purpose_type               || 'personal',
+        // No longer asked for, only carried, so an edit does not erase the
+        // justification a request filed before the field was removed still holds.
         purpose:                    pr.purpose                    || '',
         // MySQL DATE column comes back as 'YYYY-MM-DDTHH:mm:ss.sssZ' through
         // JSON serialization — slice to the date portion for <input type="date">.
         date_needed:                pr.date_needed                ? String(pr.date_needed).slice(0, 10) : '',
-        recommended_by:             pr.recommended_by             || '',
+        recommended_by:             pr.recommended_by             || '',   // carried, not asked
         event_name:                 pr.event_name                 || '',
         event_date:                 pr.event_date                 ? String(pr.event_date).slice(0, 10)  : '',
         project_name:               pr.project_name               || '',
@@ -116,6 +122,7 @@ export default function PREdit() {
     const newItem = {
       group_label:       draft.group_label,
       stock_property_no: draft.stock_property_no.trim(),
+      category:          draft.category || form.category,
       item_name:         draft.item_name.trim(),
       quantity:          draft.quantity,
       unit:              draft.unit,
@@ -144,10 +151,12 @@ export default function PREdit() {
 
   // Saves the changes and any new items, in order; with `submit`, then sends
   // the PR to the TWG (a draft, or a PR the TWG sent back for changes).
-  const handleSubmit = async (e, { submit = false } = {}) => {
-    e.preventDefault()
-    if (!form.title.trim()) { toast.error('Give your request a short title'); return }
+  // Submitting shows the review first (ReviewSubmitDialog); its Submit confirms.
+  const handleSubmit = async (e, { submit = false, confirmed = false } = {}) => {
+    e?.preventDefault()
+    if (!form.title.trim()) { toast.error('Give your request a purpose'); return }
     if (submit && items.length === 0) { toast.error('Add at least one item before submitting'); return }
+    if (submit && !confirmed) { setReviewing(true); return }
     setSaving(true)
     try {
       await updatePR(form)
@@ -163,6 +172,7 @@ export default function PREdit() {
         await api.post(`/pr/${id}/items`, {
           group_label:       item.group_label       || undefined,
           stock_property_no: item.stock_property_no || undefined,
+          category:          item.category          || undefined,
           item_name:      item.item_name,
           quantity:       parseFloat(item.quantity)       || 1,
           unit:           item.unit           || undefined,
@@ -248,28 +258,35 @@ export default function PREdit() {
 
         {/* PR Details */}
         <Card>
-          <CardHeader><CardTitle>Title and type</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Purpose and type</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label>
-                What kind of items? <span className="text-red-500 text-xs">*</span>
-                <span className="ml-1.5 text-[10px] text-[--color-text-muted] font-normal">pick the closest match; hover the info icon for examples</span>
+                Mostly what kind of items?
+                <span className="ml-1.5 text-[10px] text-[--color-text-muted] font-normal">hover the info icon for examples</span>
               </Label>
               <ItemCategorySelector value={form.category} onChange={setCategory} />
+              <p className="text-[11px] text-[--color-text-muted]">
+                Sets the wording below and the starting kind for each item — change any item that differs.
+                Which TWG area reviews this request is worked out from the items themselves.
+              </p>
             </div>
 
             <div className="space-y-1.5">
               <Label htmlFor="title">
-                Short title <span className="text-[--color-brand] text-xs">*</span>
-                <span className="ml-1.5 text-[10px] text-[--color-text-muted] font-normal">a few words so you can find it later</span>
+                Purpose <span className="text-[--color-brand] text-xs">*</span>
+                <span className="ml-1.5 text-[10px] text-[--color-text-muted] font-normal">a short phrase, printed on the request</span>
               </Label>
               <Input
                 id="title"
-                placeholder="e.g. Snacks for DCS Days"
+                placeholder="e.g. Office Use of the Department of Computer Studies"
                 value={form.title}
                 onChange={e => setF('title', e.target.value)}
                 required
               />
+              <p className="text-[11px] text-[--color-text-muted]">
+                Goes in the Purpose line of the printed request, and names it in your list.
+              </p>
             </div>
 
             <div className="space-y-1.5">
@@ -284,6 +301,18 @@ export default function PREdit() {
             {/* Fund codes are the Procurement Office's to set, not the requestor's */}
             {!isRequestor && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>Source of Fund</Label>
+                <Select value={form.fund_source} onValueChange={v => setF('fund_source', v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {FUND_SOURCES.map(f => <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-[--color-text-muted]">
+                  Changing this replaces the fund cluster below with that source's code.
+                </p>
+              </div>
               <div className="space-y-1.5">
                 <Label htmlFor="fc">Fund Cluster <span className="text-[--color-text-muted] font-normal text-xs">(optional)</span></Label>
                 <Input id="fc" placeholder="e.g. 05-206441" value={form.fund_cluster} onChange={e => setF('fund_cluster', e.target.value)} />
@@ -409,18 +438,33 @@ export default function PREdit() {
             <div className="bg-[--color-canvas] px-4 py-4 space-y-3">
               <p className="text-xs font-semibold text-[--color-text-muted] uppercase tracking-wide">Add Item</p>
 
-              <div className="space-y-1.5">
-                <Label className="text-xs">
-                  {categoryForm.sectionLabel}
-                  <span className="ml-1 font-normal text-[--color-text-muted]">(optional) Items with the same name share one section and subtotal.</span>
-                </Label>
-                <SectionNameInput
-                  id="pr-section"
-                  placeholder={categoryForm.sectionPlaceholder}
-                  value={draft.group_label}
-                  onChange={v => setD('group_label', v)}
-                  sections={grouped.map(g => g.label).filter(Boolean)}
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label className="text-xs">
+                    {categoryForm.sectionLabel}
+                    <span className="ml-1 font-normal text-[--color-text-muted]">(optional) Items with the same name share one section and subtotal.</span>
+                  </Label>
+                  <SectionNameInput
+                    id="pr-section"
+                    placeholder={categoryForm.sectionPlaceholder}
+                    value={draft.group_label}
+                    onChange={v => setD('group_label', v)}
+                    sections={grouped.map(g => g.label).filter(Boolean)}
+                  />
+                </div>
+                {/* What kind of thing this item is; follows the choice above
+                    unless changed here. Decides which TWG area reviews it. */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Kind of item</Label>
+                  <Select value={draft.category || form.category} onValueChange={v => setD('category', v)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(CATEGORY_LABELS).map(([k, label]) => (
+                        <SelectItem key={k} value={k}>{label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
 
               <div className="grid grid-cols-12 gap-2 items-end">
@@ -514,6 +558,13 @@ export default function PREdit() {
           )}
         </div>
       </form>
+
+      <ReviewSubmitDialog open={reviewing} items={items} pending={saving}
+        request={{ ...form, pr_number: pr.pr_number, fund_source: pr.permissions?.edit && user?.role !== 'requestor' ? form.fund_source : null }}
+        requestedBy={pr.requested_by_name ? `${pr.requested_by_name}${pr.requested_by_designation ? `, ${pr.requested_by_designation}` : ''}` : null}
+        confirmLabel={pr.status === 'revision_requested' ? 'Save and resubmit' : 'Save and submit'}
+        onConfirm={() => handleSubmit(null, { submit: true, confirmed: true })}
+        onClose={() => setReviewing(false)} />
     </div>
   )
 }

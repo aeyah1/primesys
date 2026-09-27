@@ -3,11 +3,14 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend, AreaChart, Area,
 } from 'recharts'
-import { Download } from 'lucide-react'
+import { useState } from 'react'
+import { Download, Printer } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { fmtCurrency, PR_STATUS_LABELS, CATEGORY_LABELS } from '@/lib/utils'
+import { openPdf } from '@/lib/download'
 import api from '@/lib/axios'
 
 const CATEGORY_COLORS = [
@@ -44,6 +47,8 @@ const downloadCSV = (filename, rows) => {
 }
 
 export default function ReportsPage() {
+  // Which period the printed summary covers; "ytd" is this year so far.
+  const [period, setPeriod] = useState('ytd')
   const { data, isLoading } = useQuery({
     queryKey: ['reports-summary'],
     queryFn: () => api.get('/reports/summary').then(r => r.data),
@@ -63,6 +68,10 @@ export default function ReportsPage() {
   )
 
   const { byQuarter = [], byCategory = [], byStatus = [], monthly = [], totals = {} } = data ?? {}
+
+  // The campus's printed Procurement Summary Report, for the chosen period.
+  const printSummary = () => openPdf(
+    period === 'ytd' ? '/reports/summary/pdf' : `/reports/summary/pdf?quarter_id=${period}`)
 
   const exportReport = () => {
     const date = new Date().toISOString().slice(0, 10)
@@ -131,9 +140,23 @@ export default function ReportsPage() {
           <p className="text-ui-xs text-[--color-text-secondary] mt-0.5">Procurement spending and pipeline overview</p>
         </div>
         {!isLoading && data && (
-          <Button variant="secondary" size="sm" className="gap-1.5 shrink-0" onClick={exportReport}>
-            <Download className="size-3.5" /> Export CSV
-          </Button>
+          <div className="flex items-center gap-2 shrink-0">
+            <Select value={period} onValueChange={setPeriod}>
+              <SelectTrigger className="h-8 w-[150px] text-ui-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ytd">This year so far</SelectItem>
+                {byQuarter.filter(q => q.start_date && q.end_date).map(q => (
+                  <SelectItem key={q.id} value={String(q.id)}>{q.label} {q.year}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button variant="secondary" size="sm" className="gap-1.5" onClick={printSummary}>
+              <Printer className="size-3.5" /> Print summary
+            </Button>
+            <Button variant="secondary" size="sm" className="gap-1.5" onClick={exportReport}>
+              <Download className="size-3.5" /> Export CSV
+            </Button>
+          </div>
         )}
       </div>
 

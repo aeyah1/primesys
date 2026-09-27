@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Volume2, BellRing } from 'lucide-react'
-import { toast } from 'sonner'
+import { toast } from '@/lib/toast'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 

@@ -99,18 +99,6 @@ async function run() {
     (r) => r.status === 200 && same(r.data.counts.stages, { needs_award: 0, awaiting_po: 1, po_issued: 3, cancelled: 1 }))
   await is(G1, 'a requestor has no queue (403)', 3, 'GET', Q(), undefined, code(403))
 
-  // Suppliers awarded before
-  const G2 = 'Supplier suggestions'
-  const sup = await is(G2, 'one entry per supplier, latest award first', 2, 'GET', '/lots/suppliers', undefined,
-    (r) => r.status === 200 && r.data.map(s => s.name).join() === 'Delta Traders,Gamma Co,Acme Trading,Beta Supply')
-  const acme = sup.data?.find?.(s => s.name === 'Acme Trading')
-  t.check(G2, 'spellings that differ in case and spacing are one supplier, under the most used', acme?.awards === 3, JSON.stringify(acme))
-  t.check(G2, 'the latest known value of each detail', same(acme, {
-    supplier_contact: 'Ana Reyes', supplier_phone: '0917-000-0000', supplier_address: 'Cantilan, Surigao del Sur', supplier_tin: '123-456-789-000',
-  }), JSON.stringify(acme))
-  await is(G2, 'supply can\'t list suppliers (403)', 4, 'GET', '/lots/suppliers', undefined, code(403))
-  await is(G2, 'nor a requestor (403)', 3, 'GET', '/lots/suppliers', undefined, code(403))
-
   // Recording an award by hand, for some of the PR's items
   const G3 = 'Record an award'
   await is(G3, 'an amount above the approved budget of its items → 409', 2, 'POST', '/lots',
