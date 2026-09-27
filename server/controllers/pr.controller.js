@@ -69,6 +69,8 @@ exports.list = asyncHandler(async (req, res) => {
   if (statuses.length) { where.push(`pr.status IN (${statuses.map(() => '?').join(', ')})`); params.push(...statuses) }
   else if (status) where.push('1 = 0')
   if (category) { where.push('pr.category = ?'); params.push(category) }
+  // The quarter a PR was filed under (the Archive).
+  if (/^\d+$/.test(String(req.query.quarter_id ?? ''))) { where.push('pr.quarter_id = ?'); params.push(Number(req.query.quarter_id)) }
   if (search) {
     where.push('(pr.pr_number LIKE ? OR pr.title LIKE ?)')
     params.push(`%${search}%`, `%${search}%`)
