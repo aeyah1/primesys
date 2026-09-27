@@ -17,6 +17,7 @@ import { SectionNameInput, SectionHeaderRow } from '@/components/shared/ItemSect
 import CategorySpecFields from '@/components/shared/CategorySpecFields'
 import { useAuth } from '@/context/AuthContext'
 import api from '@/lib/axios'
+import ReviewSubmitDialog from '@/components/shared/ReviewSubmitDialog'
 
 const EMPTY_DRAFT = { group_label: '', stock_property_no: '', category: '', item_name: '', quantity: '1', unit: 'pc', estimated_cost: '', specs: {} }
 
@@ -43,6 +44,7 @@ export default function PREdit() {
     event_name: '', event_date: '', project_name: '',
   })
   const [items, setItems]   = useState([])
+  const [reviewing, setReviewing] = useState(false)
   const [draft, setDraft]   = useState(EMPTY_DRAFT)
   const [initialized, setInitialized] = useState(false)
   const setF = (k, v) => setForm(p => ({ ...p, [k]: v }))
@@ -149,10 +151,12 @@ export default function PREdit() {
 
   // Saves the changes and any new items, in order; with `submit`, then sends
   // the PR to the TWG (a draft, or a PR the TWG sent back for changes).
-  const handleSubmit = async (e, { submit = false } = {}) => {
-    e.preventDefault()
+  // Submitting shows the review first (ReviewSubmitDialog); its Submit confirms.
+  const handleSubmit = async (e, { submit = false, confirmed = false } = {}) => {
+    e?.preventDefault()
     if (!form.title.trim()) { toast.error('Give your request a purpose'); return }
     if (submit && items.length === 0) { toast.error('Add at least one item before submitting'); return }
+    if (submit && !confirmed) { setReviewing(true); return }
     setSaving(true)
     try {
       await updatePR(form)
@@ -554,6 +558,13 @@ export default function PREdit() {
           )}
         </div>
       </form>
+
+      <ReviewSubmitDialog open={reviewing} items={items} pending={saving}
+        request={{ ...form, pr_number: pr.pr_number, fund_source: pr.permissions?.edit && user?.role !== 'requestor' ? form.fund_source : null }}
+        requestedBy={pr.requested_by_name ? `${pr.requested_by_name}${pr.requested_by_designation ? `, ${pr.requested_by_designation}` : ''}` : null}
+        confirmLabel={pr.status === 'revision_requested' ? 'Save and resubmit' : 'Save and submit'}
+        onConfirm={() => handleSubmit(null, { submit: true, confirmed: true })}
+        onClose={() => setReviewing(false)} />
     </div>
   )
 }
