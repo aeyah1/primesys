@@ -28,8 +28,8 @@ async function invitationBy(db, token, { lock = false } = {}) {
   return inv || null
 }
 
-// Whether the supplier may still quote: the RFQ open and the PR under canvass.
-const quotable = (inv, pr) => !!Number(inv.open) && pr && !pr.deleted_at && pr.status === 'bidding' && !pr.bac_submitted_at
+// Whether the supplier may still quote: the RFQ open, not declined, and the PR under canvass.
+const quotable = (inv, pr) => !!Number(inv.open) && !inv.declined_at && pr && !pr.deleted_at && pr.status === 'bidding' && !pr.bac_submitted_at
 
 // The supplier's own outcome once quoting has closed. Its awards show as soon
 // as the BAC makes them; "not selected" only once every item is decided, so no
@@ -87,6 +87,7 @@ exports.view = asyncHandler(async (req, res) => {
     // notes: the item's specifications (size, type, brand...), as on the printed RFQ.
     items: shown.map(i => ({ id: i.id, item_name: i.item_name, notes: i.notes || null, quantity: i.quantity, unit: i.unit, group_label: i.group_label })),
     submitted_at: inv.submitted_at,
+    declined: !!inv.declined_at,
     max_submissions: MAX_SUBMISSIONS,
     changes_left: Math.max(MAX_SUBMISSIONS - inv.submit_count, 0),
     prices: Object.fromEntries(mine.map(p => [p.pr_item_id, p.unit_price])),
@@ -105,6 +106,9 @@ exports.submit = asyncHandler(async (req, res) => {
     const pr = await loadPR(conn, probe.purchase_request_id, { lock: true })
     const inv = await invitationBy(conn, req.params.token, { lock: true })
     if (!inv || !pr || pr.deleted_at) throw httpError(404, NOT_FOUND)
+    if (inv.declined_at && Number(inv.open)) {
+      throw httpError(409, 'The procurement office recorded that you won\'t quote on this RFQ. Contact them if that is a mistake.')
+    }
     if (!quotable(inv, pr)) throw httpError(409, 'This Request for Quotation is closed, so quotations can no longer be changed')
     if (inv.submit_count >= MAX_SUBMISSIONS) {
       throw httpError(429, `Your quotation can be sent at most ${MAX_SUBMISSIONS} times, so it can no longer be changed. Contact the procurement office if something is wrong.`)

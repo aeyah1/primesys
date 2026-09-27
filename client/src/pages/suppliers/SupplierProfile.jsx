@@ -19,6 +19,7 @@ const RESULTS = {
   not_selected: { label: 'Not selected',            cls: 'border-slate-300 bg-slate-50 text-slate-700' },
   failed_specs: { label: 'Failed the specifications', cls: 'border-red-300 bg-red-50 text-red-700' },
   no_reply:     { label: 'No reply',                cls: 'border-amber-300 bg-amber-50 text-amber-800' },
+  declined:     { label: 'Declined to quote',       cls: 'border-slate-400 bg-slate-100 text-slate-700' },
   invited:      { label: 'Invited, not yet quoted', cls: 'border-blue-300 bg-blue-50 text-blue-700' },
   submitted:    { label: 'Quoted, RFQ still open',  cls: 'border-blue-300 bg-blue-50 text-blue-700' },
   evaluation:   { label: 'Under evaluation',        cls: 'border-slate-300 bg-slate-50 text-slate-700' },

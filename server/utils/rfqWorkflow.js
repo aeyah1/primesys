@@ -97,7 +97,7 @@ async function sendRfqReminders() {
   const [due] = await pool.execute(
     `SELECT i.id FROM rfq_invitations i
        JOIN purchase_requests pr ON pr.id = i.purchase_request_id
-      WHERE i.submitted_at IS NULL AND i.reminded_at IS NULL AND i.sent_at IS NOT NULL
+      WHERE i.submitted_at IS NULL AND i.declined_at IS NULL AND i.reminded_at IS NULL AND i.sent_at IS NOT NULL
         AND i.deadline > NOW() AND i.deadline <= NOW() + INTERVAL 1 DAY
         AND pr.status = 'bidding' AND pr.deleted_at IS NULL
       LIMIT 50`)
