@@ -6,6 +6,9 @@ const authorize = require('../middleware/authorize.middleware')
 const { handle, textRule, moneyRule, quantityRule, oneOfRule } = require('../middleware/validate')
 const { FUND_SOURCE_VALUES } = require('../utils/orgSettings')
 const { PROCUREMENT_MODES } = require('../utils/procurementModes')
+const makeUploader = require('../utils/upload')
+
+const upload = makeUploader('ppmp')
 
 // PPMPs: Fund Administrators keep their office's, admins approve, Procurement and BAC read.
 router.use(auth, authorize('requestor', 'admin', 'procurement', 'bac'))
@@ -44,5 +47,12 @@ router.post('/:id/revise',  keeper, id, c.revise)
 router.post('/:id/approve', authorize('admin'), id, c.approve)
 router.post('/:id/return',  authorize('admin'), id, textRule('reason', 'Reason', 500, { required: true }), handle, c.returnIt)
 router.delete('/:id',    keeper, id, c.remove)
+// Supporting documents, and reading a PPMP file's items for review.
+const attachId = [param('attachId').isInt({ min: 1 }).withMessage('Attachment not found'), handle]
+router.get('/:id/attachments',                 id, c.listAttachments)
+router.get('/:id/attachments/:attachId',       id, attachId, c.downloadAttachment)
+router.post('/:id/attachments',   keeper, id, upload.single('file'), c.addAttachment)
+router.delete('/:id/attachments/:attachId', keeper, id, attachId, c.deleteAttachment)
+router.post('/:id/import',        keeper, id, upload.single('file'), c.importFile)
 
 module.exports = router

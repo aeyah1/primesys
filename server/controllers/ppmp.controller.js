@@ -1,9 +1,14 @@
+const fs              = require('fs')
+const path            = require('path')
 const PDFDocument     = require('pdfkit')
 const pool            = require('../db/pool')
 const withTransaction = require('../db/transaction')
 const asyncHandler    = require('../utils/asyncHandler')
 const httpError       = require('../utils/httpError')
 const notify          = require('../utils/notify')
+const fileStore       = require('../utils/fileStore')
+const { readTable }   = require('../utils/sheetImport')
+const { mapPpmp }     = require('../utils/ppmpImport')
 const { loadOrgSettings } = require('../utils/orgSettings')
 const { assertNoBrands }  = require('../utils/brandNames')
 const { OPEN, officeOf, loadPpmp, loadItems, contentHash, totals, ppmpPermissions } = require('../utils/ppmp')
@@ -190,6 +195,9 @@ exports.revise = asyncHandler(async (req, res) => {
       `INSERT INTO ppmp_items (ppmp_id, part, category, code, description, unit, quantity, unit_cost, mode_of_procurement, months, remarks, sort_order)
        SELECT ?, part, category, code, description, unit, quantity, unit_cost, mode_of_procurement, months, remarks, sort_order
          FROM ppmp_items WHERE ppmp_id = ?`, [r.insertId, p.id])
+    await conn.execute(
+      `INSERT INTO ppmp_attachments (ppmp_id, filename, original_name, mimetype, size, uploaded_by)
+       SELECT ?, filename, original_name, mimetype, size, uploaded_by FROM ppmp_attachments WHERE ppmp_id = ?`, [r.insertId, p.id])
     return r.insertId
   })
   res.status(201).json({ id, message: 'New version started from the approved PPMP' })
@@ -197,10 +205,18 @@ exports.revise = asyncHandler(async (req, res) => {
 
 // DELETE /ppmp/:id - removes a draft that was never approved.
 exports.remove = asyncHandler(async (req, res) => {
-  await withTransaction(async (conn) => {
+  const orphans = await withTransaction(async (conn) => {
     const p = await forKeeper(conn, req.user, req.params.id, 'draft', 'deleted')
+    const [files] = await conn.execute('SELECT DISTINCT filename FROM ppmp_attachments WHERE ppmp_id = ?', [p.id])
     await conn.execute('DELETE FROM ppmps WHERE id = ?', [p.id])
+    const left = []
+    for (const f of files) {
+      const [[{ n }]] = await conn.execute('SELECT COUNT(*) AS n FROM ppmp_attachments WHERE filename = ?', [f.filename])
+      if (!Number(n)) left.push(f.filename)
+    }
+    return left
   })
+  orphans.forEach(name => fileStore.remove('ppmp', name))
   res.json({ message: 'Draft PPMP deleted' })
 })
 
@@ -215,4 +231,60 @@ exports.pdf = asyncHandler(async (req, res) => {
   doc.pipe(res)
   drawPpmp(doc, { ppmp: p, items, totals: totals(items), signatures: sig, orgSettings: await loadOrgSettings(pool) })
   doc.end()
+})
+
+// GET /ppmp/:id/attachments - the supporting documents of a PPMP.
+exports.listAttachments = asyncHandler(async (req, res) => {
+  const p = await loadPpmp(pool, req.user, req.params.id)
+  const [rows] = await pool.execute(
+    `SELECT a.id, a.original_name, a.mimetype, a.size, a.created_at, u.name AS uploaded_by_name
+       FROM ppmp_attachments a LEFT JOIN users u ON u.id = a.uploaded_by WHERE a.ppmp_id = ? ORDER BY a.id`, [p.id])
+  res.json(rows)
+})
+
+// POST /ppmp/:id/attachments - adds a supporting document to a draft (the file is stored before its row).
+exports.addAttachment = asyncHandler(async (req, res) => {
+  if (!req.file) throw httpError(400, 'No file uploaded')
+  try {
+    await withTransaction(async (conn) => { await forKeeper(conn, req.user, req.params.id, 'draft', 'changed') })
+  } catch (err) { fs.unlink(req.file.path, () => {}); throw err }
+  await fileStore.keep('ppmp', req.file)
+  const [r] = await pool.execute(
+    'INSERT INTO ppmp_attachments (ppmp_id, filename, original_name, mimetype, size, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)',
+    [req.params.id, req.file.filename, req.file.originalname, req.file.mimetype, req.file.size, req.user.id])
+  res.status(201).json({ id: r.insertId, message: `${req.file.originalname} attached` })
+})
+
+// GET /ppmp/:id/attachments/:attachId - downloads one, for anyone who may see the PPMP.
+exports.downloadAttachment = asyncHandler(async (req, res) => {
+  const p = await loadPpmp(pool, req.user, req.params.id)
+  const [[a]] = await pool.execute('SELECT filename, original_name FROM ppmp_attachments WHERE id = ? AND ppmp_id = ?', [req.params.attachId, p.id])
+  if (!a) throw httpError(404, 'Attachment not found')
+  await fileStore.send(res, 'ppmp', a.filename, a.original_name)
+})
+
+// DELETE /ppmp/:id/attachments/:attachId - removes one from a draft; the stored file goes once no version uses it.
+exports.deleteAttachment = asyncHandler(async (req, res) => {
+  const a = await withTransaction(async (conn) => {
+    const p = await forKeeper(conn, req.user, req.params.id, 'draft', 'changed')
+    const [[a]] = await conn.execute('SELECT id, filename FROM ppmp_attachments WHERE id = ? AND ppmp_id = ?', [req.params.attachId, p.id])
+    if (!a) throw httpError(404, 'Attachment not found')
+    await conn.execute('DELETE FROM ppmp_attachments WHERE id = ?', [a.id])
+    const [[{ n }]] = await conn.execute('SELECT COUNT(*) AS n FROM ppmp_attachments WHERE filename = ?', [a.filename])
+    return { ...a, shared: Number(n) > 0 }
+  })
+  if (!a.shared) fileStore.remove('ppmp', a.filename)
+  res.json({ message: 'Attachment removed' })
+})
+
+// POST /ppmp/:id/import - reads the items of a PPMP file (Excel, CSV, or Word) for review; nothing is saved.
+exports.importFile = asyncHandler(async (req, res) => {
+  if (!req.file) throw httpError(400, 'No file uploaded')
+  try {
+    await withTransaction(async (conn) => { await forKeeper(conn, req.user, req.params.id, 'draft', 'changed') })
+    const buf = await fs.promises.readFile(req.file.path)
+    res.json(mapPpmp(readTable(buf, path.extname(req.file.originalname).toLowerCase())))
+  } finally {
+    fs.unlink(req.file.path, () => {})
+  }
 })

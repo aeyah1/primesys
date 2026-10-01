@@ -633,6 +633,22 @@ CREATE TABLE `ppmp_items` (
   CONSTRAINT `fk_ppmp_items_ppmp` FOREIGN KEY (`ppmp_id`) REFERENCES `ppmps` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Supporting documents attached to a PPMP (the original PPMP file, market scoping checklist, specifications).
+CREATE TABLE `ppmp_attachments` (
+  `id`            INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `ppmp_id`       INT UNSIGNED NOT NULL,
+  `filename`      VARCHAR(255) NOT NULL,
+  `original_name` VARCHAR(255) NOT NULL,
+  `mimetype`      VARCHAR(100) NULL,
+  `size`          INT UNSIGNED NULL,
+  `uploaded_by`   INT UNSIGNED NULL,
+  `created_at`    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_ppmp_attachments_ppmp` (`ppmp_id`),
+  CONSTRAINT `fk_ppmp_attachments_ppmp` FOREIGN KEY (`ppmp_id`)     REFERENCES `ppmps` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_ppmp_attachments_user` FOREIGN KEY (`uploaded_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Starting data
 
 -- Admin account: username `admin`, password `Admin@1234`; put your own email here before importing.
