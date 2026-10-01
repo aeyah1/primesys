@@ -11,7 +11,6 @@ import PageSkeleton from '@/components/shared/PageSkeleton'
 const Register          = lazy(() => import('@/pages/auth/Register'))
 const ForgotPassword    = lazy(() => import('@/pages/auth/ForgotPassword'))
 const ResetPassword     = lazy(() => import('@/pages/auth/ResetPassword'))
-const VerifyEmail       = lazy(() => import('@/pages/auth/VerifyEmail'))
 // A supplier's quotation page, from an emailed RFQ link: no account, and open to signed-in users too.
 const QuotePage         = lazy(() => import('@/pages/quote/QuotePage'))
 
@@ -82,7 +81,6 @@ export default function App() {
         <Route path="/register"        element={<PublicRoute><Register /></PublicRoute>} />
         <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
         <Route path="/reset-password"  element={<PublicRoute><ResetPassword /></PublicRoute>} />
-        <Route path="/verify-email"    element={<PublicRoute><VerifyEmail /></PublicRoute>} />
         <Route path="/quote/:token"    element={<QuotePage />} />
 
         <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>

@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tansta
 import { useSearchParams } from 'react-router-dom'
 import {
   Search, UserX, UserCheck, UserPlus, Pencil,
-  Trash2, MailCheck, KeyRound, Eye, EyeOff, ClipboardCheck, AlertTriangle, ArrowUpDown,
+  Trash2, BadgeCheck, Ban, KeyRound, Eye, EyeOff, ClipboardCheck, AlertTriangle, ArrowUpDown,
 } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Card, CardContent } from '@/components/ui/card'
@@ -23,7 +23,7 @@ import api from '@/lib/axios'
 const EMPTY_ADD = { name: '', username: '', email: '', password: '', role: 'requestor', areas: [], department_id: '', designation: '' }
 const PAGE_SIZE = 20
 
-// Role tabs: staff first in workflow order, then requestors, the largest
+// Role tabs: staff first in workflow order, then Fund Administrators, the largest
 // group. "Grouped by role" lists the All tab in this same order
 // (users.controller USER_SORTS.role).
 const ROLE_TABS = [
@@ -33,17 +33,17 @@ const ROLE_TABS = [
   { key: 'procurement', label: 'Procurement' },
   { key: 'bac',         label: 'BAC' },
   { key: 'supply',      label: 'Supply' },
-  { key: 'requestor',   label: 'Requestors' },
+  { key: 'requestor',   label: 'Fund Administrators' },
 ]
 const GROUP_ORDER = ROLE_TABS.slice(1).map(t => t.key)
 const GROUP_LABELS = {
-  admin: 'Admins', twg: 'TWG members', procurement: 'Procurement officers', bac: 'BAC members', supply: 'Supply officers', requestor: 'Requestors',
+  admin: 'Admins', twg: 'TWG members', procurement: 'Procurement officers', bac: 'BAC members', supply: 'Supply officers', requestor: 'Fund Administrators',
 }
 const STATUSES = [
   { key: '',           label: 'Any status' },
   { key: 'active',     label: 'Active' },
   { key: 'inactive',   label: 'Inactive' },
-  { key: 'unverified', label: 'Unverified' },
+  { key: 'pending',    label: 'Waiting for approval' },
 ]
 const SORTS = [
   { key: 'role',   label: 'Grouped by role' },
@@ -128,6 +128,8 @@ export default function UserList() {
   const [addOpen, setAddOpen]     = useState(false)
   const [editOpen, setEditOpen]   = useState(false)
   const [deleteUser, setDeleteUser] = useState(null)
+  const [rejectUser, setRejectUser] = useState(null)
+  const [rejectReason, setRejectReason] = useState('')
   const [editUser, setEditUser]   = useState(null)
   const [addForm, setAddForm]     = useState(EMPTY_ADD)
   // Offices for the picker; the head of the chosen office signs the PR form.
@@ -231,10 +233,16 @@ export default function UserList() {
     onError: (err) => toast.error(err?.response?.data?.message || 'Failed to delete user'),
   })
 
-  const { mutate: verifyUser } = useMutation({
-    mutationFn: (id) => api.patch(`/users/${id}/verify`),
-    onSuccess: () => { toast.success('User verified — they can now log in'); qc.invalidateQueries({ queryKey: ['users'] }) },
-    onError: () => toast.error('Failed to verify user'),
+  const { mutate: approveUser } = useMutation({
+    mutationFn: (id) => api.patch(`/users/${id}/approve`),
+    onSuccess: (res) => { toast.success(`${res.data.message}. They were emailed and can now sign in.`); refreshUsers() },
+    onError: (err) => toast.error(err?.response?.data?.message || 'Failed to approve'),
+  })
+
+  const { mutate: rejectUserMutation, isPending: rejecting } = useMutation({
+    mutationFn: ({ id, reason }) => api.post(`/users/${id}/reject`, { reason }),
+    onSuccess: (res) => { toast.success(`${res.data.message}. They were emailed the reason.`); refreshUsers(); setRejectUser(null) },
+    onError: (err) => toast.error(err?.response?.data?.message || 'Failed to turn the sign-up down'),
   })
 
   function openEdit(u) {
@@ -251,6 +259,7 @@ export default function UserList() {
       return toast.error('All fields are required')
     }
     if (password.length < 8) return toast.error('Password must be at least 8 characters')
+    if (role === 'requestor' && !addForm.department_id) return toast.error('Pick the office this Fund Administrator handles')
     createUser({ name: name.trim(), username: username.trim(), email: email.trim(), password, role,
       department_id: addForm.department_id || null, designation: addForm.designation?.trim() || null,
       ...(role === 'twg' ? { areas } : {}) })
@@ -262,6 +271,7 @@ export default function UserList() {
     if (editForm.newPassword && editForm.newPassword.length < 8) {
       return toast.error('Password must be at least 8 characters')
     }
+    if (editForm.role === 'requestor' && !editForm.department_id) return toast.error('Pick the office this Fund Administrator handles')
     updateUser({
       id: editUser.id,
       body: {
@@ -414,7 +424,7 @@ export default function UserList() {
                 <TableHead>Email</TableHead>
                 <TableHead>Role</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>Verified</TableHead>
+                <TableHead>Approval</TableHead>
                 <TableHead>Joined</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
@@ -445,6 +455,11 @@ export default function UserList() {
                         <TableCell className="text-[--color-text-secondary]">{u.email || '—'}</TableCell>
                         <TableCell>
                           <RoleBadge role={u.role} />
+                          {u.role === 'requestor' && (
+                            <p className={`mt-1 text-[10px] leading-snug ${u.department_code ? 'text-[--color-text-muted]' : 'text-amber-700 font-medium'}`}>
+                              {u.department_code || 'No office yet'}
+                            </p>
+                          )}
                           {u.role === 'twg' && (
                             <p className={`mt-1 max-w-56 text-[10px] leading-snug ${u.twg_areas?.length ? 'text-[--color-text-muted]' : 'text-amber-700 font-medium'}`}>
                               {areaSummary(u.twg_areas || [])}
@@ -464,7 +479,7 @@ export default function UserList() {
                             ? 'bg-blue-50 text-blue-700 border-blue-300'
                             : 'bg-amber-50 text-amber-700 border-amber-300'
                           }>
-                            {u.is_verified ? 'Verified' : 'Unverified'}
+                            {u.is_verified ? 'Approved' : 'Waiting'}
                           </Badge>
                         </TableCell>
                         <TableCell className="text-[--color-text-muted]">{fmtDate(u.created_at)}</TableCell>
@@ -474,9 +489,14 @@ export default function UserList() {
                               <Pencil className="size-4 text-[--color-text-muted]" />
                             </Button>
                             {!u.is_verified && (
-                              <Button variant="ghost" size="icon" onClick={() => verifyUser(u.id)} title="Manually verify email">
-                                <MailCheck className="size-4 text-amber-500" />
-                              </Button>
+                              <>
+                                <Button variant="ghost" size="icon" onClick={() => approveUser(u.id)} title="Approve sign-up">
+                                  <BadgeCheck className="size-4 text-blue-600" />
+                                </Button>
+                                <Button variant="ghost" size="icon" onClick={() => { setRejectReason(''); setRejectUser(u) }} title="Turn sign-up down">
+                                  <Ban className="size-4 text-red-500" />
+                                </Button>
+                              </>
                             )}
                             {/* The server refuses self-deactivation, so there's always an active admin */}
                             {me?.id != u.id && (
@@ -586,7 +606,7 @@ export default function UserList() {
                 <SelectContent>
                   <SelectItem value="admin">Admin</SelectItem>
                   <SelectItem value="procurement">Procurement Officer</SelectItem>
-                  <SelectItem value="requestor">Requestor</SelectItem>
+                  <SelectItem value="requestor">Fund Administrator</SelectItem>
                   <SelectItem value="supply">Supply Officer</SelectItem>
                   <SelectItem value="twg">TWG (Technical Working Group)</SelectItem>
                   <SelectItem value="bac">BAC (Bids and Awards Committee)</SelectItem>
@@ -600,14 +620,14 @@ export default function UserList() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Office</Label>
+                <Label>Office{addForm.role === 'requestor' && <span className="text-red-500"> *</span>}</Label>
                 <Select
                   value={addForm.department_id ? String(addForm.department_id) : 'none'}
                   onValueChange={v => setAddForm(f => ({ ...f, department_id: v === 'none' ? '' : Number(v) }))}
                 >
                   <SelectTrigger><SelectValue placeholder="No office" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">No office</SelectItem>
+                    {addForm.role !== 'requestor' && <SelectItem value="none">No office</SelectItem>}
                     {departments.map(d => (
                       <SelectItem key={d.id} value={String(d.id)}>{d.code} — {d.name}</SelectItem>
                     ))}
@@ -625,12 +645,12 @@ export default function UserList() {
               </div>
             </div>
             <p className="text-[11px] text-[--color-text-muted] -mt-1">
-              Their office pre-fills the PR form. The form's "Requested by" names that office's
-              head, not this person — set heads under Settings &gt; Organization.
+              A Fund Administrator handles one office, and each office has one. The PR form's
+              "Requested by" names that office's head; set heads under Settings &gt; Organization.
             </p>
 
             <div className="rounded-lg border border-[--color-border] bg-[--color-canvas] px-4 py-3 text-ui-xs text-[--color-text-secondary]">
-              This account will be <span className="font-semibold text-blue-700">pre-verified</span> and ready to use immediately.
+              This account will be <span className="font-semibold text-blue-700">approved</span> and ready to use immediately.
               Share the username and password with the user directly.
             </div>
 
@@ -689,7 +709,7 @@ export default function UserList() {
                 <SelectContent>
                   <SelectItem value="admin">Admin</SelectItem>
                   <SelectItem value="procurement">Procurement Officer</SelectItem>
-                  <SelectItem value="requestor">Requestor</SelectItem>
+                  <SelectItem value="requestor">Fund Administrator</SelectItem>
                   <SelectItem value="supply">Supply Officer</SelectItem>
                   <SelectItem value="twg">TWG (Technical Working Group)</SelectItem>
                   <SelectItem value="bac">BAC (Bids and Awards Committee)</SelectItem>
@@ -703,14 +723,14 @@ export default function UserList() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Office</Label>
+                <Label>Office{editForm.role === 'requestor' && <span className="text-red-500"> *</span>}</Label>
                 <Select
                   value={editForm.department_id ? String(editForm.department_id) : 'none'}
                   onValueChange={v => setEditForm(f => ({ ...f, department_id: v === 'none' ? '' : Number(v) }))}
                 >
                   <SelectTrigger><SelectValue placeholder="No office" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">No office</SelectItem>
+                    {editForm.role !== 'requestor' && <SelectItem value="none">No office</SelectItem>}
                     {departments.map(d => (
                       <SelectItem key={d.id} value={String(d.id)}>{d.code} — {d.name}</SelectItem>
                     ))}
@@ -728,8 +748,8 @@ export default function UserList() {
               </div>
             </div>
             <p className="text-[11px] text-[--color-text-muted] -mt-1">
-              Their office pre-fills the PR form. The form's "Requested by" names that office's
-              head, not this person — set heads under Settings &gt; Organization.
+              A Fund Administrator handles one office, and each office has one. The PR form's
+              "Requested by" names that office's head; set heads under Settings &gt; Organization.
             </p>
 
             <div className="space-y-1.5">
@@ -762,6 +782,41 @@ export default function UserList() {
               <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
               <Button type="submit" disabled={updating || resetting}>
                 {(updating || resetting) ? 'Saving…' : 'Save Changes'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Turn a sign-up down ── */}
+      <Dialog open={!!rejectUser} onOpenChange={(open) => { if (!open) setRejectUser(null) }}>
+        <DialogContent title="Turn Sign-up Down">
+          <form
+            onSubmit={(e) => { e.preventDefault(); if (rejectReason.trim()) rejectUserMutation({ id: rejectUser.id, reason: rejectReason.trim() }) }}
+            className="space-y-3 pt-2"
+          >
+            <p className="text-ui-sm text-[--color-text-secondary]">
+              <span className="font-semibold text-[--color-text-primary]">{rejectUser?.name}</span>
+              {rejectUser?.department_code ? ` (${rejectUser.department_code})` : ''} will be emailed this reason, and the
+              sign-up is removed so they can sign up again.
+            </p>
+            <div className="space-y-1.5">
+              <Label htmlFor="reject-reason">Reason <span className="text-red-500">*</span></Label>
+              <textarea
+                id="reject-reason"
+                value={rejectReason}
+                onChange={e => setRejectReason(e.target.value)}
+                maxLength={500}
+                rows={3}
+                autoFocus
+                placeholder="e.g. Not NEMSU staff, or the office already has a Fund Administrator"
+                className="w-full rounded-md border border-[--color-border] bg-[--color-surface] px-3 py-2 text-sm text-[--color-text-primary] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent resize-y"
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setRejectUser(null)} disabled={rejecting}>Cancel</Button>
+              <Button type="submit" className="bg-red-600 hover:bg-red-700 text-white border-0" disabled={rejecting || !rejectReason.trim()}>
+                {rejecting ? 'Sending...' : 'Turn Down'}
               </Button>
             </DialogFooter>
           </form>

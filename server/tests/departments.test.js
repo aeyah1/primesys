@@ -152,9 +152,13 @@ async function run() {
     r => r.status === 201)
   await is('People', 'the office shows on the user list', 1, 'GET', '/users?role=requestor', undefined,
     r => r.data.data.some(u => u.id === 4 && u.department_code === 'HR'))
-  await is('People', 'an office can be taken away again', 1, 'PATCH', '/users/4',
-    { name: 'Nomad Encoder', role: 'requestor', department_id: null }, r => r.status === 200)
-  await is('People', '…and is then empty', 4, 'GET', '/auth/me', undefined, r => r.data.department_id === null, 'null')
+  await is('People', 'a Fund Administrator can\'t be left without an office', 1, 'PATCH', '/users/4',
+    { name: 'Nomad Encoder', role: 'requestor', department_id: null }, r => r.status === 400, '400')
+  await is('People', '…so it stays', 4, 'GET', '/auth/me', undefined, r => r.data.department_id === 11, '11')
+  await is('People', 'a second Fund Administrator for HR is refused', 1, 'PATCH', '/users/3',
+    { name: 'Felix Atenin', role: 'requestor', department_id: 11 }, r => r.status === 409 && /HR already has a Fund Administrator \(Nomad Encoder\)/.test(r.data.message), '409')
+  await is('People', 'making the HR one staff frees the office', 1, 'PATCH', '/users/4', { name: 'Nomad Encoder', role: 'procurement' }, r => r.status === 200)
+  await is('People', '…for another account', 1, 'PATCH', '/users/3', { name: 'Felix Atenin', role: 'requestor', department_id: 11 }, r => r.status === 200)
 
   return t.summary()
 }

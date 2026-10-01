@@ -16,6 +16,7 @@ function fixtures() {
     `(${id}, '${u}', '${u}', '${u}@c2.invalid', '${hash}', '${role}', ${active}, ${verified})`
   return `
     SET FOREIGN_KEY_CHECKS = 0;
+    INSERT INTO departments (id, code, name) VALUES (1, 'OFA', 'Office A'), (2, 'OFB', 'Office B');
     INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified) VALUES
       ${U(1, 'admin1', 'admin')}, ${U(2, 'proc1', 'procurement')}, ${U(3, 'reqA', 'requestor')},
       ${U(4, 'reqB', 'requestor')}, ${U(5, 'sup1', 'supply')}, ${U(6, 'twg1', 'twg')},
@@ -169,18 +170,19 @@ add('Login', 'former pending + right password', null, 'POST', '/auth/login', log
 add('Login', 'former pending + wrong password', null, 'POST', '/auth/login', login('pendProc', 'nope'),      code(401), '401')
 add('Login', 'deactivated + wrong password', null, 'POST', '/auth/login', login('inactReq', 'nope'),    code(401), '401 (no status leak)')
 add('Login', 'deactivated + right password', null, 'POST', '/auth/login', login('inactReq', 'Test@1234'), code(403, 'deactivated'), '403 deactivated')
-add('Login', 'unverified + wrong password', null, 'POST', '/auth/login', login('unverReq', 'nope'),     code(401), '401 (no status leak)')
-add('Login', 'unverified + right password', null, 'POST', '/auth/login', login('unverReq', 'Test@1234'), (r) => r.status === 403 && r.data.type === 'unverified', '403 unverified')
+add('Login', 'waiting for approval + wrong password', null, 'POST', '/auth/login', login('unverReq', 'nope'),     code(401), '401 (no status leak)')
+add('Login', 'waiting for approval + right password', null, 'POST', '/auth/login', login('unverReq', 'Test@1234'), (r) => r.status === 403 && r.data.type === 'pending', '403 pending')
 add('Login', 'normal account',             null, 'POST', '/auth/login', login('reqA', 'Test@1234'),     (r) => r.status === 200 && !!r.data.token, '200 token')
 add('Users', 'list includes usernames',    1, 'GET', '/users?limit=50', undefined, (r) => r.status === 200 && r.data.data.length === 11 && r.data.data.every(u => u.username), 'all 11 have username')
 // Role requests are retired (public sign-up is requestor-only); roles are assigned only by an admin in User Management.
-add('Users', 'role-request approve endpoint gone', 1, 'PATCH', '/users/7/approve', undefined, code(404), '404')
+add('Users', 'approving an approved account is refused', 1, 'PATCH', '/users/7/approve', undefined, code(409), '409')
+add('Users', 'only an admin approves sign-ups', 2, 'PATCH', '/users/9/approve', undefined, code(403), '403')
 add('Users', 'role-request decline endpoint gone', 1, 'PATCH', '/users/10/decline', undefined, code(404), '404')
 add('Users', 'admin reactivates a former pending account', 1, 'PATCH', '/users/7/toggle', undefined, code(200), '200')
 add('Users', '…account can now sign in as procurement', null, 'POST', '/auth/login', login('pendProc', 'Test@1234'), (r) => r.status === 200 && r.data.user.role === 'procurement', '200 procurement')
-add('Users', 'admin assigns requestor instead', 1, 'PATCH', '/users/10', { name: 'pendSup', role: 'requestor' }, code(200), '200')
+add('Users', 'admin assigns requestor instead', 1, 'PATCH', '/users/10', { name: 'pendSup', role: 'requestor', department_id: 1 }, code(200), '200')
 add('Users', '…list shows the assigned role', 1, 'GET', '/users?limit=50', undefined, (r) => r.status === 200 && r.data.data.find(x => x.id === 10)?.role === 'requestor', 'role requestor')
-add('Users', 'editing a deactivated account', 1, 'PATCH', '/users/11', { name: 'pendTwg', role: 'requestor' }, code(200), '200')
+add('Users', 'editing a deactivated account', 1, 'PATCH', '/users/11', { name: 'pendTwg', role: 'requestor', department_id: 2 }, code(200), '200')
 add('Users', '…does not reactivate it',  null, 'POST', '/auth/login', login('pendTwg', 'Test@1234'), (r) => r.status === 403 && r.data.type === 'inactive', '403 still deactivated')
 add('Users', 'non-admin cannot approve',   3, 'PATCH', '/users/7/approve', undefined, code(403), '403')
 

@@ -78,7 +78,7 @@ export default function DepartmentsCard() {
           <p className="px-6 pb-6 text-ui-sm text-[--color-text-muted]">Loading…</p>
         ) : departments.length === 0 ? (
           <p className="px-6 pb-6 text-ui-sm text-[--color-text-muted]">
-            No offices yet. Add one so requestors can pick it on the PR form.
+            No offices yet. Add one so Fund Administrators can pick it on the PR form.
           </p>
         ) : (
           <div className="divide-y divide-[--color-border] border-t border-[--color-border]">

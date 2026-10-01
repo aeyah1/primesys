@@ -92,7 +92,7 @@ function Field({ label, children }) {
 }
 
 /* The PR's purchase orders: one per supplier's awards. Staff issue them;
-   supply records deliveries; the requestor sees them. */
+   supply records deliveries; the Fund Administrator sees them. */
 export default function PurchaseOrders({ pr, canManage }) {
   const prId  = String(pr.id)
   const today = localToday()

@@ -9,7 +9,8 @@ const throttle = require('../utils/loginThrottle')
 const securityLog = require('../utils/securityLog')
 const { verifyCaptcha } = require('../utils/captcha')
 const { endSessions, invalidateUserCache } = require('../middleware/auth.middleware')
-const verifyAccountEmail = require('../emails/verifyAccount')
+const notify   = require('../utils/notify')
+const { officeHolder } = require('../utils/fundAdmin')
 const resetPasswordEmail = require('../emails/resetPassword')
 const accountExistsEmail = require('../emails/accountExists')
 
@@ -20,8 +21,8 @@ const DUMMY_HASH = bcrypt.hashSync('no-such-account-placeholder', BCRYPT_COST)
 
 const INVALID_LOGIN = 'Invalid username/email or password.'
 const TOO_MANY      = 'Too many sign-in attempts. Please wait a few minutes before trying again.'
-const REGISTERED    = 'Check your email to finish signing up.'
-const LINK_SENT     = 'If an unverified account matches, a new verification link has been sent.'
+const REGISTERED    = 'Thanks for signing up. An administrator will review your account, and you will get an email once it is approved.'
+const PENDING       = 'Your account is waiting for the administrator\'s approval. You will get an email once it is approved.'
 const RESET_SENT    = 'If an account matches the information provided, reset instructions will be sent.'
 
 // Tokens carry only the account id and token_version (tv); the rest is read from the database per request (audit SEC-8).
@@ -39,21 +40,10 @@ function newToken() {
 }
 function hashToken(token) { return crypto.createHash('sha256').update(String(token)).digest('hex') }
 
-// Fire-and-forget: the user shouldn't wait on SMTP; they can ask for a new link.
-function sendVerification(user, token) {
-  const link = `${config.clientUrl}/verify-email?token=${token}`
-  sendMail({ to: user.email, subject: 'Verify your PRimeSys account', html: verifyAccountEmail({ name: user.name, link }) })
-    .catch(err => console.error('[mailer] verification email failed:', err.message))
-}
-
-// Public sign-up. Always creates an unverified Requestor: the role and the
-// account state are fixed here, never taken from the request (auth.routes.js
-// refuses any field beyond the sign-up form's). Other roles are assigned by an
-// admin in User Management. Token expiries use the database clock (NOW()), the
-// same clock that checks them.
+// Public sign-up: always a Fund Administrator (role requestor) for one office, waiting for an admin's approval.
 exports.register = async (req, res) => {
   try {
-    const { first_name, last_name, username, email, password, website, captcha_token } = req.body
+    const { first_name, last_name, username, email, password, website, captcha_token, department_id } = req.body
 
     // Honeypot: `website` is hidden from people, so a value means a bot. It gets
     // the normal reply, but nothing is created and no email is sent.
@@ -64,6 +54,12 @@ exports.register = async (req, res) => {
     if (!await verifyCaptcha(captcha_token, req.ip)) {
       securityLog('register_rejected', { reason: 'captcha', ip: req.ip })
       return res.status(400).json({ message: 'Please complete the verification challenge.' })
+    }
+
+    const [[office]] = await pool.execute('SELECT id, code, name FROM departments WHERE id = ? AND is_active = 1', [department_id])
+    if (!office) return res.status(400).json({ message: 'Pick your office' })
+    if (await officeHolder(pool, office.id)) {
+      return res.status(409).json({ message: `${office.code} already has a Fund Administrator. If you are taking over, ask the administrator to reassign the office.` })
     }
 
     const [usernameCheck] = await pool.execute('SELECT id FROM users WHERE LOWER(username) = LOWER(?)', [username])
@@ -78,13 +74,12 @@ exports.register = async (req, res) => {
     }
 
     const name = `${first_name} ${last_name}`   // both trimmed by the route's validators
-    const { token, hash: tokenHash } = newToken()
     let userId
     try {
       const [result] = await pool.execute(
-        `INSERT INTO users (name, username, email, password_hash, role, is_verified, verify_token, verify_expires)
-         VALUES (?, ?, ?, ?, 'requestor', 0, ?, NOW() + INTERVAL 24 HOUR)`,
-        [name, username, email, passwordHash, tokenHash]
+        `INSERT INTO users (name, username, email, password_hash, role, is_verified, department_id)
+         VALUES (?, ?, ?, ?, 'requestor', 0, ?)`,
+        [name, username, email, passwordHash, office.id]
       )
       userId = result.insertId
     } catch (err) {
@@ -98,66 +93,26 @@ exports.register = async (req, res) => {
     }
 
     securityLog('register', { userId, ip: req.ip })
-    sendVerification({ name, email }, token)
+    await tellAdmins(req.io, `${name} signed up as Fund Administrator of ${office.code} and is waiting for your approval in User Management.`)
     res.status(201).json({ message: REGISTERED })
   } catch (err) {
     console.error(err); res.status(500).json({ message: 'Internal server error' })
   }
 }
 
-exports.verifyEmail = async (req, res) => {
-  try {
-    const [rows] = await pool.execute(
-      'SELECT id FROM users WHERE verify_token = ? AND verify_expires > NOW() AND is_verified = 0',
-      [hashToken(req.body.token)]
-    )
-    if (!rows.length) {
-      return res.status(400).json({ message: 'This link has expired or was already used.' })
-    }
-    // Single use: the token is cleared as the account is verified.
-    await pool.execute(
-      'UPDATE users SET is_verified = 1, verify_token = NULL, verify_expires = NULL WHERE id = ?',
-      [rows[0].id]
-    )
-    securityLog('email_verified', { userId: rows[0].id })
-    res.json({ message: 'Email verified. You can now sign in.' })
-  } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
-}
-
-// Sends a new verification link to an unverified account, found by username or
-// email. At most one email per account per cooldown (the last link was sent at
-// verify_expires - 24 h). The reply is the same whatever happened, so it
-// reveals nothing about the account.
-exports.resendVerification = async (req, res) => {
-  try {
-    await resendLink(req.body.identifier, req.ip)
-    res.json({ message: LINK_SENT })
-  } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
-}
-
-// Sends a new link to the unverified account matching `identifier`, at most once per cooldown.
-async function resendLink(identifier, ip) {
-  const [rows] = await pool.execute(
-    `SELECT id, name, email FROM users
-      WHERE (LOWER(email) = LOWER(?) OR LOWER(username) = LOWER(?)) AND is_verified = 0
-        AND (verify_expires IS NULL OR verify_expires <= NOW() + INTERVAL 24 HOUR - INTERVAL ? MINUTE)
-      LIMIT 1`,
-    [identifier, identifier, config.auth.emailCooldownMin]
-  )
-  if (!rows.length) return
-  const { token, hash } = newToken()
-  await pool.execute('UPDATE users SET verify_token = ?, verify_expires = NOW() + INTERVAL 24 HOUR WHERE id = ?', [hash, rows[0].id])
-  securityLog('verification_resent', { userId: rows[0].id, ip })
-  sendVerification(rows[0], token)
+// Tells every active admin, in the app, about a sign-up to review.
+async function tellAdmins(io, message) {
+  const [admins] = await pool.execute("SELECT id FROM users WHERE role = 'admin' AND is_active = 1")
+  for (const a of admins) await notify(io, a.id, message, 'info').catch(err => console.error('[notify] sign-up notice failed:', err.message))
 }
 
 // When each account last got an "account exists" email, so repeated sign-ups can't flood its inbox.
 const existsNoticeAt = new Map()
 
-// Tells the owner of an email someone signed up with: a new link if unverified, else a notice.
+// Tells the owner of an email someone signed up with, unless that account is still waiting for approval.
 async function tellOwner(user, ip) {
   securityLog('register_existing_email', { userId: user.id, ip })
-  if (!user.is_verified) return resendLink(user.email, ip)
+  if (!user.is_verified) return
   if (Date.now() - (existsNoticeAt.get(user.id) || 0) < config.auth.emailCooldownMin * 60_000) return
   existsNoticeAt.set(user.id, Date.now())
   sendMail({
@@ -199,7 +154,7 @@ exports.login = async (req, res) => {
       return res.status(403).json({ message: 'Your account has been deactivated. Contact your administrator.', type: 'inactive' })
     }
     if (!user.is_verified) {
-      return res.status(403).json({ message: 'Your account requires email verification.', type: 'unverified' })
+      return res.status(403).json({ message: PENDING, type: 'pending' })
     }
 
     securityLog('login', { userId: user.id, ip: req.ip })

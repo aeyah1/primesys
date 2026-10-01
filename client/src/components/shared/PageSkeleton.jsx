@@ -5,7 +5,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 // Mimics the structure of the real page so the transition feels like content
 // materializing rather than a spinner-then-page jump. Picks an auth-style
 // layout for the unauthenticated routes and an app-shell layout otherwise.
-const AUTH_PREFIXES = ['/login', '/register', '/forgot-password', '/reset-password', '/verify-email']
+const AUTH_PREFIXES = ['/login', '/register', '/forgot-password', '/reset-password']
 
 export default function PageSkeleton() {
   const { pathname } = useLocation()

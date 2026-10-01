@@ -18,7 +18,7 @@ import api from '@/lib/axios'
 
 const ROLE_META = [
   { key: 'procurement', label: 'Procurement',    color: 'bg-blue-500' },
-  { key: 'requestor',   label: 'Requestor',       color: 'bg-teal-500' },
+  { key: 'requestor',   label: 'Fund Administrator',       color: 'bg-teal-500' },
   { key: 'supply',      label: 'Supply Officer',  color: 'bg-orange-500' },
   { key: 'twg',         label: 'TWG',             color: 'bg-cyan-500' },
   { key: 'bac',         label: 'BAC',             color: 'bg-indigo-500' },

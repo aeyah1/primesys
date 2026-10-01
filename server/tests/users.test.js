@@ -72,12 +72,12 @@ async function run() {
   await is(G2, 'inactive accounts', '/users?status=inactive&limit=50', (r) => sorted(ids(r)) === '4,8,12')
   await is(G2, '…tab counts follow the status', '/users?status=inactive&limit=50',
     (r) => same(r.data.counts.roles, { all: 3, admin: 0, twg: 1, procurement: 0, supply: 1, requestor: 1 }))
-  await is(G2, 'unverified accounts', '/users?status=unverified&limit=50', (r) => ids(r).join() === '10')
+  await is(G2, 'accounts waiting for approval', '/users?status=pending&limit=50', (r) => ids(r).join() === '10')
   await is(G2, 'active requestors', '/users?role=requestor&status=active&limit=50', (r) => sorted(ids(r)) === '9,10,11')
   await is(G2, 'status counts follow the tab', '/users?role=requestor&limit=50',
-    (r) => same(r.data.counts.status, { all: 4, active: 3, inactive: 1, unverified: 1 }))
+    (r) => same(r.data.counts.status, { all: 4, active: 3, inactive: 1, pending: 1 }))
   await is(G2, 'status counts on the All tab', '/users?limit=50',
-    (r) => same(r.data.counts.status, { all: 12, active: 9, inactive: 3, unverified: 1 }))
+    (r) => same(r.data.counts.status, { all: 12, active: 9, inactive: 3, pending: 1 }))
   await is(G2, 'an unknown status is ignored', '/users?status=banned&limit=50', (r) => r.data.total === 12)
 
   // TWG review areas
@@ -89,7 +89,7 @@ async function run() {
   await is(G3, '…follow the status (the inactive reviewer drops out)', '/users?role=twg&status=active&limit=50',
     (r) => r.data.counts.areas.hardware === 1 && r.data.counts.areas.none === 1)
   await is(G3, 'status counts follow the area', '/users?role=twg&area=hardware&limit=50',
-    (r) => same(r.data.counts.status, { all: 2, active: 1, inactive: 1, unverified: 0 }))
+    (r) => same(r.data.counts.status, { all: 2, active: 1, inactive: 1, pending: 0 }))
   await is(G3, 'the area filter applies on the TWG tab only', '/users?role=requestor&area=hardware&limit=50', (r) => r.data.total === 4)
   await is(G3, '…and not on All', '/users?area=hardware&limit=50', (r) => r.data.total === 12 && r.data.counts.areas === undefined)
   await is(G3, 'an unknown area is ignored', '/users?role=twg&area=weapons&limit=50', (r) => r.data.total === 4)

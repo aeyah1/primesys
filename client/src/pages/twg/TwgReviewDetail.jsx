@@ -51,8 +51,8 @@ export default function TwgReviewDetail() {
     mutationFn: () => api.post(`/twg/${id}/review`, { action, comment: comment.trim() || null }),
     onSuccess: () => {
       const msg = action === 'approve' ? 'PR approved and forwarded to Procurement'
-                : action === 'revise'  ? 'Revision requested. The requestor has been notified.'
-                                       : 'PR rejected. The requestor has been notified.'
+                : action === 'revise'  ? 'Revision requested. The Fund Administrator has been notified.'
+                                       : 'PR rejected. The Fund Administrator has been notified.'
       toast.success(msg)
       qc.invalidateQueries({ queryKey: ['twg'] })
       qc.invalidateQueries({ queryKey: ['pr', id] })
@@ -289,7 +289,7 @@ export default function TwgReviewDetail() {
           className="max-w-2xl"
           title={
             action === 'approve' ? 'Approve & Forward to Procurement'
-            : action === 'revise' ? 'Request Revision from Requestor'
+            : action === 'revise' ? 'Request Revision from Fund Administrator'
             : 'Reject Purchase Request'
           }
         >
