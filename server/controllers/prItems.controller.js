@@ -2,6 +2,7 @@ const pool         = require('../db/pool')
 const asyncHandler = require('../utils/asyncHandler')
 const { editDenied } = require('../utils/prWorkflow')
 const { isCategory, syncPRCategory } = require('../utils/categories')
+const { assertNoBrands } = require('../utils/brandNames')
 
 // A PR's items: listed to anyone who can see the PR, changed only while the PR
 // is editable. Every change re-derives the PR's own category from them, since
@@ -17,6 +18,7 @@ exports.listItems = asyncHandler(async (req, res) => {
 exports.addItem = asyncHandler(async (req, res) => {
   const { stock_property_no, group_label, category, item_name, quantity, unit, estimated_cost, notes } = req.body
   if (!item_name?.trim()) return res.status(400).json({ message: 'Item name is required' })
+  assertNoBrands({}, [{ item_name, notes }])
   const denied = await editDenied(pool, req.user, req.params.id)
   if (denied) return res.status(denied.status).json({ message: denied.message })
   const stockNo = stock_property_no?.trim() || null
@@ -39,6 +41,7 @@ exports.addItem = asyncHandler(async (req, res) => {
 exports.updateItem = asyncHandler(async (req, res) => {
   const b = req.body
   if ('item_name' in b && !String(b.item_name ?? '').trim()) return res.status(400).json({ message: 'Item name is required' })
+  assertNoBrands({}, [{ item_name: b.item_name, notes: b.notes }])
 
   // Verify the item belongs to this PR (404 if not - prevents cross-PR tampering).
   const [rows] = await pool.execute(

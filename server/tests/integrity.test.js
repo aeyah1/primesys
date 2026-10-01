@@ -112,7 +112,7 @@ async function run() {
     (r) => r.status === 200 && r.data.some(l => l.from_status === 'twg_review' && l.to_status === 'revision_requested' && /laptop model/.test(l.note)))
   const notices = await is(G3, '…requestor notified with the reason', 3, 'GET', '/notifications', undefined,
     (r) => r.status === 200 && r.data.some(n => /returned to you for revision: Please add the laptop model/.test(n.message)))
-  await is(G3, 'requestor fixes it (adds the model)', 3, 'POST', '/pr/41/items', { item_name: 'Laptop model: HP 15', quantity: 1, estimated_cost: 0 }, code(201))
+  await is(G3, 'requestor fixes it (adds the specs)', 3, 'POST', '/pr/41/items', { item_name: 'Laptop, 15.6 inch, 16GB RAM', quantity: 1, estimated_cost: 0 }, code(201))
   await is(G3, '…and submits it again → 200', 3, 'PATCH', '/pr/41/status', { status: 'submitted' }, code(200))
   await is(G3, '…back in the TWG queue', 6, 'GET', '/twg/pending', undefined, (r) => r.status === 200 && r.data.data.some(p => p.id === 41))
   await is(G3, 'return a PR under canvass with no award → 200', 2, 'PATCH', '/pr/42/status', { status: 'revision_requested', notes: 'Quantities unclear' }, code(200))
