@@ -36,18 +36,23 @@ function signatureMatches(head, sig) {
   return sig.some(s => head.subarray(0, s.length).equals(s))
 }
 
-// Runs after multer has saved the file: a file whose contents are not the
-// kind its name says is deleted and refused.
-function checkSignature(req, _res, next) {
-  if (!req.file) return next()
-  const type = TYPES[path.extname(req.file.filename).toLowerCase()]
+// Whether a saved file's first bytes match the kind its name says.
+function contentMatches(file) {
+  const type = TYPES[path.extname(file.filename).toLowerCase()]
   let head = Buffer.alloc(16)
-  try {
-    const fd = fs.openSync(req.file.path, 'r')
-    try { head = head.subarray(0, fs.readSync(fd, head, 0, head.length, 0)) } finally { fs.closeSync(fd) }
-  } catch (err) { return next(err) }
-  if (!type || !signatureMatches(head, type.sig)) {
-    fs.unlink(req.file.path, () => {})
+  const fd = fs.openSync(file.path, 'r')
+  try { head = head.subarray(0, fs.readSync(fd, head, 0, head.length, 0)) } finally { fs.closeSync(fd) }
+  return !!type && signatureMatches(head, type.sig)
+}
+
+// Runs after multer has saved the file(s): if any file's contents are not the
+// kind its name says, every file of the request is deleted and it is refused.
+function checkSignature(req, _res, next) {
+  const files = req.file ? [req.file] : Object.values(req.files || {}).flat()
+  let bad
+  try { bad = files.some(f => !contentMatches(f)) } catch (err) { return next(err) }
+  if (bad) {
+    files.forEach(f => fs.unlink(f.path, () => {}))
     return next(httpError(400, "The file's contents don't match its type. Upload the original PDF, image, Word, or Excel file."))
   }
   next()
@@ -70,7 +75,7 @@ function makeUploader(subdir) {
   const uploadDir = path.join(__dirname, '..', 'uploads', subdir)
   if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true })
 
-  const receiver = multer({
+  const receiver = (files) => multer({
     storage: multer.diskStorage({
       destination: (_req, _file, cb) => cb(null, uploadDir),
       filename:    (_req, file, cb) => {
@@ -84,10 +89,14 @@ function makeUploader(subdir) {
       if (file.originalname.length > MAX_NAME) return cb(httpError(400, `File name is too long (${MAX_NAME} characters at most)`))
       cb(null, true)
     },
-    limits: { fileSize: MAX_BYTES, files: 1 },
+    limits: { fileSize: MAX_BYTES, files },
   })
 
-  return { single: (field) => [withClearErrors(receiver.single(field)), checkSignature] }
+  return {
+    single: (field) => [withClearErrors(receiver(1).single(field)), checkSignature],
+    // Several named files, e.g. fields(['data', 'signed']): one of each at most.
+    fields: (names) => [withClearErrors(receiver(names.length).fields(names.map(name => ({ name, maxCount: 1 })))), checkSignature],
+  }
 }
 
 module.exports = makeUploader

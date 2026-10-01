@@ -588,7 +588,7 @@ CREATE TABLE `password_reset_tokens` (
   CONSTRAINT `fk_prt_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- PPMP: each office's plan of what it buys in a fiscal year, by version, signed when submitted and approved (server/db/add_ppmp.sql).
+-- PPMP: each office's plan for a fiscal year, uploaded from its signed original and verified (server/db/add_ppmp.sql).
 CREATE TABLE `ppmps` (
   `id`                 INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `department_id`      INT UNSIGNED NOT NULL,
@@ -596,10 +596,11 @@ CREATE TABLE `ppmps` (
   `version_no`         INT UNSIGNED NOT NULL DEFAULT 1,
   `kind`               ENUM('indicative','final') NOT NULL DEFAULT 'final',
   `fund_source`        ENUM('STF','GAA','IGP') NOT NULL DEFAULT 'STF',
-  `status`             ENUM('draft','submitted','approved','superseded') NOT NULL DEFAULT 'draft',
+  `status`             ENUM('draft','submitted','approved','superseded') NOT NULL DEFAULT 'submitted',
   `return_reason`      VARCHAR(500) NULL,
+  `file_office`        VARCHAR(200) NULL,
+  `skipped_rows`       TEXT NULL,
   `prepared_by`        INT UNSIGNED NULL,
-  `prepared_signature` MEDIUMTEXT NULL,
   `submitted_at`       DATETIME NULL,
   `approved_by`        INT UNSIGNED NULL,
   `approved_signature` MEDIUMTEXT NULL,
@@ -627,20 +628,25 @@ CREATE TABLE `ppmp_items` (
   `mode_of_procurement` VARCHAR(50)   NULL,
   `months`              VARCHAR(40)   NULL,
   `remarks`             VARCHAR(500)  NULL,
+  `file_row`            INT UNSIGNED  NULL,
+  `corrected`           TINYINT(1)    NOT NULL DEFAULT 0,
+  `as_read`             TEXT          NULL,
   `sort_order`          INT UNSIGNED  NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
   KEY `idx_ppmp_items_ppmp` (`ppmp_id`),
   CONSTRAINT `fk_ppmp_items_ppmp` FOREIGN KEY (`ppmp_id`) REFERENCES `ppmps` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Supporting documents attached to a PPMP (the original PPMP file, market scoping checklist, specifications).
+-- The two original files of a PPMP: the data file its items were read from, and the signed copy.
 CREATE TABLE `ppmp_attachments` (
   `id`            INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `ppmp_id`       INT UNSIGNED NOT NULL,
+  `role`          ENUM('data','signed') NOT NULL,
   `filename`      VARCHAR(255) NOT NULL,
   `original_name` VARCHAR(255) NOT NULL,
   `mimetype`      VARCHAR(100) NULL,
   `size`          INT UNSIGNED NULL,
+  `sha256`        CHAR(64)     NOT NULL,
   `uploaded_by`   INT UNSIGNED NULL,
   `created_at`    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),

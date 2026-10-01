@@ -14,7 +14,7 @@ const PAD_H = 160
 const MAX_W = 420
 const MAX_H = 140
 
-// The signature stamped on documents this user signs (a PPMP when submitted or approved): drawn here or uploaded.
+// The signature stamped on documents this user signs (a PPMP they verify): drawn here or uploaded.
 export default function SignatureCard() {
   const { refreshUser } = useAuth()
   const qc = useQueryClient()
@@ -80,14 +80,14 @@ export default function SignatureCard() {
   }
 
   const askRemove = async () => {
-    if (await confirm({ title: 'Remove your signature?', message: 'Documents you already signed keep it. You need one again to sign a PPMP.', confirmLabel: 'Remove', danger: true })) remove()
+    if (await confirm({ title: 'Remove your signature?', message: 'Documents you already signed keep it. You need one again to verify a PPMP.', confirmLabel: 'Remove', danger: true })) remove()
   }
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Signature</CardTitle>
-        <CardDescription>Stamped on the documents you sign in PRimeSys, such as a PPMP you submit or approve</CardDescription>
+        <CardDescription>Stamped on the documents you sign in PRimeSys, such as a PPMP you verify</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         {!editing && (

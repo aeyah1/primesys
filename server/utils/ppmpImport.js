@@ -58,14 +58,29 @@ function findHeader(rows) {
     const months = {}
     for (const rr of [r, r + 1]) (rows[rr] || []).forEach((c, i) => { const m = monthOf(c); if (m && !taken.has(i)) months[i] = m })
     const monthRow = (rows[r + 1] || []).some(c => monthOf(c)) ? r + 1 : r
-    return { row: monthRow, cols, months }
+    return { top: r, row: monthRow, cols, months }
   }
   throw httpError(400, 'No item table was found. The file needs a header row with columns like Description, Unit, Quantity, and Unit Cost.')
 }
 
+// What the lines above the table say: fiscal year, office, source of funds, and Indicative or Final (each null when absent).
+function readHeader(rows, upTo) {
+  const text = rows.slice(0, upTo).map(r => r.filter(Boolean).join('  ')).filter(Boolean).join('\n')
+  const year = /fiscal\s*year\s*:?\s*(20\d\d)|\bFY\s*(20\d\d)/i.exec(text)
+  const fund = /source\s*of\s*funds?\s*:?\s*([^\n]*)/i.exec(text)?.[1] || ''
+  const office = /(?:end[- ]user(?:\s*or\s*implementing\s*unit)?|implementing\s*unit|department\s*\/?\s*office|office|department)\s*:\s*(.+?)(?:\s{2,}|\n|$)/i.exec(text)?.[1] || null
+  const ticked = (word) => new RegExp(`(\\[\\s*[x✓✔]\\s*\\]|☒|☑|✓|✔|\\bx\\b)\\s*${word}`, 'i').test(text)
+  return {
+    fiscal_year: year ? Number(year[1] || year[2]) : null,
+    fund_source: /\bGAA\b|general appropriation/i.test(fund) ? 'GAA' : /\bSTF\b|special trust/i.test(fund) ? 'STF' : /\bIGP\b|\bIGI\b|income/i.test(fund) ? 'IGP' : null,
+    kind: ticked('indicative') ? 'indicative' : ticked('final') ? 'final' : (/\bindicative\b/i.test(text) && !/\bfinal\b/i.test(text) ? 'indicative' : null),
+    office: office ? office.trim().slice(0, 200) : null,
+  }
+}
+
 // Item lines from the rows, with the part and category headings they fall under, and the file's own total.
 function mapPpmp(rows) {
-  const { row: headerRow, cols, months } = findHeader(rows)
+  const { top, row: headerRow, cols, months } = findHeader(rows)
   const cell = (r, field) => (cols[field] === undefined ? '' : String(r[cols[field]] ?? '').trim())
   const items = []
   let part = 'other', category = null, fileTotal = null
@@ -124,7 +139,7 @@ function mapPpmp(rows) {
     if (items.length > MAX_ITEMS) throw httpError(400, `The file lists more than ${MAX_ITEMS} items`)
   }
   if (!items.length) throw httpError(400, 'The table was found, but no item lines were read from it')
-  return { items, file_total: fileTotal, columns: Object.keys(cols), months_found: Object.keys(months).length }
+  return { items, file_total: fileTotal, header: readHeader(rows, top), columns: Object.keys(cols), months_found: Object.keys(months).length }
 }
 
 module.exports = { mapPpmp, modeOf, num }
