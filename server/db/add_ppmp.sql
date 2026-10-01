@@ -1,15 +1,16 @@
--- Migration: the Project Procurement Management Plan (PPMP) and e-signatures.
+-- Migration: the Project Procurement Management Plan (PPMP), as uploaded from the office's original.
 --
--- Each office's Fund Administrator keeps its PPMP: the items the office plans
--- to buy in a fiscal year, in two parts (available at PS-DBM, and other
--- items), with quantity, unit cost, mode of procurement, and the months
--- scheduled. A PPMP is signed by the Fund Administrator on submission and by
--- the approver on approval; a SHA-256 fingerprint of its content is kept, so a
--- change after signing shows. Changing an approved PPMP makes the next
--- version (PPMP No. 2, ...); the approved one stays in force until then.
+-- The PPMP is made and signed outside the system. Its Fund Administrator
+-- uploads the original: the data file (Excel, Word, or CSV) the items are
+-- read from, and the signed copy (a scan or photo). Rows the system misread
+-- can be corrected before submitting; each correction is kept with what the
+-- file said. The approver checks the system copy against the signed original
+-- and signs it as verified; only then can purchase requests be based on it.
+-- A SHA-256 fingerprint covers the items and both files. An amended PPMP is
+-- uploaded as the next version (PPMP No. 2, ...), which supersedes the
+-- approved one once verified.
 --
--- users.signature holds each person's signature as a small PNG (data URL);
--- a PPMP keeps a copy of the signatures it was signed with.
+-- users.signature holds a signer's signature as a small PNG (data URL).
 --
 -- Run AFTER add_fund_administrator.sql.
 -- Rollback:
@@ -27,10 +28,11 @@ CREATE TABLE `ppmps` (
   `version_no`         INT UNSIGNED NOT NULL DEFAULT 1,
   `kind`               ENUM('indicative','final') NOT NULL DEFAULT 'final',
   `fund_source`        ENUM('STF','GAA','IGP') NOT NULL DEFAULT 'STF',
-  `status`             ENUM('draft','submitted','approved','superseded') NOT NULL DEFAULT 'draft',
+  `status`             ENUM('draft','submitted','approved','superseded') NOT NULL DEFAULT 'submitted',
   `return_reason`      VARCHAR(500) NULL,
+  `file_office`        VARCHAR(200) NULL,
+  `skipped_rows`       TEXT NULL,
   `prepared_by`        INT UNSIGNED NULL,
-  `prepared_signature` MEDIUMTEXT NULL,
   `submitted_at`       DATETIME NULL,
   `approved_by`        INT UNSIGNED NULL,
   `approved_signature` MEDIUMTEXT NULL,
@@ -58,20 +60,25 @@ CREATE TABLE `ppmp_items` (
   `mode_of_procurement` VARCHAR(50)   NULL,
   `months`              VARCHAR(40)   NULL,
   `remarks`             VARCHAR(500)  NULL,
+  `file_row`            INT UNSIGNED  NULL,
+  `corrected`           TINYINT(1)    NOT NULL DEFAULT 0,
+  `as_read`             TEXT          NULL,
   `sort_order`          INT UNSIGNED  NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
   KEY `idx_ppmp_items_ppmp` (`ppmp_id`),
   CONSTRAINT `fk_ppmp_items_ppmp` FOREIGN KEY (`ppmp_id`) REFERENCES `ppmps` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Supporting documents attached to a PPMP (the original PPMP file, market scoping checklist, specifications).
+-- The two original files of a PPMP: the data file its items were read from, and the signed copy.
 CREATE TABLE `ppmp_attachments` (
   `id`            INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `ppmp_id`       INT UNSIGNED NOT NULL,
+  `role`          ENUM('data','signed') NOT NULL,
   `filename`      VARCHAR(255) NOT NULL,
   `original_name` VARCHAR(255) NOT NULL,
   `mimetype`      VARCHAR(100) NULL,
   `size`          INT UNSIGNED NULL,
+  `sha256`        CHAR(64)     NOT NULL,
   `uploaded_by`   INT UNSIGNED NULL,
   `created_at`    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),

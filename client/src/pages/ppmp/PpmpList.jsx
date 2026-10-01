@@ -1,18 +1,16 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ListChecks, Plus } from 'lucide-react'
-import { toast } from '@/lib/toast'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Upload } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Label } from '@/components/ui/label'
-import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableEmpty } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PpmpStatusBadge } from '@/components/ppmp/PpmpStatusBadge'
+import PpmpUploadDialog from '@/components/ppmp/PpmpUploadDialog'
 import { useAuth } from '@/context/AuthContext'
-import { fmtCurrency, fmtDate, FUND_SOURCES } from '@/lib/utils'
+import { fmtCurrency, fmtDate } from '@/lib/utils'
 import api from '@/lib/axios'
 
 // The PPMPs this user may see: a Fund Administrator's own office's, or every office's for Procurement, BAC, and admins.
@@ -21,10 +19,8 @@ export default function PpmpList() {
   const keeper = user?.role === 'requestor'
   const navigate = useNavigate()
   const qc = useQueryClient()
-  const thisYear = new Date().getFullYear()
   const [year, setYear] = useState('all')
   const [open, setOpen] = useState(false)
-  const [form, setForm] = useState({ fiscal_year: String(thisYear + 1), kind: 'indicative', fund_source: 'STF' })
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ['ppmp-list'],
@@ -32,12 +28,7 @@ export default function PpmpList() {
   })
   const years = [...new Set(rows.map(r => r.fiscal_year))]
   const shown = year === 'all' ? rows : rows.filter(r => String(r.fiscal_year) === year)
-
-  const { mutate: create, isPending: creating } = useMutation({
-    mutationFn: () => api.post('/ppmp', { ...form, fiscal_year: Number(form.fiscal_year) }),
-    onSuccess: (res) => { qc.invalidateQueries({ queryKey: ['ppmp-list'] }); navigate(`/ppmp/${res.data.id}`) },
-    onError: (err) => toast.error(err.response?.data?.message || 'Could not start the PPMP'),
-  })
+  const cols = keeper ? 8 : 9
 
   return (
     <div className="space-y-4">
@@ -46,8 +37,8 @@ export default function PpmpList() {
           <h2 className="text-ui-lg font-bold text-[--color-text-primary]">Project Procurement Management Plans</h2>
           <p className="text-ui-sm text-[--color-text-secondary] mt-0.5">
             {keeper
-              ? 'What your office plans to buy each fiscal year. Purchase requests are checked against the approved PPMP.'
-              : 'Each office\'s plan of what it buys in a fiscal year. You can view and print them; only the office\'s Fund Administrator edits.'}
+              ? 'Your office\'s PPMP, uploaded from the signed original. Once verified, your purchase requests are based on it.'
+              : 'Each office\'s PPMP, uploaded from its signed original. You can view it, open the original files, and print it.'}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -60,9 +51,7 @@ export default function PpmpList() {
               </SelectContent>
             </Select>
           )}
-          {keeper && (
-            <Button onClick={() => setOpen(true)} className="gap-2"><Plus className="size-4" /> New PPMP</Button>
-          )}
+          {keeper && <Button onClick={() => setOpen(true)} className="gap-2"><Upload className="size-4" /> Upload PPMP</Button>}
         </div>
       </div>
 
@@ -85,10 +74,10 @@ export default function PpmpList() {
             <TableBody>
               {isLoading
                 ? Array(3).fill(0).map((_, i) => (
-                    <TableRow key={i}>{Array(keeper ? 8 : 9).fill(0).map((_, j) => <TableCell key={j}><Skeleton className="h-4" /></TableCell>)}</TableRow>
+                    <TableRow key={i}>{Array(cols).fill(0).map((_, j) => <TableCell key={j}><Skeleton className="h-4" /></TableCell>)}</TableRow>
                   ))
                 : !shown.length
-                  ? <TableEmpty colSpan={keeper ? 8 : 9} message={keeper ? 'No PPMP yet. Start one for the coming fiscal year.' : 'No office has a PPMP yet.'} />
+                  ? <TableEmpty colSpan={cols} message={keeper ? 'No PPMP yet. Upload your office\'s signed PPMP to start.' : 'No office has uploaded a PPMP yet.'} />
                   : shown.map(r => (
                     <TableRow key={r.id} className="cursor-pointer" onClick={() => navigate(`/ppmp/${r.id}`)}>
                       <TableCell className="font-semibold">FY {r.fiscal_year}</TableCell>
@@ -98,7 +87,10 @@ export default function PpmpList() {
                       <TableCell>{r.fund_source}</TableCell>
                       <TableCell className="text-right tabular-nums">{r.item_count}</TableCell>
                       <TableCell className="text-right tabular-nums">{fmtCurrency(r.total)}</TableCell>
-                      <TableCell><PpmpStatusBadge status={r.status} returned={!!r.return_reason} /></TableCell>
+                      <TableCell>
+                        <PpmpStatusBadge status={r.status} returned={!!r.return_reason} />
+                        {r.corrected_count > 0 && <p className="mt-1 text-[10px] text-[--color-text-muted]">{r.corrected_count} corrected</p>}
+                      </TableCell>
                       <TableCell className="text-[--color-text-muted]">{fmtDate(r.updated_at)}</TableCell>
                     </TableRow>
                   ))}
@@ -107,48 +99,8 @@ export default function PpmpList() {
         </CardContent>
       </Card>
 
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent title="New PPMP" description="Start your office's PPMP for a fiscal year. You can add the items next.">
-          <form onSubmit={(e) => { e.preventDefault(); create() }} className="space-y-4 pt-2">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Fiscal Year</Label>
-                <Select value={form.fiscal_year} onValueChange={v => setForm(f => ({ ...f, fiscal_year: v }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {[thisYear, thisYear + 1, thisYear + 2].map(y => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Type</Label>
-                <Select value={form.kind} onValueChange={v => setForm(f => ({ ...f, kind: v }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="indicative">Indicative (budget not yet approved)</SelectItem>
-                    <SelectItem value="final">Final (budget approved)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Source of Funds</Label>
-              <Select value={form.fund_source} onValueChange={v => setForm(f => ({ ...f, fund_source: v }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {FUND_SOURCES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={creating} className="gap-2">
-                <ListChecks className="size-4" /> {creating ? 'Starting...' : 'Start PPMP'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <PpmpUploadDialog open={open} onClose={() => setOpen(false)}
+        onDone={(id) => { setOpen(false); qc.invalidateQueries({ queryKey: ['ppmp-list'] }); navigate(`/ppmp/${id}`) }} />
     </div>
   )
 }

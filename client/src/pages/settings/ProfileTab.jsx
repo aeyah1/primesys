@@ -96,8 +96,8 @@ export default function ProfileTab() {
         </CardContent>
       </Card>
 
-      {/* Only the roles that sign documents (Fund Administrators and approvers) need a signature. */}
-      {['requestor', 'admin'].includes(user?.role) && <SignatureCard />}
+      {/* Only the approver signs documents in the system (a verified PPMP). */}
+      {user?.role === 'admin' && <SignatureCard />}
     </div>
   )
 }

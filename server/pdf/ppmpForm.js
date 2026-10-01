@@ -44,7 +44,7 @@ module.exports = function drawPpmp(doc, { ppmp: p, items, totals, signatures = {
   box(M + W / 2 + 20, 'FINAL', p.kind === 'final')
   if (p.status !== 'approved') {
     doc.font('Times-Bold').fontSize(9).fillColor('#B91C1C')
-      .text(p.status === 'superseded' ? 'SUPERSEDED' : `NOT YET APPROVED (${p.status.toUpperCase()})`, M, y, { width: W, align: 'right' })
+      .text(p.status === 'superseded' ? 'SUPERSEDED' : (p.status === 'submitted' ? 'NOT YET VERIFIED' : 'RETURNED'), M, y, { width: W, align: 'right' })
     doc.fillColor(BLACK)
   }
   y += 18
@@ -106,7 +106,7 @@ module.exports = function drawPpmp(doc, { ppmp: p, items, totals, signatures = {
   }
   amountRow('TOTAL BUDGET', totals.all)
 
-  // Signatures, each stamped over its line when signed.
+  // Who uploaded it, and who verified it against the signed original (stamped with their signature).
   if (y + 84 > BOTTOM) y = newPage()
   y += 10
   const half = W / 2
@@ -118,17 +118,17 @@ module.exports = function drawPpmp(doc, { ppmp: p, items, totals, signatures = {
     }
     f.signature(x, y + 12, half, who)
   }
-  signer(M, 'Prepared by:', signatures.prepared_signature, {
+  signer(M, 'Uploaded from the signed original by:', null, {
     name: p.prepared_by_name || '',
     designation: `Fund Administrator, ${p.office_code}${p.submitted_at ? ` · ${fmtDate(p.submitted_at)}` : ''}`,
   })
-  signer(M + half, 'Approved by:', p.approved_at ? signatures.approved_signature : null, {
+  signer(M + half, 'Verified against the signed original by:', p.approved_at ? signatures.approved_signature : null, {
     name: p.approved_at ? p.approved_by_name || '' : '',
     designation: p.approved_at ? fmtDate(p.approved_at) : '',
   })
   y += 64
   if (p.content_hash) {
     doc.font('Courier').fontSize(7).fillColor(BLACK)
-      .text(`Fingerprint (SHA-256) of the signed content: ${p.content_hash}`, M, y, { width: W, align: 'center' })
+      .text(`System copy of the office's signed PPMP, kept with its original files in PRimeSys. Fingerprint (SHA-256): ${p.content_hash}`, M, y, { width: W, align: 'center' })
   }
 }
