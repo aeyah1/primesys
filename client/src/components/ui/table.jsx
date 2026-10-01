@@ -32,8 +32,8 @@ export function TableHead({ className, children }) {
     </th>
   )
 }
-export function TableCell({ className, children }) {
-  return <td className={cn('px-4 py-3.5 text-[--color-text-primary]', className)}>{children}</td>
+export function TableCell({ className, children, ...props }) {
+  return <td className={cn('px-4 py-3.5 text-[--color-text-primary]', className)} {...props}>{children}</td>
 }
 export function TableEmpty({ colSpan, message = 'No records found.' }) {
   return (
