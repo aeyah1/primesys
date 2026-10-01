@@ -15,6 +15,7 @@ const { CATEGORIES, isCategory, syncPRCategory } = require('../utils/categories'
 const { loadOrgSettings, prNumberPrefix, fundCodeFor, FUND_SOURCE_VALUES } = require('../utils/orgSettings')
 const { requestedBy, resolveDepartment } = require('../utils/departments')
 const { reviewsCategory, notifyAreaReviewers } = require('../utils/twgAreas')
+const { assertNoBrands } = require('../utils/brandNames')
 const drawPRForm = require('../pdf/prForm')
 
 // The next PR number, in the form the printed PR carries: "CSO 2026-001",
@@ -269,6 +270,7 @@ exports.create = asyncHandler(async (req, res) => {
   if (initialStatus === 'submitted' && !itemList.length) {
     return res.status(400).json({ message: 'Add at least one item before submitting' })
   }
+  assertNoBrands({ title, purpose }, itemList)
 
   // Procurement terms are filled in here, not asked of the person filing:
   // requestors' PRs always go under the current quarter (staff may pick one),
@@ -404,6 +406,7 @@ exports.update = asyncHandler(async (req, res) => {
 
   const denied = await editDenied(pool, req.user, req.params.id)
   if (denied) return res.status(denied.status).json({ message: denied.message })
+  assertNoBrands({ title, purpose })
 
   // Moving the PR to another office moves who signs "Requested by" with it: the
   // form must name the head of the office it is actually filed under. A PR is

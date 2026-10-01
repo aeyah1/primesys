@@ -122,7 +122,7 @@ export const CATEGORY_FORM = {
     sectionLabel:       'Project / Setup',
     sectionPlaceholder: 'e.g. PROJECT: New Computer Laboratory',
     itemLabel:          'Equipment',
-    itemPlaceholder:    'e.g. HP Victus 15 Laptop / Epson L3210 Printer',
+    itemPlaceholder:    'e.g. Laptop computer, 15.6 inch / Ink tank printer, A4',
     units: ['pc','set','unit','pair','lot','box'],
     defaultUnit: 'pc',
   },
@@ -169,28 +169,25 @@ export const CATEGORY_FORM = {
 }
 
 // Per-category structured spec fields. These replace the single "Specifications"
-// textarea with category-specific inputs (Brand/Model for Hardware, Material/Color
-// for Furniture, etc.). On Add, values get concatenated into the item's `notes`
+// textarea with category-specific inputs (Material/Color for Furniture, etc.; no
+// Brand field, since a PR may not name brands). On Add, values get concatenated into the item's `notes`
 // string with each label preserved — no new DB columns needed.
 //
 // To add a new field to a category: edit this array. To add a new category:
 // add the entry AND a corresponding card in ItemCategorySelector.
 export const CATEGORY_FIELDS = {
   hardware: [
-    { key: 'brand', label: 'Brand',                       placeholder: 'e.g. HP, Dell, Lenovo' },
-    { key: 'model', label: 'Model',                       placeholder: 'e.g. Victus 15-fa1xxxxx' },
-    { key: 'specs', label: 'Specifications', type: 'textarea',
-      placeholder: 'e.g.\nIntel Core i5-13420H\n16GB DDR4 RAM, 512GB NVMe SSD\n15.6" FHD 144Hz display\nNVIDIA RTX 4050' },
+    { key: 'specs', label: 'Minimum Specifications', type: 'textarea',
+      placeholder: 'e.g.\nProcessor: 8 cores or more, 4.0 GHz or faster\n16GB RAM, 512GB SSD\n15.6" full HD display\nDedicated graphics, 6GB or more' },
   ],
   office_supplies: [
-    { key: 'brand',     label: 'Brand',       placeholder: 'e.g. Hard Copy, Paperline (optional)' },
     { key: 'size_type', label: 'Size / Type', placeholder: 'e.g. A4 / 80gsm / sub20' },
     { key: 'notes',     label: 'Notes', type: 'textarea',
       placeholder: 'Anything else worth noting (optional)' },
   ],
   lab_educational: [
     { key: 'topic',        label: 'Topic / Subject', placeholder: 'e.g. General Chemistry, Biology Lab' },
-    { key: 'author_brand', label: 'Author / Brand',  placeholder: 'e.g. Chang & Goldsby, Olympus' },
+    { key: 'title_author', label: 'Title / Author',  placeholder: 'e.g. General Chemistry, Chang & Goldsby' },
     { key: 'specs',        label: 'Specifications', type: 'textarea',
       placeholder: 'e.g.\nEdition: 13th\nWith CD / access code\nIncludes lab manual' },
   ],

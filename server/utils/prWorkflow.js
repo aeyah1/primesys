@@ -1,5 +1,6 @@
 const withTransaction = require('../db/transaction')
 const httpError       = require('./httpError')
+const { assertNoBrands } = require('./brandNames')
 const { cancelAwards, awardProgress, statusFromAwards } = require('./awardWorkflow')
 
 // Purchase request workflow rules
@@ -211,6 +212,11 @@ async function changePRStatus(prId, to, { user, via = 'manual', note = null, ifA
     }
     if (TRANSITIONS[pr.status][to].reason && !note?.trim()) {
       throw httpError(400, `Give a reason for moving this PR to "${label(to)}"`)
+    }
+    if (to === 'submitted') {
+      const [[details]] = await db.execute('SELECT title, purpose FROM purchase_requests WHERE id = ?', [pr.id])
+      const [items] = await db.execute('SELECT item_name, notes FROM pr_items WHERE pr_id = ? ORDER BY id', [pr.id])
+      assertNoBrands(details, items, { status: 409 })
     }
     await db.execute('UPDATE purchase_requests SET status = ? WHERE id = ?', [to, pr.id])
     let logNote = note

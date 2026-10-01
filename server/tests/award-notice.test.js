@@ -67,7 +67,7 @@ async function run() {
   t.check(D, 'a new supplier is not confirmed', !(await supplierRow(xyz)).email_confirmed)
 
   const pr = (await http(2, 'POST', '/pr', { title: 'Laptops and mice', items: [
-    { item_name: 'Laptop', quantity: 2, estimated_cost: 50000, notes: 'Brand: Lenovo\nSpecifications:\n16GB RAM, 512GB SSD' },
+    { item_name: 'Laptop', quantity: 2, estimated_cost: 50000, notes: 'Size: 14 inch\nSpecifications:\n16GB RAM, 512GB SSD' },
     { item_name: 'Mouse', quantity: 2, estimated_cost: 500 }] })).data.id
   await http(2, 'PATCH', `/pr/${pr}/status`, { status: 'submitted' })
   await http(4, 'POST', `/twg/${pr}/review`, { action: 'approve' })
@@ -103,7 +103,7 @@ async function run() {
   const P = 'Quote page'
   await is(P, 'while open there is no result', null, 'GET', `/public/quote/${xyzTok}`, undefined, r => r.data.open === true && r.data.result === null)
   await is(P, 'the supplier sees each item\'s specifications', null, 'GET', `/public/quote/${xyzTok}`, undefined,
-    r => r.data.items.find(i => i.item_name === 'Laptop')?.notes === 'Brand: Lenovo\nSpecifications:\n16GB RAM, 512GB SSD'
+    r => r.data.items.find(i => i.item_name === 'Laptop')?.notes === 'Size: 14 inch\nSpecifications:\n16GB RAM, 512GB SSD'
       && r.data.items.find(i => i.item_name === 'Mouse')?.notes === null)
   await is(P, 'Procurement closes the quotations', 2, 'POST', `/canvass/${pr}/rfq/close`, undefined, r => r.status === 200)
   await is(P, 'closed: every item and the whole budget still show', null, 'GET', `/public/quote/${xyzTok}`, undefined,
