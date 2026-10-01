@@ -113,6 +113,10 @@ router.post('/reset-password',
   c.resetPassword
 )
 router.get('/me',        auth, c.me)
+// The signature stamped on documents this user signs (a PNG data URL).
+router.get('/me/signature',    auth, c.getSignature)
+router.put('/me/signature',    auth, c.setSignature)
+router.delete('/me/signature', auth, c.setSignature)
 router.patch('/me',      auth,
   textRule('name', 'Name', 100, { required: true }),
   // Job title as it prints on the PR form, e.g. "Department Chair, DCS".

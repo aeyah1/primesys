@@ -94,6 +94,7 @@ app.use('/api/archive',       require('./routes/archive.routes'))
 app.use('/api/twg',           require('./routes/twg.routes'))
 app.use('/api/bac',           require('./routes/bac.routes'))
 app.use('/api/suppliers',     require('./routes/suppliers.routes'))
+app.use('/api/ppmp',          require('./routes/ppmp.routes'))
 // Reached from emailed RFQ links, without an account (routes/public.routes.js has its own limits).
 app.use('/api/public',        require('./routes/public.routes'))
 

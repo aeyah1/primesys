@@ -30,6 +30,7 @@ const TYPE_LINK = {
   pr:       { to: (id) => `/pr/${id}`, label: 'Open PR' },
   lot:      { to: () => '/dashboard',  label: 'Open' },
   delivery: { to: () => '/delivery',   label: 'Open deliveries' },
+  ppmp:     { to: (id) => `/ppmp/${id}`, label: 'Open PPMP' },
 }
 
 // { to, label } for a notice's reference, or null when it points nowhere.

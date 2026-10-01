@@ -3,7 +3,7 @@ import {
   LayoutDashboard, FileText, ShoppingCart, Truck,
   Users, Calendar, ChevronRight, Bell, Archive,
   LogOut, Settings as SettingsIcon, Gavel, AlarmClock, BookOpen,
-  ClipboardCheck, BarChart3, Scale, FilePlus, PackageCheck, Building2, Store,
+  ClipboardCheck, BarChart3, Scale, FilePlus, PackageCheck, Building2, Store, ListChecks,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useNavigate } from 'react-router-dom'
@@ -21,8 +21,10 @@ const REMINDERS     = { to: '/reminders',     label: 'Reminders',       icon: Al
 const GUIDE         = { to: '/guide',         label: 'User Guide',      icon: BookOpen }
 const ALL_REQUESTS  = { to: '/pr',            label: 'All Requests',    icon: FileText }
 const SUPPLIERS     = { to: '/suppliers',     label: 'Suppliers',       icon: Store }
+const PPMP          = { to: '/ppmp',          label: 'PPMP',            icon: ListChecks }
 const ACCOUNT       = { label: 'Account', items: [{ to: '/settings', label: 'Settings', icon: SettingsIcon }] }
 const RECORDS       = { label: 'Records', items: [
+  PPMP,
   { to: '/reports', label: 'Reports', icon: BarChart3 },
   { to: '/archive', label: 'Archive', icon: Archive },
 ] }
@@ -31,7 +33,7 @@ function menuFor(role) {
   const home = { to: '/dashboard', label: HOME_LABELS[role] || 'Home', icon: HOME_ICONS[role] || LayoutDashboard, end: true }
   switch (role) {
     case 'requestor':
-      return [{ label: 'My Work', items: [home, { to: '/pr/create', label: 'New Request', icon: FilePlus }] },
+      return [{ label: 'My Work', items: [home, { to: '/pr/create', label: 'New Request', icon: FilePlus }, PPMP] },
               { label: 'Help', items: [NOTIFICATIONS, GUIDE] }, ACCOUNT]
     case 'twg':
       return [{ label: 'My Work', items: [home, { to: '/twg/reviews', label: 'To Review', icon: ClipboardCheck }] },
@@ -40,7 +42,7 @@ function menuFor(role) {
       return [{ label: 'My Work', items: [home, ALL_REQUESTS, { to: '/po', label: 'Purchase Orders', icon: ShoppingCart }, SUPPLIERS] },
               RECORDS, { label: 'Help', items: [NOTIFICATIONS, REMINDERS, GUIDE] }, ACCOUNT]
     case 'bac':
-      return [{ label: 'My Work', items: [home] }, { label: 'Help', items: [NOTIFICATIONS, GUIDE] }, ACCOUNT]
+      return [{ label: 'My Work', items: [home, PPMP] }, { label: 'Help', items: [NOTIFICATIONS, GUIDE] }, ACCOUNT]
     case 'supply':
       return [{ label: 'My Work', items: [home, { to: '/po', label: 'Purchase Orders', icon: ShoppingCart }, { to: '/delivery', label: 'Received', icon: PackageCheck }] },
               { label: 'Help', items: [NOTIFICATIONS, GUIDE] }, ACCOUNT]

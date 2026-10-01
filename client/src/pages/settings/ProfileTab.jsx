@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { fmtDate } from '@/lib/utils'
 import { useAuth } from '@/context/AuthContext'
 import api from '@/lib/axios'
+import SignatureCard from './SignatureCard'
 
 const ROLE_LABELS = {
   admin:       'Administrator',
@@ -94,6 +95,9 @@ export default function ProfileTab() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Only the roles that sign documents (Fund Administrators and approvers) need a signature. */}
+      {['requestor', 'admin'].includes(user?.role) && <SignatureCard />}
     </div>
   )
 }
