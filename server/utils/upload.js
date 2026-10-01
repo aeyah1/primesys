@@ -25,10 +25,13 @@ const TYPES = {
   '.docx': { mime: ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'], sig: ZIP },
   '.xls':  { mime: ['application/vnd.ms-excel'], sig: OLE },
   '.xlsx': { mime: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'], sig: ZIP },
+  // Browsers report CSV in several ways; its check is that it holds no binary (NUL) bytes.
+  '.csv':  { mime: ['text/csv', 'application/csv', 'text/plain', 'application/vnd.ms-excel'], sig: 'text' },
 }
-const TYPE_MSG = 'File type not allowed. Use PDF, JPG, PNG, WEBP, Word, or Excel files.'
+const TYPE_MSG = 'File type not allowed. Use PDF, JPG, PNG, WEBP, Word, Excel, or CSV files.'
 
 function signatureMatches(head, sig) {
+  if (sig === 'text') return !head.includes(0)
   if (sig === 'webp') return head.subarray(0, 4).toString('latin1') === 'RIFF' && head.subarray(8, 12).toString('latin1') === 'WEBP'
   return sig.some(s => head.subarray(0, s.length).equals(s))
 }
@@ -38,10 +41,10 @@ function signatureMatches(head, sig) {
 function checkSignature(req, _res, next) {
   if (!req.file) return next()
   const type = TYPES[path.extname(req.file.filename).toLowerCase()]
-  const head = Buffer.alloc(16)
+  let head = Buffer.alloc(16)
   try {
     const fd = fs.openSync(req.file.path, 'r')
-    try { fs.readSync(fd, head, 0, head.length, 0) } finally { fs.closeSync(fd) }
+    try { head = head.subarray(0, fs.readSync(fd, head, 0, head.length, 0)) } finally { fs.closeSync(fd) }
   } catch (err) { return next(err) }
   if (!type || !signatureMatches(head, type.sig)) {
     fs.unlink(req.file.path, () => {})

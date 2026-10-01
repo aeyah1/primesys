@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, Plus, Pencil, Trash2, Printer, Send, BadgeCheck, Undo2, CopyPlus, ShieldCheck, ShieldAlert, AlertTriangle,
+  FileSpreadsheet, Paperclip, FileText,
 } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Card, CardContent } from '@/components/ui/card'
@@ -15,9 +16,10 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useConfirm } from '@/components/shared/ConfirmDialog'
 import { PpmpStatusBadge } from '@/components/ppmp/PpmpStatusBadge'
 import PpmpItemDialog, { MONTHS, PARTS } from '@/components/ppmp/PpmpItemDialog'
+import PpmpImportDialog from '@/components/ppmp/PpmpImportDialog'
 import { useAuth } from '@/context/AuthContext'
 import { fmtCurrency, fmtDatetime, FUND_SOURCES } from '@/lib/utils'
-import { openPdf, blobErrorMessage } from '@/lib/download'
+import { openPdf, downloadFile, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
 
 const TEXTAREA = 'w-full rounded-md border border-[--color-border] bg-[--color-surface] px-3 py-2 text-sm text-[--color-text-primary] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent resize-y'
@@ -26,6 +28,15 @@ const monthList = (months) => months.map(m => MONTHS[m - 1]).join(', ')
 // The fields the server takes for an item line.
 const toSave = ({ part, category, code, description, unit, quantity, unit_cost, mode_of_procurement, months, remarks }) =>
   ({ part, category, code, description, unit, quantity: String(quantity), unit_cost: String(unit_cost), mode_of_procurement: mode_of_procurement || undefined, months, remarks })
+// Lines print grouped, so each part's items stay together and each category's together within it, in first-seen order.
+function grouped(items) {
+  const order = (i) => `${i.part === 'ps' ? 0 : 1}|${(i.category || '').toLowerCase()}`
+  const firstSeen = new Map()
+  items.forEach((i, k) => { if (!firstSeen.has(order(i))) firstSeen.set(order(i), k) })
+  return items.map((i, k) => ({ i, k })).sort((a, b) =>
+    (a.i.part === b.i.part ? 0 : a.i.part === 'ps' ? -1 : 1) || firstSeen.get(order(a.i)) - firstSeen.get(order(b.i)) || a.k - b.k).map(x => x.i)
+}
+const fmtSize = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`)
 
 // One PPMP: its items by part and category, its signing status, and what this user may do with it.
 export default function PpmpDetail() {
@@ -36,16 +47,32 @@ export default function PpmpDetail() {
   const { user } = useAuth()
   const [editing, setEditing] = useState(null)   // { index } for an item, index -1 for a new one
   const [returning, setReturning] = useState(false)
+  const [importing, setImporting] = useState(false)
   const [reason, setReason] = useState('')
 
+  const fail = (fallback) => (err) => toast.error(err.response?.data?.message || fallback)
   const { data: p, isLoading, isError } = useQuery({
     queryKey: ['ppmp', id],
     queryFn: () => api.get(`/ppmp/${id}`).then(r => r.data),
   })
   const refresh = () => { qc.invalidateQueries({ queryKey: ['ppmp', id] }); qc.invalidateQueries({ queryKey: ['ppmp-list'] }) }
-  const fail = (fallback) => (err) => toast.error(err.response?.data?.message || fallback)
 
-  const { mutate: saveItems, isPending: saving } = useMutation({
+  const { data: files = [] } = useQuery({
+    queryKey: ['ppmp', id, 'attachments'],
+    queryFn: () => api.get(`/ppmp/${id}/attachments`).then(r => r.data),
+  })
+  const attach = (file) => {
+    const body = new FormData()
+    body.append('file', file)
+    return api.post(`/ppmp/${id}/attachments`, body).then(() => qc.invalidateQueries({ queryKey: ['ppmp', id, 'attachments'] }))
+  }
+  const { mutate: removeFile } = useMutation({
+    mutationFn: (fileId) => api.delete(`/ppmp/${id}/attachments/${fileId}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['ppmp', id, 'attachments'] }),
+    onError: fail('Could not remove the file'),
+  })
+
+  const { mutate: saveItems, mutateAsync: saveItemsAsync, isPending: saving } = useMutation({
     mutationFn: (items) => api.put(`/ppmp/${id}/items`, { items: items.map(toSave) }),
     onSuccess: () => { refresh(); setEditing(null) },
     onError: fail('Could not save the items'),
@@ -75,12 +102,21 @@ export default function PpmpDetail() {
   const saveWith = (item) => {
     const items = [...p.items]
     if (editing.index < 0) items.push(item); else items[editing.index] = item
-    // Lines print grouped, so keep each part's items together and each category's together within it.
-    const order = (i) => `${i.part === 'ps' ? 0 : 1}|${(i.category || '').toLowerCase()}`
-    const firstSeen = new Map()
-    items.forEach((i, k) => { if (!firstSeen.has(order(i))) firstSeen.set(order(i), k) })
-    saveItems(items.map((i, k) => ({ i, k })).sort((a, b) =>
-      (a.i.part === b.i.part ? 0 : a.i.part === 'ps' ? -1 : 1) || firstSeen.get(order(a.i)) - firstSeen.get(order(b.i)) || a.k - b.k).map(x => x.i))
+    saveItems(grouped(items))
+  }
+  // Saves the reviewed rows (added to or replacing the current items), then keeps the file if asked.
+  const importItems = async (rows, { replace, file }) => {
+    try {
+      await saveItemsAsync(grouped(replace ? rows : [...p.items, ...rows]))
+    } catch { return }
+    setImporting(false)
+    toast.success(`${rows.length} item${rows.length === 1 ? '' : 's'} imported. Check them before you sign.`)
+    if (file) attach(file).catch(fail('The items were imported, but the file could not be attached'))
+  }
+  const pickAttachment = (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (file) attach(file).then(() => toast.success(`${file.name} attached`)).catch(fail('Could not attach the file'))
   }
   const removeItem = async (k) => {
     if (await confirm({ title: 'Remove this item?', message: p.items[k].description, confirmLabel: 'Remove', danger: true })) {
@@ -194,7 +230,12 @@ export default function PpmpDetail() {
       <Card>
         <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-[--color-border]">
           <p className="text-ui-sm font-semibold text-[--color-text-primary]">{p.items.length} item{p.items.length === 1 ? '' : 's'}</p>
-          {can.edit && <Button size="sm" onClick={() => setEditing({ index: -1 })} className="gap-1.5"><Plus className="size-4" /> Add Item</Button>}
+          {can.edit && (
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="secondary" onClick={() => setImporting(true)} className="gap-1.5"><FileSpreadsheet className="size-4" /> Import from File</Button>
+              <Button size="sm" onClick={() => setEditing({ index: -1 })} className="gap-1.5"><Plus className="size-4" /> Add Item</Button>
+            </div>
+          )}
         </div>
         <CardContent className="p-0">
           <Table>
@@ -268,6 +309,54 @@ export default function PpmpDetail() {
           </Table>
         </CardContent>
       </Card>
+
+      <Card>
+        <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-[--color-border]">
+          <div>
+            <p className="text-ui-sm font-semibold text-[--color-text-primary]">Supporting Documents</p>
+            <p className="text-ui-xs text-[--color-text-muted]">The original PPMP file, the market scoping checklist, specifications, and similar papers.</p>
+          </div>
+          {can.edit && (
+            <label className="inline-flex">
+              <input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx,.csv" className="sr-only" onChange={pickAttachment} />
+              <span className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-[--color-border] bg-[--color-surface] text-ui-sm font-medium cursor-pointer hover:bg-[--color-overlay]">
+                <Paperclip className="size-3.5" /> Attach File
+              </span>
+            </label>
+          )}
+        </div>
+        <CardContent className="py-2">
+          {!files.length
+            ? <p className="py-3 text-ui-sm text-[--color-text-muted]">No supporting documents attached.</p>
+            : files.map(f => (
+              <div key={f.id} className="flex items-center justify-between gap-3 py-2 border-b last:border-0 border-[--color-border]">
+                <button type="button" className="flex items-center gap-2 min-w-0 text-left hover:text-[--color-brand]"
+                  onClick={() => downloadFile(`/ppmp/${id}/attachments/${f.id}`, f.original_name).catch(async (err) => toast.error(await blobErrorMessage(err, 'Could not download the file')))}>
+                  <FileText className="size-4 shrink-0 text-[--color-text-muted]" />
+                  <span className="text-ui-sm font-medium truncate">{f.original_name}</span>
+                </button>
+                <div className="flex items-center gap-3 shrink-0 text-ui-xs text-[--color-text-muted]">
+                  <span>{fmtSize(f.size || 0)}</span>
+                  <span className="hidden sm:inline">{f.uploaded_by_name}, {fmtDatetime(f.created_at)}</span>
+                  {can.edit && (
+                    <Button variant="ghost" size="icon" title="Remove file" onClick={async () => {
+                      if (await confirm({ title: 'Remove this file?', message: f.original_name, confirmLabel: 'Remove', danger: true })) removeFile(f.id)
+                    }}><Trash2 className="size-4 text-red-400" /></Button>
+                  )}
+                </div>
+              </div>
+            ))}
+        </CardContent>
+      </Card>
+
+      <PpmpImportDialog
+        open={importing}
+        ppmpId={id}
+        existing={p.items.map(i => i.description)}
+        saving={saving}
+        onImport={importItems}
+        onClose={() => setImporting(false)}
+      />
 
       <PpmpItemDialog
         open={!!editing}
