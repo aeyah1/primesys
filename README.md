@@ -94,6 +94,7 @@ mysql -u root -p primesys < add_award_notices.sql
 mysql -u root -p primesys < add_short_delivery.sql
 mysql -u root -p primesys < add_supplier_links.sql
 mysql -u root -p primesys < add_rfq_declined.sql
+mysql -u root -p primesys < add_fund_administrator.sql
 mysql -u root -p primesys < add_item_category.sql
 ```
 

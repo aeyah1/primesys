@@ -6,8 +6,7 @@ const authorize = require('../middleware/authorize.middleware')
 const { handle, passwordRule, textRule, oneOfRule, idRule } = require('../middleware/validate')
 const { CATEGORIES } = require('../utils/categories')
 
-// User Management: the only place roles are assigned (public sign-up always
-// creates Requestors). Admin only.
+// User Management, admin only: the only place roles are assigned, and where sign-ups are approved.
 router.use(auth, authorize('admin'))
 
 const ROLES = ['admin', 'procurement', 'requestor', 'supply', 'twg', 'bac']
@@ -29,7 +28,7 @@ router.post('/',
     .isEmail().withMessage('A valid email address is required').bail()
     .isLength({ max: 150 }).withMessage('Email is too long'),
   oneOfRule('role', 'Invalid role', ROLES, { required: true }),
-  // The office this person encodes for; its head signs "Requested by" on their PRs.
+  // The office this person encodes for (required for a Fund Administrator); its head signs Requested by.
   idRule('department_id', 'Pick a valid office'),
   textRule('designation', 'Designation', 150),
   areas,
@@ -48,7 +47,8 @@ router.patch('/:id',
   handle,
   c.update)
 router.patch('/:id/toggle',         c.toggleActive)
-router.patch('/:id/verify',         c.verifyUser)
+router.patch('/:id/approve',        c.approve)
+router.post('/:id/reject',          textRule('reason', 'Reason', 500, { required: true }), handle, c.reject)
 router.patch('/:id/reset-password', passwordRule('password'), handle, c.resetPassword)
 router.delete('/:id',               c.remove)
 

@@ -62,8 +62,8 @@ export default function Login() {
         // isn't instant, then let the person try again.
         setCountdown(LOCKOUT_PAUSE_S)
         setError({ type: 'lockout', message: data.message })
-      } else if (res?.status === 403 && data.type === 'unverified') {
-        setError({ type: 'unverified', message: data.message, identifier: form.identifier })
+      } else if (res?.status === 403 && data.type === 'pending') {
+        setError({ type: 'pending', message: data.message })
       } else if (res?.status === 403) {
         setError({ type: 'inactive', message: data.message })
       } else if (res?.status === 401) {
@@ -232,32 +232,12 @@ export default function Login() {
               </div>
             )}
 
-            {error?.type === 'unverified' && (
+            {error?.type === 'pending' && (
               <div className="flex gap-3 items-start rounded-xl border border-blue-200 bg-blue-50 p-3.5">
-                <ShieldAlert className="size-4 text-blue-600 shrink-0 mt-0.5" />
+                <Clock className="size-4 text-blue-600 shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-sm font-semibold text-blue-800">Email not verified</p>
-                  {error.resent ? (
-                    <p className="text-xs text-blue-700 mt-0.5">{error.resent}</p>
-                  ) : (
-                    <p className="text-xs text-blue-700 mt-0.5">
-                      Your account requires email verification. Check your inbox for the link.{' '}
-                      <button
-                        type="button"
-                        className="font-semibold underline hover:no-underline"
-                        onClick={async () => {
-                          try {
-                            const { data } = await api.post('/auth/resend-verification', { identifier: error.identifier })
-                            setError(e => ({ ...e, resent: data.message }))
-                          } catch (err) {
-                            setError(e => ({ ...e, resent: err.response?.data?.message || 'Could not resend. Please try again.' }))
-                          }
-                        }}
-                      >
-                        Resend link
-                      </button>
-                    </p>
-                  )}
+                  <p className="text-sm font-semibold text-blue-800">Waiting for approval</p>
+                  <p className="text-xs text-blue-700 mt-0.5">{error.message}</p>
                 </div>
               </div>
             )}

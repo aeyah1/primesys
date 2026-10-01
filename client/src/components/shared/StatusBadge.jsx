@@ -31,8 +31,8 @@ export function RoleBadge({ role }) {
     twg:         'bg-cyan-50 text-cyan-700 border-cyan-300',
     bac:         'bg-indigo-50 text-indigo-700 border-indigo-300',
   }
-  const labels = { admin: 'Admin', procurement: 'Procurement', requestor: 'Requestor', supply: 'Supply Officer', twg: 'TWG', bac: 'BAC' }
-  return <Badge className={map[role] || 'bg-slate-50 text-slate-600 border-slate-300'}>{labels[role] || role}</Badge>
+  const labels = { admin: 'Admin', procurement: 'Procurement', requestor: 'Fund Administrator', supply: 'Supply Officer', twg: 'TWG', bac: 'BAC' }
+  return <Badge className={`whitespace-nowrap ${map[role] || 'bg-slate-50 text-slate-600 border-slate-300'}`}>{labels[role] || role}</Badge>
 }
 
 export function LotStatusBadge({ status }) {

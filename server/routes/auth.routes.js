@@ -3,7 +3,8 @@ const rateLimit = require('express-rate-limit')
 const { body }  = require('express-validator')
 const c         = require('../controllers/auth.controller')
 const auth      = require('../middleware/auth.middleware')
-const { handle, passwordRule, textRule } = require('../middleware/validate')
+const { handle, passwordRule, textRule, idRule } = require('../middleware/validate')
+const pool      = require('../db/pool')
 const securityLog = require('../utils/securityLog')
 const config    = require('../config')
 
@@ -31,14 +32,14 @@ const registerLimiter = limiter('register', A.registrationWindowMin, A.registrat
 // per-account lock in utils/loginThrottle.js, which stops slow guessing
 // against one account from many addresses.
 const loginLimiter = limiter('login', A.loginIpWindowMin, A.loginIpLimit, { skipSuccessfulRequests: true })
-// Requests that can send an email (verification resend, password reset), shared.
+// Requests that can send an email (password reset), shared.
 // Each address also has its own cooldown in the controller.
 const emailLimiter = limiter('email', 60, A.emailLimit)
 
 // Public sign-up accepts only the form's own fields. Anything else (role,
 // is_verified, is_active, permissions, ...) is refused: the server alone
 // decides an account's role and state.
-const REGISTER_FIELDS = ['first_name', 'last_name', 'username', 'email', 'password', 'confirm_password', 'website', 'captcha_token']
+const REGISTER_FIELDS = ['first_name', 'last_name', 'username', 'email', 'password', 'confirm_password', 'department_id', 'website', 'captcha_token']
 function onlyRegisterFields(req, res, next) {
   const extra = Object.keys(req.body || {}).filter(k => !REGISTER_FIELDS.includes(k))
   if (extra.length) {
@@ -60,8 +61,16 @@ const nameRule = (field, label) => body(field)
   .isString().withMessage(`${label} is required`).bail()
   .trim().isLength({ min: 1, max: 50 }).withMessage(`${label} is required (50 characters at most)`)
 
-// What the sign-up form needs to know (public): which email domains are accepted.
-router.get('/registration-info', (req, res) => res.json({ email_domains: DOMAINS }))
+// What the sign-up form needs (public): accepted email domains, and the offices with whether each already has a Fund Administrator.
+router.get('/registration-info', async (req, res, next) => {
+  try {
+    const [offices] = await pool.execute(
+      `SELECT d.id, d.code, d.name,
+              EXISTS (SELECT 1 FROM users u WHERE u.department_id = d.id AND u.role = 'requestor' AND u.is_active = 1 AND u.is_verified = 1) AS taken
+         FROM departments d WHERE d.is_active = 1 ORDER BY d.code`)
+    res.json({ email_domains: DOMAINS, offices: offices.map(o => ({ ...o, taken: !!o.taken })) })
+  } catch (err) { next(err) }
+})
 
 router.post('/register',
   registerLimiter,
@@ -77,6 +86,7 @@ router.post('/register',
     .trim().isEmail().withMessage('A valid email address is required').bail()
     .isLength({ max: 150 }).withMessage('Email is too long').bail()
     .custom(emailDomainAllowed).withMessage(DOMAIN_MSG),
+  idRule('department_id', 'Pick your office', { required: true }),
   passwordRule('password'),
   body('confirm_password').custom((v, { req }) => v === req.body.password).withMessage('Passwords do not match'),
   handle,
@@ -88,17 +98,6 @@ router.post('/login',
   body('password').isString().notEmpty().withMessage('Username or email and password are required'),
   handle,
   c.login
-)
-router.post('/verify-email',
-  body('token').isString().notEmpty().withMessage('Token is required'),
-  handle,
-  c.verifyEmail
-)
-router.post('/resend-verification',
-  emailLimiter,
-  body('identifier').isString().trim().notEmpty().withMessage('Username or email is required'),
-  handle,
-  c.resendVerification
 )
 router.post('/forgot-password',
   emailLimiter,

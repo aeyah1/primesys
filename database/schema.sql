@@ -42,7 +42,7 @@ CREATE TABLE `departments` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Users
--- Public sign-up always creates a requestor; admins assign every other role
+-- Public sign-up always creates a requestor (shown as Fund Administrator, one per office), waiting for an admin to approve it; admins assign every other role
 -- (bac: a member of the Bids and Awards Committee, who approves awards).
 CREATE TABLE `users` (
   `id`                         INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -56,12 +56,11 @@ CREATE TABLE `users` (
   `password_hash`              VARCHAR(255) NOT NULL,
   `role`                       ENUM('admin','procurement','requestor','supply','twg','bac') NOT NULL DEFAULT 'requestor',
   `is_active`                  TINYINT(1)   NOT NULL DEFAULT 1,
+  -- 1 once an admin approved the account; a waiting account can't sign in.
   `is_verified`                TINYINT(1)   NOT NULL DEFAULT 0,
   -- Sign-in tokens carry this number; changing or resetting the password
   -- raises it, so every token issued before stops working.
   `token_version`              INT UNSIGNED NOT NULL DEFAULT 0,
-  `verify_token`               VARCHAR(64)  NULL,
-  `verify_expires`             DATETIME     NULL,
   `fund_cluster`               VARCHAR(100) NULL,
   `responsibility_center_code` VARCHAR(100) NULL,
   `created_at`                 TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
