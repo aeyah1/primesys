@@ -14,6 +14,7 @@ const TITLES = {
   '/bidding':         'Work Queue',
   '/bac':             'For Evaluation',
   '/suppliers':       'Suppliers',
+  '/ppmp':            'PPMP',
   '/po':              'Purchase Orders',
   '/delivery':        'Deliveries',
   '/archive':         'Archive',

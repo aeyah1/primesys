@@ -61,7 +61,7 @@ export function useLiveUpdates() {
       // type. The type is a severity the server picks freely ('info',
       // 'warning', ...), so switching on it silently stopped matching when
       // those were consolidated, and the lists went stale until refetched.
-      // reference_type is only ever 'pr', 'lot' or 'delivery'.
+      // reference_type is 'pr', 'lot', 'delivery' or 'ppmp'.
       const id = notification.reference_id ? String(notification.reference_id) : null
       const refresh = (...keys) => keys.forEach(k => qc.invalidateQueries({ queryKey: k }))
 
@@ -77,6 +77,11 @@ export function useLiveUpdates() {
 
         case 'delivery':
           refresh(['pr-list'], ['pr-stats'], ['po-list'], ['delivery-list'], ['archive'])
+          break
+
+        case 'ppmp':
+          refresh(['ppmp-list'])
+          if (id) refresh(['ppmp', id])
           break
       }
     }
