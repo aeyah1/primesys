@@ -80,7 +80,7 @@ export function useLiveUpdates() {
           break
 
         case 'ppmp':
-          refresh(['ppmp-list'])
+          refresh(['ppmp-list'], ['ppmp-coverage'])
           if (id) refresh(['ppmp', id])
           break
       }
