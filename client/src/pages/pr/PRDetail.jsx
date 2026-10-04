@@ -143,7 +143,8 @@ function PRItemsSection({ prId, pr, canEdit, category }) {
   const checkAgainst = (line, item, exceptIndex) => line && lineChecks(line, { quantity: item.quantity, price: item.estimated_cost, dateNeeded: pr.date_needed, taken: takenByKey(items, lineById, exceptIndex).get(line.key) || 0 })
   const draftCheck = draft.line ? { line: draft.line, ...checkAgainst(draft.line, draft, -1) } : null
   const editCheck = editDraft?.line ? { line: editDraft.line, ...checkAgainst(editDraft.line, editDraft, items.findIndex(i => i.id === editingItem?.id)) } : null
-  const pickLine = (line) => setDraft(p => ({ ...p, ppmp_item_id: line.id, line, estimated_cost: String(line.unit_cost) }))
+  // A picked line brings its price; typing over it clears the pick.
+  const pickLine = (line) => setDraft(p => (line ? { ...p, ppmp_item_id: line.id, line, estimated_cost: String(line.unit_cost) } : { ...p, ppmp_item_id: null, line: null }))
 
   const handleAdd = () => {
     if (!draft.line) return toast.error('Pick the item from the PPMP')
@@ -455,7 +456,7 @@ function PRItemsSection({ prId, pr, canEdit, category }) {
 
               <PpmpItemField id="pr-edit-ppmp-item" plans={plans} isLoading={plansLoading}
                 value={editDraft.line || (editDraft.ppmp_item_id ? { description: editDraft.item_name } : null)}
-                onPick={line => setEditDraft(p => ({ ...p, ppmp_item_id: line.id, line, item_name: line.description, unit: line.unit }))}
+                onPick={line => setEditDraft(p => (line ? { ...p, ppmp_item_id: line.id, line, item_name: line.description, unit: line.unit } : { ...p, ppmp_item_id: null, line: null }))}
                 taken={takenByKey(items, lineById, items.findIndex(i => i.id === editingItem?.id))} year={planYear} />
 
               <div className="grid grid-cols-12 gap-2 items-end">

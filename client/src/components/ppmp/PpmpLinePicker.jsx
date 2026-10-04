@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ClipboardList, Search, AlertTriangle, Ban } from 'lucide-react'
+import { ClipboardList, Search, AlertTriangle, Ban, List } from 'lucide-react'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -72,76 +72,153 @@ export function PpmpLineNote({ line, block, warnings = [], left, planned, classN
   )
 }
 
-// The item field of a PR form: the picked PPMP line, or a button to pick one.
-// `year` keeps the pick to one fiscal year once the request has an item from it.
+// A typed name against a PPMP line, 0 to 1: each typed word scored by the line's closest word (exact, the start of one
+// another, or near in spelling), then averaged; so "bond paper a4" finds "Paper, multicopy ... (A4)" and "alchohol" finds "ALCOHOL".
+const wordsOf = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean)
+const trigrams = (w) => { const t = new Set(); const pad = `  ${w} `; for (let i = 0; i < pad.length - 2; i++) t.add(pad.slice(i, i + 3)); return t }
+const near = (a, b) => { const x = trigrams(a), y = trigrams(b); let n = 0; for (const g of x) if (y.has(g)) n++; return (2 * n) / (x.size + y.size) }
+export function matchScore(query, line) {
+  const typed = wordsOf(query)
+  if (!typed.length) return 0
+  const words = wordsOf(`${line.description} ${line.code || ''} ${line.category || ''}`)
+  const score = (w) => Math.max(0, ...words.map(t => (t === w ? 1
+    : Math.min(t.length, w.length) >= 2 && (t.startsWith(w) || w.startsWith(t)) ? 0.85
+    : near(w, t) >= 0.45 ? near(w, t) : 0)))
+  return typed.reduce((sum, w) => sum + score(w), 0) / typed.length
+}
+
+// The item field of a PR form: type what is needed and the closest PPMP lines come up, the best one first; a close one
+// is ready to take with Enter, a weak one only by a click. Browse lists every line. `year` keeps the pick to one fiscal year once the request has an item from it.
 export function PpmpItemField({ plans, isLoading, value, onPick, taken, year, label = 'Item from the PPMP', id }) {
-  const [open, setOpen] = useState(false)
-  const [search, setSearch] = useState('')
+  const [text, setText] = useState(null)   // what is being typed; null shows the picked line
+  const [active, setActive] = useState(-2)   // -2: not moved with the arrow keys yet, so the list's own start applies
+  const [focused, setFocused] = useState(false)
+  const [browsing, setBrowsing] = useState(false)
   const usable = year ? plans.filter(p => p.fiscal_year === year) : plans
-  const [planId, setPlanId] = useState(null)
-  const plan = usable.find(p => p.id === planId) || usable[0]
-  const words = search.toLowerCase().split(/\s+/).filter(Boolean)
-  const lines = (plan?.lines || []).filter(l => words.every(w => `${l.code || ''} ${l.description} ${l.category || ''}`.toLowerCase().includes(w)))
-  const pick = (l) => { onPick({ ...l, fiscal_year: plan.fiscal_year }); setOpen(false); setSearch('') }
+  const all = usable.flatMap(p => p.lines.map(l => ({ ...l, fiscal_year: p.fiscal_year })))
+  const leftOf = (l) => Math.round((l.remaining - (taken?.get(l.key) || 0)) * 100) / 100
+  const typed = text ?? ''
+  const ranked = typed.trim() ? all.map(l => ({ l, s: matchScore(typed, l) })).filter(x => x.s >= 0.3).sort((a, b) => b.s - a.s).slice(0, 6) : []
+  const suggestions = ranked.map(x => x.l)
+  // A close match is ready to take; a weak one is only offered.
+  const close = ranked[0]?.s >= 0.6
+  const startAt = close ? 0 : -1
+  const choose = (l) => {
+    if (leftOf(l) <= 0) return
+    onPick(l)
+    setText(null)
+    setFocused(false)
+    setBrowsing(false)
+  }
+  const at = active === -2 ? startAt : active
+  const onKey = (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActive(Math.min(at + 1, suggestions.length - 1)) }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(Math.max(at - 1, 0)) }
+    else if (e.key === 'Enter') { e.preventDefault(); const l = at >= 0 ? suggestions.find((x, k) => k >= at && leftOf(x) > 0) : null; if (l) choose(l) }
+    else if (e.key === 'Escape') { setText(null); setFocused(false) }
+  }
+  const line = (l, k) => {
+    const left = leftOf(l)
+    return (
+      <li key={l.id}>
+        <button type="button" disabled={left <= 0} onMouseDown={e => e.preventDefault()} onClick={() => choose(l)}
+          className={`flex w-full items-start justify-between gap-3 px-3 py-2 text-left transition-colors hover:bg-[--color-overlay] disabled:cursor-not-allowed disabled:opacity-50 ${k === at ? 'bg-[--color-brand-light]' : ''}`}>
+          <span className="min-w-0">
+            <span className="block text-sm font-medium text-[--color-text-primary]">{l.description}</span>
+            <span className="block text-[11px] text-[--color-text-muted]">{[l.code, l.category, fmtCurrency(l.unit_cost) + ' each'].filter(Boolean).join(' · ')}</span>
+          </span>
+          <span className={`shrink-0 text-[11px] font-semibold tabular-nums ${left > 0 ? 'text-[--color-text-secondary]' : 'text-red-700'}`}>
+            {left > 0 ? `${left} ${l.unit} left` : 'None left'}
+          </span>
+        </button>
+      </li>
+    )
+  }
 
   return (
     <div className="space-y-1">
       <Label className="text-xs" htmlFor={id}>{label} <span className="text-[--color-brand]">*</span></Label>
-      <button
-        id={id} type="button" onClick={() => setOpen(true)} disabled={isLoading || !plans.length}
-        className="flex h-10 w-full items-center gap-2 rounded-lg border border-[--color-border] bg-[--color-surface] px-3 text-left text-sm shadow-sm transition-colors hover:border-[--color-brand] disabled:cursor-not-allowed disabled:opacity-60"
-      >
-        <ClipboardList className="size-4 shrink-0 text-[--color-text-muted]" />
-        <span className={`truncate ${value ? 'font-medium text-[--color-text-primary]' : 'text-[--color-text-muted]'}`}>
-          {value?.description || (isLoading ? 'Loading the PPMP…' : plans.length ? 'Pick from the PPMP' : 'No PPMP in effect')}
-        </span>
-      </button>
-
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent title="Pick from the PPMP" className="max-w-2xl"
-          description={plan ? `${plan.office_code}, FY ${plan.fiscal_year}, PPMP No. ${plan.version_no}. Only what is left of each line can be requested.` : undefined}>
-          <div className="space-y-3">
-            {usable.length > 1 && (
-              <div className="flex gap-2">
-                {usable.map(p => (
-                  <Button key={p.id} type="button" size="sm" variant={p.id === plan?.id ? 'primary' : 'outline'} onClick={() => setPlanId(p.id)}>
-                    FY {p.fiscal_year}
-                  </Button>
-                ))}
-              </div>
-            )}
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[--color-text-muted]" />
-              <Input autoFocus placeholder="Search the PPMP" value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
-            </div>
-            <ul className="divide-y divide-[--color-border] rounded-lg border border-[--color-border]">
-              {lines.length === 0 && <li className="px-4 py-6 text-center text-sm text-[--color-text-muted]">No line matches.</li>}
-              {lines.map(l => {
-                const left = Math.round((l.remaining - (taken?.get(l.key) || 0)) * 100) / 100
-                return (
-                  <li key={l.id}>
-                    <button
-                      type="button" disabled={left <= 0} onClick={() => pick(l)}
-                      className="flex w-full items-start justify-between gap-4 px-4 py-3 text-left transition-colors hover:bg-[--color-overlay] disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <span className="min-w-0">
-                        <span className="block text-sm font-medium text-[--color-text-primary]">{l.description}</span>
-                        <span className="block text-[11px] text-[--color-text-muted]">
-                          {[l.code, l.category, fmtCurrency(l.unit_cost) + ' each', l.months.map(m => MONTHS[m - 1]).join(', ')].filter(Boolean).join(' · ')}
-                        </span>
-                      </span>
-                      <span className={`shrink-0 text-xs font-semibold tabular-nums ${left > 0 ? 'text-[--color-text-secondary]' : 'text-red-700'}`}>
-                        {left > 0 ? `${left} ${l.unit} left` : 'None left'}
-                      </span>
-                    </button>
-                  </li>
-                )
-              })}
+      <div className="flex gap-1.5">
+        <div className="relative flex-1">
+          <ClipboardList className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[--color-text-muted]" />
+          <Input id={id} autoComplete="off" role="combobox" aria-expanded={focused && !!typed.trim()}
+            value={text ?? value?.description ?? ''} disabled={isLoading || !plans.length}
+            placeholder={isLoading ? 'Loading the PPMP…' : plans.length ? 'Type the item, e.g. bond paper' : 'No PPMP in effect'}
+            onChange={e => { setText(e.target.value); setActive(-2); if (value) onPick(null) }}
+            onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} onKeyDown={onKey}
+            className={`pl-9 ${value && text === null ? 'font-medium' : ''}`} />
+          {focused && typed.trim() && (
+            <ul role="listbox" className="absolute left-0 right-0 top-full z-30 mt-1 max-h-72 overflow-auto rounded-lg border border-[--color-border] bg-white py-1 shadow-lg">
+              {suggestions.length > 0 && !close && (
+                <li className="px-3 pb-1 pt-1.5 text-[11px] font-semibold text-amber-700">Not a close match. The nearest lines in the PPMP:</li>
+              )}
+              {suggestions.length ? suggestions.map(line) : (
+                <li className="px-3 py-3 text-ui-xs text-[--color-text-muted]">
+                  No PPMP line is close to "{typed.trim()}".{' '}
+                  <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => setBrowsing(true)} className="font-semibold text-[--color-brand] hover:underline">Browse the PPMP</button>
+                </li>
+              )}
             </ul>
-          </div>
-        </DialogContent>
-      </Dialog>
+          )}
+        </div>
+        <Button type="button" variant="outline" size="icon" title="Browse the PPMP" aria-label="Browse the PPMP"
+          disabled={isLoading || !plans.length} onClick={() => setBrowsing(true)}>
+          <List className="size-4" />
+        </Button>
+      </div>
+      <BrowsePpmp open={browsing} onOpenChange={setBrowsing} plans={usable} leftOf={leftOf} onPick={choose} />
     </div>
+  )
+}
+
+// Every line of the PPMP to pick from, with a search, one fiscal year at a time.
+function BrowsePpmp({ open, onOpenChange, plans, leftOf, onPick }) {
+  const [search, setSearch] = useState('')
+  const [planId, setPlanId] = useState(null)
+  const plan = plans.find(p => p.id === planId) || plans[0]
+  const words = search.toLowerCase().split(/\s+/).filter(Boolean)
+  const lines = (plan?.lines || []).filter(l => words.every(w => `${l.code || ''} ${l.description} ${l.category || ''}`.toLowerCase().includes(w)))
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent title="Pick from the PPMP" className="max-w-2xl"
+        description={plan ? `${plan.office_code}, FY ${plan.fiscal_year}, PPMP No. ${plan.version_no}. Only what is left of each line can be requested.` : undefined}>
+        <div className="space-y-3">
+          {plans.length > 1 && (
+            <div className="flex gap-2">
+              {plans.map(p => (
+                <Button key={p.id} type="button" size="sm" variant={p.id === plan?.id ? 'primary' : 'outline'} onClick={() => setPlanId(p.id)}>FY {p.fiscal_year}</Button>
+              ))}
+            </div>
+          )}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[--color-text-muted]" />
+            <Input autoFocus placeholder="Search the PPMP" value={search} onChange={e => setSearch(e.target.value)} className="pl-9" />
+          </div>
+          <ul className="divide-y divide-[--color-border] rounded-lg border border-[--color-border]">
+            {lines.length === 0 && <li className="px-4 py-6 text-center text-sm text-[--color-text-muted]">No line matches.</li>}
+            {lines.map(l => {
+              const left = leftOf(l)
+              return (
+                <li key={l.id}>
+                  <button type="button" disabled={left <= 0} onClick={() => { onPick({ ...l, fiscal_year: plan.fiscal_year }); setSearch('') }}
+                    className="flex w-full items-start justify-between gap-4 px-4 py-3 text-left transition-colors hover:bg-[--color-overlay] disabled:cursor-not-allowed disabled:opacity-50">
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium text-[--color-text-primary]">{l.description}</span>
+                      <span className="block text-[11px] text-[--color-text-muted]">
+                        {[l.code, l.category, fmtCurrency(l.unit_cost) + ' each', l.months.map(m => MONTHS[m - 1]).join(', ')].filter(Boolean).join(' · ')}
+                      </span>
+                    </span>
+                    <span className={`shrink-0 text-xs font-semibold tabular-nums ${left > 0 ? 'text-[--color-text-secondary]' : 'text-red-700'}`}>
+                      {left > 0 ? `${left} ${l.unit} left` : 'None left'}
+                    </span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 

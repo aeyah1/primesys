@@ -132,7 +132,8 @@ export default function PRCreate() {
     return line ? { line, ...lineChecks(line, { quantity: item.quantity, price: item.estimated_cost, dateNeeded: form.date_needed, taken: takenByKey(items, lineById, exceptIndex).get(line.key) || 0 }) } : null
   }
   const draftCheck = draft.line ? checkItem(draft, -1) : null
-  const pickLine = (line) => setDraft(p => ({ ...p, ppmp_item_id: line.id, line, estimated_cost: String(line.unit_cost) }))
+  // A picked line brings its price; typing over it clears the pick.
+  const pickLine = (line) => setDraft(p => (line ? { ...p, ppmp_item_id: line.id, line, estimated_cost: String(line.unit_cost) } : { ...p, ppmp_item_id: null, line: null }))
 
   // The ticked PPMP lines start the item list, one each at the PPMP's price, once the lines are loaded.
   const seeded = useRef(false)
