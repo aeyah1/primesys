@@ -12,7 +12,7 @@ const { readTable }   = require('../utils/sheetImport')
 const { mapPpmp }     = require('../utils/ppmpImport')
 const { loadOrgSettings } = require('../utils/orgSettings')
 const { assertNoBrands }  = require('../utils/brandNames')
-const { officeOf, loadPpmp, loadItems, loadFiles, contentHash, totals, ppmpPermissions } = require('../utils/ppmp')
+const { officeOf, assertOwnOffice, loadPpmp, loadItems, loadFiles, contentHash, totals, ppmpPermissions } = require('../utils/ppmp')
 const { M } = require('../pdf/campusForm')
 const drawPpmp = require('../pdf/ppmpForm')
 
@@ -84,6 +84,7 @@ async function saveUpload(req, { ppmpId = null } = {}) {
   const dataBuf = await fs.promises.readFile(data.path)
   const signedBuf = await fs.promises.readFile(signed.path)
   const read = mapPpmp(readTable(dataBuf, ext(data)))
+  await assertOwnOffice(pool, req.user.id, read.header.office)
   const items = req.body.items
   if (!items.length) throw httpError(400, 'Keep at least one item')
   assertNoBrands({}, items.map(i => ({ item_name: i.description, notes: [i.category, i.remarks].filter(Boolean).join('\n') })))
@@ -190,10 +191,8 @@ exports.read = asyncHandler(async (req, res) => {
   try {
     if (!DATA_TYPES.includes(ext(file))) throw httpError(400, 'Items are read from Excel (.xlsx), CSV, or Word (.docx) files. A PDF or scan goes in as the signed copy.')
     const read = mapPpmp(readTable(await fs.promises.readFile(file.path), ext(file)))
-    const [[me]] = await pool.execute('SELECT d.code, d.name FROM users u LEFT JOIN departments d ON d.id = u.department_id WHERE u.id = ?', [req.user.id])
-    const office = (read.header.office || '').toLowerCase()
-    const officeMismatch = !!office && !!me?.code && !office.includes(me.code.toLowerCase()) && !office.includes((me.name || '').toLowerCase())
-    res.json({ ...read, office_mismatch: officeMismatch ? `The file names "${read.header.office}", not ${me.code}` : null })
+    await assertOwnOffice(pool, req.user.id, read.header.office)
+    res.json(read)
   } finally {
     fs.unlink(file.path, () => {})
   }

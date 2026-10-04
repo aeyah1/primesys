@@ -68,7 +68,7 @@ function readHeader(rows, upTo) {
   const text = rows.slice(0, upTo).map(r => r.filter(Boolean).join('  ')).filter(Boolean).join('\n')
   const year = /fiscal\s*year\s*:?\s*(20\d\d)|\bFY\s*(20\d\d)/i.exec(text)
   const fund = /source\s*of\s*funds?\s*:?\s*([^\n]*)/i.exec(text)?.[1] || ''
-  const office = /(?:end[- ]user(?:\s*or\s*implementing\s*unit)?|implementing\s*unit|department\s*\/?\s*office|office|department)\s*:\s*(.+?)(?:\s{2,}|\n|$)/i.exec(text)?.[1] || null
+  const office = /(?:end[- ]user(?:\s*or\s*implementing\s*unit)?|implementing\s*(?:unit|office)|requesting\s*office|department\s*\/\s*office|office\s*\/\s*section|office|department)\s*:\s*(.+?)(?:\s{2,}|\n|$)/i.exec(text)?.[1] || null
   const ticked = (word) => new RegExp(`(\\[\\s*[x✓✔]\\s*\\]|☒|☑|✓|✔|\\bx\\b)\\s*${word}`, 'i').test(text)
   return {
     fiscal_year: year ? Number(year[1] || year[2]) : null,

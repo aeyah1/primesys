@@ -72,7 +72,6 @@ export default function PpmpDetail() {
   }
   const print = () => openPdf(`/ppmp/${id}/pdf`).catch(async (err) => toast.error(await blobErrorMessage(err, 'Could not open the PPMP')))
   const span = 8
-  const otherOffice = p.file_office && ![p.office_code, p.office_name].some(n => p.file_office.toLowerCase().includes(n.toLowerCase()))
 
   return (
     <div className="space-y-4">
@@ -148,9 +147,6 @@ export default function PpmpDetail() {
             ? `${corrected.length} row${corrected.length === 1 ? ' was' : 's were'} corrected by the Fund Administrator; each shows what the file said.`
             : 'No row was corrected.'}{p.skipped_rows.length ? ` ${p.skipped_rows.length} row${p.skipped_rows.length === 1 ? ' was' : 's were'} left out.` : ''}
         </Notice>
-      )}
-      {otherOffice && (
-        <Notice tone="amber" icon={AlertTriangle} title="The file names another office">The data file says "{p.file_office}", but this PPMP is for {p.office_name}.</Notice>
       )}
       {p.hash_ok === true && p.status === 'approved' && (
         <Notice tone="blue" icon={ShieldCheck} title="Verified and unchanged">

@@ -5,7 +5,7 @@
 // amended PPMP is the next version. Real HTTP against a throwaway database.
 const path = require('path')
 const H    = require('./harness')
-const { makeXlsx, SAMPLE_ROWS } = require('./office-files')
+const { makeXlsx, SAMPLE_ROWS, rowsFor } = require('./office-files')
 
 const { db: TEST_DB, base: BASE } = H.configure({ db: 'primesys_ppmp_test_tmp', port: 5128 })
 const serverReq = (m) => require(require.resolve(m, { paths: [H.SERVER] }))
@@ -153,7 +153,9 @@ async function run() {
 
   // ── Returned ones ────────────────────────────────────────────────────
   const D = 'Returned'
-  const hr = (await http(6, 'POST', '/ppmp', uploadForm({ ...base, items: reviewed.slice(0, 2) }))).data.id
+  await is(D, 'HR can\'t upload ICT\'s PPMP as its own', 6, 'POST', '/ppmp', uploadForm({ ...base, items: reviewed.slice(0, 2) }),
+    r => r.status === 400 && /PPMP of ICT Office/.test(r.data.message), '400')
+  const hr = (await http(6, 'POST', '/ppmp', uploadForm({ ...base, items: reviewed.slice(0, 2) }, { data: makeXlsx(rowsFor('Human Resources Office')) }))).data.id
   await http(1, 'POST', `/ppmp/${hr}/return`, { reason: 'Wrong office file' })
   const hrFiles = (await H.sql(TEST_DB, 'SELECT filename FROM ppmp_attachments WHERE ppmp_id = ?', [hr])).map(f => f.filename)
   await is(D, 'a returned PPMP can be deleted', 6, 'DELETE', `/ppmp/${hr}`, undefined, code(200))
