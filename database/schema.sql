@@ -63,8 +63,6 @@ CREATE TABLE `users` (
   `token_version`              INT UNSIGNED NOT NULL DEFAULT 0,
   `fund_cluster`               VARCHAR(100) NULL,
   `responsibility_center_code` VARCHAR(100) NULL,
-  -- The person's signature as a small PNG data URL, stamped on documents they sign.
-  `signature`                  MEDIUMTEXT   NULL,
   `created_at`                 TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at`                 TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
@@ -591,7 +589,7 @@ CREATE TABLE `password_reset_tokens` (
   CONSTRAINT `fk_prt_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- PPMP: each office's plan for a fiscal year, uploaded from its signed original and verified (server/db/add_ppmp.sql).
+-- PPMP: each office's plan for a fiscal year, uploaded from its signed original; in effect once signed and complete (server/db/add_ppmp.sql).
 CREATE TABLE `ppmps` (
   `id`                 INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `department_id`      INT UNSIGNED NOT NULL,
@@ -599,23 +597,28 @@ CREATE TABLE `ppmps` (
   `version_no`         INT UNSIGNED NOT NULL DEFAULT 1,
   `kind`               ENUM('indicative','final') NOT NULL DEFAULT 'final',
   `fund_source`        ENUM('STF','GAA','IGP') NOT NULL DEFAULT 'STF',
-  `status`             ENUM('draft','submitted','approved','superseded') NOT NULL DEFAULT 'submitted',
-  `return_reason`      VARCHAR(500) NULL,
+  -- draft: kept but not in effect (see problems); approved: signed and complete, in effect; superseded: a later version took effect.
+  `status`             ENUM('draft','approved','superseded') NOT NULL DEFAULT 'draft',
+  -- Why it is not in effect: what is unsigned or missing (JSON list); null once it is.
+  `problems`           TEXT NULL,
+  -- How the signed copy is signed: digital (checked by the system) or paper (declared by the uploader).
+  `signed_kind`        ENUM('digital','paper') NULL,
+  -- The digital signatures on the signed copy, with their checks (JSON).
+  `signatures`         TEXT NULL,
+  -- The file's signature block: who prepared, approved, or reviewed it (JSON).
+  `signatories`        TEXT NULL,
   `file_office`        VARCHAR(200) NULL,
   `skipped_rows`       TEXT NULL,
-  `prepared_by`        INT UNSIGNED NULL,
-  `submitted_at`       DATETIME NULL,
-  `approved_by`        INT UNSIGNED NULL,
-  `approved_signature` MEDIUMTEXT NULL,
-  `approved_at`        DATETIME NULL,
+  `uploaded_by`        INT UNSIGNED NULL,
+  `uploaded_at`        DATETIME NULL,
+  `effective_at`       DATETIME NULL,
   `content_hash`       CHAR(64) NULL,
   `created_at`         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at`         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_ppmp_version` (`department_id`, `fiscal_year`, `version_no`),
   CONSTRAINT `fk_ppmp_department`  FOREIGN KEY (`department_id`) REFERENCES `departments` (`id`),
-  CONSTRAINT `fk_ppmp_prepared_by` FOREIGN KEY (`prepared_by`)   REFERENCES `users` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `fk_ppmp_approved_by` FOREIGN KEY (`approved_by`)   REFERENCES `users` (`id`) ON DELETE SET NULL
+  CONSTRAINT `fk_ppmp_uploaded_by` FOREIGN KEY (`uploaded_by`)   REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE `ppmp_items` (
@@ -632,8 +635,6 @@ CREATE TABLE `ppmp_items` (
   `months`              VARCHAR(40)   NULL,
   `remarks`             VARCHAR(500)  NULL,
   `file_row`            INT UNSIGNED  NULL,
-  `corrected`           TINYINT(1)    NOT NULL DEFAULT 0,
-  `as_read`             TEXT          NULL,
   `sort_order`          INT UNSIGNED  NOT NULL DEFAULT 0,
   PRIMARY KEY (`id`),
   KEY `idx_ppmp_items_ppmp` (`ppmp_id`),

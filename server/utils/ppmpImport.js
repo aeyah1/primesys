@@ -78,12 +78,63 @@ function readHeader(rows, upTo) {
   }
 }
 
+// The roles of a PPMP's signature block; "approving" ones answer for the office's plan.
+const ROLES = [
+  ['Prepared by', /prepared\s*by/i, false], ['Submitted by', /submitted\s*by/i, true], ['Reviewed by', /reviewed\s*by/i, false],
+  ['Recommending approval', /recommending\s*approval/i, true], ['Noted by', /noted\s*by/i, true], ['Approved by', /approved\s*by/i, true],
+  ['Certified', /certified/i, false],
+]
+const roleOf = (cell) => ROLES.find(([, re]) => re.test(String(cell ?? '')))
+// A printed designation under a blank line ("Director, ICT Office") is not a name.
+const titled = (v) => /\b(director|officer|head|chief|dean|chair(person|man)?|president|manager|supervisor|coordinator|administrator|accountant|secretary|campus|office|department|unit|section|division|budget|supply|end[- ]?user)\b/i.test(v)
+// A signature line, or its caption, is not a name.
+const blankish = (v) => !v || /^[_\-.\s]+$/.test(v) || /signature over|printed name|^\(?\s*signature\s*\)?$/i.test(v)
+
+// The signature block under the table: each role's label with the name, and designation, written under it in the same column
+// (or after the colon). Roles with no name come back with name null.
+function readSignatories(rows, from) {
+  const found = []
+  for (let r = from; r < Math.min(rows.length, from + 30); r++) {
+    rows[r].forEach((cell, c) => {
+      const role = roleOf(cell)
+      if (!role) return
+      const inline = String(cell).split(':').slice(1).join(':').trim()
+      const below = []
+      for (let k = r + 1; k < Math.min(rows.length, r + 7) && below.length < 2; k++) {
+        const v = String(rows[k][c] ?? '').trim()
+        if (roleOf(v)) break
+        if (blankish(v)) { if (below.length) break; continue }
+        below.push(v)
+      }
+      let [name, designation] = inline && !blankish(inline) ? [inline, below[0]] : below
+      if (name && titled(name)) [name, designation] = [null, name]
+      found.push({ role: role[0], approving: role[2], name: name?.slice(0, 150) || null, designation: designation?.slice(0, 150) || null })
+    })
+  }
+  return found
+}
+
+// What keeps a PPMP from being complete: the fiscal year, who prepared and approved it, and each kept item's mode and schedule.
+function completeness(read, kept) {
+  const problems = []
+  if (!read.header.fiscal_year) problems.push('The file doesn\'t state the fiscal year (a line like "Fiscal Year: 2027").')
+  const named = read.signatories.filter(s => s.name)
+  if (!named.some(s => s.role === 'Prepared by')) problems.push('The file\'s signature block doesn\'t name who prepared it ("Prepared by:" with the name under it).')
+  if (!named.some(s => s.approving)) problems.push('The file\'s signature block doesn\'t name who approved it ("Approved by:" with the name under it).')
+  const rowsOf = (list) => list.map(i => i.row).join(', ')
+  const noMode = kept.filter(i => !i.mode_of_procurement)
+  if (noMode.length) problems.push(`${noMode.length} item${noMode.length === 1 ? ' has' : 's have'} no mode of procurement (row ${rowsOf(noMode)}).`)
+  const noMonths = kept.filter(i => !i.months.length)
+  if (noMonths.length) problems.push(`${noMonths.length} item${noMonths.length === 1 ? ' has' : 's have'} no schedule; no month is marked (row ${rowsOf(noMonths)}).`)
+  return problems
+}
+
 // Item lines from the rows, with the part and category headings they fall under, and the file's own total.
 function mapPpmp(rows) {
   const { top, row: headerRow, cols, months } = findHeader(rows)
   const cell = (r, field) => (cols[field] === undefined ? '' : String(r[cols[field]] ?? '').trim())
   const items = []
-  let part = 'other', category = null, fileTotal = null
+  let part = 'other', category = null, fileTotal = null, signatureRow = rows.length
   for (let k = headerRow + 1; k < rows.length; k++) {
     const r = rows[k]
     const text = r.filter(Boolean).join(' ').trim()
@@ -103,8 +154,8 @@ function mapPpmp(rows) {
       if (!/sub/.test(lower)) fileTotal = budgetCell ?? num(r.filter(c => num(c) !== null).pop()) ?? fileTotal
       continue
     }
-    // Signature and footer lines.
-    if (/prepared by|submitted by|reviewed by|approved by|noted by|certified/.test(lower)) break
+    // The signature block ends the items.
+    if (r.some(roleOf)) { signatureRow = k; break }
     // A line with words but no amounts is a category heading.
     if (qtyCell === null && costCell === null && budgetCell === null && !monthQty.length) { category = text.slice(0, 100); continue }
 
@@ -132,14 +183,22 @@ function mapPpmp(rows) {
     if (budgetCell !== null && quantity && unitCost !== null && Math.abs(quantity * unitCost - budgetCell) > 1) {
       warnings.push(`Quantity x unit cost is ${(quantity * unitCost).toFixed(2)}, but the file says ${budgetCell.toFixed(2)}`)
     }
-    if (cell(r, 'mode') && !modeOf(cell(r, 'mode'))) warnings.push(`Unknown mode "${cell(r, 'mode')}"; pick one`)
+    if (cell(r, 'mode') && !modeOf(cell(r, 'mode'))) warnings.push(`Unknown mode "${cell(r, 'mode')}"`)
+    else if (!item.mode_of_procurement) warnings.push('No mode of procurement')
+    if (!monthNums.length) warnings.push('No month marked in the schedule')
     const brand = brandIn(item.description)
     if (brand) warnings.push(`Names a brand (${brand}); describe it by its specifications`)
     items.push({ ...item, warnings })
     if (items.length > MAX_ITEMS) throw httpError(400, `The file lists more than ${MAX_ITEMS} items`)
   }
   if (!items.length) throw httpError(400, 'The table was found, but no item lines were read from it')
-  return { items, file_total: fileTotal, header: readHeader(rows, top), columns: Object.keys(cols), months_found: Object.keys(months).length }
+  return {
+    items, file_total: fileTotal, header: readHeader(rows, top), signatories: readSignatories(rows, signatureRow),
+    columns: Object.keys(cols), months_found: Object.keys(months).length,
+  }
 }
 
-module.exports = { mapPpmp, modeOf, num }
+// What stops a row from going in at all: it can't be stored without these.
+const rowBlockers = (i) => [!i.description && 'No description', !i.unit && 'No unit', !i.quantity && 'No quantity', i.unit_cost === null && 'No unit cost'].filter(Boolean)
+
+module.exports = { mapPpmp, completeness, rowBlockers, modeOf, num }

@@ -2,20 +2,17 @@ import { Fragment, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  ArrowLeft, Trash2, Printer, BadgeCheck, Undo2, Upload, ShieldCheck, ShieldAlert, AlertTriangle, FileSpreadsheet, FileSignature, Info, Search, GitCompare, FilePlus,
+  ArrowLeft, Trash2, Printer, Upload, ShieldCheck, ShieldAlert, AlertTriangle, FileSpreadsheet, FileSignature, PenLine, Search, GitCompare, FilePlus,
 } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useConfirm } from '@/components/shared/ConfirmDialog'
-import { PpmpStatusBadge } from '@/components/ppmp/PpmpStatusBadge'
-import { MONTHS, PARTS } from '@/components/ppmp/PpmpItemDialog'
+import { PpmpStatusBadge, STATUS_LABELS, MONTHS, PARTS } from '@/components/ppmp/PpmpStatusBadge'
 import PpmpUploadDialog from '@/components/ppmp/PpmpUploadDialog'
 import Notice from '@/components/ppmp/PpmpNotice'
 import { fmtCurrency, fmtDatetime, FUND_SOURCES, PR_STATUS_LABELS } from '@/lib/utils'
@@ -23,25 +20,18 @@ import { openPdf, downloadFile, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
 import { useAuth } from '@/context/AuthContext'
 
-const TEXTAREA = 'w-full rounded-md border border-[--color-border] bg-[--color-surface] px-3 py-2 text-sm text-[--color-text-primary] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent resize-y'
 const monthList = (months) => (months || []).map(m => MONTHS[m - 1]).join(', ')
 // The items toolbar's search and filters, all cleared.
 const NO_FIND = { text: '', part: 'all', category: 'all', mode: 'all', month: 'all' }
 const fmtSize = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`)
-// "unit cost ₱150.00, quantity 4": what the file said for a corrected row.
-const FIELD_LABELS = { part: 'part', category: 'category', code: 'code', description: 'description', unit: 'unit', quantity: 'quantity', unit_cost: 'unit cost', mode_of_procurement: 'mode', months: 'months', remarks: 'remarks' }
-const asRead = (r) => Object.entries(r).map(([f, v]) => `${FIELD_LABELS[f] || f} ${
-  v === null || v === '' ? '(blank)' : f === 'unit_cost' ? fmtCurrency(v) : f === 'quantity' ? Number(v) : f === 'months' ? monthList(v) || '(none)' : f === 'part' ? (v === 'ps' ? 'Part I' : 'Part II') : `"${v}"`}`).join(', ')
 
-// One PPMP, as uploaded from its signed original: the items, the original files, and verifying or returning it.
+// One PPMP, as uploaded from its signed original: how it is signed, whether it is in effect, its items, and its original files.
 export default function PpmpDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
   const qc = useQueryClient()
   const confirm = useConfirm()
   const [uploading, setUploading] = useState(null)   // 'again' or 'amend'
-  const [returning, setReturning] = useState(false)
-  const [reason, setReason] = useState('')
   const [shownLine, setShownLine] = useState(null)   // the line whose requests are listed
   const [find, setFind] = useState(NO_FIND)
   const [picked, setPicked] = useState(() => new Set())   // lines ticked for "Request these"
@@ -58,7 +48,6 @@ export default function PpmpDetail() {
       toast.success(res.data.message)
       refresh()
       if (path === '') navigate('/ppmp')
-      if (path === '/return') setReturning(false)
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Something went wrong'),
   })
@@ -67,7 +56,6 @@ export default function PpmpDetail() {
   if (isError || !p) return <p className="text-ui-sm text-[--color-text-secondary]">This PPMP was not found. <Link to="/ppmp" className="text-[--color-brand] hover:underline">Back to the list</Link></p>
 
   const can = p.permissions
-  const corrected = p.items.filter(i => i.corrected)
   const overHeld = p.items.filter(i => i.left < 0)
   // Search and filters for long PPMPs; "now" is this month.
   const words = find.text.toLowerCase().split(/\s+/).filter(Boolean)
@@ -83,7 +71,7 @@ export default function PpmpDetail() {
   // The month ringed in the schedule: the one filtered on, or this month in this year's PPMP.
   const ringMonth = pickedMonth || (p.fiscal_year === new Date().getFullYear() ? new Date().getMonth() + 1 : null)
   const setF = (k) => (v) => setFind(f => ({ ...f, [k]: v }))
-  // A verified Final PPMP still open for requests: those who file them can start one from ticked lines.
+  // A Final PPMP in effect and still open for requests: those who file them can start one from ticked lines.
   const canRequest = p.status === 'approved' && p.kind === 'final' && p.fiscal_year >= new Date().getFullYear()
     && ['requestor', 'procurement', 'admin'].includes(user?.role)
   const lead = canRequest ? 1 : 0
@@ -94,16 +82,10 @@ export default function PpmpDetail() {
   const changed = new Set(p.changes?.changed.map(i => i.key))
   const fileOf = (role) => p.files.find(f => f.role === role)
   const download = (f) => downloadFile(`/ppmp/${id}/files/${f.id}`, f.original_name).catch(async (err) => toast.error(await blobErrorMessage(err, 'Could not open the file')))
-  const approve = async () => {
-    if (await confirm({
-      title: 'Verify and approve this PPMP?',
-      message: `You confirm the items match the signed original${corrected.length ? `, including the ${corrected.length} corrected row${corrected.length === 1 ? '' : 's'}` : ''}. Your saved signature is stamped on it.${p.versions.some(v => v.status === 'approved') ? ' The PPMP verified before it for this year is superseded.' : ''}${overHeld.length ? ` ${overHeld.length} line${overHeld.length === 1 ? ' plans' : 's plan'} less than requests already hold.` : ''}`,
-      confirmLabel: 'Verify and Approve',
-    })) act({ path: '/approve' })
-  }
   const remove = async () => {
-    if (await confirm({ title: 'Delete this PPMP?', message: 'The returned PPMP and its uploaded files are removed.', confirmLabel: 'Delete', danger: true })) act({ path: '', method: 'delete' })
+    if (await confirm({ title: 'Delete this PPMP?', message: 'This PPMP, which is not in effect, and its uploaded files are removed.', confirmLabel: 'Delete', danger: true })) act({ path: '', method: 'delete' })
   }
+  const signers = p.signatures.filter(x => x.valid).map(x => `${x.signer}${x.issuer && !x.self_signed ? ` (certificate by ${x.issuer})` : ''}`).join(' and ')
   const print = () => openPdf(`/ppmp/${id}/pdf`).catch(async (err) => toast.error(await blobErrorMessage(err, 'Could not open the PPMP')))
   const span = 8 + (canRequest ? 1 : 0)
   // What purchase requests have asked of the plan so far, by their estimates.
@@ -121,25 +103,25 @@ export default function PpmpDetail() {
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-ui-lg font-bold text-[--color-text-primary]">PPMP No. {p.version_no}</h2>
-                <PpmpStatusBadge status={p.status} returned={!!p.return_reason} />
+                <PpmpStatusBadge status={p.status} />
               </div>
               <p className="text-ui-sm text-[--color-text-secondary] mt-0.5">
                 {p.office_name} ({p.office_code}) · Fiscal Year {p.fiscal_year} · {p.kind === 'final' ? 'Final' : 'Indicative'} · {FUND_SOURCES.find(s => s.value === p.fund_source)?.label}
               </p>
-              <p className="text-ui-xs text-[--color-text-muted] mt-0.5">Uploaded by {p.prepared_by_name}{p.submitted_at ? ` on ${fmtDatetime(p.submitted_at)}` : ''}</p>
+              <p className="text-ui-xs text-[--color-text-muted] mt-0.5">
+                Uploaded by {p.uploaded_by_name}{p.uploaded_at ? ` on ${fmtDatetime(p.uploaded_at)}` : ''}{p.effective_at ? ` · in effect since ${fmtDatetime(p.effective_at)}` : ''}
+              </p>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               <Button variant="secondary" onClick={print} className="gap-2"><Printer className="size-4" /> Print</Button>
               {can.remove && <Button variant="ghost" onClick={remove} disabled={acting} className="gap-2 text-red-600"><Trash2 className="size-4" /> Delete</Button>}
               {can.reupload && <Button onClick={() => setUploading('again')} className="gap-2"><Upload className="size-4" /> Upload Again</Button>}
               {can.amend && <Button variant="outline" onClick={() => setUploading('amend')} className="gap-2"><Upload className="size-4" /> Upload Amended PPMP</Button>}
-              {can.approve && <Button variant="outline" onClick={() => { setReason(''); setReturning(true) }} disabled={acting} className="gap-2"><Undo2 className="size-4" /> Return</Button>}
-              {can.approve && <Button onClick={approve} disabled={acting} className="gap-2"><BadgeCheck className="size-4" /> Verify and Approve</Button>}
             </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {[['data', 'Data file (items read from it)', FileSpreadsheet], ['signed', 'Signed original', FileSignature]].map(([role, title, Icon]) => {
+            {[['data', 'Data file (items read from it)', FileSpreadsheet], ['signed', 'Signed copy', FileSignature]].map(([role, title, Icon]) => {
               const f = fileOf(role)
               return (
                 <button key={role} type="button" disabled={!f} onClick={() => f && download(f)}
@@ -156,7 +138,7 @@ export default function PpmpDetail() {
             <div className="rounded-xl border border-[--color-border] px-3 py-2.5">
               <span className="flex items-baseline justify-between gap-2">
                 <span className="text-ui-xs text-[--color-text-muted]">Total Budget</span>
-                <span className="text-[11px] text-[--color-text-muted]">{p.items.length} items{corrected.length ? `, ${corrected.length} corrected` : ''}</span>
+                <span className="text-[11px] text-[--color-text-muted]">{p.items.length} items</span>
               </span>
               <span className="block text-ui-lg font-bold tabular-nums">{fmtCurrency(p.totals.all)}</span>
               <span className="mt-1 block h-1.5 overflow-hidden rounded-full bg-[--color-overlay]" title={`${usedShare}% requested`}>
@@ -174,7 +156,7 @@ export default function PpmpDetail() {
               {p.versions.map(v => (
                 <Link key={v.id} to={`/ppmp/${v.id}`}
                   className={`rounded-full border px-2.5 py-0.5 font-medium ${v.id === p.id ? 'border-[--color-brand] bg-[--color-brand-light] text-[--color-brand]' : 'border-[--color-border] text-[--color-text-secondary] hover:border-[--color-brand]'}`}>
-                  No. {v.version_no} · {v.status === 'approved' ? 'verified' : v.status === 'draft' ? 'returned' : v.status}
+                  No. {v.version_no} · {(STATUS_LABELS[v.status] || v.status).toLowerCase()}
                 </Link>
               ))}
             </div>
@@ -182,19 +164,19 @@ export default function PpmpDetail() {
         </CardContent>
       </Card>
 
-      {p.status === 'draft' && p.return_reason && (
-        <Notice tone="amber" icon={AlertTriangle} title="Returned by the approver">{p.return_reason}. Upload the PPMP again once it is fixed.</Notice>
-      )}
-      {can.approve && (
-        <Notice tone="blue" icon={Info} title="Check it against the signed original">
-          Open the signed original above and compare the items below with it. {corrected.length
-            ? `${corrected.length} row${corrected.length === 1 ? ' was' : 's were'} corrected by the Fund Administrator; each shows what the file said.`
-            : 'No row was corrected.'}{p.skipped_rows.length ? ` ${p.skipped_rows.length} row${p.skipped_rows.length === 1 ? ' was' : 's were'} left out.` : ''}
+      {p.status === 'draft' && (
+        <Notice tone="amber" icon={AlertTriangle} title="Not in effect: requests can't use this PPMP yet">
+          {p.problems.join(' ')}{can.reupload ? ' Upload it again once that is fixed.' : ''}
         </Notice>
       )}
-      {p.hash_ok === true && p.status === 'approved' && (
-        <Notice tone="blue" icon={ShieldCheck} title="Verified and unchanged">
-          Verified against the signed original by {p.approved_by_name} on {fmtDatetime(p.approved_at)}. Fingerprint {p.content_hash.slice(0, 16)}...
+      {p.status !== 'draft' && p.signed_kind === 'digital' && (
+        <Notice tone="green" icon={ShieldCheck} title="Signed digitally">
+          By {signers}. The signatures were checked when it was uploaded: genuine, and the file unchanged since signing.
+        </Notice>
+      )}
+      {p.status !== 'draft' && p.signed_kind === 'paper' && (
+        <Notice tone="blue" icon={PenLine} title="Signed on paper">
+          {p.uploaded_by_name} confirmed the attached signed copy bears the signatures of the people named below. A handwritten signature can't be checked by the system; open the signed copy to see it.
         </Notice>
       )}
       {overHeld.length > 0 && (
@@ -203,9 +185,26 @@ export default function PpmpDetail() {
         </Notice>
       )}
       {p.hash_ok === false && (
-        <Notice tone="red" icon={ShieldAlert} title="Changed after it was submitted">
-          The items or files no longer match the fingerprint taken when this PPMP was submitted. Treat it as not valid and report it to the administrator.
+        <Notice tone="red" icon={ShieldAlert} title="Changed after it was uploaded">
+          The items or files no longer match the fingerprint taken when this PPMP was uploaded. Treat it as not valid and report it to the administrator.
         </Notice>
+      )}
+
+      {p.signatories.length > 0 && (
+        <Card>
+          <CardContent className="py-3">
+            <p className="text-ui-xs font-semibold uppercase tracking-wide text-[--color-text-muted] mb-1.5">Signature block</p>
+            <div className="flex flex-wrap gap-x-10 gap-y-2 text-ui-sm">
+              {p.signatories.map((x, k) => (
+                <span key={k}>
+                  <span className="block text-[11px] text-[--color-text-muted]">{x.role}</span>
+                  {x.name ? <span className="font-semibold">{x.name}</span> : <span className="italic text-red-700">No name</span>}
+                  {x.designation && <span className="block text-[11px] text-[--color-text-secondary]">{x.designation}</span>}
+                </span>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {p.changes && (p.changes.added.length + p.changes.removed.length + p.changes.changed.length > 0) && <Changes changes={p.changes} />}
@@ -272,7 +271,7 @@ export default function PpmpDetail() {
                         {item.category && item.category !== rows[k - 1]?.category && (
                           <TableRow><TableCell colSpan={span} className="text-ui-xs font-semibold italic text-[--color-text-secondary]">{item.category}</TableCell></TableRow>
                         )}
-                        <TableRow className={`${item.corrected ? 'bg-blue-50/60' : ''} ${item.requests.length ? 'cursor-pointer' : ''}`}
+                        <TableRow className={item.requests.length ? 'cursor-pointer' : ''}
                           onClick={() => item.requests.length && setShownLine(shownLine === item.id ? null : item.id)}>
                           {canRequest && (
                             <TableCell onClick={e => e.stopPropagation()}>
@@ -288,11 +287,6 @@ export default function PpmpDetail() {
                               {changed.has(item.key) && <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">Changed</span>}
                             </p>
                             {item.remarks && <p className="text-[11px] text-[--color-text-muted] mt-0.5">{item.remarks}</p>}
-                            {item.corrected && (
-                              <p className="text-[11px] font-medium text-blue-800 mt-1">
-                                Corrected{item.as_read ? `. The file said: ${asRead(item.as_read)}` : '. Not read from the file.'}{item.file_row ? ` (row ${item.file_row})` : ''}
-                              </p>
-                            )}
                           </TableCell>
                           <TableCell>{item.unit}</TableCell>
                           <TableCell className="text-right tabular-nums">{Number(item.quantity)}</TableCell>
@@ -356,22 +350,6 @@ export default function PpmpDetail() {
         onDone={(newId) => { setUploading(null); refresh(); if (String(newId) !== String(id)) navigate(`/ppmp/${newId}`) }}
         onClose={() => setUploading(null)}
       />
-
-      <Dialog open={returning} onOpenChange={setReturning}>
-        <DialogContent title="Return PPMP" description="It goes back to the Fund Administrator with your reason, to upload again.">
-          <form onSubmit={(e) => { e.preventDefault(); if (reason.trim()) act({ path: '/return', body: { reason: reason.trim() } }) }} className="space-y-3 pt-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="return-reason">Reason <span className="text-red-500">*</span></Label>
-              <textarea id="return-reason" rows={3} maxLength={500} autoFocus className={TEXTAREA} value={reason} onChange={e => setReason(e.target.value)}
-                placeholder="e.g. Row 18's unit cost does not match the signed copy" />
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setReturning(false)} disabled={acting}>Cancel</Button>
-              <Button type="submit" disabled={acting || !reason.trim()}>{acting ? 'Returning...' : 'Return PPMP'}</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }
@@ -404,7 +382,7 @@ function MonthGrid({ months, ring }) {
 const CHANGE_LABELS = { quantity: 'Qty', unit_cost: 'Unit cost', months: 'Schedule', mode_of_procurement: 'Mode' }
 const changeValue = (f, v) => (f === 'unit_cost' ? fmtCurrency(v) : f === 'months' ? monthList(v) || 'none' : v || 'none')
 
-// What an amended PPMP changed from the version it replaces, for the approver to check those lines first.
+// What an amended PPMP changed from the version it replaces, so those lines are seen first.
 function Changes({ changes }) {
   const { added, removed, changed, against } = changes
   const line = (i) => `${i.description} (${i.quantity} ${i.unit} at ${fmtCurrency(i.unit_cost)})`

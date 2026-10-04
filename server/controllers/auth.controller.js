@@ -13,7 +13,6 @@ const notify   = require('../utils/notify')
 const { officeHolder } = require('../utils/fundAdmin')
 const resetPasswordEmail = require('../emails/resetPassword')
 const accountExistsEmail = require('../emails/accountExists')
-const { checkSignature } = require('../utils/signature')
 
 const BCRYPT_COST = 10
 // Compared against when no account matches, so an unknown username takes as
@@ -170,39 +169,19 @@ exports.me = async (req, res) => {
   try {
     const [rows] = await pool.execute(
       `SELECT u.id, u.name, u.designation, u.username, u.email, u.role, u.is_active, u.created_at,
-              u.fund_cluster, u.responsibility_center_code, (u.signature IS NOT NULL) AS has_signature,
+              u.fund_cluster, u.responsibility_center_code,
               u.department_id, d.code AS department_code, d.name AS department_name
          FROM users u LEFT JOIN departments d ON d.id = u.department_id
         WHERE u.id = ?`, [req.user.id]
     )
     if (!rows.length) return res.status(404).json({ message: 'User not found' })
     if (!rows[0].is_active) return res.status(403).json({ message: 'Account deactivated' })
-    res.json({ ...rows[0], has_signature: !!rows[0].has_signature })
+    res.json(rows[0])
   } catch (err) {
     console.error(err); res.status(500).json({ message: 'Internal server error' })
   }
 }
 
-// GET /auth/me/signature - this user's own signature image, or null.
-exports.getSignature = async (req, res) => {
-  try {
-    const [[row]] = await pool.execute('SELECT signature FROM users WHERE id = ?', [req.user.id])
-    res.json({ signature: row?.signature || null })
-  } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
-}
-
-// PUT /auth/me/signature saves this user's signature (a PNG); DELETE removes it.
-exports.setSignature = async (req, res) => {
-  try {
-    const image = req.method === 'DELETE' ? null : checkSignature(req.body.image)
-    await pool.execute('UPDATE users SET signature = ? WHERE id = ?', [image, req.user.id])
-    securityLog(image ? 'signature_set' : 'signature_removed', { userId: req.user.id })
-    res.json({ message: image ? 'Signature saved' : 'Signature removed' })
-  } catch (err) {
-    if (err.status === 400) return res.status(400).json({ message: err.message })
-    console.error(err); res.status(500).json({ message: 'Internal server error' })
-  }
-}
 
 // Only the fields the request actually sends are changed, so a field sent
 // blank is cleared rather than silently kept (audit API-14, same rule as

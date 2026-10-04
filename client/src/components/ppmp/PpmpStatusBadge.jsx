@@ -1,15 +1,18 @@
 import { Badge } from '@/components/ui/badge'
 
-// A PPMP's status as a badge; a returned one (status draft) says Returned.
-const LOOK = {
-  draft:      ['Draft', 'bg-slate-50 text-slate-700 border-slate-300'],
-  returned:   ['Returned', 'bg-amber-50 text-amber-800 border-amber-300'],
-  submitted:  ['Waiting for verification', 'bg-amber-50 text-amber-800 border-amber-300'],
-  approved:   ['Verified', 'bg-blue-50 text-blue-700 border-blue-300'],
-  superseded: ['Superseded', 'bg-slate-50 text-slate-500 border-slate-300'],
-}
+// The months and parts of a PPMP, as the PPMP form names them.
+export const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+export const PARTS = { ps: 'Part I: Available at PS-DBM', other: 'Part II: Other items' }
 
-export function PpmpStatusBadge({ status, returned }) {
-  const [label, cls] = LOOK[status === 'draft' && returned ? 'returned' : status] || [status, LOOK.draft[1]]
+// A PPMP's status as a badge: in effect once signed and complete, not in effect until then, replaced by a later version.
+const LOOK = {
+  draft:      ['Not in effect', 'bg-amber-50 text-amber-800 border-amber-300'],
+  approved:   ['In effect', 'bg-green-50 text-green-800 border-green-300'],
+  superseded: ['Replaced', 'bg-slate-50 text-slate-500 border-slate-300'],
+}
+export const STATUS_LABELS = Object.fromEntries(Object.entries(LOOK).map(([k, [label]]) => [k, label]))
+
+export function PpmpStatusBadge({ status }) {
+  const [label, cls] = LOOK[status] || [status, LOOK.superseded[1]]
   return <Badge className={`whitespace-nowrap ${cls}`}>{label}</Badge>
 }

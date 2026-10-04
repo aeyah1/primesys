@@ -2,7 +2,7 @@ const httpError = require('./httpError')
 const { loadOrgSettings, fundCodeFor } = require('./orgSettings')
 const { norm, lineKey } = require('./ppmp')
 
-// How purchase requests draw on their office's verified Final PPMP.
+// How purchase requests draw on their office's Final PPMP in effect (signed and complete).
 // A PR holds the quantities of its items from submission until it is rejected,
 // cancelled, or deleted; an item dropped from the procurement gives its back.
 // A line keeps its identity across the PPMP's versions by description and unit,
@@ -14,7 +14,7 @@ const round2  = (n) => Math.round(n * 100) / 100
 const peso    = (n) => `₱${Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const qty     = (n) => String(round2(Number(n)))
 
-// The office's verified Final PPMPs a request may draw on (this fiscal year's and later ones; every year with anyYear), earliest first.
+// The office's Final PPMPs in effect that a request may draw on (this fiscal year's and later ones; every year with anyYear), earliest first.
 async function usablePlans(db, deptId, { anyYear = false } = {}) {
   if (!deptId) return []
   const [rows] = await db.execute(
@@ -74,7 +74,7 @@ async function withUsage(db, plan, items) {
   }
 }
 
-// Submissions take the office's verified plans' locks before the request's own row (pass deptId, or prId to look it up),
+// Submissions take the locks of the office's plans in effect before the request's own row (pass deptId, or prId to look it up),
 // so concurrent submissions queue on the plan instead of deadlocking on each other's rows.
 async function lockOfficePlans(db, { deptId, prId }) {
   if (!deptId && prId) [[{ department_id: deptId } = {}]] = await db.execute('SELECT department_id FROM purchase_requests WHERE id = ?', [prId])
@@ -106,7 +106,7 @@ async function usableLine(db, deptId, ppmpItemId) {
     `SELECT li.id, li.description, li.unit, p.id AS ppmp_id, p.department_id, p.fiscal_year, p.status, p.kind
        FROM ppmp_items li JOIN ppmps p ON p.id = li.ppmp_id WHERE li.id = ?`, [ppmpItemId])
   if (!line || line.status !== 'approved' || line.kind !== 'final' || line.fiscal_year < new Date().getFullYear()) {
-    throw httpError(400, 'Pick the item from the office\'s verified Final PPMP')
+    throw httpError(400, 'Pick the item from the office\'s Final PPMP in effect')
   }
   if (line.department_id !== deptId) {
     throw httpError(400, `"${line.description}" is in another office's PPMP. Pick from the PPMP of the office this request is for.`)
@@ -149,13 +149,13 @@ async function reviewPr(db, prId, { link = false } = {}) {
   const out = { plan: null, items: [], problems: [] }
   if (!pr) return out
   if (!pr.department_id) {
-    out.problems.push('Pick the office this request is for. Its items must come from that office\'s verified Final PPMP.')
+    out.problems.push('Pick the office this request is for. Its items must come from that office\'s Final PPMP in effect.')
     return out
   }
   const thisYear = new Date().getFullYear()
   const plans = await usablePlans(db, pr.department_id, { anyYear: !link })
   if (!plans.length) {
-    out.problems.push(`${pr.office_code} has no verified Final PPMP yet, so this request can't go to the TWG. Upload the office's PPMP and have it verified first.`)
+    out.problems.push(`${pr.office_code} has no Final PPMP in effect yet, so this request can't go to the TWG. Upload the office's signed, complete PPMP first.`)
     return out
   }
   if (items.some(i => i.ppmp_item_id && i.line_office !== pr.department_id)) {

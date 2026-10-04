@@ -95,6 +95,26 @@ async function run() {
   t.check(W, '…quantity, price, months, total, and source of funds', folder.quantity === 100 && folder.unit_cost === 8.5 && folder.months.join() === '1,4'
     && c.data.file_total === 1550 && c.data.header?.fund_source === 'GAA', JSON.stringify({ folder, header: c.data.header }))
 
+  // ── The signature block ─────────────────────────────────────────────
+  const G = 'Signatories'
+  const block = (r) => JSON.stringify(r.data.signatories?.map(x => [x.role, x.name, x.designation]))
+  await is(G, 'the names and designations under each label are read', 3, xlsx, 'p.xlsx',
+    r => block(r) === JSON.stringify([['Prepared by', 'MARIA SANTOS', 'Supply Officer'], ['Reviewed by', 'PEDRO REYES', 'Budget Officer'], ['Approved by', 'JUAN A. DELA CRUZ', 'Director, ICT Office']])
+      && r.data.file_problems.length === 0, 'three signatories')
+  const inline = [...SAMPLE_ROWS.slice(0, -4), ['Prepared by: ANA CRUZ', '', '', 'Noted by: JOSE REYES, Ph. D.']]
+  await is(G, 'a name after the colon counts, and "Noted by" approves', 3, makeXlsx(inline), 'p.xlsx',
+    r => block(r) === JSON.stringify([['Prepared by', 'ANA CRUZ', null], ['Noted by', 'JOSE REYES, Ph. D.', null]]) && r.data.file_problems.length === 0, 'inline names')
+  const printed = [...SAMPLE_ROWS.slice(0, -2), ['MARIA SANTOS'], ['Supply Officer', '', '', '', '', '', 'Director, ICT Office']]
+  await is(G, 'a printed designation under a blank line is not a name', 3, makeXlsx(printed), 'p.xlsx',
+    r => r.data.signatories.find(x => x.role === 'Approved by')?.name === null && r.data.file_problems.some(p => /approved it/.test(p)), 'no approver')
+  const unsigned = SAMPLE_ROWS.slice(0, -4)
+  await is(G, 'a file with no signature block is incomplete', 3, makeXlsx(unsigned), 'p.xlsx',
+    r => r.data.file_problems.length === 2 && /prepared it/.test(r.data.file_problems[0]), 'two problems')
+  const word = makeDocx(SAMPLE_ROWS.slice(3, -4).map(r => r.map(String)), ['PROJECT PROCUREMENT MANAGEMENT PLAN', 'End-User or Implementing Unit: ICT Office', 'Fiscal Year: 2027'],
+    ['Prepared by:', '', 'MARIA SANTOS', 'Supply Officer', 'Approved by:', 'JUAN A. DELA CRUZ', 'Director, ICT Office'])
+  await is(G, 'a Word file\'s signature lines under its table are read', 3, word, 'p.docx',
+    r => block(r) === JSON.stringify([['Prepared by', 'MARIA SANTOS', 'Supply Officer'], ['Approved by', 'JUAN A. DELA CRUZ', 'Director, ICT Office']]) && r.data.items.length === 7, 'two signatories')
+
   // ── What is refused ──────────────────────────────────────────────────
   const F = 'Refused'
   await is(F, 'a file with no item table', 3, makeXlsx([['Just a note'], ['Nothing else']]), 'note.xlsx', r => r.status === 400 && /No item table/.test(r.data.message), '400')

@@ -97,10 +97,10 @@ const twgAreas = (userIds, areas = ALL_AREAS) =>
 const LINK_POS = `UPDATE lots l JOIN purchase_orders po ON po.purchase_request_id = l.purchase_request_id AND po.po_status = 'active'
                      SET l.po_id = po.id WHERE l.status = 'awarded' AND l.po_id IS NULL;`
 
-// Fixture SQL giving an office a verified Final PPMP for this year, one line per item name with plenty
+// Fixture SQL giving an office a Final PPMP in effect for this year, one line per item name with plenty
 // planned and every month scheduled, so its test requests can be submitted (server/utils/ppmpUse.js).
 const ppmpFor = (deptId, names, { id = 900, year = new Date().getFullYear(), quantity = 100000, unitCost = 9999999, fund = 'STF' } = {}) => `
-  INSERT INTO ppmps (id, department_id, fiscal_year, version_no, kind, fund_source, status, approved_at)
+  INSERT INTO ppmps (id, department_id, fiscal_year, version_no, kind, fund_source, status, effective_at)
     VALUES (${id}, ${deptId}, ${year}, 1, 'final', '${fund}', 'approved', NOW());
   INSERT INTO ppmp_items (id, ppmp_id, description, unit, quantity, unit_cost, months, sort_order) VALUES
     ${names.map((n, i) => `(${id * 100 + i}, ${id}, '${n.replace(/'/g, "''")}', 'pc', ${quantity}, ${unitCost}, '1,2,3,4,5,6,7,8,9,10,11,12', ${i})`).join(', ')};`
