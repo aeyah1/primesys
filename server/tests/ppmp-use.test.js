@@ -179,6 +179,18 @@ async function run() {
   await is(A, 'a line dropped by the amendment blocks a draft that used it', 3, 'PATCH', `/pr/${picked.data.id}/status`, { status: 'submitted' },
     r => r.status === 409 && /"Toner cartridge, black" is no longer in the ICT PPMP/.test(r.data.message), '409')
 
+  // ── What the PPMP page shows of its use ─────────────────────────────
+  const U = 'Usage'
+  const item = (r, description) => r.data.items.find(i => i.description === description)
+  await is(U, 'each line shows what requests hold and what is left', 3, 'GET', '/ppmp/11', undefined,
+    r => item(r, 'Bond paper, A4, 80gsm').requested === 2 && item(r, 'Bond paper, A4, 80gsm').left === 38, '2 requested, 38 left')
+  await is(U, '…and which requests hold it', 3, 'GET', '/ppmp/11', undefined,
+    r => item(r, 'Bond paper, A4, 80gsm').requests.map(q => `${q.id}:${q.quantity}`).join() === `${c}:1,${early}:1`, `${c} and ${early}`)
+  await is(U, '…with the amount they request, for this version\'s lines only', 3, 'GET', '/ppmp/11', undefined, r => r.data.requested_amount === 500, '500')
+  await is(U, 'the superseded version shows the same holds against its own plan', 2, 'GET', '/ppmp/10', undefined,
+    r => item(r, 'Bond paper, A4, 80gsm').left === 8 && item(r, 'Toner cartridge, black').requested === 2 && item(r, 'Toner cartridge, black').left === 0
+      && r.data.requested_amount === 8200, '8 and 0 left, 8200')
+
   return t.summary()
 }
 

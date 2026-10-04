@@ -15,7 +15,7 @@ import { useConfirm } from '@/components/shared/ConfirmDialog'
 import { PpmpStatusBadge } from '@/components/ppmp/PpmpStatusBadge'
 import { MONTHS, PARTS } from '@/components/ppmp/PpmpItemDialog'
 import PpmpUploadDialog from '@/components/ppmp/PpmpUploadDialog'
-import { fmtCurrency, fmtDatetime, FUND_SOURCES } from '@/lib/utils'
+import { fmtCurrency, fmtDatetime, FUND_SOURCES, PR_STATUS_LABELS } from '@/lib/utils'
 import { openPdf, downloadFile, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
 
@@ -36,6 +36,7 @@ export default function PpmpDetail() {
   const [uploading, setUploading] = useState(null)   // 'again' or 'amend'
   const [returning, setReturning] = useState(false)
   const [reason, setReason] = useState('')
+  const [shownLine, setShownLine] = useState(null)   // the line whose requests are listed
 
   const { data: p, isLoading, isError } = useQuery({
     queryKey: ['ppmp', id],
@@ -58,12 +59,13 @@ export default function PpmpDetail() {
 
   const can = p.permissions
   const corrected = p.items.filter(i => i.corrected)
+  const overHeld = p.items.filter(i => i.left < 0)
   const fileOf = (role) => p.files.find(f => f.role === role)
   const download = (f) => downloadFile(`/ppmp/${id}/files/${f.id}`, f.original_name).catch(async (err) => toast.error(await blobErrorMessage(err, 'Could not open the file')))
   const approve = async () => {
     if (await confirm({
       title: 'Verify and approve this PPMP?',
-      message: `You confirm the items match the signed original${corrected.length ? `, including the ${corrected.length} corrected row${corrected.length === 1 ? '' : 's'}` : ''}. Your saved signature is stamped on it.${p.versions.some(v => v.status === 'approved') ? ' The PPMP verified before it for this year is superseded.' : ''}`,
+      message: `You confirm the items match the signed original${corrected.length ? `, including the ${corrected.length} corrected row${corrected.length === 1 ? '' : 's'}` : ''}. Your saved signature is stamped on it.${p.versions.some(v => v.status === 'approved') ? ' The PPMP verified before it for this year is superseded.' : ''}${overHeld.length ? ` ${overHeld.length} line${overHeld.length === 1 ? ' plans' : 's plan'} less than requests already hold.` : ''}`,
       confirmLabel: 'Verify and Approve',
     })) act({ path: '/approve' })
   }
@@ -71,7 +73,9 @@ export default function PpmpDetail() {
     if (await confirm({ title: 'Delete this PPMP?', message: 'The returned PPMP and its uploaded files are removed.', confirmLabel: 'Delete', danger: true })) act({ path: '', method: 'delete' })
   }
   const print = () => openPdf(`/ppmp/${id}/pdf`).catch(async (err) => toast.error(await blobErrorMessage(err, 'Could not open the PPMP')))
-  const span = 8
+  const span = 9
+  // What purchase requests have asked of the plan so far, by their estimates.
+  const usedShare = p.totals.all > 0 ? Math.min(100, Math.round((p.requested_amount / p.totals.all) * 100)) : 0
 
   return (
     <div className="space-y-4">
@@ -118,9 +122,17 @@ export default function PpmpDetail() {
               )
             })}
             <div className="rounded-xl border border-[--color-border] px-3 py-2.5">
-              <span className="block text-ui-xs text-[--color-text-muted]">Total Budget</span>
+              <span className="flex items-baseline justify-between gap-2">
+                <span className="text-ui-xs text-[--color-text-muted]">Total Budget</span>
+                <span className="text-[11px] text-[--color-text-muted]">{p.items.length} items{corrected.length ? `, ${corrected.length} corrected` : ''}</span>
+              </span>
               <span className="block text-ui-lg font-bold tabular-nums">{fmtCurrency(p.totals.all)}</span>
-              <span className="block text-[11px] text-[--color-text-muted]">{p.items.length} items{corrected.length ? `, ${corrected.length} corrected` : ''}</span>
+              <span className="mt-1 block h-1.5 overflow-hidden rounded-full bg-[--color-overlay]" title={`${usedShare}% requested`}>
+                <span className="block h-full rounded-full bg-[--color-brand] transition-all" style={{ width: `${usedShare}%` }} />
+              </span>
+              <span className="mt-1 block text-[11px] text-[--color-text-secondary] tabular-nums">
+                Requested {fmtCurrency(p.requested_amount)} ({usedShare}%) · Left {fmtCurrency(p.totals.all - p.requested_amount)}
+              </span>
             </div>
           </div>
 
@@ -153,6 +165,11 @@ export default function PpmpDetail() {
           Verified against the signed original by {p.approved_by_name} on {fmtDatetime(p.approved_at)}. Fingerprint {p.content_hash.slice(0, 16)}...
         </Notice>
       )}
+      {overHeld.length > 0 && (
+        <Notice tone="red" icon={AlertTriangle} title={`${overHeld.length} line${overHeld.length === 1 ? ' plans' : 's plan'} less than requests already hold`}>
+          {overHeld.map(i => `${i.description} (planned ${Number(i.quantity)}, requested ${i.requested})`).join('; ')}. Those requests were made under an earlier version of this PPMP.
+        </Notice>
+      )}
       {p.hash_ok === false && (
         <Notice tone="red" icon={ShieldAlert} title="Changed after it was submitted">
           The items or files no longer match the fingerprint taken when this PPMP was submitted. Treat it as not valid and report it to the administrator.
@@ -171,6 +188,7 @@ export default function PpmpDetail() {
                 <TableHead>General Description</TableHead>
                 <TableHead>Unit</TableHead>
                 <TableHead className="text-right">Qty</TableHead>
+                <TableHead className="text-right" title="Held by purchase requests, and what is left">Requested</TableHead>
                 <TableHead className="text-right">Unit Cost</TableHead>
                 <TableHead className="text-right">Estimated Budget</TableHead>
                 <TableHead>Mode</TableHead>
@@ -191,8 +209,9 @@ export default function PpmpDetail() {
                         {item.category && item.category !== rows[k - 1]?.category && (
                           <TableRow><TableCell colSpan={span} className="text-ui-xs font-semibold italic text-[--color-text-secondary]">{item.category}</TableCell></TableRow>
                         )}
-                        <TableRow className={item.corrected ? 'bg-blue-50/60' : ''}>
-                          <TableCell className="text-ui-xs text-[--color-text-muted]">{item.code || ''}</TableCell>
+                        <TableRow className={`${item.corrected ? 'bg-blue-50/60' : ''} ${item.requests.length ? 'cursor-pointer' : ''}`}
+                          onClick={() => item.requests.length && setShownLine(shownLine === item.id ? null : item.id)}>
+                          <TableCell className="text-ui-xs text-[--color-text-muted] whitespace-nowrap">{item.code || ''}</TableCell>
                           <TableCell className="max-w-96">
                             <p className="text-ui-sm">{item.description}</p>
                             {item.remarks && <p className="text-[11px] text-[--color-text-muted] mt-0.5">{item.remarks}</p>}
@@ -204,15 +223,34 @@ export default function PpmpDetail() {
                           </TableCell>
                           <TableCell>{item.unit}</TableCell>
                           <TableCell className="text-right tabular-nums">{Number(item.quantity)}</TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            <span className={item.requests.length ? 'font-semibold text-[--color-brand] underline decoration-dotted underline-offset-2' : 'text-[--color-text-muted]'}>{item.requested}</span>
+                            <span className={`block text-[11px] ${item.left < 0 ? 'font-semibold text-red-700' : 'text-[--color-text-muted]'}`}>{item.left} left</span>
+                          </TableCell>
                           <TableCell className="text-right tabular-nums">{fmtCurrency(item.unit_cost)}</TableCell>
                           <TableCell className="text-right tabular-nums font-medium">{fmtCurrency(item.budget)}</TableCell>
                           <TableCell className="text-ui-xs">{item.mode_of_procurement || ''}</TableCell>
                           <TableCell className="text-ui-xs">{monthList(item.months)}</TableCell>
                         </TableRow>
+                        {shownLine === item.id && (
+                          <TableRow className="bg-[--color-canvas]">
+                            <TableCell colSpan={span} className="py-2.5">
+                              <p className="text-[11px] font-semibold uppercase tracking-wide text-[--color-text-muted] mb-1.5">Requests holding this line</p>
+                              <div className="flex flex-wrap gap-2">
+                                {item.requests.map(q => (
+                                  <Link key={q.id} to={`/pr/${q.id}`} onClick={e => e.stopPropagation()}
+                                    className="rounded-lg border border-[--color-border] bg-white px-2.5 py-1 text-ui-xs shadow-sm hover:border-[--color-brand]">
+                                    <span className="font-semibold font-mono">{q.pr_number}</span> · {PR_STATUS_LABELS[q.status] || q.status} · {q.quantity} {item.unit}
+                                  </Link>
+                                ))}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
                       </Fragment>
                     ))}
                     <TableRow>
-                      <TableCell colSpan={5} className="text-right text-ui-xs font-semibold text-[--color-text-secondary]">Subtotal, {part === 'ps' ? 'Part I' : 'Part II'}</TableCell>
+                      <TableCell colSpan={6} className="text-right text-ui-xs font-semibold text-[--color-text-secondary]">Subtotal, {part === 'ps' ? 'Part I' : 'Part II'}</TableCell>
                       <TableCell className="text-right tabular-nums font-semibold">{fmtCurrency(p.totals[part])}</TableCell>
                       <TableCell colSpan={2} />
                     </TableRow>
@@ -220,7 +258,7 @@ export default function PpmpDetail() {
                 )
               })}
               <TableRow className="bg-[--color-brand-light]">
-                <TableCell colSpan={5} className="text-right font-bold">Total Budget</TableCell>
+                <TableCell colSpan={6} className="text-right font-bold">Total Budget</TableCell>
                 <TableCell className="text-right tabular-nums font-bold">{fmtCurrency(p.totals.all)}</TableCell>
                 <TableCell colSpan={2} />
               </TableRow>
