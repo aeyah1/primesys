@@ -1,5 +1,6 @@
 const httpError = require('./httpError')
 const { loadOrgSettings, fundCodeFor } = require('./orgSettings')
+const { norm, lineKey } = require('./ppmp')
 
 // How purchase requests draw on their office's verified Final PPMP.
 // A PR holds the quantities of its items from submission until it is rejected,
@@ -9,8 +10,6 @@ const { loadOrgSettings, fundCodeFor } = require('./orgSettings')
 const HOLDING = ['submitted', 'revision_requested', 'twg_review', 'bidding', 'for_po', 'completed']
 const MONTHS  = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 
-const norm    = (s) => String(s ?? '').toLowerCase().replace(/\s+/g, ' ').trim()
-const lineKey = (l) => `${norm(l.description)}|${norm(l.unit)}`
 const round2  = (n) => Math.round(n * 100) / 100
 const peso    = (n) => `₱${Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const qty     = (n) => String(round2(Number(n)))
@@ -26,21 +25,53 @@ async function usablePlans(db, deptId, { anyYear = false } = {}) {
   return rows
 }
 
-// What other requests hold of each line of the office's PPMP for that year, by line key.
+// The request items holding lines of the office's PPMP for that year, with their requests.
 // With `lock` it is a locking read, so a submission sees holds committed after its transaction began.
-async function heldByOthers(db, plan, exceptPrId, { lock = false } = {}) {
+async function holdRows(db, plan, { exceptPrId, lock = false } = {}) {
   const [rows] = await db.execute(
-    `SELECT STRAIGHT_JOIN li.description, li.unit, i.quantity
+    `SELECT STRAIGHT_JOIN li.description, li.unit, i.quantity, i.estimated_cost, pr.id AS pr_id, pr.pr_number, pr.title, pr.status
        FROM ppmps p
        JOIN ppmp_items li ON li.ppmp_id = p.id
        JOIN pr_items i ON i.ppmp_item_id = li.id
        JOIN purchase_requests pr ON pr.id = i.pr_id
       WHERE p.department_id = ? AND p.fiscal_year = ? AND pr.id <> ? AND pr.deleted_at IS NULL AND i.dropped_at IS NULL
-        AND pr.status IN (${HOLDING.map(() => '?').join(', ')})${lock ? ' FOR UPDATE' : ''}`,
+        AND pr.status IN (${HOLDING.map(() => '?').join(', ')})
+      ORDER BY pr.id${lock ? ' FOR UPDATE' : ''}`,
     [plan.department_id, plan.fiscal_year, exceptPrId ?? 0, ...HOLDING])
+  return rows
+}
+
+// What other requests hold of each line of the office's PPMP for that year, by line key.
+async function heldByOthers(db, plan, exceptPrId, { lock = false } = {}) {
   const held = new Map()
-  for (const r of rows) held.set(lineKey(r), (held.get(lineKey(r)) || 0) + Number(r.quantity))
+  for (const r of await holdRows(db, plan, { exceptPrId, lock })) held.set(lineKey(r), (held.get(lineKey(r)) || 0) + Number(r.quantity))
   return held
+}
+
+// A PPMP's items with what requests hold of each (requested, left, and which requests), and the estimated amount they request.
+// Holds are matched by line key, so any version of the office's PPMP for the year shows them.
+async function withUsage(db, plan, items) {
+  const usage = new Map()
+  for (const r of await holdRows(db, plan)) {
+    const key = lineKey(r)
+    if (!usage.has(key)) usage.set(key, { quantity: 0, amount: 0, requests: [] })
+    const u = usage.get(key)
+    u.quantity += Number(r.quantity)
+    u.amount += Number(r.quantity) * Number(r.estimated_cost || 0)
+    let pr = u.requests.find(x => x.id === r.pr_id)
+    if (!pr) u.requests.push(pr = { id: r.pr_id, pr_number: r.pr_number, title: r.title, status: r.status, quantity: 0 })
+    pr.quantity = round2(pr.quantity + Number(r.quantity))
+  }
+  const planned = new Map()
+  for (const i of items) planned.set(lineKey(i), (planned.get(lineKey(i)) || 0) + Number(i.quantity))
+  return {
+    items: items.map(i => {
+      const u = usage.get(lineKey(i))
+      const requested = round2(u?.quantity || 0)
+      return { ...i, key: lineKey(i), requested, left: round2(planned.get(lineKey(i)) - requested), requests: u?.requests || [] }
+    }),
+    requested_amount: round2([...planned.keys()].reduce((s, k) => s + (usage.get(k)?.amount || 0), 0)),
+  }
 }
 
 // Submissions take the office's verified plans' locks before the request's own row (pass deptId, or prId to look it up),
@@ -213,4 +244,4 @@ async function assertFollowsPpmp(db, prId) {
   }
 }
 
-module.exports = { HOLDING, usablePlans, linesLeft, linesForItems, lockOfficePlans, reviewPr, assertFollowsPpmp }
+module.exports = { HOLDING, usablePlans, linesLeft, withUsage, linesForItems, lockOfficePlans, reviewPr, assertFollowsPpmp }

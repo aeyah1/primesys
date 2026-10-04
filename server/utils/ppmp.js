@@ -28,6 +28,10 @@ async function loadPpmp(db, user, id, { lock = false } = {}) {
   return p
 }
 
+// A line's identity across a PPMP's versions: its description and unit, case and spacing ignored.
+const norm    = (s) => String(s ?? '').toLowerCase().replace(/\s+/g, ' ').trim()
+const lineKey = (l) => `${norm(l.description)}|${norm(l.unit)}`
+
 // Lower-case words of a name, punctuation dropped, padded so whole words can be matched.
 const words = (s) => ` ${String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()} `
 // Whether a file's office line names this office: its code as a whole word, or its full name.
@@ -98,4 +102,4 @@ function ppmpPermissions(user, p, { own, newer }) {
   }
 }
 
-module.exports = { READERS, OPEN, officeOf, assertOwnOffice, loadPpmp, loadItems, loadFiles, contentHash, totals, ppmpPermissions }
+module.exports = { READERS, OPEN, norm, lineKey, officeOf, assertOwnOffice, loadPpmp, loadItems, loadFiles, contentHash, totals, ppmpPermissions }
