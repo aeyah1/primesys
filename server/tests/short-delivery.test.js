@@ -26,6 +26,11 @@ function fixtures() {
     INSERT INTO quarters (id, label, year, start_date, end_date, is_active) VALUES (1, 'Q1', ${year}, '${year}-01-01', '${year}-12-31', 1);
     INSERT INTO org_settings (setting_key, setting_value) VALUES ('minimum_quotations', '1'), ('entity_name', 'NEMSU - Cantilan Campus');
     ${H.twgAreas([4])}
+    -- Requests are filed for an office and drawn from its verified PPMP (utils/ppmpUse.js).
+    INSERT INTO departments (id, code, name) VALUES (90, 'TST', 'Test Office');
+    UPDATE users SET department_id = 90 WHERE department_id IS NULL;
+    UPDATE purchase_requests SET department_id = 90 WHERE department_id IS NULL;
+    ${H.ppmpFor(90, ['Chair', 'Table', 'Laptop', 'Mouse', 'Projector', 'Speaker', 'Cable', 'Fan', 'Bulb', 'Monitor'])}
     SET FOREIGN_KEY_CHECKS = 1;
   `
 }
@@ -104,9 +109,10 @@ async function run() {
   const po1b = await poOf(p1.id, 'Alpha Computers')
   t.check(G, 'the PO: delivered, closed, P14,000 not paid', po1b.delivery_status === 'delivered' && !!po1b.closed_at && Number(po1b.short_amount) === 14000
     && po1b.close_reason === 'Supplier is out of stock' && Number(po1b.closed_by) === 2)
-  const items1 = await q('SELECT id, item_name, quantity, balance_of FROM pr_items WHERE pr_id = ? ORDER BY id', [p1.id])
+  const items1 = await q('SELECT id, item_name, quantity, balance_of, ppmp_item_id FROM pr_items WHERE pr_id = ? ORDER BY id', [p1.id])
   const balance1 = items1.find(i => i.balance_of === chair)
   t.check(G, 'the chair item keeps 40; a balance of 10 is added', Number(items1.find(i => i.id === chair).quantity) === 40 && Number(balance1?.quantity) === 10, JSON.stringify(items1))
+  t.check(G, 'the balance draws on the same PPMP line', !!balance1?.ppmp_item_id && balance1.ppmp_item_id === items1.find(i => i.id === chair).ppmp_item_id, JSON.stringify(items1))
   t.check(G, 'the request\'s budget is unchanged', (await q('SELECT SUM(quantity * estimated_cost) AS s FROM pr_items WHERE pr_id = ?', [p1.id]))[0].s == 100000)
   t.check(G, 'the chair line records 10 short', Number((await q("SELECT short_quantity FROM lot_items WHERE pr_item_id = ?", [chair]))[0].short_quantity) === 10)
   const carried = await q('SELECT q.supplier_name, qi.unit_price FROM quotation_items qi JOIN quotations q ON q.id = qi.quotation_id WHERE qi.pr_item_id = ? ORDER BY qi.unit_price', [balance1.id])

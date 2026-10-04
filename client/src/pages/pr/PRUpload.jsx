@@ -1,9 +1,8 @@
-import { useState, useRef, Fragment } from 'react'
+import { useState, Fragment } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Package, Plus, Trash2, Info } from 'lucide-react'
 import ItemCategorySelector from '@/components/shared/ItemCategorySelector'
-import UnitInput from '@/components/shared/UnitInput'
 import RequestContextForm from '@/components/shared/RequestContextForm'
 import { toast } from '@/lib/toast'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -17,8 +16,9 @@ import CategorySpecFields from '@/components/shared/CategorySpecFields'
 import { useAuth } from '@/context/AuthContext'
 import api from '@/lib/axios'
 import ReviewSubmitDialog from '@/components/shared/ReviewSubmitDialog'
+import { usePpmpPlans, takenByKey, lineChecks, PpmpLineNote, PpmpItemField, NoPpmpNotice } from '@/components/ppmp/PpmpLinePicker'
 
-const EMPTY_DRAFT = { group_label: '', stock_property_no: '', category: '', item_name: '', quantity: '1', unit: 'ream', estimated_cost: '', specs: {} }
+const EMPTY_DRAFT = { group_label: '', stock_property_no: '', category: '', ppmp_item_id: null, line: null, quantity: '1', estimated_cost: '', specs: {} }
 
 const TH = ({ children, className = '' }) => (
   <th className={`px-4 py-3 text-xs font-bold text-[--color-text-secondary] uppercase tracking-wider bg-[--color-canvas] ${className}`}>
@@ -51,7 +51,6 @@ function AutoField({ label, value }) {
 export default function PRCreate() {
   const navigate  = useNavigate()
   const qc        = useQueryClient()
-  const itemRef   = useRef(null)
   const { user }  = useAuth()
 
   const isRequestor = user?.role === 'requestor'
@@ -83,16 +82,10 @@ export default function PRCreate() {
 
   const categoryForm = CATEGORY_FORM[form.category] || CATEGORY_FORM.office_supplies
 
-  // Switch category — swap unit to category default if current unit is invalid,
-  // AND clear any structured spec values (those are category-scoped).
+  // Switch category, and clear any structured spec values (those are category-scoped).
   const setCategory = (next) => {
-    const nextForm = CATEGORY_FORM[next] || CATEGORY_FORM.office_supplies
     setF('category', next)
-    setDraft(p => ({
-      ...p,
-      unit:  nextForm.units.includes(p.unit) ? p.unit : nextForm.defaultUnit,
-      specs: {},
-    }))
+    setDraft(p => ({ ...p, specs: {} }))
   }
 
   // Staff pick the quarter and see the fund codes; a requestor's PR goes under
@@ -128,9 +121,24 @@ export default function PRCreate() {
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to create PR'),
   })
 
+  // Items come from the office's verified Final PPMP: a Fund Administrator's own, or the office staff file for.
+  const { plans, isLoading: plansLoading, lineById } = usePpmpPlans({ departmentId: isRequestor ? null : form.department_id })
+  const taken = takenByKey(items, lineById)
+  const planYear = items.map(i => lineById.get(Number(i.ppmp_item_id))?.fiscal_year).find(Boolean)
+  const checkItem = (item, exceptIndex) => {
+    const line = item.line || lineById.get(Number(item.ppmp_item_id))
+    return line ? { line, ...lineChecks(line, { quantity: item.quantity, price: item.estimated_cost, dateNeeded: form.date_needed, taken: takenByKey(items, lineById, exceptIndex).get(line.key) || 0 }) } : null
+  }
+  const draftCheck = draft.line ? checkItem(draft, -1) : null
+  const pickLine = (line) => setDraft(p => ({ ...p, ppmp_item_id: line.id, line, estimated_cost: String(line.unit_cost) }))
+
   const handleAddItem = () => {
-    if (!draft.item_name.trim()) {
-      toast.error('Item description is required')
+    if (!draft.line) {
+      toast.error('Pick the item from the PPMP')
+      return
+    }
+    if (draftCheck?.block) {
+      toast.error(draftCheck.block)
       return
     }
     if (!draft.quantity || parseFloat(draft.quantity) <= 0) {
@@ -148,28 +156,26 @@ export default function PRCreate() {
       group_label:       draft.group_label,
       stock_property_no: draft.stock_property_no.trim(),
       category:          draft.category || form.category,
-      item_name:         draft.item_name.trim(),
+      ppmp_item_id:      draft.line.id,
+      item_name:         draft.line.description,
       quantity:          draft.quantity,
-      unit:              draft.unit,
+      unit:              draft.line.unit,
       estimated_cost:    draft.estimated_cost,
       notes,
     }
     setItems(p => [...p, newItem])
-    setDraft(p => ({ ...EMPTY_DRAFT, unit: p.unit, group_label: p.group_label }))   // the section stays for the next item
-    itemRef.current?.focus({ preventScroll: true })
+    setDraft(p => ({ ...EMPTY_DRAFT, group_label: p.group_label }))   // the section stays for the next item
   }
 
   // "Add item" on a section heading: point the add form at that section.
-  const addToSection = (label) => {
-    setD('group_label', label)
-    itemRef.current?.focus()
-  }
+  const addToSection = (label) => setD('group_label', label)
 
   const handleRemoveItem = (idx) => setItems(p => p.filter((_, i) => i !== idx))
 
   const processed = items.map((item, i) => ({
     ...item,
     globalIdx: i,
+    check: checkItem(item, i),
     totalCost: (parseFloat(item.estimated_cost) || 0) * (parseFloat(item.quantity) || 1),
   }))
   const grouped     = groupItemsBySection(processed)
@@ -192,6 +198,10 @@ export default function PRCreate() {
       toast.error('Add at least one item before submitting, or save it as a draft')
       return
     }
+    if (submitNow && processed.some(i => i.check?.block)) {
+      toast.error('Lower the items marked in red to what is left in the PPMP')
+      return
+    }
     if (submitNow && !confirmed) { setReviewing(true); return }
     create({
       title:                      form.title.trim(),
@@ -210,6 +220,7 @@ export default function PRCreate() {
       // Items go with the PR in the same request, so they're saved together.
       items: items.map(item => ({
         group_label:    item.group_label    || undefined,
+        ppmp_item_id:   item.ppmp_item_id   || undefined,
         item_name:      item.item_name,
         quantity:       parseFloat(item.quantity)       || 1,
         unit:           item.unit           || undefined,
@@ -237,9 +248,9 @@ export default function PRCreate() {
           <div className="flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
             <Info className="size-4 shrink-0 mt-0.5 text-blue-700" />
             <p className="text-ui-sm text-blue-900 leading-relaxed">
-              You don't need to know procurement terms. Describe what you need and why. The Technical Working Group
-              (TWG) checks your request, and the Procurement Office handles suppliers, orders, and delivery.
-              You can save it as a draft and finish later.
+              You don't need to know procurement terms. Pick each item from your office's verified PPMP and say why
+              you need it. The Technical Working Group (TWG) checks your request, and the Procurement Office handles
+              suppliers, orders, and delivery. You can save it as a draft and finish later.
             </p>
           </div>
         )}
@@ -395,6 +406,7 @@ export default function PRCreate() {
                                     {item.notes}
                                   </div>
                                 )}
+                                {item.check && <PpmpLineNote {...item.check} left={null} planned={item.check.line.planned} className="mt-2 font-normal" />}
                               </TD>
                               <TD className="text-center tabular-nums font-medium">{item.quantity}</TD>
                               <TD className="text-right tabular-nums text-[--color-text-secondary]">
@@ -445,6 +457,9 @@ export default function PRCreate() {
             </div>
 
             {/* Add Item Form */}
+            {!plansLoading && !plans.length ? (
+              <div className="px-4 py-4"><NoPpmpNotice requestor={isRequestor} /></div>
+            ) : (
             <div className="bg-[--color-canvas] px-4 py-4 space-y-3">
               <p className="text-xs font-semibold text-[--color-text-muted] uppercase tracking-wide">Add Item</p>
 
@@ -490,28 +505,16 @@ export default function PRCreate() {
                   />
                 </div>
 
-                {/* Item Description */}
-                <div className="col-span-4 space-y-1">
-                  <Label className="text-xs">{categoryForm.itemLabel}</Label>
-                  <Input
-                    ref={itemRef}
-                    placeholder={categoryForm.itemPlaceholder}
-                    value={draft.item_name}
-                    onChange={e => setD('item_name', e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAddItem())}
-                  />
+                {/* The item, picked from the PPMP: its description and unit are the line's */}
+                <div className="col-span-4">
+                  <PpmpItemField id="pr-ppmp-item" plans={plans} isLoading={plansLoading} value={draft.line} onPick={pickLine} taken={taken} year={planYear} />
                 </div>
 
-                {/* Unit — typeable with suggested units in datalist dropdown */}
                 <div className="col-span-2 space-y-1">
                   <Label className="text-xs">Unit</Label>
-                  <UnitInput
-                    value={draft.unit}
-                    onChange={v => setD('unit', v)}
-                    options={categoryForm.units}
-                    placeholder={categoryForm.defaultUnit}
-                    className="text-sm"
-                  />
+                  <div className="flex h-10 items-center rounded-lg border border-[--color-border] bg-[--color-canvas] px-3 text-sm text-[--color-text-secondary]">
+                    {draft.line?.unit || '—'}
+                  </div>
                 </div>
 
                 {/* Quantity */}
@@ -545,13 +548,15 @@ export default function PRCreate() {
                 <div className="col-span-1 self-end">
                   <Button
                     type="button" className="w-full px-0"
-                    disabled={!draft.item_name.trim() || !draft.estimated_cost || parseFloat(draft.estimated_cost) <= 0}
+                    disabled={!draft.line || !!draftCheck?.block || !draft.estimated_cost || parseFloat(draft.estimated_cost) <= 0}
                     onClick={handleAddItem}
                   >
                     <Plus className="size-4" />
                   </Button>
                 </div>
               </div>
+
+              {draftCheck && <PpmpLineNote {...draftCheck} />}
 
               {/* Per-category structured spec fields (Brand/Model for Hardware,
                   Material/Dimensions/Color for Furniture, etc.) — replaces the
@@ -562,6 +567,7 @@ export default function PRCreate() {
                 onChange={(next) => setD('specs', next)}
               />
             </div>
+            )}
           </CardContent>
         </Card>
 

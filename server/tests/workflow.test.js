@@ -53,6 +53,11 @@ function fixtures() {
     INSERT INTO org_settings (setting_key, setting_value) VALUES ('fund_cluster', 'FC-01'), ('responsibility_center_code', 'RC-01');
     ${H.twgAreas([6])}
     ${H.LINK_POS}
+    -- Requests are filed for an office and drawn from its verified PPMP (utils/ppmpUse.js).
+    INSERT INTO departments (id, code, name) VALUES (90, 'TST', 'Test Office');
+    UPDATE users SET department_id = 90 WHERE department_id IS NULL;
+    UPDATE purchase_requests SET department_id = 90 WHERE department_id IS NULL;
+    ${H.ppmpFor(90, ['Fixture item', 'late', 'spec', 'A', 'B', 'ok', 'AM snacks', 'Day 2 snacks', 'Lunch', 'Tarpaulin', 'Bond paper'])}
     SET FOREIGN_KEY_CHECKS = 1;
   `
 }

@@ -1,6 +1,6 @@
 const fs        = require('fs')
 const router    = require('express').Router()
-const { body, param } = require('express-validator')
+const { body, param, query } = require('express-validator')
 const c         = require('../controllers/ppmp.controller')
 const auth      = require('../middleware/auth.middleware')
 const authorize = require('../middleware/authorize.middleware')
@@ -50,6 +50,11 @@ const cleanup = (req, res, next) => {
 const files = [upload.fields(['data', 'signed']), cleanup]
 
 router.get('/',          c.list)
+// What a purchase request may draw on: the office's verified Final PPMP lines and what is left of each.
+router.get('/lines',
+  query('department_id').optional().isInt({ min: 1 }).withMessage('Pick a valid office').toInt(),
+  query('pr_id').optional().isInt({ min: 1 }).withMessage('Unknown request').toInt(),
+  handle, c.lines)
 router.post('/read',     keeper, upload.single('data'), c.read)
 router.post('/',         keeper, files, payload, reviewed(true), c.upload)
 router.get('/:id',       id, c.get)

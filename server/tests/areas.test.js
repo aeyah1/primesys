@@ -40,6 +40,11 @@ function fixtures() {
     ${H.twgAreas([5, 9], ['hardware'])}
     ${H.twgAreas([6], ['event_supplies', 'food_catering'])}
     ${H.twgAreas([7], H.ALL_AREAS.filter(a => a !== 'furniture'))}
+    -- Requests are filed for an office and drawn from its verified PPMP (utils/ppmpUse.js).
+    INSERT INTO departments (id, code, name) VALUES (90, 'TST', 'Test Office');
+    UPDATE users SET department_id = 90 WHERE department_id IS NULL;
+    UPDATE purchase_requests SET department_id = 90 WHERE department_id IS NULL;
+    ${H.ppmpFor(90, ['Laptop', 'Tarpaulin', 'Router', 'Snacks', 'Monitor', 'Printer', 'Projector', 'Chair'])}
     SET FOREIGN_KEY_CHECKS = 1;
   `
 }

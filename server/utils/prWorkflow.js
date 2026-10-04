@@ -1,6 +1,7 @@
 const withTransaction = require('../db/transaction')
 const httpError       = require('./httpError')
 const { assertNoBrands } = require('./brandNames')
+const { assertFollowsPpmp, lockOfficePlans } = require('./ppmpUse')
 const { cancelAwards, awardProgress, statusFromAwards } = require('./awardWorkflow')
 
 // Purchase request workflow rules
@@ -198,6 +199,8 @@ async function editDenied(db, user, prId) {
 // is active.) The award workflow reopening the canvass keeps the others.
 async function changePRStatus(prId, to, { user, via = 'manual', note = null, ifAllowed = false, conn } = {}) {
   const run = async (db) => {
+    // A submission queues on its office's PPMP before it locks the request (utils/ppmpUse.js).
+    if (to === 'submitted') await lockOfficePlans(db, { prId })
     const pr = await loadPR(db, prId, { lock: true })
     if (!pr) throw httpError(404, 'PR not found')
     const denied = pr.status === to
@@ -217,6 +220,8 @@ async function changePRStatus(prId, to, { user, via = 'manual', note = null, ifA
       const [[details]] = await db.execute('SELECT title, purpose FROM purchase_requests WHERE id = ?', [pr.id])
       const [items] = await db.execute('SELECT item_name, notes FROM pr_items WHERE pr_id = ? ORDER BY id', [pr.id])
       assertNoBrands(details, items, { status: 409 })
+      // Every item from the office's verified Final PPMP, within what is left of its line.
+      await assertFollowsPpmp(db, pr.id)
     }
     await db.execute('UPDATE purchase_requests SET status = ? WHERE id = ?', [to, pr.id])
     let logNote = note

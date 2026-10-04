@@ -48,6 +48,11 @@ function fixtures() {
       (1, 'PO-I-001', 49, 'S49', '2026-09-01', 500, 2);
     ${H.twgAreas([6])}
     ${H.LINK_POS}
+    -- Requests are filed for an office and drawn from its verified PPMP (utils/ppmpUse.js).
+    INSERT INTO departments (id, code, name) VALUES (90, 'TST', 'Test Office');
+    UPDATE users SET department_id = 90 WHERE department_id IS NULL;
+    UPDATE purchase_requests SET department_id = 90 WHERE department_id IS NULL;
+    ${H.ppmpFor(90, ['Bond paper', 'Laptop', 'Chair', 'Toner', 'Laptop, 15.6 inch, 16GB RAM', 'Cable', 'a', 'b'])}
     SET FOREIGN_KEY_CHECKS = 1;
   `
 }

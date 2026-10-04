@@ -30,6 +30,11 @@ function fixtures() {
     INSERT INTO org_settings (setting_key, setting_value) VALUES
       ('minimum_quotations', '1'), ('bac_approval_required', '1'), ('entity_name', 'NEMSU - Cantilan Campus');
     ${H.twgAreas([4])}
+    -- Requests are filed for an office and drawn from its verified PPMP (utils/ppmpUse.js).
+    INSERT INTO departments (id, code, name) VALUES (90, 'TST', 'Test Office');
+    UPDATE users SET department_id = 90 WHERE department_id IS NULL;
+    UPDATE purchase_requests SET department_id = 90 WHERE department_id IS NULL;
+    ${H.ppmpFor(90, ['Laptop', 'Mouse', 'Chair'])}
     SET FOREIGN_KEY_CHECKS = 1;
   `
 }

@@ -29,6 +29,11 @@ function fixtures() {
       (1, 'Q1', ${new Date().getFullYear()}, '${new Date().getFullYear()}-01-01', '${new Date().getFullYear()}-12-31', 1);
     INSERT INTO org_settings (setting_key, setting_value) VALUES ('minimum_quotations', '3');
     ${H.twgAreas([4])}
+    -- Requests are filed for an office and drawn from its verified PPMP (utils/ppmpUse.js).
+    INSERT INTO departments (id, code, name) VALUES (90, 'TST', 'Test Office');
+    UPDATE users SET department_id = 90 WHERE department_id IS NULL;
+    UPDATE purchase_requests SET department_id = 90 WHERE department_id IS NULL;
+    ${H.ppmpFor(90, ['Laptop'])}
     SET FOREIGN_KEY_CHECKS = 1;
   `
 }

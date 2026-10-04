@@ -128,8 +128,8 @@ async function closeShort(conn, poId, user, { reason, carryQuotes = true, shortA
     // Part of it arrived: the item keeps that part, and a balance item takes the rest.
     await conn.execute('UPDATE pr_items SET quantity = quantity - ? WHERE id = ?', [line.remaining.toFixed(2), item.id])
     const [ins] = await conn.execute(
-      `INSERT INTO pr_items (pr_id, stock_property_no, group_label, category, item_name, quantity, unit, estimated_cost, notes, balance_of)
-       SELECT pr_id, stock_property_no, group_label, category, item_name, ?, unit, estimated_cost, notes, id FROM pr_items WHERE id = ?`,
+      `INSERT INTO pr_items (pr_id, ppmp_item_id, stock_property_no, group_label, category, item_name, quantity, unit, estimated_cost, notes, balance_of)
+       SELECT pr_id, ppmp_item_id, stock_property_no, group_label, category, item_name, ?, unit, estimated_cost, notes, id FROM pr_items WHERE id = ?`,
       [line.remaining.toFixed(2), item.id])
     if (carryQuotes) {
       const [offers] = await conn.execute(

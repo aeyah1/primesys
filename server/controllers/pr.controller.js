@@ -16,6 +16,7 @@ const { loadOrgSettings, prNumberPrefix, fundCodeFor, FUND_SOURCE_VALUES } = req
 const { requestedBy, resolveDepartment } = require('../utils/departments')
 const { reviewsCategory, notifyAreaReviewers } = require('../utils/twgAreas')
 const { assertNoBrands } = require('../utils/brandNames')
+const { linesForItems, lockOfficePlans, reviewPr } = require('../utils/ppmpUse')
 const drawPRForm = require('../pdf/prForm')
 
 // The next PR number, in the form the printed PR carries: "CSO 2026-001",
@@ -265,7 +266,7 @@ exports.create = asyncHandler(async (req, res) => {
   // Items arrive with the PR and are saved in the same transaction, so a
   // submitted PR never exists without its items and none can go missing.
   const itemList = Array.isArray(items) ? items : []
-  const badItem  = itemList.findIndex(it => !it?.item_name?.trim())
+  const badItem  = itemList.findIndex(it => !it?.item_name?.trim() && !it?.ppmp_item_id)
   if (badItem >= 0) return res.status(400).json({ message: `Item ${badItem + 1} needs a name` })
   if (initialStatus === 'submitted' && !itemList.length) {
     return res.status(400).json({ message: 'Add at least one item before submitting' })
@@ -289,14 +290,19 @@ exports.create = asyncHandler(async (req, res) => {
   // whoever encoded the request. Both the office and its head are frozen onto
   // the PR now, so a later change of chair leaves filed PRs alone
   // (utils/departments.js). The office asked for wins; otherwise the filer's own.
+  // A Fund Administrator files only for their own office, whose PPMP the request draws on.
   const [[filer]] = await pool.execute('SELECT name, designation FROM users WHERE id = ?', [req.user.id])
-  const dept = await resolveDepartment(pool, { departmentId: department_id, userId: req.user.id })
+  const dept = await resolveDepartment(pool, { departmentId: req.user.role === 'requestor' ? null : department_id, userId: req.user.id })
+  // Items picked from the office's PPMP take the line's description and unit.
+  const lines = await linesForItems(pool, dept?.id, itemList)
   const requester = requestedBy(dept, filer)
   // Office/Section prints the department's code; free text is still accepted
   // for an office that is not on the list.
   const departmentText = dept ? dept.code : (department?.trim() || null)
 
   const { prId, pr_number, category: createdCategory } = await withTransaction(async (conn) => {
+    // Submitting straight away: queue on the office's PPMP before writing any rows (utils/ppmpUse.js).
+    if (initialStatus === 'submitted') await lockOfficePlans(conn, { deptId: dept?.id })
     // Retry on UNIQUE-constraint collision (concurrent inserts picking the same suffix).
     const MAX_ATTEMPTS = 5
     let created = null
@@ -329,13 +335,14 @@ exports.create = asyncHandler(async (req, res) => {
         if (err.code !== 'ER_DUP_ENTRY' || attempt === MAX_ATTEMPTS - 1) throw err
       }
     }
-    for (const it of itemList) {
+    for (const [n, it] of itemList.entries()) {
+      const line = lines[n]
       await conn.execute(
-        `INSERT INTO pr_items (pr_id, stock_property_no, group_label, category, item_name, quantity, unit, estimated_cost, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [created.prId, it.stock_property_no?.trim() || null, it.group_label?.trim() || null,
-         isCategory(it.category) ? it.category : prCategory, it.item_name.trim(),
-         it.quantity || 1, it.unit || null, it.estimated_cost || null, it.notes || null]
+        `INSERT INTO pr_items (pr_id, ppmp_item_id, stock_property_no, group_label, category, item_name, quantity, unit, estimated_cost, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [created.prId, line?.id ?? null, it.stock_property_no?.trim() || null, it.group_label?.trim() || null,
+         isCategory(it.category) ? it.category : prCategory, line?.description ?? it.item_name.trim(),
+         it.quantity || 1, line?.unit ?? (it.unit || null), it.estimated_cost || null, it.notes || null]
       )
     }
     // The request's category follows its items, so it describes what is being
@@ -358,6 +365,12 @@ exports.create = asyncHandler(async (req, res) => {
   }
 
   res.status(201).json({ id: prId, pr_number })
+})
+
+// The request's items against its office's PPMP: each item's line, what is left of it, warnings, and what blocks submitting.
+exports.ppmpReview = asyncHandler(async (req, res) => {
+  const { plan, items, problems } = await reviewPr(pool, req.params.id)
+  res.json({ plan, items, problems })
 })
 
 exports.updateStatus = asyncHandler(async (req, res) => {
@@ -412,13 +425,16 @@ exports.update = asyncHandler(async (req, res) => {
   // form must name the head of the office it is actually filed under. A PR is
   // only editable before the TWG sees it, so this never rewrites an approved one.
   const [[owner]] = await pool.execute(
-    'SELECT u.name, u.designation FROM purchase_requests pr JOIN users u ON u.id = pr.created_by WHERE pr.id = ?',
+    'SELECT u.name, u.designation, pr.department FROM purchase_requests pr JOIN users u ON u.id = pr.created_by WHERE pr.id = ?',
     [req.params.id])
-  const dept = 'department_id' in req.body
+  // A Fund Administrator's request stays with their own office (and its PPMP).
+  const officeLocked = req.user.role === 'requestor'
+  const dept = 'department_id' in req.body && !officeLocked
     ? await resolveDepartment(pool, { departmentId: department_id })
     : undefined
   const requester = dept === undefined ? null : requestedBy(dept, owner)
-  const departmentText = dept === undefined ? (department?.trim() || null) : (dept ? dept.code : (department?.trim() || null))
+  const departmentText = officeLocked ? owner.department
+    : dept === undefined ? (department?.trim() || null) : (dept ? dept.code : (department?.trim() || null))
   // The office and its signatory move together, and only when the request
   // actually names an office: sending it empty clears all three, so a PR can't
   // end up filed under one office but signed by another's head.
