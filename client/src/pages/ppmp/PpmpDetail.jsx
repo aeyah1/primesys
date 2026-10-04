@@ -2,12 +2,14 @@ import { Fragment, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  ArrowLeft, Trash2, Printer, BadgeCheck, Undo2, Upload, ShieldCheck, ShieldAlert, AlertTriangle, FileSpreadsheet, FileSignature, Info,
+  ArrowLeft, Trash2, Printer, BadgeCheck, Undo2, Upload, ShieldCheck, ShieldAlert, AlertTriangle, FileSpreadsheet, FileSignature, Info, Search,
 } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -22,6 +24,8 @@ import api from '@/lib/axios'
 
 const TEXTAREA = 'w-full rounded-md border border-[--color-border] bg-[--color-surface] px-3 py-2 text-sm text-[--color-text-primary] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent resize-y'
 const monthList = (months) => (months || []).map(m => MONTHS[m - 1]).join(', ')
+// The items toolbar's search and filters, all cleared.
+const NO_FIND = { text: '', part: 'all', category: 'all', mode: 'all', month: 'all' }
 const fmtSize = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`)
 // "unit cost ₱150.00, quantity 4": what the file said for a corrected row.
 const FIELD_LABELS = { part: 'part', category: 'category', code: 'code', description: 'description', unit: 'unit', quantity: 'quantity', unit_cost: 'unit cost', mode_of_procurement: 'mode', months: 'months', remarks: 'remarks' }
@@ -38,6 +42,7 @@ export default function PpmpDetail() {
   const [returning, setReturning] = useState(false)
   const [reason, setReason] = useState('')
   const [shownLine, setShownLine] = useState(null)   // the line whose requests are listed
+  const [find, setFind] = useState(NO_FIND)
 
   const { data: p, isLoading, isError } = useQuery({
     queryKey: ['ppmp', id],
@@ -61,6 +66,20 @@ export default function PpmpDetail() {
   const can = p.permissions
   const corrected = p.items.filter(i => i.corrected)
   const overHeld = p.items.filter(i => i.left < 0)
+  // Search and filters for long PPMPs; "now" is this month.
+  const words = find.text.toLowerCase().split(/\s+/).filter(Boolean)
+  const pickedMonth = find.month === 'now' ? new Date().getMonth() + 1 : Number(find.month) || null
+  const matches = (i) => words.every(w => `${i.code || ''} ${i.description} ${i.category || ''} ${i.remarks || ''}`.toLowerCase().includes(w))
+    && (find.part === 'all' || i.part === find.part) && (find.category === 'all' || i.category === find.category)
+    && (find.mode === 'all' || i.mode_of_procurement === find.mode) && (!pickedMonth || i.months.includes(pickedMonth))
+  const filtering = JSON.stringify(find) !== JSON.stringify(NO_FIND)
+  const shownItems = p.items.filter(matches)
+  const categories = [...new Set(p.items.map(i => i.category).filter(Boolean))]
+  const modes = [...new Set(p.items.map(i => i.mode_of_procurement).filter(Boolean))]
+  const sum = (list) => list.reduce((t, i) => t + i.budget, 0)
+  // The month ringed in the schedule: the one filtered on, or this month in this year's PPMP.
+  const ringMonth = pickedMonth || (p.fiscal_year === new Date().getFullYear() ? new Date().getMonth() + 1 : null)
+  const setF = (k) => (v) => setFind(f => ({ ...f, [k]: v }))
   const fileOf = (role) => p.files.find(f => f.role === role)
   const download = (f) => downloadFile(`/ppmp/${id}/files/${f.id}`, f.original_name).catch(async (err) => toast.error(await blobErrorMessage(err, 'Could not open the file')))
   const approve = async () => {
@@ -178,8 +197,27 @@ export default function PpmpDetail() {
       )}
 
       <Card>
-        <div className="px-4 py-3 border-b border-[--color-border]">
-          <p className="text-ui-sm font-semibold text-[--color-text-primary]">Items</p>
+        <div className="px-4 py-3 border-b border-[--color-border] space-y-2.5">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <p className="text-ui-sm font-semibold text-[--color-text-primary]">Items</p>
+            {filtering && (
+              <p className="text-ui-xs text-[--color-text-secondary]">
+                Showing {shownItems.length} of {p.items.length} lines · {fmtCurrency(sum(shownItems))}
+                <button type="button" onClick={() => setFind(NO_FIND)} className="ml-2 font-semibold text-[--color-brand] hover:underline">Clear</button>
+              </p>
+            )}
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="relative w-full sm:w-64">
+              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[--color-text-muted]" />
+              <Input value={find.text} onChange={e => setF('text')(e.target.value)} placeholder="Search items" className="h-9 pl-9" />
+            </div>
+            <FilterSelect value={find.part} onChange={setF('part')} all="All parts" options={[['ps', 'Part I (PS-DBM)'], ['other', 'Part II (other items)']]} />
+            {categories.length > 1 && <FilterSelect value={find.category} onChange={setF('category')} all="All categories" options={categories.map(c => [c, c])} />}
+            {modes.length > 1 && <FilterSelect value={find.mode} onChange={setF('mode')} all="All modes" options={modes.map(m => [m, m])} />}
+            <FilterSelect value={find.month} onChange={setF('month')} all="Any month"
+              options={[['now', `This month (${MONTHS[new Date().getMonth()]})`], ...MONTHS.map((m, k) => [String(k + 1), `Scheduled in ${m}`])]} />
+          </div>
         </div>
         <CardContent className="p-0">
           <Table>
@@ -193,12 +231,16 @@ export default function PpmpDetail() {
                 <TableHead className="text-right">Unit Cost</TableHead>
                 <TableHead className="text-right">Estimated Budget</TableHead>
                 <TableHead>Mode</TableHead>
-                <TableHead>Schedule</TableHead>
+                <TableHead>
+                  Schedule
+                  <span className="mt-1 flex gap-0.5 font-normal">{MONTHS.map((m, k) => <span key={k} className="w-3.5 text-center text-[8px]">{m[0]}</span>)}</span>
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {Object.entries(PARTS).map(([part, title]) => {
-                const rows = p.items.filter(i => i.part === part)
+                const rows = shownItems.filter(i => i.part === part)
+                if (filtering && !rows.length) return null
                 return (
                   <Fragment key={part}>
                     <TableRow className="bg-[--color-overlay]">
@@ -231,7 +273,7 @@ export default function PpmpDetail() {
                           <TableCell className="text-right tabular-nums">{fmtCurrency(item.unit_cost)}</TableCell>
                           <TableCell className="text-right tabular-nums font-medium">{fmtCurrency(item.budget)}</TableCell>
                           <TableCell className="text-ui-xs">{item.mode_of_procurement || ''}</TableCell>
-                          <TableCell className="text-ui-xs">{monthList(item.months)}</TableCell>
+                          <TableCell><MonthGrid months={item.months} ring={ringMonth} /></TableCell>
                         </TableRow>
                         {shownLine === item.id && (
                           <TableRow className="bg-[--color-canvas]">
@@ -251,16 +293,19 @@ export default function PpmpDetail() {
                       </Fragment>
                     ))}
                     <TableRow>
-                      <TableCell colSpan={6} className="text-right text-ui-xs font-semibold text-[--color-text-secondary]">Subtotal, {part === 'ps' ? 'Part I' : 'Part II'}</TableCell>
-                      <TableCell className="text-right tabular-nums font-semibold">{fmtCurrency(p.totals[part])}</TableCell>
+                      <TableCell colSpan={6} className="text-right text-ui-xs font-semibold text-[--color-text-secondary]">{filtering ? 'Shown in' : 'Subtotal,'} {part === 'ps' ? 'Part I' : 'Part II'}</TableCell>
+                      <TableCell className="text-right tabular-nums font-semibold">{fmtCurrency(filtering ? sum(rows) : p.totals[part])}</TableCell>
                       <TableCell colSpan={2} />
                     </TableRow>
                   </Fragment>
                 )
               })}
+              {filtering && !shownItems.length && (
+                <TableRow><TableCell colSpan={span} className="py-8 text-center text-ui-sm text-[--color-text-muted]">No line matches. <button type="button" onClick={() => setFind(NO_FIND)} className="font-semibold text-[--color-brand] hover:underline">Clear the filters</button></TableCell></TableRow>
+              )}
               <TableRow className="bg-[--color-brand-light]">
-                <TableCell colSpan={6} className="text-right font-bold">Total Budget</TableCell>
-                <TableCell className="text-right tabular-nums font-bold">{fmtCurrency(p.totals.all)}</TableCell>
+                <TableCell colSpan={6} className="text-right font-bold">{filtering ? 'Total shown' : 'Total Budget'}</TableCell>
+                <TableCell className="text-right tabular-nums font-bold">{fmtCurrency(filtering ? sum(shownItems) : p.totals.all)}</TableCell>
                 <TableCell colSpan={2} />
               </TableRow>
             </TableBody>
@@ -298,5 +343,29 @@ export default function PpmpDetail() {
         </DialogContent>
       </Dialog>
     </div>
+  )
+}
+
+// A filter on the items toolbar: "all" plus [value, label] options.
+function FilterSelect({ value, onChange, all, options }) {
+  return (
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger className={`h-9 w-auto min-w-36 ${value === 'all' ? '' : 'border-[--color-brand] text-[--color-brand]'}`}><SelectValue /></SelectTrigger>
+      <SelectContent>
+        <SelectItem value="all">{all}</SelectItem>
+        {options.map(([v, label]) => <SelectItem key={v} value={v}>{label}</SelectItem>)}
+      </SelectContent>
+    </Select>
+  )
+}
+
+// A line's schedule as the printed form's twelve month boxes; `ring` marks the month being looked at.
+function MonthGrid({ months, ring }) {
+  return (
+    <span className="flex gap-0.5" title={monthList(months) || 'Not scheduled'}>
+      {MONTHS.map((m, k) => (
+        <span key={k} className={`size-3.5 rounded-sm ${months.includes(k + 1) ? 'bg-[--color-brand]' : 'bg-[--color-overlay]'} ${ring === k + 1 ? 'ring-2 ring-amber-400 ring-offset-1' : ''}`} />
+      ))}
+    </span>
   )
 }
