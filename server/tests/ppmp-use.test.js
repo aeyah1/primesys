@@ -191,6 +191,14 @@ async function run() {
     r => item(r, 'Bond paper, A4, 80gsm').left === 8 && item(r, 'Toner cartridge, black').requested === 2 && item(r, 'Toner cartridge, black').left === 0
       && r.data.requested_amount === 8200, '8 and 0 left, 8200')
 
+  // ── What an amendment changed ───────────────────────────────────────
+  const D = 'Changes'
+  await is(D, 'an amendment lists what changed from the version it replaces', 1, 'GET', '/ppmp/11', undefined,
+    r => r.data.changes?.against.id === 10 && r.data.changes.added.length === 0
+      && r.data.changes.removed.map(i => i.description).join() === 'Toner cartridge, black'
+      && JSON.stringify(r.data.changes.changed.map(i => i.fields)) === JSON.stringify([[{ field: 'quantity', from: 10, to: 40 }]]), 'toner removed, paper 10 to 40')
+  await is(D, 'a first version has nothing to compare', 1, 'GET', '/ppmp/10', undefined, r => r.data.changes === null, 'null')
+
   // ── Which offices can file requests ─────────────────────────────────
   const C = 'Coverage'
   const office = (r, code) => r.data.offices.find(o => o.code === code)

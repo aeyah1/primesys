@@ -2,7 +2,7 @@ import { Fragment, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  ArrowLeft, Trash2, Printer, BadgeCheck, Undo2, Upload, ShieldCheck, ShieldAlert, AlertTriangle, FileSpreadsheet, FileSignature, Info, Search,
+  ArrowLeft, Trash2, Printer, BadgeCheck, Undo2, Upload, ShieldCheck, ShieldAlert, AlertTriangle, FileSpreadsheet, FileSignature, Info, Search, GitCompare, FilePlus,
 } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Card, CardContent } from '@/components/ui/card'
@@ -21,6 +21,7 @@ import Notice from '@/components/ppmp/PpmpNotice'
 import { fmtCurrency, fmtDatetime, FUND_SOURCES, PR_STATUS_LABELS } from '@/lib/utils'
 import { openPdf, downloadFile, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
+import { useAuth } from '@/context/AuthContext'
 
 const TEXTAREA = 'w-full rounded-md border border-[--color-border] bg-[--color-surface] px-3 py-2 text-sm text-[--color-text-primary] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent resize-y'
 const monthList = (months) => (months || []).map(m => MONTHS[m - 1]).join(', ')
@@ -43,6 +44,8 @@ export default function PpmpDetail() {
   const [reason, setReason] = useState('')
   const [shownLine, setShownLine] = useState(null)   // the line whose requests are listed
   const [find, setFind] = useState(NO_FIND)
+  const [picked, setPicked] = useState(() => new Set())   // lines ticked for "Request these"
+  const { user } = useAuth()
 
   const { data: p, isLoading, isError } = useQuery({
     queryKey: ['ppmp', id],
@@ -80,6 +83,15 @@ export default function PpmpDetail() {
   // The month ringed in the schedule: the one filtered on, or this month in this year's PPMP.
   const ringMonth = pickedMonth || (p.fiscal_year === new Date().getFullYear() ? new Date().getMonth() + 1 : null)
   const setF = (k) => (v) => setFind(f => ({ ...f, [k]: v }))
+  // A verified Final PPMP still open for requests: those who file them can start one from ticked lines.
+  const canRequest = p.status === 'approved' && p.kind === 'final' && p.fiscal_year >= new Date().getFullYear()
+    && ['requestor', 'procurement', 'admin'].includes(user?.role)
+  const lead = canRequest ? 1 : 0
+  const toggle = (itemId) => setPicked(prev => { const next = new Set(prev); next.has(itemId) ? next.delete(itemId) : next.add(itemId); return next })
+  const requestPicked = () => navigate('/pr/create', { state: { ppmpLines: [...picked], departmentId: p.department_id } })
+  // Lines new or changed since the version this one replaces.
+  const added = new Set(p.changes?.added.map(i => i.key))
+  const changed = new Set(p.changes?.changed.map(i => i.key))
   const fileOf = (role) => p.files.find(f => f.role === role)
   const download = (f) => downloadFile(`/ppmp/${id}/files/${f.id}`, f.original_name).catch(async (err) => toast.error(await blobErrorMessage(err, 'Could not open the file')))
   const approve = async () => {
@@ -93,7 +105,7 @@ export default function PpmpDetail() {
     if (await confirm({ title: 'Delete this PPMP?', message: 'The returned PPMP and its uploaded files are removed.', confirmLabel: 'Delete', danger: true })) act({ path: '', method: 'delete' })
   }
   const print = () => openPdf(`/ppmp/${id}/pdf`).catch(async (err) => toast.error(await blobErrorMessage(err, 'Could not open the PPMP')))
-  const span = 9
+  const span = 8 + (canRequest ? 1 : 0)
   // What purchase requests have asked of the plan so far, by their estimates.
   const usedShare = p.totals.all > 0 ? Math.min(100, Math.round((p.requested_amount / p.totals.all) * 100)) : 0
 
@@ -196,10 +208,18 @@ export default function PpmpDetail() {
         </Notice>
       )}
 
+      {p.changes && (p.changes.added.length + p.changes.removed.length + p.changes.changed.length > 0) && <Changes changes={p.changes} />}
+
       <Card>
         <div className="px-4 py-3 border-b border-[--color-border] space-y-2.5">
           <div className="flex items-center justify-between gap-3 flex-wrap">
-            <p className="text-ui-sm font-semibold text-[--color-text-primary]">Items</p>
+            <p className="text-ui-sm font-semibold text-[--color-text-primary]">
+              Items
+              {canRequest && <span className="ml-2 font-normal text-ui-xs text-[--color-text-muted]">Tick lines to start a purchase request from them.</span>}
+            </p>
+            {picked.size > 0 && (
+              <Button size="sm" onClick={requestPicked} className="gap-2"><FilePlus className="size-4" /> Request selected ({picked.size})</Button>
+            )}
             {filtering && (
               <p className="text-ui-xs text-[--color-text-secondary]">
                 Showing {shownItems.length} of {p.items.length} lines · {fmtCurrency(sum(shownItems))}
@@ -223,7 +243,7 @@ export default function PpmpDetail() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Code</TableHead>
+                {canRequest && <TableHead className="w-8" />}
                 <TableHead>General Description</TableHead>
                 <TableHead>Unit</TableHead>
                 <TableHead className="text-right">Qty</TableHead>
@@ -233,7 +253,7 @@ export default function PpmpDetail() {
                 <TableHead>Mode</TableHead>
                 <TableHead>
                   Schedule
-                  <span className="mt-1 flex gap-0.5 font-normal">{MONTHS.map((m, k) => <span key={k} className="w-3.5 text-center text-[8px]">{m[0]}</span>)}</span>
+                  <span className="mt-1 flex gap-0.5 font-normal">{MONTHS.map((m, k) => <span key={k} className="w-3 text-center text-[8px]">{m[0]}</span>)}</span>
                 </TableHead>
               </TableRow>
             </TableHeader>
@@ -254,9 +274,19 @@ export default function PpmpDetail() {
                         )}
                         <TableRow className={`${item.corrected ? 'bg-blue-50/60' : ''} ${item.requests.length ? 'cursor-pointer' : ''}`}
                           onClick={() => item.requests.length && setShownLine(shownLine === item.id ? null : item.id)}>
-                          <TableCell className="text-ui-xs text-[--color-text-muted] whitespace-nowrap">{item.code || ''}</TableCell>
+                          {canRequest && (
+                            <TableCell onClick={e => e.stopPropagation()}>
+                              <input type="checkbox" aria-label={`Request ${item.description}`} disabled={item.left <= 0} checked={picked.has(item.id)}
+                                onChange={() => toggle(item.id)} className="size-4 accent-[--color-brand] cursor-pointer disabled:cursor-not-allowed" />
+                            </TableCell>
+                          )}
                           <TableCell className="max-w-96">
-                            <p className="text-ui-sm">{item.description}</p>
+                            {item.code && <p className="text-[11px] font-medium text-[--color-text-muted]">{item.code}</p>}
+                            <p className="text-ui-sm">
+                              {item.description}
+                              {added.has(item.key) && <span className="ml-1.5 rounded-full bg-green-100 px-1.5 py-0.5 text-[10px] font-semibold text-green-800">New</span>}
+                              {changed.has(item.key) && <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">Changed</span>}
+                            </p>
                             {item.remarks && <p className="text-[11px] text-[--color-text-muted] mt-0.5">{item.remarks}</p>}
                             {item.corrected && (
                               <p className="text-[11px] font-medium text-blue-800 mt-1">
@@ -293,7 +323,7 @@ export default function PpmpDetail() {
                       </Fragment>
                     ))}
                     <TableRow>
-                      <TableCell colSpan={6} className="text-right text-ui-xs font-semibold text-[--color-text-secondary]">{filtering ? 'Shown in' : 'Subtotal,'} {part === 'ps' ? 'Part I' : 'Part II'}</TableCell>
+                      <TableCell colSpan={5 + lead} className="text-right text-ui-xs font-semibold text-[--color-text-secondary]">{filtering ? 'Shown in' : 'Subtotal,'} {part === 'ps' ? 'Part I' : 'Part II'}</TableCell>
                       <TableCell className="text-right tabular-nums font-semibold">{fmtCurrency(filtering ? sum(rows) : p.totals[part])}</TableCell>
                       <TableCell colSpan={2} />
                     </TableRow>
@@ -304,7 +334,7 @@ export default function PpmpDetail() {
                 <TableRow><TableCell colSpan={span} className="py-8 text-center text-ui-sm text-[--color-text-muted]">No line matches. <button type="button" onClick={() => setFind(NO_FIND)} className="font-semibold text-[--color-brand] hover:underline">Clear the filters</button></TableCell></TableRow>
               )}
               <TableRow className="bg-[--color-brand-light]">
-                <TableCell colSpan={6} className="text-right font-bold">{filtering ? 'Total shown' : 'Total Budget'}</TableCell>
+                <TableCell colSpan={5 + lead} className="text-right font-bold">{filtering ? 'Total shown' : 'Total Budget'}</TableCell>
                 <TableCell className="text-right tabular-nums font-bold">{fmtCurrency(filtering ? sum(shownItems) : p.totals.all)}</TableCell>
                 <TableCell colSpan={2} />
               </TableRow>
@@ -364,8 +394,38 @@ function MonthGrid({ months, ring }) {
   return (
     <span className="flex gap-0.5" title={monthList(months) || 'Not scheduled'}>
       {MONTHS.map((m, k) => (
-        <span key={k} className={`size-3.5 rounded-sm ${months.includes(k + 1) ? 'bg-[--color-brand]' : 'bg-[--color-overlay]'} ${ring === k + 1 ? 'ring-2 ring-amber-400 ring-offset-1' : ''}`} />
+        <span key={k} className={`size-3 rounded-sm ${months.includes(k + 1) ? 'bg-[--color-brand]' : 'bg-[--color-overlay]'} ${ring === k + 1 ? 'ring-2 ring-amber-400 ring-offset-1' : ''}`} />
       ))}
     </span>
+  )
+}
+
+// How the changed fields of a line read: "Qty 10 to 40".
+const CHANGE_LABELS = { quantity: 'Qty', unit_cost: 'Unit cost', months: 'Schedule', mode_of_procurement: 'Mode' }
+const changeValue = (f, v) => (f === 'unit_cost' ? fmtCurrency(v) : f === 'months' ? monthList(v) || 'none' : v || 'none')
+
+// What an amended PPMP changed from the version it replaces, for the approver to check those lines first.
+function Changes({ changes }) {
+  const { added, removed, changed, against } = changes
+  const line = (i) => `${i.description} (${i.quantity} ${i.unit} at ${fmtCurrency(i.unit_cost)})`
+  return (
+    <Card>
+      <CardContent className="py-4 space-y-2">
+        <p className="flex items-center gap-2 text-ui-sm font-semibold text-[--color-text-primary]">
+          <GitCompare className="size-4 text-[--color-brand]" />
+          Changes from <Link to={`/ppmp/${against.id}`} className="text-[--color-brand] hover:underline">PPMP No. {against.version_no}</Link>
+          <span className="font-normal text-ui-xs text-[--color-text-muted]">{added.length} added · {removed.length} removed · {changed.length} changed</span>
+        </p>
+        <ul className="space-y-1 text-ui-xs text-[--color-text-secondary]">
+          {added.map(i => <li key={`a${i.key}`}><span className="font-semibold text-green-800">Added</span> {line(i)}</li>)}
+          {removed.map(i => <li key={`r${i.key}`}><span className="font-semibold text-red-700">Removed</span> {line(i)}</li>)}
+          {changed.map(i => (
+            <li key={`c${i.key}`}>
+              <span className="font-semibold text-amber-800">Changed</span> {i.description}: {i.fields.map(f => `${CHANGE_LABELS[f.field]} ${changeValue(f.field, f.from)} to ${changeValue(f.field, f.to)}`).join('; ')}
+            </li>
+          ))}
+        </ul>
+      </CardContent>
+    </Card>
   )
 }

@@ -1,5 +1,5 @@
-import { useState, Fragment } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useEffect, useRef, Fragment } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Package, Plus, Trash2, Info } from 'lucide-react'
 import ItemCategorySelector from '@/components/shared/ItemCategorySelector'
@@ -50,6 +50,8 @@ function AutoField({ label, value }) {
 
 export default function PRCreate() {
   const navigate  = useNavigate()
+  // Lines ticked on a PPMP page ("Request selected"), and that PPMP's office.
+  const fromPpmp  = useLocation().state
   const qc        = useQueryClient()
   const { user }  = useAuth()
 
@@ -62,7 +64,7 @@ export default function PRCreate() {
     fund_source: 'STF',
     // Request Context (the new end-user-centric fields)
     department: '',
-    department_id: '',
+    department_id: fromPpmp?.departmentId || '',
     purpose_type: 'personal',
     date_needed: '',
     event_name: '',
@@ -131,6 +133,19 @@ export default function PRCreate() {
   }
   const draftCheck = draft.line ? checkItem(draft, -1) : null
   const pickLine = (line) => setDraft(p => ({ ...p, ppmp_item_id: line.id, line, estimated_cost: String(line.unit_cost) }))
+
+  // The ticked PPMP lines start the item list, one each at the PPMP's price, once the lines are loaded.
+  const seeded = useRef(false)
+  useEffect(() => {
+    if (seeded.current || !fromPpmp?.ppmpLines?.length || plansLoading) return
+    seeded.current = true
+    const lines = fromPpmp.ppmpLines.map(id => lineById.get(Number(id))).filter(l => l && l.remaining > 0)
+    setItems(lines.map(l => ({
+      group_label: '', stock_property_no: '', category: form.category, ppmp_item_id: l.id,
+      item_name: l.description, quantity: '1', unit: l.unit, estimated_cost: String(l.unit_cost), notes: '',
+    })))
+    if (lines.length) toast.success(`${lines.length} item${lines.length === 1 ? '' : 's'} from the PPMP added. Set how many of each you need.`)
+  }, [fromPpmp, plansLoading, lineById, form.category])
 
   const handleAddItem = () => {
     if (!draft.line) {
