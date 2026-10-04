@@ -28,6 +28,26 @@ async function loadPpmp(db, user, id, { lock = false } = {}) {
   return p
 }
 
+// Lower-case words of a name, punctuation dropped, padded so whole words can be matched.
+const words = (s) => ` ${String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()} `
+// Whether a file's office line names this office: its code as a whole word, or its full name.
+const namesOffice = (text, d) => words(text).includes(words(d.code)) || words(text).includes(words(d.name))
+
+// Throws unless the file's office line names the user's registered office, so a PPMP only lands under its own office.
+async function assertOwnOffice(db, userId, fileOffice) {
+  const [[me]] = await db.execute('SELECT d.id, d.code, d.name FROM users u JOIN departments d ON d.id = u.department_id WHERE u.id = ?', [userId])
+  if (!me) throw httpError(409, 'Your account has no office yet. Ask the administrator to set it.')
+  if (!fileOffice) {
+    throw httpError(400, `The file doesn't say which office its PPMP is for. Its header needs a line like "End-User or Implementing Unit: ${me.name}".`)
+  }
+  if (namesOffice(fileOffice, me)) return me
+  const [offices] = await db.execute('SELECT code, name FROM departments WHERE id <> ?', [me.id])
+  const other = offices.find(d => namesOffice(fileOffice, d))
+  throw httpError(400, other
+    ? `This file is the PPMP of ${other.name} (${other.code}). Your office is ${me.name} (${me.code}); upload your own office's PPMP.`
+    : `The file is for "${fileOffice}", which is not your registered office, ${me.name} (${me.code}).`)
+}
+
 // Item lines in the order they print, with the months as numbers.
 async function loadItems(db, ppmpId) {
   const [rows] = await db.execute(
@@ -78,4 +98,4 @@ function ppmpPermissions(user, p, { own, newer }) {
   }
 }
 
-module.exports = { READERS, OPEN, officeOf, loadPpmp, loadItems, loadFiles, contentHash, totals, ppmpPermissions }
+module.exports = { READERS, OPEN, officeOf, assertOwnOffice, loadPpmp, loadItems, loadFiles, contentHash, totals, ppmpPermissions }

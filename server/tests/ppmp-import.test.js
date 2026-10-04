@@ -2,7 +2,7 @@
 // Real HTTP against a throwaway database, with real .xlsx and .docx files built in tests/office-files.js.
 const path = require('path')
 const H    = require('./harness')
-const { makeXlsx, makeDocx, SAMPLE_ROWS } = require('./office-files')
+const { makeXlsx, makeDocx, SAMPLE_ROWS, rowsFor } = require('./office-files')
 
 const { db: TEST_DB, base: BASE } = H.configure({ db: 'primesys_ppmp_import_test_tmp', port: 5129 })
 const serverReq = (m) => require(require.resolve(m, { paths: [H.SERVER] }))
@@ -48,7 +48,7 @@ async function run() {
   const r = await is(X, 'the DBM-style workbook is read', 3, xlsx, 'PPMP 2027.xlsx', r => r.status === 200 && r.data.items.length === 7)
   const items = r.data.items || []
   const by = (d) => items.find(i => i.description.startsWith(d)) || {}
-  t.check(X, 'the header: fiscal year and office', r.data.header?.fiscal_year === 2027 && r.data.header?.office === 'ICT Office' && r.data.office_mismatch === null, JSON.stringify(r.data.header))
+  t.check(X, 'the header: fiscal year and office', r.data.header?.fiscal_year === 2027 && r.data.header?.office === 'ICT Office', JSON.stringify(r.data.header))
   t.check(X, 'each item keeps its row in the file', by('ALCOHOL').row === 8 && by('Ink').row === 19, `${by('ALCOHOL').row} ${by('Ink').row}`)
   t.check(X, 'Part I items, their category and code', by('ALCOHOL').part === 'ps' && by('ALCOHOL').category === 'Solvents' && by('ALCOHOL').code === 'DBM-PS2', JSON.stringify(by('ALCOHOL')))
   t.check(X, '"DBM-PS" reads as Agency-to-Agency, "SVP" as Small Value Procurement', by('ALCOHOL').mode_of_procurement === 'Agency-to-Agency' && by('Ballpen').mode_of_procurement === 'Small Value Procurement')
@@ -62,7 +62,21 @@ async function run() {
   t.check(X, 'the file\'s total is read ("PHP 46,369.90")', r.data.file_total === 46369.9, String(r.data.file_total))
   const n = (await H.sql(TEST_DB, 'SELECT COUNT(*) AS n FROM ppmps'))[0].n
   t.check(X, 'nothing is saved by reading', n === 0, n)
-  await is(X, 'another office\'s file is flagged', 4, xlsx, 'ict.xlsx', r => r.status === 200 && /names "ICT Office", not HR/.test(r.data.office_mismatch), 'office_mismatch')
+
+  // ── The office named in the file ─────────────────────────────────────
+  const O = 'Office'
+  await is(O, 'another office\'s file is refused, naming both offices', 4, xlsx, 'ict.xlsx',
+    r => r.status === 400 && /PPMP of ICT Office \(ICT\)\. Your office is Human Resources Office \(HR\)/.test(r.data.message), '400')
+  await is(O, 'a file that names no office is refused', 3, makeXlsx(SAMPLE_ROWS.filter(r => !String(r[0]).startsWith('Department'))), 'no-office.xlsx',
+    r => r.status === 400 && /doesn't say which office/.test(r.data.message), '400')
+  await is(O, 'an office the system does not know is refused', 3, makeXlsx(rowsFor('Accounting Office')), 'acct.xlsx',
+    r => r.status === 400 && /"Accounting Office", which is not your registered office, ICT Office \(ICT\)/.test(r.data.message), '400')
+  await is(O, 'the office named by its code is accepted', 4, makeXlsx(rowsFor('HR')), 'hr-code.xlsx', r => r.status === 200)
+  await is(O, '…and by its full name', 4, makeXlsx(rowsFor('Human Resources Office')), 'hr-name.xlsx', r => r.status === 200)
+  const table = SAMPLE_ROWS.slice(3).map(r => r.map(String))
+  await is(O, 'a Word file\'s office line above its table is read', 4, makeDocx(table, ['PROJECT PROCUREMENT MANAGEMENT PLAN', 'End-User or Implementing Unit: Human Resources Office', 'Fiscal Year: 2027']), 'hr.docx',
+    r => r.status === 200 && r.data.header.office === 'Human Resources Office' && r.data.header.fiscal_year === 2027 && r.data.items.length === 7, '200')
+  await is(O, '"Office/Section:" is read too', 3, makeXlsx(SAMPLE_ROWS.map(r => (String(r[0]).startsWith('Department') ? ['Office/Section: ICT', ...r.slice(1)] : r))), 'section.xlsx', r => r.status === 200)
 
   // ── Word and CSV ─────────────────────────────────────────────────────
   const W = 'Word and CSV'
@@ -70,6 +84,7 @@ async function run() {
     r => r.status === 200 && r.data.items.length === 7 && r.data.file_total === 46369.9)
   const csv = [
     'Fiscal Year: 2027,,Source of Funds: GAA - General Appropriations Act',
+    'End-User or Implementing Unit: ICT Office',
     'Item & Specifications,Unit of Measure,Jan,Feb,Mar,Apr,May,Jun,Jul,Aug,Sep,Oct,Nov,Dec,Total Quantity for the year,"Price (Catalogue as of Jan 2027)",Total Amount for the year',
     '"Folder, long, brown",pc,50,,,50,,,,,,,,,100,"8.50","850.00"',
     '"Stapler, heavy duty",pc,,,2,,,,,,,,,,2,350,700',

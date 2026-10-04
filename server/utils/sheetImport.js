@@ -78,11 +78,16 @@ function readXlsx(buf) {
 function readDocx(buf) {
   const doc = unzip(buf).get('word/document.xml')?.toString('utf8')
   if (!doc) throw httpError(400, 'This is not a Word document')
-  const tables = [...doc.matchAll(/<w:tbl>([\s\S]*?)<\/w:tbl>/g)].map(t =>
-    [...t[1].matchAll(/<w:tr\b[^>]*>([\s\S]*?)<\/w:tr>/g)].map(r =>
-      [...r[1].matchAll(/<w:tc>([\s\S]*?)<\/w:tc>/g)].map(c => textOf(c[1], 'w:t').trim())))
+  const tables = [...doc.matchAll(/<w:tbl>([\s\S]*?)<\/w:tbl>/g)].map(t => ({
+    at: t.index,
+    rows: [...t[1].matchAll(/<w:tr\b[^>]*>([\s\S]*?)<\/w:tr>/g)].map(r =>
+      [...r[1].matchAll(/<w:tc>([\s\S]*?)<\/w:tc>/g)].map(c => textOf(c[1], 'w:t').trim())),
+  }))
   if (!tables.length) throw httpError(400, 'The Word document has no table to read')
-  return tables.sort((a, b) => b.length - a.length)[0].slice(0, MAX_ROWS)
+  const table = tables.sort((a, b) => b.rows.length - a.rows.length)[0]
+  // The lines above the table (title, office, fiscal year) come first, one per row.
+  const above = [...doc.slice(0, table.at).matchAll(/<w:p\b[^>]*>([\s\S]*?)<\/w:p>/g)].map(p => [textOf(p[1], 'w:t').trim()]).filter(r => r[0])
+  return [...above, ...table.rows].slice(0, MAX_ROWS)
 }
 
 // A CSV file as rows of strings (commas, quoted fields, doubled quotes).

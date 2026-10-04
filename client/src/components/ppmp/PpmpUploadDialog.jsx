@@ -44,7 +44,7 @@ export default function PpmpUploadDialog({ open, ppmp = null, fiscalYear = null,
   const [signed, setSigned] = useState(null)
   const [reading, setReading] = useState(false)
   const [sending, setSending] = useState(false)
-  const [result, setResult] = useState(null)   // { rows: [{ ...item, include, original }], file_total, header, office_mismatch }
+  const [result, setResult] = useState(null)   // { rows: [{ ...item, include, original }], file_total, header }
   const [head, setHead] = useState({ fiscal_year: '', kind: 'final', fund_source: 'STF' })
   const [editing, setEditing] = useState(null)
   const fixedYear = ppmp?.fiscal_year || fiscalYear
@@ -113,7 +113,7 @@ export default function PpmpUploadDialog({ open, ppmp = null, fiscalYear = null,
                 <FilePick icon={FileSignature} title="2. Signed copy" hint="The signed PPMP, scanned or photographed (PDF or image)" accept=".pdf,.jpg,.jpeg,.png,.webp" file={signed} onPick={setSigned} />
               </div>
               <p className="text-ui-xs text-[--color-text-secondary]">
-                The data file needs a header row with columns like Description, Unit, Quantity, and Unit Cost. Part I / Part II headings,
+                The data file must name your office at the top (End-User or Implementing Unit) and have a header row with columns like Description, Unit, Quantity, and Unit Cost. Part I / Part II headings,
                 categories, the months, and the mode of procurement are picked up when present. The signed copy is kept with it, so the
                 approver can check the system copy against what was signed.
               </p>
@@ -157,7 +157,6 @@ export default function PpmpUploadDialog({ open, ppmp = null, fiscalYear = null,
                     The file says {fmtCurrency(result.file_total)}
                   </span>
                 )}
-                {result.office_mismatch && <span className="inline-flex items-center gap-1 text-amber-700 font-semibold"><AlertTriangle className="size-3.5" /> {result.office_mismatch}</span>}
               </div>
 
               <div className="max-h-[48vh] overflow-auto rounded-xl border border-[--color-border]">
