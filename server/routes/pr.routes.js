@@ -33,6 +33,8 @@ const prFields = (titleRequired) => [
 ]
 // Item fields; `name` words each message ("Quantity ..." or "Item 2 quantity ...").
 const itemFields = (prefix, name) => [
+  // The office's PPMP line the item is picked from.
+  idRule(`${prefix}ppmp_item_id`, 'Pick the item from the PPMP again'),
   textRule(`${prefix}group_label`, name('section name'), 255),
   textRule(`${prefix}stock_property_no`, name('stock/property no.'), 50),
   // What kind of thing this is; the request's own category follows from these.
@@ -77,6 +79,8 @@ router.get('/:id/pdf',   prRead, c.generatePDF)
 // The Request for Quotation, for the staff who canvass suppliers.
 router.get('/:id/rfq',   authorize('procurement', 'admin'), prRead, c.generateRFQ)
 router.get('/:id',       prRead, c.getById)
+// Its items against the office's PPMP.
+router.get('/:id/ppmp',  prRead, c.ppmpReview)
 
 router.post('/:id/read', prRead, c.markRead)
 
@@ -127,7 +131,7 @@ router.post('/:id/remind',
 // PR Items
 router.get('/:id/items',              prRead, items.listItems)
 router.post('/:id/items',             authorize('procurement', 'admin', 'requestor'), prAccess,
-  textRule('item_name', 'Item name', 500, { required: true }), itemFields('', oneItem), handle, items.addItem)
+  itemFields('', oneItem), handle, items.addItem)   // a picked PPMP line names the item, so the name is checked in the controller
 router.patch('/:id/items/:itemId',    authorize('procurement', 'admin', 'requestor'), prAccess,
   itemFields('', oneItem), handle, items.updateItem)
 router.delete('/:id/items/:itemId',   authorize('procurement', 'admin', 'requestor'), prAccess, items.deleteItem)

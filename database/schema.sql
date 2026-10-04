@@ -167,6 +167,8 @@ CREATE TABLE `purchase_requests` (
 CREATE TABLE `pr_items` (
   `id`             INT UNSIGNED  NOT NULL AUTO_INCREMENT,
   `pr_id`          INT UNSIGNED  NOT NULL,
+  -- The PPMP line this item is drawn from (server/utils/ppmpUse.js); its foreign key follows ppmp_items below.
+  `ppmp_item_id`   INT UNSIGNED  NULL,
   -- Stock/Property No. on the PR form; assigned by the Supply Office, often blank.
   `stock_property_no` VARCHAR(50) NULL,
   `group_label`    VARCHAR(255)  NULL,
@@ -188,6 +190,7 @@ CREATE TABLE `pr_items` (
   PRIMARY KEY (`id`),
   KEY `idx_pr_items_pr_id` (`pr_id`),
   KEY `idx_pr_items_category` (`category`),
+  KEY `idx_pr_items_ppmp_item` (`ppmp_item_id`),
   CONSTRAINT `fk_pr_items_pr`         FOREIGN KEY (`pr_id`)      REFERENCES `purchase_requests` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_pr_items_dropped_by` FOREIGN KEY (`dropped_by`) REFERENCES `users` (`id`)             ON DELETE SET NULL,
   CONSTRAINT `fk_pr_items_balance_of` FOREIGN KEY (`balance_of`) REFERENCES `pr_items` (`id`)          ON DELETE SET NULL
@@ -636,6 +639,8 @@ CREATE TABLE `ppmp_items` (
   KEY `idx_ppmp_items_ppmp` (`ppmp_id`),
   CONSTRAINT `fk_ppmp_items_ppmp` FOREIGN KEY (`ppmp_id`) REFERENCES `ppmps` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE `pr_items` ADD CONSTRAINT `fk_pr_items_ppmp_item` FOREIGN KEY (`ppmp_item_id`) REFERENCES `ppmp_items` (`id`);
 
 -- The two original files of a PPMP: the data file its items were read from, and the signed copy.
 CREATE TABLE `ppmp_attachments` (

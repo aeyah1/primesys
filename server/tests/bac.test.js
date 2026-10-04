@@ -30,6 +30,9 @@ function fixtures() {
       ('minimum_quotations', '1'), ('bac_approval_required', '1'),
       ('bac_chairman_name', 'CHAIR PERSON'), ('bac_members', 'MEMBER ONE\\nMEMBER TWO\\n\\nMEMBER THREE');
     ${H.twgAreas([4])}
+    -- Procurement files for Office B, drawn from its verified PPMP (utils/ppmpUse.js).
+    UPDATE users SET department_id = 2 WHERE id = 2;
+    ${H.ppmpFor(2, ['Laptop', 'Mouse', 'Pen'])}
     SET FOREIGN_KEY_CHECKS = 1;
   `
 }

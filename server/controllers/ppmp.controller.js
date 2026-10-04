@@ -12,6 +12,7 @@ const { readTable }   = require('../utils/sheetImport')
 const { mapPpmp }     = require('../utils/ppmpImport')
 const { loadOrgSettings } = require('../utils/orgSettings')
 const { assertNoBrands }  = require('../utils/brandNames')
+const { usablePlans, linesLeft } = require('../utils/ppmpUse')
 const { officeOf, assertOwnOffice, loadPpmp, loadItems, loadFiles, contentHash, totals, ppmpPermissions } = require('../utils/ppmp')
 const { M } = require('../pdf/campusForm')
 const drawPpmp = require('../pdf/ppmpForm')
@@ -166,6 +167,17 @@ exports.list = asyncHandler(async (req, res) => {
       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
       ORDER BY p.fiscal_year DESC, d.code, p.version_no DESC`, params)
   res.json(rows.map(r => ({ ...r, item_count: Number(r.item_count), corrected_count: Number(r.corrected_count), total: Number(r.total) })))
+})
+
+// The verified Final PPMPs a request for an office may draw on, with what is left of each line.
+// A Fund Administrator gets their own office's; staff name the office. pr_id leaves out that request's own holds while it is edited.
+exports.lines = asyncHandler(async (req, res) => {
+  const mine = req.user.role === 'requestor'
+  const deptId = mine ? await officeOf(pool, req.user.id) : req.query.department_id
+  const [[pr]] = await pool.execute('SELECT id FROM purchase_requests WHERE id = ? AND (created_by = ? OR ?)',
+    [req.query.pr_id ?? 0, req.user.id, !mine])
+  const plans = await usablePlans(pool, deptId)
+  res.json(await Promise.all(plans.map(async p => ({ ...p, lines: await linesLeft(pool, p, pr?.id) }))))
 })
 
 // GET /ppmp/:id - the PPMP, its items and files, its other versions, and what this user may do.

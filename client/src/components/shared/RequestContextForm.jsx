@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import api from '@/lib/axios'
+import { useAuth } from '@/context/AuthContext'
 
 // Single source of truth for the four purpose_type options.
 // To add/edit a purpose type: update this array AND the ENUM in the DB.
@@ -24,6 +25,9 @@ export const PURPOSE_TYPE_LABELS = Object.fromEntries(PURPOSE_TYPES.map(t => [t.
 // `onChange(nextValue)` is called with the merged object whenever any field changes.
 export default function RequestContextForm({ value = {}, onChange }) {
   const set = (k, v) => onChange({ ...value, [k]: v })
+  // A Fund Administrator files only for their own office, whose PPMP the request draws on.
+  const { user } = useAuth()
+  const ownOffice = user?.role === 'requestor'
   const selectedType = value.purpose_type || 'personal'
 
   // The offices that can file a request. The one picked here decides who the
@@ -34,16 +38,22 @@ export default function RequestContextForm({ value = {}, onChange }) {
     queryFn:  () => api.get('/departments').then(r => r.data),
     staleTime: 5 * 60_000,
   })
-  const picked = departments.find(d => d.id === Number(value.department_id))
+  const picked = departments.find(d => d.id === Number(ownOffice ? user.department_id : value.department_id))
 
   return (
     <div className="space-y-4">
       <div className="space-y-1.5">
         <Label htmlFor="ctx-department">
           Office / Section
-          <span className="ml-1 font-normal text-[--color-text-muted] text-xs">(the office this request is for)</span>
+          <span className="ml-1 font-normal text-[--color-text-muted] text-xs">
+            {ownOffice ? '(your office; its PPMP is what you request from)' : '(the office this request is for)'}
+          </span>
         </Label>
-        {departments.length > 0 ? (
+        {ownOffice ? (
+          <div id="ctx-department" className="flex h-10 items-center rounded-lg border border-[--color-border] bg-[--color-canvas] px-3 text-sm text-[--color-text-secondary]">
+            {user.department_code ? `${user.department_code} — ${user.department_name}` : 'No office yet. Ask the administrator to set it.'}
+          </div>
+        ) : departments.length > 0 ? (
           <Select
             value={value.department_id ? String(value.department_id) : ''}
             onValueChange={(v) => set('department_id', v ? Number(v) : null)}

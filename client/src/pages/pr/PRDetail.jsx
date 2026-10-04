@@ -3,7 +3,7 @@ import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, FileText, Gavel, Paperclip, History, BellRing, CheckCircle2,
-  Package, Plus, Trash2, RotateCcw, Eye,
+  Package, Plus, Trash2, RotateCcw, Eye, ClipboardList, Ban,
   FileDown, XCircle, Pencil, Send, Undo2, Archive,
 } from 'lucide-react'
 
@@ -21,7 +21,6 @@ import { fmtDate, fmtCurrency, PR_STATUS_LABELS, CATEGORY_FORM, buildItemNotes, 
 import { SectionNameInput, SectionHeaderRow } from '@/components/shared/ItemSections'
 import RequestProgress from '@/components/shared/RequestProgress'
 import CategorySpecFields from '@/components/shared/CategorySpecFields'
-import UnitInput from '@/components/shared/UnitInput'
 import { RequestContextFields, PurposeTypeBadge, hasRequestContext } from '@/components/shared/RequestContextDisplay'
 import PurchaseOrders from './PurchaseOrders'
 import ProcurementActions from './ProcurementActions'
@@ -29,6 +28,7 @@ import { useAuth } from '@/context/AuthContext'
 import { openPdf, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
 import ReviewSubmitDialog from '@/components/shared/ReviewSubmitDialog'
+import { usePpmpPlans, takenByKey, lineChecks, PpmpLineNote, PpmpItemField, NoPpmpNotice } from '@/components/ppmp/PpmpLinePicker'
 
 const ITH = ({ children, className = '' }) => (
   <th className={`px-4 py-3 text-xs font-bold text-[--color-text-secondary] uppercase tracking-wider bg-[--color-canvas] border-b border-[--color-border] ${className}`}>
@@ -41,16 +41,18 @@ const ITD = ({ children, className = '' }) => (
   </td>
 )
 
-const EMPTY_ITEM = { group_label: '', stock_property_no: '', category: '', item_name: '', quantity: '1', unit: 'pax', estimated_cost: '', specs: {} }
+const EMPTY_ITEM = { group_label: '', stock_property_no: '', category: '', ppmp_item_id: null, line: null, quantity: '1', estimated_cost: '', specs: {} }
+// Who may open the office's PPMP from a request (the PPMP pages' own roles).
+const PPMP_VIEWERS = ['requestor', 'admin', 'procurement', 'bac']
 
-function PRItemsSection({ prId, canEdit, category }) {
+function PRItemsSection({ prId, pr, canEdit, category }) {
+  const { user } = useAuth()
   const [itemToDelete, setItemToDelete] = useState(null)
   const [editingItem, setEditingItem]   = useState(null)
   const [editDraft, setEditDraft]       = useState(null)
   const qc = useQueryClient()
   const categoryForm = CATEGORY_FORM[category] || CATEGORY_FORM.office_supplies
-  const [draft, setDraft] = useState({ ...EMPTY_ITEM, unit: categoryForm.defaultUnit })
-  const itemRef = useRef(null)
+  const [draft, setDraft] = useState(EMPTY_ITEM)
   const setD  = (k, v) => setDraft(p => ({ ...p, [k]: v }))
   const setED = (k, v) => setEditDraft(p => ({ ...p, [k]: v }))
 
@@ -58,12 +60,25 @@ function PRItemsSection({ prId, canEdit, category }) {
     queryKey: ['pr-items', prId],
     queryFn: () => api.get(`/pr/${prId}/items`).then(r => r.data),
   })
+  // Each item against the office's PPMP, as the server checks it on submission.
+  const { data: review } = useQuery({
+    queryKey: ['pr-ppmp', prId],
+    queryFn: () => api.get(`/pr/${prId}/ppmp`).then(r => r.data),
+  })
+  const reviewOf = new Map((review?.items || []).map(r => [r.id, r]))
+  // While it can be edited: the lines it may draw on, leaving out its own holds.
+  const { plans, isLoading: plansLoading, lineById } = usePpmpPlans({ departmentId: canEdit && user?.role !== 'requestor' ? pr.department_id : null, prId: canEdit ? prId : null })
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ['pr-items', prId] })
+    qc.invalidateQueries({ queryKey: ['pr-ppmp', prId] })
+    qc.invalidateQueries({ queryKey: ['ppmp-lines'] })
+  }
 
   const { mutate: addItem, isPending: adding } = useMutation({
     mutationFn: (body) => api.post(`/pr/${prId}/items`, body),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['pr-items', prId] })
-      setDraft(p => ({ ...EMPTY_ITEM, unit: p.unit, group_label: p.group_label }))   // the section stays for the next item
+      refresh()
+      setDraft(p => ({ ...EMPTY_ITEM, group_label: p.group_label }))   // the section stays for the next item
       toast.success('Item added')
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to add item'),
@@ -72,7 +87,7 @@ function PRItemsSection({ prId, canEdit, category }) {
   const { mutate: deleteItem } = useMutation({
     mutationFn: (itemId) => api.delete(`/pr/${prId}/items/${itemId}`),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['pr-items', prId] })
+      refresh()
       toast.success('Item removed')
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to remove item'),
@@ -81,7 +96,7 @@ function PRItemsSection({ prId, canEdit, category }) {
   const { mutate: updateItemReq, isPending: savingEdit } = useMutation({
     mutationFn: ({ itemId, body }) => api.patch(`/pr/${prId}/items/${itemId}`, body),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['pr-items', prId] })
+      refresh()
       setEditingItem(null)
       setEditDraft(null)
       toast.success('Item updated')
@@ -95,51 +110,58 @@ function PRItemsSection({ prId, canEdit, category }) {
       group_label:       item.group_label       || '',
       stock_property_no: item.stock_property_no || '',
       category:          item.category          || '',
+      ppmp_item_id:   item.ppmp_item_id,
+      line:           lineById.get(Number(item.ppmp_item_id)) || null,
       item_name:      item.item_name      || '',
       quantity:       String(item.quantity ?? '1'),
-      unit:           item.unit           || categoryForm.defaultUnit,
+      unit:           item.unit           || '',
       estimated_cost: item.estimated_cost != null ? String(item.estimated_cost) : '',
       notes:          item.notes          || '',
     })
   }
 
   const handleSaveEdit = () => {
-    if (!editDraft.item_name.trim()) return toast.error('Item description is required')
+    if (!editDraft.ppmp_item_id) return toast.error('Pick the item from the PPMP')
+    if (editCheck?.block) return toast.error(editCheck.block)
     updateItemReq({
       itemId: editingItem.id,
       body: {
         group_label:       editDraft.group_label?.trim() || null,
         stock_property_no: editDraft.stock_property_no?.trim() || null,
         category:          editDraft.category || undefined,
-        item_name:      editDraft.item_name.trim(),
+        ...(editDraft.ppmp_item_id !== editingItem.ppmp_item_id ? { ppmp_item_id: editDraft.ppmp_item_id } : {}),
         quantity:       editDraft.quantity,
-        unit:           editDraft.unit?.trim() || null,
         estimated_cost: editDraft.estimated_cost,
         notes:          editDraft.notes?.trim() || null,
       },
     })
   }
 
+  // What this request's saved items take of each line, and each new or edited item's check against what is left.
+  const taken = takenByKey(items, lineById)
+  const planYear = items.map(i => lineById.get(Number(i.ppmp_item_id))?.fiscal_year).find(Boolean)
+  const checkAgainst = (line, item, exceptIndex) => line && lineChecks(line, { quantity: item.quantity, price: item.estimated_cost, dateNeeded: pr.date_needed, taken: takenByKey(items, lineById, exceptIndex).get(line.key) || 0 })
+  const draftCheck = draft.line ? { line: draft.line, ...checkAgainst(draft.line, draft, -1) } : null
+  const editCheck = editDraft?.line ? { line: editDraft.line, ...checkAgainst(editDraft.line, editDraft, items.findIndex(i => i.id === editingItem?.id)) } : null
+  const pickLine = (line) => setDraft(p => ({ ...p, ppmp_item_id: line.id, line, estimated_cost: String(line.unit_cost) }))
+
   const handleAdd = () => {
-    if (!draft.item_name.trim()) return toast.error('Item description is required')
+    if (!draft.line) return toast.error('Pick the item from the PPMP')
+    if (draftCheck?.block) return toast.error(draftCheck.block)
     const notes = buildItemNotes(category, draft.specs)
     addItem({
       group_label:       draft.group_label       || undefined,
       stock_property_no: draft.stock_property_no?.trim() || undefined,
       category:          draft.category || category || undefined,
-      item_name:      draft.item_name.trim(),
+      ppmp_item_id:   draft.line.id,
       quantity:       parseFloat(draft.quantity)       || 1,
-      unit:           draft.unit           || undefined,
       estimated_cost: draft.estimated_cost ? parseFloat(draft.estimated_cost) : undefined,
       notes:          notes || undefined,
     })
   }
 
   // "Add item" on a section heading: point the add form at that section.
-  const addToSection = (label) => {
-    setD('group_label', label)
-    itemRef.current?.focus()
-  }
+  const addToSection = (label) => setD('group_label', label)
 
   const processed = items.map((item) => ({
     ...item,
@@ -163,12 +185,27 @@ function PRItemsSection({ prId, canEdit, category }) {
             <span className="text-xs text-[--color-text-muted] font-normal">({items.length})</span>
           )}
         </div>
-        {grandTotal > 0 && (
-          <span className="text-sm font-bold text-blue-700">Grand Total: {fmtCurrency(grandTotal)}</span>
-        )}
+        <div className="flex items-center gap-4">
+          {review?.plan && PPMP_VIEWERS.includes(user?.role) && (
+            <Link to={`/ppmp/${review.plan.id}`} className="inline-flex items-center gap-1.5 text-ui-sm font-semibold text-[--color-brand] hover:underline">
+              <ClipboardList className="size-4" /> View PPMP ({review.plan.office_code}, FY {review.plan.fiscal_year})
+            </Link>
+          )}
+          {grandTotal > 0 && (
+            <span className="text-sm font-bold text-blue-700">Grand Total: {fmtCurrency(grandTotal)}</span>
+          )}
+        </div>
       </CardHeader>
 
       <CardContent className="p-0">
+        {canEdit && review?.problems?.length > 0 && (
+          <div className="mx-4 mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+            <p className="flex items-center gap-1.5 text-ui-sm font-semibold text-red-800"><Ban className="size-4" /> Fix these before submitting</p>
+            <ul className="mt-1 list-disc pl-6 text-ui-sm text-red-800 leading-relaxed">
+              {review.problems.map(m => <li key={m}>{m}</li>)}
+            </ul>
+          </div>
+        )}
         {isLoading ? (
           <div className="p-4 space-y-2">{Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-9" />)}</div>
         ) : (
@@ -213,6 +250,10 @@ function PRItemsSection({ prId, canEdit, category }) {
                                   <div className="mt-2 text-sm text-[--color-text-secondary] whitespace-pre-wrap leading-relaxed">
                                     {item.notes}
                                   </div>
+                                )}
+                                {reviewOf.get(item.id)?.line && (
+                                  <PpmpLineNote line={reviewOf.get(item.id).line} planned={reviewOf.get(item.id).line.planned}
+                                    warnings={reviewOf.get(item.id).warnings} block={canEdit ? reviewOf.get(item.id).problem : null} className="mt-2 font-normal" />
                                 )}
                               </ITD>
                               <ITD className="text-center tabular-nums font-medium">{item.quantity}</ITD>
@@ -272,7 +313,10 @@ function PRItemsSection({ prId, canEdit, category }) {
               </table>
             </div>
 
-            {canEdit && (
+            {canEdit && !plansLoading && !plans.length && (
+              <div className="px-4 py-4"><NoPpmpNotice requestor={user?.role === 'requestor'} /></div>
+            )}
+            {canEdit && (plansLoading || plans.length > 0) && (
               <div className="bg-[--color-canvas] px-4 py-4 space-y-3">
                 <p className="text-xs font-semibold text-[--color-text-muted] uppercase tracking-wide">Add Item</p>
                 <div className="space-y-1.5">
@@ -299,25 +343,15 @@ function PRItemsSection({ prId, canEdit, category }) {
                       className="text-sm"
                     />
                   </div>
-                  <div className="col-span-4 space-y-1">
-                    <Label className="text-xs">{categoryForm.itemLabel} <span className="text-[--color-brand]">*</span></Label>
-                    <Input
-                      ref={itemRef}
-                      placeholder={categoryForm.itemPlaceholder}
-                      value={draft.item_name}
-                      onChange={e => setD('item_name', e.target.value)}
-                      onKeyDown={e => e.key === 'Enter' && handleAdd()}
-                    />
+                  {/* The item, picked from the PPMP: its description and unit are the line's */}
+                  <div className="col-span-4">
+                    <PpmpItemField id="pr-detail-ppmp-item" plans={plans} isLoading={plansLoading} value={draft.line} onPick={pickLine} taken={taken} year={planYear} />
                   </div>
                   <div className="col-span-2 space-y-1">
                     <Label className="text-xs">Unit</Label>
-                    <UnitInput
-                      value={draft.unit}
-                      onChange={v => setD('unit', v)}
-                      options={categoryForm.units}
-                      placeholder={categoryForm.defaultUnit}
-                      className="text-sm"
-                    />
+                    <div className="flex h-10 items-center rounded-lg border border-[--color-border] bg-[--color-surface] px-3 text-sm text-[--color-text-secondary]">
+                      {draft.line?.unit || '—'}
+                    </div>
                   </div>
                   <div className="col-span-1 space-y-1">
                     <Label className="text-xs">Qty</Label>
@@ -346,13 +380,15 @@ function PRItemsSection({ prId, canEdit, category }) {
                   <div className="col-span-1 self-end">
                     <Button
                       className="w-full px-0"
-                      disabled={adding || !draft.item_name.trim()}
+                      disabled={adding || !draft.line || !!draftCheck?.block}
                       onClick={handleAdd}
                     >
                       <Plus className="size-4" />
                     </Button>
                   </div>
                 </div>
+
+                {draftCheck && <PpmpLineNote {...draftCheck} />}
 
                 {/* Per-category structured spec fields */}
                 <CategorySpecFields
@@ -417,26 +453,17 @@ function PRItemsSection({ prId, canEdit, category }) {
                 />
               </div>
 
-              <div className="space-y-1">
-                <Label className="text-xs">{categoryForm.itemLabel} <span className="text-[--color-brand]">*</span></Label>
-                <Input
-                  placeholder={categoryForm.itemPlaceholder}
-                  value={editDraft.item_name}
-                  onChange={e => setED('item_name', e.target.value)}
-                  autoFocus
-                />
-              </div>
+              <PpmpItemField id="pr-edit-ppmp-item" plans={plans} isLoading={plansLoading}
+                value={editDraft.line || (editDraft.ppmp_item_id ? { description: editDraft.item_name } : null)}
+                onPick={line => setEditDraft(p => ({ ...p, ppmp_item_id: line.id, line, item_name: line.description, unit: line.unit }))}
+                taken={takenByKey(items, lineById, items.findIndex(i => i.id === editingItem?.id))} year={planYear} />
 
               <div className="grid grid-cols-12 gap-2 items-end">
                 <div className="col-span-3 space-y-1">
                   <Label className="text-xs">Unit</Label>
-                  <UnitInput
-                    value={editDraft.unit}
-                    onChange={v => setED('unit', v)}
-                    options={categoryForm.units}
-                    placeholder={categoryForm.defaultUnit}
-                    className="text-sm"
-                  />
+                  <div className="flex h-10 items-center rounded-lg border border-[--color-border] bg-[--color-canvas] px-3 text-sm text-[--color-text-secondary]">
+                    {editDraft.line?.unit || editDraft.unit || '—'}
+                  </div>
                 </div>
                 <div className="col-span-3 space-y-1">
                   <Label className="text-xs">Qty</Label>
@@ -456,6 +483,7 @@ function PRItemsSection({ prId, canEdit, category }) {
                   />
                 </div>
               </div>
+              {editCheck && <PpmpLineNote {...editCheck} />}
 
               <div className="space-y-1">
                 <Label className="text-xs">
@@ -895,7 +923,7 @@ export default function PRDetail() {
       )}
 
       {/* Items Requested */}
-      <PRItemsSection prId={id} canEdit={!!pr.permissions?.edit} category={pr.category} />
+      <PRItemsSection prId={id} pr={pr} canEdit={!!pr.permissions?.edit} category={pr.category} />
 
       {/* Canvass & awards: quotations, awards by supplier, and the BAC's approval (procurement, admin, BAC) */}
       {showCanvass && (
