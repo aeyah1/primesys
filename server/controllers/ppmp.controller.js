@@ -169,6 +169,33 @@ exports.list = asyncHandler(async (req, res) => {
   res.json(rows.map(r => ({ ...r, item_count: Number(r.item_count), corrected_count: Number(r.corrected_count), total: Number(r.total) })))
 })
 
+// GET /ppmp/coverage?year= - where each active office's PPMP for the year stands, and so whether its requests can be submitted.
+// verified: a Final PPMP is verified; waiting: one is uploaded but not yet verified; returned: sent back to fix;
+// indicative: only an Indicative one is verified; none: nothing uploaded.
+exports.coverage = asyncHandler(async (req, res) => {
+  const year = req.query.year || new Date().getFullYear()
+  const [offices] = await pool.execute(
+    `SELECT d.id, d.code, d.name,
+            (SELECT u.name FROM users u WHERE u.department_id = d.id AND u.role = 'requestor' AND u.is_active = 1 LIMIT 1) AS fund_admin
+       FROM departments d WHERE d.is_active = 1 ORDER BY d.code`)
+  const [plans] = await pool.execute(
+    `SELECT p.id, p.department_id, p.version_no, p.kind, p.status, p.return_reason,
+            (SELECT COALESCE(SUM(i.quantity * i.unit_cost), 0) FROM ppmp_items i WHERE i.ppmp_id = p.id) AS total
+       FROM ppmps p WHERE p.fiscal_year = ? AND p.status <> 'superseded' ORDER BY p.version_no DESC`, [year])
+  const brief = (p) => p && { id: p.id, version_no: p.version_no, kind: p.kind, total: Number(p.total), return_reason: p.return_reason }
+  res.json({
+    year: Number(year),
+    offices: offices.map(d => {
+      const mine = plans.filter(p => p.department_id === d.id)
+      const verified = mine.find(p => p.status === 'approved')
+      const waiting  = mine.find(p => p.status === 'submitted')
+      const returned = mine.find(p => p.status === 'draft')
+      const state = verified?.kind === 'final' ? 'verified' : waiting ? 'waiting' : returned ? 'returned' : verified ? 'indicative' : 'none'
+      return { ...d, state, verified: brief(verified), waiting: brief(waiting), returned: brief(returned) }
+    }),
+  })
+})
+
 // The verified Final PPMPs a request for an office may draw on, with what is left of each line.
 // A Fund Administrator gets their own office's; staff name the office. pr_id leaves out that request's own holds while it is edited.
 exports.lines = asyncHandler(async (req, res) => {

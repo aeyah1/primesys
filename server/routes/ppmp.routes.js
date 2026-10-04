@@ -55,6 +55,10 @@ router.get('/lines',
   query('department_id').optional().isInt({ min: 1 }).withMessage('Pick a valid office').toInt(),
   query('pr_id').optional().isInt({ min: 1 }).withMessage('Unknown request').toInt(),
   handle, c.lines)
+// Every office's PPMP standing for a year, for those who follow all offices.
+router.get('/coverage', authorize('admin', 'procurement', 'bac'),
+  query('year').optional().isInt({ min: 2020, max: 2100 }).withMessage('Pick a valid year').toInt(),
+  handle, c.coverage)
 router.post('/read',     keeper, upload.single('data'), c.read)
 router.post('/',         keeper, files, payload, reviewed(true), c.upload)
 router.get('/:id',       id, c.get)

@@ -191,6 +191,21 @@ async function run() {
     r => item(r, 'Bond paper, A4, 80gsm').left === 8 && item(r, 'Toner cartridge, black').requested === 2 && item(r, 'Toner cartridge, black').left === 0
       && r.data.requested_amount === 8200, '8 and 0 left, 8200')
 
+  // ── Which offices can file requests ─────────────────────────────────
+  const C = 'Coverage'
+  const office = (r, code) => r.data.offices.find(o => o.code === code)
+  await is(C, 'each office\'s PPMP standing for this year', 2, 'GET', '/ppmp/coverage', undefined,
+    r => r.status === 200 && r.data.year === YEAR && office(r, 'ICT').state === 'verified' && office(r, 'ICT').verified.id === 11
+      && office(r, 'DCS').state === 'verified' && office(r, 'HR').state === 'none' && office(r, 'HR').fund_admin === 'User 7', 'ICT and DCS verified, HR none')
+  await is(C, 'an Indicative PPMP alone does not count', 2, 'GET', `/ppmp/coverage?year=${YEAR + 2}`, undefined,
+    r => office(r, 'ICT').state === 'indicative' && office(r, 'DCS').state === 'none', 'indicative')
+  await H.sql(TEST_DB, `INSERT INTO ppmps (id, department_id, fiscal_year, version_no, kind, fund_source, status) VALUES (30, 3, ${YEAR}, 1, 'final', 'STF', 'submitted')`)
+  await is(C, 'an uploaded one waits for verification', 1, 'GET', '/ppmp/coverage', undefined, r => office(r, 'HR').state === 'waiting' && office(r, 'HR').waiting.id === 30, 'waiting')
+  await H.sql(TEST_DB, `UPDATE ppmps SET status = 'draft', return_reason = 'Unsigned' WHERE id = 30`)
+  await is(C, 'a returned one says why', 2, 'GET', '/ppmp/coverage', undefined,
+    r => office(r, 'HR').state === 'returned' && office(r, 'HR').returned.return_reason === 'Unsigned', 'returned')
+  await is(C, 'a Fund Administrator has no coverage view', 3, 'GET', '/ppmp/coverage', undefined, r => r.status === 403, '403')
+
   return t.summary()
 }
 
