@@ -15,21 +15,19 @@ import { fmtCurrency, fmtDate } from '@/lib/utils'
 import api from '@/lib/axios'
 
 const THIS_YEAR = new Date().getFullYear()
-// The list's status filter; "Waiting for verification" is the approver's queue.
+// The list's status filter.
 const STATUS_FILTERS = [
   { value: 'all', label: 'All statuses' },
-  { value: 'submitted', label: 'Waiting for verification' },
-  { value: 'approved', label: 'Verified' },
-  { value: 'draft', label: 'Returned' },
-  { value: 'superseded', label: 'Superseded' },
+  { value: 'approved', label: 'In effect' },
+  { value: 'draft', label: 'Not in effect' },
+  { value: 'superseded', label: 'Replaced' },
 ]
 // Where an office's PPMP for the year stands (GET /ppmp/coverage), and what that means for its requests.
 const STANDING = {
-  verified:   { label: 'Final PPMP verified', tone: 'border-green-200 bg-green-50 text-green-800', requests: 'Can be submitted' },
-  waiting:    { label: 'Waiting for verification', tone: 'border-amber-200 bg-amber-50 text-amber-800', requests: 'Not until it is verified' },
-  returned:   { label: 'Returned', tone: 'border-red-200 bg-red-50 text-red-800', requests: 'Not until it is uploaded again and verified' },
-  indicative: { label: 'Indicative only', tone: 'border-amber-200 bg-amber-50 text-amber-800', requests: 'Not until the Final PPMP is verified' },
-  none:       { label: 'No PPMP', tone: 'border-[--color-border] bg-[--color-overlay] text-[--color-text-secondary]', requests: 'Not until a Final PPMP is uploaded and verified' },
+  in_effect:     { label: 'Final PPMP in effect', tone: 'border-green-200 bg-green-50 text-green-800', requests: 'Can be submitted' },
+  not_in_effect: { label: 'Not in effect', tone: 'border-amber-200 bg-amber-50 text-amber-800', requests: 'Not until it is signed and complete' },
+  indicative:    { label: 'Indicative only', tone: 'border-amber-200 bg-amber-50 text-amber-800', requests: 'Not until the Final PPMP is in effect' },
+  none:          { label: 'No PPMP', tone: 'border-[--color-border] bg-[--color-overlay] text-[--color-text-secondary]', requests: 'Not until a signed Final PPMP is uploaded' },
 }
 
 // The PPMPs this user may see: a Fund Administrator's own office's, or every office's for Procurement, BAC, and admins.
@@ -48,11 +46,7 @@ export default function PpmpList() {
     queryFn: () => api.get('/ppmp').then(r => r.data),
   })
   const years = [...new Set(rows.map(r => r.fiscal_year))]
-  const shown = rows
-    .filter(r => (year === 'all' || String(r.fiscal_year) === year) && (status === 'all' || r.status === status))
-    // The approver's queue first.
-    .sort((a, b) => (user?.role === 'admin' ? (b.status === 'submitted') - (a.status === 'submitted') : 0))
-  const waiting = rows.filter(r => r.status === 'submitted').length
+  const shown = rows.filter(r => (year === 'all' || String(r.fiscal_year) === year) && (status === 'all' || r.status === status))
   const cols = keeper ? 8 : 9
 
   return (
@@ -62,7 +56,7 @@ export default function PpmpList() {
           <h2 className="text-ui-lg font-bold text-[--color-text-primary]">Project Procurement Management Plans</h2>
           <p className="text-ui-sm text-[--color-text-secondary] mt-0.5">
             {keeper
-              ? 'Your office\'s PPMP, uploaded from the signed original. Once verified, your purchase requests are based on it.'
+              ? 'Your office\'s PPMP, uploaded from the signed original. Once it is signed and complete, it is in effect and your purchase requests draw on it.'
               : 'Each office\'s PPMP, uploaded from its signed original. You can view it, open the original files, and print it.'}
           </p>
         </div>
@@ -74,12 +68,11 @@ export default function PpmpList() {
       <Card>
         {!keeper && (
           <div className="flex items-center gap-1 px-4 pt-3 border-b border-[--color-border] overflow-x-auto">
-            {[['ppmps', 'PPMPs', waiting], ['coverage', 'Office coverage', 0]].map(([key, label, n]) => (
+            {[['ppmps', 'PPMPs'], ['coverage', 'Office coverage']].map(([key, label]) => (
               <button key={key} type="button" onClick={() => setTab(key)}
                 className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-colors mb-[-1px] ${
                   tab === key ? 'border-[--color-brand] text-[--color-brand]' : 'border-transparent text-[--color-text-muted] hover:text-[--color-text-primary]'}`}>
                 {label}
-                {n > 0 && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800" title="Waiting for verification">{n} waiting</span>}
               </button>
             ))}
           </div>
@@ -140,8 +133,9 @@ export default function PpmpList() {
                           <TableCell className="text-right tabular-nums">{r.item_count}</TableCell>
                           <TableCell className="text-right tabular-nums">{fmtCurrency(r.total)}</TableCell>
                           <TableCell>
-                            <PpmpStatusBadge status={r.status} returned={!!r.return_reason} />
-                            {r.corrected_count > 0 && <p className="mt-1 text-[10px] text-[--color-text-muted]">{r.corrected_count} corrected</p>}
+                            <PpmpStatusBadge status={r.status} />
+                            {r.status === 'draft' && r.problems[0] && <p className="mt-1 max-w-56 text-[10px] leading-snug text-amber-800">{r.problems[0]}</p>}
+                            {r.signed_kind && r.status !== 'draft' && <p className="mt-1 text-[10px] text-[--color-text-muted]">Signed {r.signed_kind === 'digital' ? 'digitally' : 'on paper'}</p>}
                           </TableCell>
                           <TableCell className="text-[--color-text-muted]">{fmtDate(r.updated_at)}</TableCell>
                         </TableRow>
@@ -162,21 +156,19 @@ export default function PpmpList() {
 // Where the Fund Administrator's own PPMP stands, and so whether their requests can be submitted.
 function OwnStanding({ rows }) {
   const open = rows.filter(r => r.fiscal_year >= THIS_YEAR)
-  const verified = open.filter(r => r.status === 'approved' && r.kind === 'final')
-  const waiting = open.find(r => r.status === 'submitted')
-  const returned = open.find(r => r.status === 'draft')
+  const inEffect = open.filter(r => r.status === 'approved' && r.kind === 'final')
+  const pending = open.find(r => r.status === 'draft')
   const indicative = open.find(r => r.status === 'approved' && r.kind === 'indicative')
-  if (verified.length) {
+  if (inEffect.length) {
     return (
-      <Notice tone="green" icon={ShieldCheck} title={`Your requests draw on your verified Final PPMP for FY ${verified.map(v => v.fiscal_year).sort().join(' and FY ')}`}>
-        {waiting ? 'An amended PPMP is waiting for verification; requests keep using the verified one until then.' : 'Pick each request\'s items from it on the New Request page.'}
+      <Notice tone="green" icon={ShieldCheck} title={`Your requests draw on your Final PPMP for FY ${inEffect.map(v => v.fiscal_year).sort().join(' and FY ')}, in effect`}>
+        {pending ? `PPMP No. ${pending.version_no} isn't in effect yet (${pending.problems[0] || 'unsigned or incomplete'}); requests keep using the one in effect until it is.` : 'Pick each request\'s items from it on the New Request page.'}
       </Notice>
     )
   }
-  if (waiting) return <Notice tone="amber" icon={Info} title="Your PPMP is waiting for verification">Requests can be saved as drafts, but can't be submitted until it is verified.</Notice>
-  if (returned) return <Notice tone="amber" icon={AlertTriangle} title="Your PPMP was returned">{returned.return_reason}. Fix it and upload it again; requests can't be submitted until a Final PPMP is verified.</Notice>
-  if (indicative) return <Notice tone="amber" icon={Info} title="Only an Indicative PPMP is verified">Requests are based on the Final PPMP. Upload it once it is signed.</Notice>
-  return <Notice tone="red" icon={AlertTriangle} title="No PPMP yet">Upload your office's signed Final PPMP. Requests can't be submitted until it is verified.</Notice>
+  if (pending) return <Notice tone="amber" icon={AlertTriangle} title="Your PPMP is not in effect yet">{pending.problems.join(' ')} Requests can be saved as drafts, but can't be submitted until it is in effect.</Notice>
+  if (indicative) return <Notice tone="amber" icon={Info} title="Only an Indicative PPMP is in effect">Requests are based on the Final PPMP. Upload it once it is signed.</Notice>
+  return <Notice tone="red" icon={AlertTriangle} title="No PPMP yet">Upload your office's signed Final PPMP. Requests can't be submitted until it is in effect.</Notice>
 }
 
 // Every office's PPMP standing for a year: who can submit requests, and who is still waiting on theirs.
@@ -187,7 +179,7 @@ function Coverage() {
     queryFn: () => api.get('/ppmp/coverage', { params: { year } }).then(r => r.data),
   })
   const offices = data?.offices || []
-  const ready = offices.filter(o => o.state === 'verified').length
+  const ready = offices.filter(o => o.state === 'in_effect').length
 
   return (
     <>
@@ -200,7 +192,7 @@ function Coverage() {
         </Select>
         {!isLoading && (
           <p className="text-ui-sm text-[--color-text-secondary]">
-            <span className="font-semibold text-[--color-text-primary]">{ready} of {offices.length}</span> offices have a verified Final PPMP for FY {year}.
+            <span className="font-semibold text-[--color-text-primary]">{ready} of {offices.length}</span> offices have a Final PPMP in effect for FY {year}.
           </p>
         )}
       </div>
@@ -221,7 +213,7 @@ function Coverage() {
                 ? <TableEmpty colSpan={4} message="No offices yet. An admin adds them under Settings > Organization." />
                 : offices.map(o => {
                   const s = STANDING[o.state]
-                  const shownPlan = o.verified || o.waiting || o.returned
+                  const shownPlan = o.in_effect || o.pending
                   return (
                     <TableRow key={o.id}>
                       <TableCell>
@@ -236,12 +228,13 @@ function Coverage() {
                             PPMP No. {shownPlan.version_no} · {fmtCurrency(shownPlan.total)}
                           </Link>
                         )}
-                        {o.state === 'verified' && o.waiting && (
-                          <Link to={`/ppmp/${o.waiting.id}`} className="block text-[11px] text-amber-700 hover:underline">Amendment No. {o.waiting.version_no} waiting for verification</Link>
+                        {o.in_effect && <span className="block text-[11px] text-[--color-text-muted]">Signed {o.in_effect.signed_kind === 'digital' ? 'digitally' : 'on paper'}</span>}
+                        {o.in_effect && o.pending && (
+                          <Link to={`/ppmp/${o.pending.id}`} className="block text-[11px] text-amber-700 hover:underline">Amendment No. {o.pending.version_no} not in effect yet</Link>
                         )}
-                        {o.state === 'returned' && <span className="block text-[11px] text-[--color-text-muted]">{o.returned.return_reason}</span>}
+                        {o.state === 'not_in_effect' && <span className="block max-w-72 text-[11px] text-[--color-text-muted]">{o.pending.problems[0]}</span>}
                       </TableCell>
-                      <TableCell className={`text-ui-xs ${o.state === 'verified' ? 'text-green-800 font-semibold' : 'text-[--color-text-secondary]'}`}>{s.requests}</TableCell>
+                      <TableCell className={`text-ui-xs ${o.state === 'in_effect' ? 'text-green-800 font-semibold' : 'text-[--color-text-secondary]'}`}>{s.requests}</TableCell>
                     </TableRow>
                   )
                 })}

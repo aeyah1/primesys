@@ -123,7 +123,7 @@ export default function PRCreate() {
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to create PR'),
   })
 
-  // Items come from the office's verified Final PPMP: a Fund Administrator's own, or the office staff file for.
+  // Items come from the office's Final PPMP in effect: a Fund Administrator's own, or the office staff file for.
   const { plans, isLoading: plansLoading, lineById } = usePpmpPlans({ departmentId: isRequestor ? null : form.department_id })
   const taken = takenByKey(items, lineById)
   const planYear = items.map(i => lineById.get(Number(i.ppmp_item_id))?.fiscal_year).find(Boolean)
@@ -263,7 +263,7 @@ export default function PRCreate() {
           <div className="flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
             <Info className="size-4 shrink-0 mt-0.5 text-blue-700" />
             <p className="text-ui-sm text-blue-900 leading-relaxed">
-              You don't need to know procurement terms. Pick each item from your office's verified PPMP and say why
+              You don't need to know procurement terms. Pick each item from your office's PPMP and say why
               you need it. The Technical Working Group (TWG) checks your request, and the Procurement Office handles
               suppliers, orders, and delivery. You can save it as a draft and finish later.
             </p>

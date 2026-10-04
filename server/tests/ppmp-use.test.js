@@ -1,6 +1,6 @@
-// Purchase requests drawn from the office's verified Final PPMP: items come from
+// Purchase requests drawn from the office's Final PPMP in effect: items come from
 // its lines, a request can't be submitted for more than a line has left, other
-// offices' and unverified plans can't be used, and over-price or unscheduled
+// offices' plans and those not in effect can't be used, and over-price or unscheduled
 // items are warned about without blocking. Real HTTP against a throwaway database.
 const path = require('path')
 const H    = require('./harness')
@@ -31,7 +31,7 @@ function fixtures() {
     INSERT INTO org_settings (setting_key, setting_value) VALUES ('fund_code_stf', 'STF-01'), ('fund_code_gaa', 'GAA-01');
     ${H.twgAreas([5])}
     INSERT INTO ppmps (id, department_id, fiscal_year, version_no, kind, fund_source, status) VALUES
-      ${P(10, 1, YEAR, 1, 'final', 'approved', 'GAA')}, ${P(11, 1, YEAR, 2, 'final', 'submitted', 'GAA')},
+      ${P(10, 1, YEAR, 1, 'final', 'approved', 'GAA')}, ${P(11, 1, YEAR, 2, 'final', 'draft', 'GAA')},
       ${P(12, 1, YEAR + 1, 1, 'final', 'approved', 'GAA')}, ${P(13, 1, YEAR + 2, 1, 'indicative', 'approved', 'GAA')},
       ${P(20, 2, YEAR, 1, 'final', 'approved', 'STF')};
     INSERT INTO ppmp_items (id, ppmp_id, description, unit, quantity, unit_cost, months, sort_order) VALUES
@@ -65,14 +65,14 @@ async function run() {
 
   // ── What a request may draw on ──────────────────────────────────────
   const G = 'Lines'
-  await is(G, 'a Fund Administrator sees their office\'s verified Final PPMPs', 3, 'GET', '/ppmp/lines', undefined,
+  await is(G, 'a Fund Administrator sees their office\'s Final PPMPs in effect', 3, 'GET', '/ppmp/lines', undefined,
     r => r.status === 200 && r.data.map(p => p.id).join() === '10,12', 'ICT 10 and 12 (not the pending amendment, not the indicative)')
   await is(G, '…with what is left of each line', 3, 'GET', '/ppmp/lines', undefined,
     r => line(r.data, 1001)?.remaining === 10 && line(r.data, 1002)?.remaining === 2, '10 and 2')
   await is(G, 'asking for another office still gives their own', 3, 'GET', '/ppmp/lines?department_id=2', undefined,
     r => r.data.map(p => p.id).join() === '10,12', 'ICT')
   await is(G, 'staff name the office', 2, 'GET', '/ppmp/lines?department_id=2', undefined, r => r.data.map(p => p.id).join() === '20', 'DCS')
-  await is(G, 'an office with no verified PPMP has none', 7, 'GET', '/ppmp/lines', undefined, r => r.status === 200 && r.data.length === 0, '[]')
+  await is(G, 'an office with no PPMP in effect has none', 7, 'GET', '/ppmp/lines', undefined, r => r.status === 200 && r.data.length === 0, '[]')
 
   // ── Picking items ───────────────────────────────────────────────────
   const K = 'Picking'
@@ -82,8 +82,8 @@ async function run() {
     r => r.data[0].ppmp_item_id === 1001 && r.data[0].item_name === 'Bond paper, A4, 80gsm' && r.data[0].unit === 'ream', 'the line')
   await is(K, 'another office\'s line is refused', 3, 'POST', '/pr', { title: 'x', items: [{ ppmp_item_id: 2001, quantity: 1 }] },
     r => r.status === 400 && /another office's PPMP/.test(r.data.message), '400')
-  await is(K, 'a line of an unverified amendment is refused', 3, 'POST', '/pr', { title: 'x', items: [{ ppmp_item_id: 1101, quantity: 1 }] },
-    r => r.status === 400 && /verified Final PPMP/.test(r.data.message), '400')
+  await is(K, 'a line of an amendment not in effect is refused', 3, 'POST', '/pr', { title: 'x', items: [{ ppmp_item_id: 1101, quantity: 1 }] },
+    r => r.status === 400 && /Final PPMP in effect/.test(r.data.message), '400')
   await is(K, 'a line of an Indicative PPMP is refused', 3, 'POST', '/pr', { title: 'x', items: [{ ppmp_item_id: 1301, quantity: 1 }] },
     r => r.status === 400, '400')
   await is(K, 'one request, one year\'s PPMP', 3, 'POST', '/pr', { title: 'x', items: [{ ppmp_item_id: 1001, quantity: 1 }, { ppmp_item_id: 1201, quantity: 1 }] },
@@ -135,8 +135,8 @@ async function run() {
     r => line(r.data, 2001).remaining === 5, '5')
 
   const hr = await file(7, [{ item_name: 'Bond paper, A4, 80gsm', quantity: 1 }])
-  await is(S, 'an office with no verified PPMP can\'t submit', 7, 'PATCH', `/pr/${hr}/status`, { status: 'submitted' },
-    r => r.status === 409 && /HR has no verified Final PPMP yet/.test(r.data.message), '409')
+  await is(S, 'an office with no PPMP in effect can\'t submit', 7, 'PATCH', `/pr/${hr}/status`, { status: 'submitted' },
+    r => r.status === 409 && /HR has no Final PPMP in effect yet/.test(r.data.message), '409')
   const nowhere = await file(2, [{ item_name: 'Bond paper, A4, 80gsm', quantity: 1 }])
   await is(S, 'a request for no office can\'t submit', 2, 'PATCH', `/pr/${nowhere}/status`, { status: 'submitted' },
     r => r.status === 409 && /Pick the office this request is for/.test(r.data.message), '409')
@@ -172,7 +172,7 @@ async function run() {
   const A = 'Amended'
   await H.sql(TEST_DB, `UPDATE ppmps SET status = 'superseded' WHERE id = 10`)
   await H.sql(TEST_DB, `UPDATE ppmps SET status = 'approved' WHERE id = 11`)
-  await is(A, 'the verified amendment replaces the old version', 3, 'GET', '/ppmp/lines', undefined, r => r.data.map(p => p.id).join() === '11,12', '11, 12')
+  await is(A, 'the amendment in effect replaces the old version', 3, 'GET', '/ppmp/lines', undefined, r => r.data.map(p => p.id).join() === '11,12', '11, 12')
   await is(A, '…and its line starts from what requests already hold', 3, 'GET', '/ppmp/lines', undefined,
     r => line(r.data, 1101).remaining === 40 - 1, '39')
   await is(A, 'a draft picked from the old version still submits', 3, 'PATCH', `/pr/${early}/status`, { status: 'submitted' }, r => r.status === 200)
@@ -203,15 +203,15 @@ async function run() {
   const C = 'Coverage'
   const office = (r, code) => r.data.offices.find(o => o.code === code)
   await is(C, 'each office\'s PPMP standing for this year', 2, 'GET', '/ppmp/coverage', undefined,
-    r => r.status === 200 && r.data.year === YEAR && office(r, 'ICT').state === 'verified' && office(r, 'ICT').verified.id === 11
-      && office(r, 'DCS').state === 'verified' && office(r, 'HR').state === 'none' && office(r, 'HR').fund_admin === 'User 7', 'ICT and DCS verified, HR none')
+    r => r.status === 200 && r.data.year === YEAR && office(r, 'ICT').state === 'in_effect' && office(r, 'ICT').in_effect.id === 11
+      && office(r, 'DCS').state === 'in_effect' && office(r, 'HR').state === 'none' && office(r, 'HR').fund_admin === 'User 7', 'ICT and DCS in effect, HR none')
   await is(C, 'an Indicative PPMP alone does not count', 2, 'GET', `/ppmp/coverage?year=${YEAR + 2}`, undefined,
     r => office(r, 'ICT').state === 'indicative' && office(r, 'DCS').state === 'none', 'indicative')
-  await H.sql(TEST_DB, `INSERT INTO ppmps (id, department_id, fiscal_year, version_no, kind, fund_source, status) VALUES (30, 3, ${YEAR}, 1, 'final', 'STF', 'submitted')`)
-  await is(C, 'an uploaded one waits for verification', 1, 'GET', '/ppmp/coverage', undefined, r => office(r, 'HR').state === 'waiting' && office(r, 'HR').waiting.id === 30, 'waiting')
-  await H.sql(TEST_DB, `UPDATE ppmps SET status = 'draft', return_reason = 'Unsigned' WHERE id = 30`)
-  await is(C, 'a returned one says why', 2, 'GET', '/ppmp/coverage', undefined,
-    r => office(r, 'HR').state === 'returned' && office(r, 'HR').returned.return_reason === 'Unsigned', 'returned')
+  await H.sql(TEST_DB, `INSERT INTO ppmps (id, department_id, fiscal_year, version_no, kind, fund_source, status) VALUES (30, 3, ${YEAR}, 1, 'final', 'STF', 'draft')`)
+  await is(C, 'an uploaded one that is not in effect shows as such', 1, 'GET', '/ppmp/coverage', undefined, r => office(r, 'HR').state === 'not_in_effect' && office(r, 'HR').pending.id === 30, 'not in effect')
+  await H.sql(TEST_DB, `UPDATE ppmps SET problems = '["No signed copy is attached."]' WHERE id = 30`)
+  await is(C, '…with why', 2, 'GET', '/ppmp/coverage', undefined,
+    r => office(r, 'HR').pending.problems.join() === 'No signed copy is attached.', 'the problem')
   await is(C, 'a Fund Administrator has no coverage view', 3, 'GET', '/ppmp/coverage', undefined, r => r.status === 403, '403')
 
   return t.summary()

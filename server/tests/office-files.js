@@ -52,14 +52,14 @@ function makeXlsx(rows) {
   })
 }
 
-// A .docx with lines of text (title, office) above one table.
-function makeDocx(rows, above = ['PROJECT PROCUREMENT MANAGEMENT PLAN']) {
+// A .docx with lines of text (title, office) above one table, and lines (the signature block) below it.
+function makeDocx(rows, above = ['PROJECT PROCUREMENT MANAGEMENT PLAN'], below = []) {
   const p = (t) => `<w:p><w:r><w:t xml:space="preserve">${esc(t)}</w:t></w:r></w:p>`
   const table = `<w:tbl>${rows.map(r => `<w:tr>${r.map(c => `<w:tc>${p(c ?? '')}</w:tc>`).join('')}</w:tr>`).join('')}</w:tbl>`
   return zip({
     '[Content_Types].xml': '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
     '_rels/.rels': '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>',
-    'word/document.xml': `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${above.map(p).join('')}${table}</w:body></w:document>`,
+    'word/document.xml': `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${above.map(p).join('')}${table}${below.map(p).join('')}</w:body></w:document>`,
   })
 }
 
@@ -88,8 +88,10 @@ const SAMPLE_ROWS = [
   ['', 'Ink, Epson 003, black', 'bottle', 4, 350, 1400, 'Shopping', ...m({ 4: 4 }), ''],
   ['', 'TOTAL BUDGET', '', '', '', 'PHP 46,369.90'],
   [],
-  ['Prepared by:', '', '', 'Reviewed by:'],
-  ['MARIA SANTOS', '', '', 'HEAD, BUDGET OFFICE'],
+  ['Prepared by:', '', '', 'Reviewed by:', '', '', 'Approved by:'],
+  [],
+  ['MARIA SANTOS', '', '', 'PEDRO REYES', '', '', 'JUAN A. DELA CRUZ'],
+  ['Supply Officer', '', '', 'Budget Officer', '', '', 'Director, ICT Office'],
 ]
 
 // The sample with another office named in its header.

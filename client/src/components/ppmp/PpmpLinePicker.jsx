@@ -6,10 +6,10 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { fmtCurrency } from '@/lib/utils'
-import { MONTHS } from '@/components/ppmp/PpmpItemDialog'
+import { MONTHS } from '@/components/ppmp/PpmpStatusBadge'
 import api from '@/lib/axios'
 
-// PR items are picked from the office's verified Final PPMP (server/utils/ppmpUse.js has the rules).
+// PR items are picked from the office's Final PPMP in effect (server/utils/ppmpUse.js has the rules).
 
 // The PPMPs a request for this office may draw on, with what is left of each line; prId leaves out that request's own holds.
 export function usePpmpPlans({ departmentId, prId } = {}) {
@@ -93,7 +93,7 @@ export function PpmpItemField({ plans, isLoading, value, onPick, taken, year, la
       >
         <ClipboardList className="size-4 shrink-0 text-[--color-text-muted]" />
         <span className={`truncate ${value ? 'font-medium text-[--color-text-primary]' : 'text-[--color-text-muted]'}`}>
-          {value?.description || (isLoading ? 'Loading the PPMP…' : plans.length ? 'Pick from the PPMP' : 'No verified PPMP')}
+          {value?.description || (isLoading ? 'Loading the PPMP…' : plans.length ? 'Pick from the PPMP' : 'No PPMP in effect')}
         </span>
       </button>
 
@@ -145,15 +145,15 @@ export function PpmpItemField({ plans, isLoading, value, onPick, taken, year, la
   )
 }
 
-// Shown in place of the add-item form when the office has no verified Final PPMP to draw on.
+// Shown in place of the add-item form when the office has no Final PPMP in effect to draw on.
 export function NoPpmpNotice({ requestor }) {
   return (
     <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
       <AlertTriangle className="size-4 shrink-0 mt-0.5 text-amber-700" />
       <p className="text-ui-sm text-amber-900 leading-relaxed">
         {requestor
-          ? 'Your office has no verified Final PPMP yet, so there is nothing to request from. Upload it on the PPMP page; once it is verified, its items can be requested here.'
-          : 'This office has no verified Final PPMP yet. Pick an office whose PPMP is verified; the request\'s items must come from it.'}
+          ? 'Your office has no Final PPMP in effect yet, so there is nothing to request from. Upload it, signed and complete, on the PPMP page; its items can then be requested here.'
+          : 'This office has no Final PPMP in effect yet. Pick an office whose PPMP is in effect; the request\'s items must come from it.'}
       </p>
     </div>
   )

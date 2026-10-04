@@ -110,7 +110,7 @@ export default function PREdit() {
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to remove item'),
   })
 
-  // Items come from the office's verified Final PPMP; this request's own holds are left out while it is edited.
+  // Items come from the office's Final PPMP in effect; this request's own holds are left out while it is edited.
   const { plans, isLoading: plansLoading, lineById } = usePpmpPlans({ departmentId: isRequestor ? null : form.department_id, prId: id })
   const taken = takenByKey(items, lineById)
   const planYear = items.map(i => lineById.get(Number(i.ppmp_item_id))?.fiscal_year).find(Boolean)

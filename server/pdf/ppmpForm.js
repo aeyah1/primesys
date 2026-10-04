@@ -1,8 +1,8 @@
 const { M, BLACK, PAD, amount, qty, fmtDate, forms } = require('./campusForm')
-const { signatureBuffer } = require('../utils/signature')
 const { FUND_SOURCES } = require('../utils/orgSettings')
 
-// The PPMP on Legal landscape, as the campus sample: Part I (PS-DBM) and Part II items, a month schedule, totals, signatures, and the fingerprint.
+// The PPMP on Legal landscape, as the campus sample: Part I (PS-DBM) and Part II items, a month schedule, totals, the file's
+// signatories with how it was signed, and the fingerprint.
 const PAGE   = { size: 'LEGAL', layout: 'landscape', margin: M }
 const W      = 1008 - M * 2
 const BOTTOM = 612 - M
@@ -29,7 +29,7 @@ COLS[1].width = W - COLS.reduce((s, c) => s + c.width, 0)
 const X = COLS.reduce((acc, c) => [...acc, acc[acc.length - 1] + c.width], [M])
 const AFTER_BUDGET = 6
 
-module.exports = function drawPpmp(doc, { ppmp: p, items, totals, signatures = {}, orgSettings = {} }) {
+module.exports = function drawPpmp(doc, { ppmp: p, items, totals, orgSettings = {} }) {
   const f = forms(doc)
   const newPage = () => { doc.addPage(PAGE); return M }
 
@@ -44,7 +44,7 @@ module.exports = function drawPpmp(doc, { ppmp: p, items, totals, signatures = {
   box(M + W / 2 + 20, 'FINAL', p.kind === 'final')
   if (p.status !== 'approved') {
     doc.font('Times-Bold').fontSize(9).fillColor('#B91C1C')
-      .text(p.status === 'superseded' ? 'SUPERSEDED' : (p.status === 'submitted' ? 'NOT YET VERIFIED' : 'RETURNED'), M, y, { width: W, align: 'right' })
+      .text(p.status === 'superseded' ? 'SUPERSEDED' : 'NOT IN EFFECT', M, y, { width: W, align: 'right' })
     doc.fillColor(BLACK)
   }
   y += 18
@@ -106,27 +106,25 @@ module.exports = function drawPpmp(doc, { ppmp: p, items, totals, signatures = {
   }
   amountRow('TOTAL BUDGET', totals.all)
 
-  // Who uploaded it, and who verified it against the signed original (stamped with their signature).
-  if (y + 84 > BOTTOM) y = newPage()
+  // The file's signature block as it was signed, four to a row, then how the signed copy is signed.
+  const people = (p.signatories || []).filter(x => x.name)
+  const perRow = Math.max(1, Math.min(4, people.length))
+  const colW = W / perRow
+  if (y + 30 + Math.ceil(people.length / perRow) * 58 > BOTTOM) y = newPage()
   y += 10
-  const half = W / 2
-  const signer = (x, label, dataUrl, who) => {
-    doc.font('Times-Roman').fontSize(8.5).fillColor(BLACK).text(label, x + 10, y, { lineBreak: false })
-    const buf = signatureBuffer(dataUrl)
-    if (buf) {
-      try { doc.image(buf, x + half / 2 - 90, y, { fit: [180, 34], align: 'center', valign: 'bottom' }) } catch { /* an unreadable image prints no stamp */ }
-    }
-    f.signature(x, y + 12, half, who)
-  }
-  signer(M, 'Uploaded from the signed original by:', null, {
-    name: p.prepared_by_name || '',
-    designation: `Fund Administrator, ${p.office_code}${p.submitted_at ? ` · ${fmtDate(p.submitted_at)}` : ''}`,
+  people.forEach((x, k) => {
+    if (k && k % perRow === 0) y += 58
+    f.signature(M + colW * (k % perRow), y, colW, { label: `${x.role}:`, name: x.name, designation: x.designation || '' })
   })
-  signer(M + half, 'Verified against the signed original by:', p.approved_at ? signatures.approved_signature : null, {
-    name: p.approved_at ? p.approved_by_name || '' : '',
-    designation: p.approved_at ? fmtDate(p.approved_at) : '',
-  })
-  y += 64
+  if (people.length) y += 58
+  const signers = (p.signatures || []).filter(x => x.valid).map(x => `${x.signer}${x.issuer && !x.self_signed ? ` (certificate by ${x.issuer})` : ''}`)
+  const how = p.signed_kind === 'digital'
+    ? `Signed digitally by ${signers.join(' and ')}; the signatures were checked by PRimeSys when it was uploaded.`
+    : p.signed_kind === 'paper'
+      ? `Signed on paper: the scanned signed copy is kept with this PPMP (uploaded by ${p.uploaded_by_name || 'its Fund Administrator'}${p.uploaded_at ? `, ${fmtDate(p.uploaded_at)}` : ''}).`
+      : 'Not signed, so this PPMP is not in effect.'
+  doc.font('Times-Italic').fontSize(8).fillColor(BLACK).text(how, M, y, { width: W, align: 'center' })
+  y += 14
   if (p.content_hash) {
     doc.font('Courier').fontSize(7).fillColor(BLACK)
       .text(`System copy of the office's signed PPMP, kept with its original files in PRimeSys. Fingerprint (SHA-256): ${p.content_hash}`, M, y, { width: W, align: 'center' })
