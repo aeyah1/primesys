@@ -13,7 +13,7 @@ const { mapPpmp }     = require('../utils/ppmpImport')
 const { loadOrgSettings } = require('../utils/orgSettings')
 const { assertNoBrands }  = require('../utils/brandNames')
 const { usablePlans, linesLeft, withUsage } = require('../utils/ppmpUse')
-const { officeOf, assertOwnOffice, loadPpmp, loadItems, loadFiles, contentHash, totals, ppmpPermissions } = require('../utils/ppmp')
+const { compareItems, officeOf, assertOwnOffice, loadPpmp, loadItems, loadFiles, contentHash, totals, ppmpPermissions } = require('../utils/ppmp')
 const { M } = require('../pdf/campusForm')
 const drawPpmp = require('../pdf/ppmpForm')
 
@@ -217,9 +217,12 @@ exports.get = asyncHandler(async (req, res) => {
     [p.department_id, p.fiscal_year])
   // What purchase requests hold of each line, and the estimated amount they request.
   const used = await withUsage(pool, p, items)
+  // What changed from the version this one replaces: the latest verified one numbered before it.
+  const prev = versions.find(v => v.version_no < p.version_no && ['approved', 'superseded'].includes(v.status))
+  const changes = prev ? { against: { id: prev.id, version_no: prev.version_no }, ...compareItems(await loadItems(pool, prev.id), items) } : null
   res.json({
     ...p, skipped_rows: p.skipped_rows ? JSON.parse(p.skipped_rows) : [], items: used.items, files, totals: totals(items), versions,
-    requested_amount: used.requested_amount,
+    requested_amount: used.requested_amount, changes,
     // Whether the items and files still match the fingerprint taken when it was submitted.
     hash_ok: p.content_hash ? p.content_hash === contentHash(p, items, files) : null,
     permissions: ppmpPermissions(req.user, p, { own: req.user.role === 'requestor', newer: await newerOpen(pool, p) }),

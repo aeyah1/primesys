@@ -85,6 +85,26 @@ function contentHash(p, items, files = []) {
   return crypto.createHash('sha256').update(text).digest('hex')
 }
 
+// What changed from one version's lines to the next, matched by description and unit: lines added, removed, and changed.
+const CHANGE_FIELDS = ['quantity', 'unit_cost', 'months', 'mode_of_procurement']
+function compareItems(before, after) {
+  const index = (list) => new Map(list.map(i => [lineKey(i), i]))
+  const old = index(before)
+  const now = index(after)
+  const value = (i, f) => (f === 'months' ? (i.months || []).join(',') : ['quantity', 'unit_cost'].includes(f) ? Number(i[f]) : i[f] || '')
+  const shown = (i, f) => (f === 'months' ? i.months || [] : value(i, f))
+  const brief = (i) => ({ key: lineKey(i), description: i.description, unit: i.unit, quantity: Number(i.quantity), unit_cost: Number(i.unit_cost) })
+  return {
+    added: after.filter(i => !old.has(lineKey(i))).map(brief),
+    removed: before.filter(i => !now.has(lineKey(i))).map(brief),
+    changed: after.filter(i => old.has(lineKey(i))).map(i => {
+      const was = old.get(lineKey(i))
+      const fields = CHANGE_FIELDS.filter(f => value(was, f) !== value(i, f)).map(f => ({ field: f, from: shown(was, f), to: shown(i, f) }))
+      return fields.length ? { ...brief(i), fields } : null
+    }).filter(Boolean),
+  }
+}
+
 // Totals by part and overall, in pesos.
 function totals(items) {
   const sum = (list) => Math.round(list.reduce((s, i) => s + i.budget, 0) * 100) / 100
@@ -102,4 +122,4 @@ function ppmpPermissions(user, p, { own, newer }) {
   }
 }
 
-module.exports = { READERS, OPEN, norm, lineKey, officeOf, assertOwnOffice, loadPpmp, loadItems, loadFiles, contentHash, totals, ppmpPermissions }
+module.exports = { READERS, OPEN, norm, lineKey, compareItems, officeOf, assertOwnOffice, loadPpmp, loadItems, loadFiles, contentHash, totals, ppmpPermissions }
