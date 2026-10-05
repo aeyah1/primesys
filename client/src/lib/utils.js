@@ -322,6 +322,10 @@ export const fundCodeFor = (orgSettings, source) => {
   return (found && orgSettings?.[found.settingKey]) || orgSettings?.fund_cluster || ''
 }
 
+// A request's temporary reference (REQ-000123), until Procurement assigns its PR
+// number when the canvass starts. Keep in step with server/utils/prNumber.js.
+export const isTemporaryPrNumber = (number) => /^REQ-\d+$/.test(String(number || ''))
+
 // How a purchase is procured. Keep in step with server/utils/procurementModes.js,
 // which is where the list is validated and where the caveat about RA 12009 lives.
 export const PROCUREMENT_MODES = [

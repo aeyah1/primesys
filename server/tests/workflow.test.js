@@ -375,12 +375,13 @@ const RQ = {}
 add('Requestor form', 'current quarter endpoint',          3, 'GET', '/quarters/current', undefined, (r) => r.status === 200 && r.data?.label === 'Q3' && r.data?.year === 2026, 'Q3 2026')
 add('Requestor form', 'save a draft with no items yet',    3, 'POST', '/pr', { title: 'Draft for later', quarter_id: 2, fund_cluster: 'HACK', responsibility_center_code: 'HACK' },
   (r) => { RQ.id = r.data?.id; return r.status === 201 }, '201')
-// The quarter is recorded on the PR but no longer spelled into its number:
-// the printed form (Appendix 60) numbers per year, e.g. "CSO 2026-001".
+// The quarter is recorded on the PR, not spelled into its number. The number
+// itself is Procurement's to assign when the canvass starts (appendix60.test.js);
+// until then the request carries a temporary reference.
 add('Requestor form', '…filed under the current quarter (sent one ignored)', 3, 'GET', () => `/pr/${RQ.id}`, undefined,
   (r) => r.status === 200 && r.data.status === 'draft' && r.data.quarter_label === 'Q3', 'draft, Q3')
-add('Requestor form', '…numbered in the form\'s own format', 3, 'GET', () => `/pr/${RQ.id}`, undefined,
-  (r) => r.status === 200 && new RegExp(`^CSO ${new Date().getFullYear()}-\\d{3}$`).test(r.data.pr_number), 'CSO <year>-nnn')
+add('Requestor form', '…with a temporary reference until it is numbered', 3, 'GET', () => `/pr/${RQ.id}`, undefined,
+  (r) => r.status === 200 && /^REQ-\d{6}$/.test(r.data.pr_number), 'REQ-nnnnnn')
 add('Requestor form', '…fund codes from Organization settings', 3, 'GET', () => `/pr/${RQ.id}`, undefined,
   (r) => r.status === 200 && r.data.fund_cluster === 'FC-01' && r.data.responsibility_center_code === 'RC-01', 'FC-01 / RC-01')
 add('Requestor form', '…Submit is offered even while empty', 3, 'GET', () => `/pr/${RQ.id}`, undefined,

@@ -12,37 +12,14 @@ const { closeBlock } = require('../utils/shortDelivery')
 const { orderBySection } = require('../utils/itemSections')
 const { currentQuarter } = require('../utils/quarters')
 const { CATEGORIES, isCategory, syncPRCategory } = require('../utils/categories')
-const { loadOrgSettings, prNumberPrefix, fundCodeFor, FUND_SOURCE_VALUES } = require('../utils/orgSettings')
+const crypto          = require('crypto')
+const { loadOrgSettings, fundCodeFor, FUND_SOURCE_VALUES } = require('../utils/orgSettings')
+const { temporaryRef, isTemporary } = require('../utils/prNumber')
 const { requestedBy, resolveDepartment } = require('../utils/departments')
 const { reviewsCategory, notifyAreaReviewers } = require('../utils/twgAreas')
 const { assertNoBrands } = require('../utils/brandNames')
 const { linesForItems, lockOfficePlans, reviewPr } = require('../utils/ppmpUse')
 const drawPRForm = require('../pdf/prForm')
-
-// The next PR number, in the form the printed PR carries: "CSO 2026-001",
-// where CSO is the campus prefix (org_settings.pr_number_prefix) and the count
-// runs per calendar year. The year is in the prefix, so the LIKE alone scopes
-// the sequence.
-//
-// MAX(suffix) + 1, so numbers are stable across deletions and concurrent
-// inserts collide on the UNIQUE constraint (handled by the caller's retry).
-// `attempt` shifts the candidate forward on retry.
-//
-// PRs numbered before this format (PR-2026-Q3-001) keep their numbers: they
-// don't match the LIKE, so they neither block nor renumber.
-const prNumberStem = (prefixWord) => `${prefixWord} ${new Date().getFullYear()}-`
-
-const genPRNumber = async (prefixWord, attempt = 0) => {
-  const prefix = prNumberStem(prefixWord)
-  const [rows] = await pool.execute(
-    `SELECT MAX(CAST(SUBSTRING(pr_number, ${prefix.length + 1}) AS UNSIGNED)) AS max_n
-       FROM purchase_requests
-      WHERE pr_number LIKE ?`,
-    [prefix + '%']
-  )
-  const next = (rows[0].max_n || 0) + 1 + attempt
-  return prefix + String(next).padStart(3, '0')
-}
 
 // Orders the PR list may use (?sort=); anything else falls back to newest.
 // "oldest_approval" puts the longest-waiting TWG approvals first, which is
@@ -304,38 +281,31 @@ exports.create = asyncHandler(async (req, res) => {
   const { prId, pr_number, category: createdCategory } = await withTransaction(async (conn) => {
     // Submitting straight away: queue on the office's PPMP before writing any rows (utils/ppmpUse.js).
     if (initialStatus === 'submitted') await lockOfficePlans(conn, { deptId: dept?.id })
-    // Retry on UNIQUE-constraint collision (concurrent inserts picking the same suffix).
-    const MAX_ATTEMPTS = 5
-    let created = null
-    for (let attempt = 0; attempt < MAX_ATTEMPTS && !created; attempt++) {
-      const pr_number = await genPRNumber(prNumberPrefix(org.pr_number_prefix), attempt)
-      try {
-        const [result] = await conn.execute(
-          `INSERT INTO purchase_requests (
-             pr_number, quarter_id, title, fund_cluster, fund_source, responsibility_center_code,
-             department, department_id, purpose_type, purpose, date_needed, recommended_by,
-             event_name, event_date, project_name, category, status, created_by,
-             requested_by_name, requested_by_designation
-           ) VALUES (?, ?, ?, ?, ?, ?,  ?, ?, ?, ?, ?,  ?, ?, ?, ?, ?, 'draft', ?,  ?, ?)`,
-          [
-            pr_number, quarterId, title || null, fundCluster, fundSource, rcCode,
-            departmentText, dept?.id ?? null,
-            prPurposeType,
-            purpose?.trim() || null,
-            toSqlDate(date_needed),
-            recommended_by?.trim() || null,
-            event_name?.trim() || null,
-            toSqlDate(event_date),
-            project_name?.trim() || null,
-            prCategory, req.user.id,
-            requester.name, requester.designation,
-          ]
-        )
-        created = { prId: result.insertId, pr_number }
-      } catch (err) {
-        if (err.code !== 'ER_DUP_ENTRY' || attempt === MAX_ATTEMPTS - 1) throw err
-      }
-    }
+    // A temporary reference until Procurement assigns the PR number (utils/prNumber.js);
+    // a one-off placeholder holds the UNIQUE column until the row has its id.
+    const [result] = await conn.execute(
+      `INSERT INTO purchase_requests (
+         pr_number, quarter_id, title, fund_cluster, fund_source, responsibility_center_code,
+         department, department_id, purpose_type, purpose, date_needed, recommended_by,
+         event_name, event_date, project_name, category, status, created_by,
+         requested_by_name, requested_by_designation
+       ) VALUES (?, ?, ?, ?, ?, ?,  ?, ?, ?, ?, ?,  ?, ?, ?, ?, ?, 'draft', ?,  ?, ?)`,
+      [
+        `REQ-NEW-${crypto.randomUUID()}`, quarterId, title || null, fundCluster, fundSource, rcCode,
+        departmentText, dept?.id ?? null,
+        prPurposeType,
+        purpose?.trim() || null,
+        toSqlDate(date_needed),
+        recommended_by?.trim() || null,
+        event_name?.trim() || null,
+        toSqlDate(event_date),
+        project_name?.trim() || null,
+        prCategory, req.user.id,
+        requester.name, requester.designation,
+      ]
+    )
+    const created = { prId: result.insertId, pr_number: temporaryRef(result.insertId) }
+    await conn.execute('UPDATE purchase_requests SET pr_number = ? WHERE id = ?', [created.pr_number, created.prId])
     for (const [n, it] of itemList.entries()) {
       const line = lines[n]
       await conn.execute(
@@ -643,6 +613,9 @@ exports.generateRFQ = asyncHandler(async (req, res) => {
     'SELECT pr_number, title, purpose FROM purchase_requests WHERE id = ?', [req.params.id])
   if (!rows.length) return res.status(404).json({ message: 'PR not found' })
   const pr = rows[0]
+  if (isTemporary(pr.pr_number)) {
+    return res.status(409).json({ message: 'The RFQ carries the PR number, which Procurement assigns when the canvass starts. Start the canvass first.' })
+  }
 
   const orgSettings = await loadOrgSettings(pool)
   // Dropped items are not canvassed, so they are left off the form.

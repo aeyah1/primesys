@@ -1,5 +1,6 @@
 // The data the printed Purchase Request form (Appendix 60) needs, end to end:
-// PR numbers in the form's own format, the campus signatories in organization
+// PR numbers in the form's own format (assigned by Procurement when the canvass
+// starts, a temporary reference until then), the campus signatories in organization
 // settings, the filer's designation copied onto the PR, and the Stock/Property
 // No. column on its items. Real HTTP against a throwaway database (harness.js).
 //
@@ -92,25 +93,47 @@ async function run() {
     { approved_by_name: 'Me' }, r => r.status === 403, '403')
 
   // ── PR numbering ────────────────────────────────────────────────────
-  const first = await is('Numbering', 'a new PR uses the form\'s format', 3, 'POST', '/pr',
-    { title: 'Window blinds', department: 'DCS' },
-    r => r.status === 201 && r.data.pr_number === `CSO ${YEAR}-001`, `CSO ${YEAR}-001`)
-  await is('Numbering', 'the legacy PR-yyyy-Qn-nnn number does not seed the sequence', 3, 'POST', '/pr',
-    { title: 'Second' }, r => r.data.pr_number === `CSO ${YEAR}-002`, `CSO ${YEAR}-002`)
-  await is('Numbering', 'the sequence keeps counting', 3, 'POST', '/pr',
-    { title: 'Third' }, r => r.data.pr_number === `CSO ${YEAR}-003`, `CSO ${YEAR}-003`)
-
+  const filed = []
+  for (const title of ['Window blinds', 'Second', 'Third', 'Fourth']) {
+    filed.push(await is('Numbering', `"${title}" is filed with a temporary reference`, 3, 'POST', '/pr',
+      { title, department: 'DCS' }, r => r.status === 201 && /^REQ-\d{6}$/.test(r.data.pr_number), 'REQ-nnnnnn'))
+  }
+  const [first, second, third, fourth] = filed.map(r => r.data.id)
+  // The TWG approved them all (its review is tested elsewhere).
+  await conn.execute(`UPDATE purchase_requests SET status = 'twg_review' WHERE id IN (${filed.map(r => r.data.id).join(', ')})`)
+  const suggests = (id, want, label) => is('Numbering', label, 2, 'GET', `/canvass/${id}`, undefined,
+    r => r.status === 200 && r.data.suggested_pr_number === want && r.data.pr_number_assigned === false, want)
+  const start = (id, body) => http(2, 'POST', `/canvass/${id}/start`, { mode_of_procurement: 'Shopping', ...body })
+  await is('Numbering', 'no RFQ before the number', 2, 'GET', `/pr/${first}/rfq`, undefined, r => r.status === 409, '409')
+  await suggests(first, `CSO ${YEAR}-001`, 'the next number is suggested in the form\'s format (the legacy one ignored)')
+  let r = await start(first, { pr_number: `CSO ${YEAR}-001` })
+  t.check('Numbering', 'Procurement confirms it as the canvass starts', r.status === 200 && r.data.pr_number === `CSO ${YEAR}-001`, show(r))
+  await is('Numbering', '…the PR now carries it', 3, 'GET', `/pr/${first}`, undefined, r => r.data.pr_number === `CSO ${YEAR}-001`)
+  await is('Numbering', '…logged', 2, 'GET', `/pr/${first}/logs`, undefined,
+    r => r.data.some(l => l.to_status === 'bidding' && l.note === `Canvass started (Shopping); PR number CSO ${YEAR}-001 assigned`))
+  await is('Numbering', '…the requestor is told both', 3, 'GET', '/notifications', undefined,
+    r => r.data.some(n => n.message.startsWith(`PR CSO ${YEAR}-001 (REQ-`) && n.message.endsWith('Window blinds is now in canvass.')))
+  await is('Numbering', '…and the RFQ prints', 2, 'GET', `/pr/${first}/rfq`, undefined, r => r.status === 200 && r.type.includes('pdf'))
+  await suggests(second, `CSO ${YEAR}-002`, 'the sequence keeps counting')
+  r = await start(second, {})
+  t.check('Numbering', 'with none given, the suggestion is used', r.status === 200 && r.data.pr_number === `CSO ${YEAR}-002`, show(r))
+  r = await start(third, { pr_number: `CSO ${YEAR}-010` })
+  t.check('Numbering', 'Procurement may change it', r.status === 200 && r.data.pr_number === `CSO ${YEAR}-010`, show(r))
+  await suggests(fourth, `CSO ${YEAR}-011`, '…and the count follows the highest')
+  r = await start(fourth, { pr_number: `CSO ${YEAR}-001` })
+  t.check('Numbering', 'a number another request has is refused', r.status === 409 && /already the number/.test(r.data.message), show(r))
+  r = await start(fourth, { pr_number: 'REQ-000001' })
+  t.check('Numbering', 'a temporary reference is no PR number', r.status === 400, show(r))
+  await is('Numbering', '…nothing changed', 2, 'GET', `/pr/${fourth}`, undefined, r => r.data.status === 'twg_review' && /^REQ-/.test(r.data.pr_number))
   await is('Numbering', 'changing the prefix starts a new sequence', 1, 'PATCH', '/settings',
     { pr_number_prefix: 'DCS' }, r => r.status === 200)
-  await is('Numbering', '…so the next PR is DCS 001', 3, 'POST', '/pr',
-    { title: 'After the change' }, r => r.data.pr_number === `DCS ${YEAR}-001`, `DCS ${YEAR}-001`)
+  await suggests(fourth, `DCS ${YEAR}-001`, '…so the next is DCS 001')
   await is('Numbering', 'put the prefix back', 1, 'PATCH', '/settings',
     { pr_number_prefix: 'CSO' }, r => r.status === 200)
-  await is('Numbering', '…and the original sequence resumes', 3, 'POST', '/pr',
-    { title: 'Back to CSO' }, r => r.data.pr_number === `CSO ${YEAR}-004`, `CSO ${YEAR}-004`)
+  await suggests(fourth, `CSO ${YEAR}-011`, '…and the original sequence resumes')
 
   // ── The filer's designation ─────────────────────────────────────────
-  const prId = first.data.id
+  const prId = first
   await is('Designation', 'copied from the profile onto the PR', 3, 'GET', `/pr/${prId}`, undefined,
     r => r.data.requested_by_designation === 'Department Chair, DCS', 'Department Chair, DCS')
   await is('Designation', 'a user can change their own', 3, 'PATCH', '/auth/me',
@@ -131,6 +154,8 @@ async function run() {
     { name: 'Juana Dela Cruz', designation: 'Department Chair, DCS' }, r => r.status === 200)
 
   // ── Stock/Property No. on items ─────────────────────────────────────
+  // Back to a draft, so its items can change (its number stays).
+  await conn.execute("UPDATE purchase_requests SET status = 'draft' WHERE id = ?", [prId])
   await is('Stock/Property No.', 'an item can carry one', 3, 'POST', `/pr/${prId}/items`,
     { stock_property_no: 'SP-0012', item_name: 'Window 1', notes: 'Width = 401 cm x Height = 280 cm',
       quantity: 1, unit: 'set', estimated_cost: 17500 },
@@ -178,6 +203,9 @@ async function run() {
     ['the budget officer',       'PEDRO B. REYES'],
     ['the BAC secretariat',      'ANA C. GARCIA, Ph.D.'],
   ]) t.check('PDF', `carries ${label}`, text.includes(value), value)
+  const [[unnumbered]] = await conn.execute('SELECT * FROM purchase_requests WHERE id = ?', [fourth])
+  const blank = await renderText({ pr: unnumbered, orgSettings: org, items: [] })
+  t.check('PDF', 'a temporary reference is not printed as the PR number', blank.includes('PR No.:') && !blank.includes('REQ-'), unnumbered.pr_number)
 
   return t.summary()
 }
