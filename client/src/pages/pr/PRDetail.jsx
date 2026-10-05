@@ -17,7 +17,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
 import { PRStatusBadge, DeliveryStatusBadge, CategoryBadge } from '@/components/shared/StatusBadge'
 import AttachmentsPanel from '@/components/shared/AttachmentsPanel'
-import { fmtDate, fmtCurrency, PR_STATUS_LABELS, CATEGORY_FORM, buildItemNotes, groupItemsBySection, PROCUREMENT_MODES } from '@/lib/utils'
+import { fmtDate, fmtCurrency, PR_STATUS_LABELS, CATEGORY_FORM, buildItemNotes, groupItemsBySection, PROCUREMENT_MODES, isTemporaryPrNumber } from '@/lib/utils'
 import { SectionNameInput, SectionHeaderRow } from '@/components/shared/ItemSections'
 import RequestProgress from '@/components/shared/RequestProgress'
 import CategorySpecFields from '@/components/shared/CategorySpecFields'
@@ -778,7 +778,10 @@ export default function PRDetail() {
         </Button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3 flex-wrap">
-            <h2 className="text-ui-xl font-bold text-[--color-text-primary] font-mono">{pr.pr_number}</h2>
+            <h2 className="text-ui-xl font-bold text-[--color-text-primary] font-mono"
+              title={isTemporaryPrNumber(pr.pr_number) ? 'A temporary reference: Procurement assigns the PR number when the canvass starts' : undefined}>
+              {pr.pr_number}
+            </h2>
             <PRStatusBadge status={pr.status} />
             <CategoryBadge category={pr.category} />
             {deliveryStatus && <DeliveryStatusBadge status={deliveryStatus} />}

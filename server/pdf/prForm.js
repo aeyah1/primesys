@@ -1,4 +1,5 @@
 const { M } = require('../utils/pdfHelpers')
+const { isTemporary } = require('../utils/prNumber')
 const { approverFor } = require('../utils/orgSettings')
 
 // Purchase Request, drawn as the government form the campus files on paper
@@ -90,7 +91,8 @@ module.exports = function drawPRForm(doc, { pr, orgSettings = {}, items = [] }) 
 
   rect(M, y, OFFICE_W, ROW_H); rect(M + OFFICE_W, y, MID_W, ROW_H); rect(M + OFFICE_W + MID_W, y, DATE_W, ROW_H)
   put('Office/Section', M, y, OFFICE_W, ROW_H, { align: 'center' })
-  put(`PR No.: ${pr.pr_number || ''}`, M + OFFICE_W, y, MID_W, ROW_H, { font: 'Times-Bold' })
+  // A temporary reference is not a PR number: the line stays blank until Procurement assigns one.
+  put(`PR No.: ${pr.pr_number && !isTemporary(pr.pr_number) ? pr.pr_number : ''}`, M + OFFICE_W, y, MID_W, ROW_H, { font: 'Times-Bold' })
   put(`Date: ${fmtDate(pr.created_at)}`, M + OFFICE_W + MID_W, y, DATE_W, ROW_H, { font: 'Times-Bold' })
   y += ROW_H
 

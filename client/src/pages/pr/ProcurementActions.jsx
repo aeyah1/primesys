@@ -5,6 +5,7 @@ import { Gavel, Send, ShoppingCart, MoreHorizontal, Undo2, RotateCcw, XCircle, F
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
+import { isTemporaryPrNumber } from '@/lib/utils'
 import api from '@/lib/axios'
 import StartCanvassDialog from '@/components/awards/StartCanvassDialog'
 import { useRefreshAwards } from '@/components/awards/supplier'
@@ -98,7 +99,8 @@ export default function ProcurementActions({ pr, updateStatus, isPending, onRetu
       updateStatus({ status: 'bidding', notes: 'Recanvass initiated by procurement' })
     }
   }
-  const printable = !['draft', 'submitted', 'revision_requested', 'rejected'].includes(pr.status)
+  // The RFQ carries the PR number, so it prints once the number is assigned.
+  const printable = !['draft', 'submitted', 'revision_requested', 'rejected'].includes(pr.status) && !isTemporaryPrNumber(pr.pr_number)
   const hasMore = printable || changes.includes('revision_requested') || changes.includes('cancelled') || (pr.status === 'for_po' && changes.includes('bidding'))
 
   return (

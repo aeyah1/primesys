@@ -98,6 +98,8 @@ CREATE TABLE `org_settings` (
 -- Purchase requests
 -- Status flow and who may change it: server/utils/prWorkflow.js.
 -- A deleted PR is kept (deleted_at / deleted_by) and listed under Archive.
+-- pr_number holds a temporary reference (REQ-000123) until Procurement assigns
+-- the PR number when the canvass starts (server/utils/prNumber.js).
 CREATE TABLE `purchase_requests` (
   `id`                         INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `pr_number`                  VARCHAR(50)  NOT NULL,

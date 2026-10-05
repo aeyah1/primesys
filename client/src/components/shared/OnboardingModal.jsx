@@ -55,7 +55,7 @@ const SLIDES = {
       Icon:  FileText,
       color: 'from-amber-400 to-orange-400',
       title: 'Canvass TWG-Approved PRs',
-      body:  'Your Work Queue is your home. Requests the TWG approved wait under To canvass; click Start canvass to set the mode, then print the RFQ for the canvasser.',
+      body:  'Your Work Queue is your home. Requests the TWG approved wait under To canvass; click Start canvass to give it its PR number and set the mode, then print the RFQ for the canvasser.',
     },
     {
       Icon:  Gavel,

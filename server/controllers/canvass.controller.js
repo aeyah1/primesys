@@ -5,10 +5,12 @@ const withTransaction = require('../db/transaction')
 const notify          = require('../utils/notify')
 const { loadPR, changePRStatus, syncPRProgress } = require('../utils/prWorkflow')
 const { short, itemStates } = require('../utils/awardWorkflow')
+const { isTemporary, suggestPrNumber, assignPrNumber } = require('../utils/prNumber')
 
 // The canvass of one PR
 // The canvass is done outside the system: once the TWG approves the request,
-// Procurement starts the canvass and prints the RFQ, and the campus canvasser
+// Procurement assigns its PR number and starts the canvass, prints the RFQ,
+// and the campus canvasser
 // collects the suppliers' quotations. Procurement then records each item's
 // winner as an award (lots.controller), attaches the canvass documents to the
 // PR, and submits the result to the BAC (bac.controller). An item no supplier
@@ -22,9 +24,13 @@ exports.summary = asyncHandler(async (req, res) => {
   const { items, wholeAward } = await itemStates(pool, pr.id)
   const staff = STAFF.includes(req.user.role) && !pr.deleted_at
   const inCanvass = staff && pr.status === 'bidding'
+  const start = staff && pr.status === 'twg_review'
   res.json({
     status: pr.status,
     mode_of_procurement: pr.mode_of_procurement,
+    // The PR number Procurement gives the request when the canvass starts, the next one suggested.
+    pr_number_assigned: !isTemporary(pr.pr_number),
+    suggested_pr_number: start && isTemporary(pr.pr_number) ? await suggestPrNumber(pool) : null,
     whole_award: wholeAward,
     items: items.map(({ award, ...i }) => ({
       ...i,
@@ -32,27 +38,33 @@ exports.summary = asyncHandler(async (req, res) => {
       awarded_to: award?.awarded_to ?? null, awarded_price: award?.unit_price ?? null, po_id: award?.po_id ?? null,
     })),
     permissions: {
-      start:   staff && pr.status === 'twg_review',
+      start,
       record:  inCanvass,   // recording winners and dropping items
       restore: staff && ['bidding', 'for_po'].includes(pr.status),
     },
   })
 })
 
-// POST /canvass/:prId/start - { mode_of_procurement }: Procurement starts the
-// canvass of a request the TWG approved, choosing how it is procured.
+// POST /canvass/:prId/start - { mode_of_procurement, pr_number }: Procurement
+// starts the canvass of a request the TWG approved, choosing how it is
+// procured, and gives it its PR number (the suggested one when none is sent).
 exports.start = asyncHandler(async (req, res) => {
   const mode = req.body.mode_of_procurement   // checked in the route
-  const { pr } = await withTransaction(async (conn) => {
-    const moved = await changePRStatus(req.params.prId, 'bidding', { user: req.user, via: 'canvass', note: `Canvass started (${mode})`, conn })
-    await conn.execute('UPDATE purchase_requests SET mode_of_procurement = ? WHERE id = ?', [mode, moved.pr.id])
-    return moved
+  const { pr, number } = await withTransaction(async (conn) => {
+    const current = await loadPR(conn, req.params.prId, { lock: true })
+    if (!current || current.deleted_at) throw httpError(404, 'PR not found')
+    const unnumbered = isTemporary(current.pr_number)
+    const number = current.status === 'twg_review' ? await assignPrNumber(conn, current, req.body.pr_number) : current.pr_number
+    const note = `Canvass started (${mode})${unnumbered ? `; PR number ${number} assigned` : ''}`
+    await changePRStatus(current.id, 'bidding', { user: req.user, via: 'canvass', note, conn })
+    await conn.execute('UPDATE purchase_requests SET mode_of_procurement = ? WHERE id = ?', [mode, current.id])
+    return { pr: current, number }
   })
   if (pr.created_by !== req.user.id) {
-    const prLabel = pr.title ? `${pr.pr_number} — ${pr.title}` : pr.pr_number
-    await notify(req.io, pr.created_by, `PR ${prLabel} is now in canvass.`, 'info', pr.id, 'pr')
+    const was = pr.pr_number !== number ? ` (${pr.pr_number})` : ''
+    await notify(req.io, pr.created_by, `PR ${number}${was}${pr.title ? ` — ${pr.title}` : ''} is now in canvass.`, 'info', pr.id, 'pr')
   }
-  res.json({ message: 'Canvass started' })
+  res.json({ message: 'Canvass started', pr_number: number })
 })
 
 // POST /canvass/:prId/items/:itemId/drop - { reason }: an item that can't be
