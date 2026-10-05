@@ -1,10 +1,11 @@
-import { User, Calendar, Briefcase, Building2, PenLine } from 'lucide-react'
+import { User, Calendar, Briefcase, Building2 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import api from '@/lib/axios'
 import { useAuth } from '@/context/AuthContext'
+import RequesterFields from './RequesterFields'
 
 // Single source of truth for the four purpose_type options.
 // To add/edit a purpose type: update this array AND the ENUM in the DB.
@@ -18,8 +19,8 @@ export const PURPOSE_TYPES = [
 // Pretty labels exposed for badges and read-only views elsewhere.
 export const PURPOSE_TYPE_LABELS = Object.fromEntries(PURPOSE_TYPES.map(t => [t.value, t.label]))
 
-// Renders the Request Context section: department, purpose type cards (with
-// conditional event/project fields), purpose textarea, date needed, recommended by.
+// Renders the Request Context section: department, who requested it and their
+// signature, purpose type cards (with conditional event/project fields), date needed.
 //
 // `value` is the full context sub-object on the parent's form state.
 // `onChange(nextValue)` is called with the merged object whenever any field changes.
@@ -30,15 +31,12 @@ export default function RequestContextForm({ value = {}, onChange }) {
   const ownOffice = user?.role === 'requestor'
   const selectedType = value.purpose_type || 'personal'
 
-  // The offices that can file a request. The one picked here decides who the
-  // printed form names as "Requested by": the head of that office, not the
-  // person filling this in.
+  // The offices that can file a request; the one picked suggests its head as "Requested by".
   const { data: departments = [] } = useQuery({
     queryKey: ['departments'],
     queryFn:  () => api.get('/departments').then(r => r.data),
     staleTime: 5 * 60_000,
   })
-  const picked = departments.find(d => d.id === Number(ownOffice ? user.department_id : value.department_id))
 
   return (
     <div className="space-y-4">
@@ -80,15 +78,11 @@ export default function RequestContextForm({ value = {}, onChange }) {
             </p>
           </>
         )}
-        {picked && (
-          <p className="flex items-start gap-1.5 text-[11px] text-[--color-text-muted]">
-            <PenLine className="size-3 mt-0.5 shrink-0" />
-            {picked.head_name
-              ? <span>The form will be signed by <strong className="text-[--color-text-secondary]">{picked.head_name}</strong>{picked.head_designation ? `, ${picked.head_designation}` : ''}.</span>
-              : <span>{picked.code} has no head of office recorded, so the form prints a blank line to sign by hand.</span>}
-          </p>
-        )}
       </div>
+
+      {(ownOffice || value.department_id) && (
+        <RequesterFields value={value} onChange={(next) => onChange({ ...value, ...next })} departmentId={ownOffice ? null : value.department_id} />
+      )}
 
       <div className="space-y-2">
         <Label>

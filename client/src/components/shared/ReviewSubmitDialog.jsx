@@ -13,8 +13,8 @@ import { useAuth } from '@/context/AuthContext'
 // it will be read, with anything that looks missing pointed out. Used on the
 // New Request page, the Edit page, and the PR page (a draft or a returned PR).
 // request: the PR's fields (as the form or the server has them); items: its
-// items, or null while they load. requestedBy: the name already on the PR, if any;
-// without it, the office and signer are worked out as the server will
+// items, or null while they load. requestedBy: the name already on the PR, if any.
+// A name typed on the form wins; without either, the office and signer are worked out as the server will
 // (server/utils/departments.js): the filer's own office when none is chosen,
 // and the filer when the office has no head.
 
@@ -42,7 +42,9 @@ export default function ReviewSubmitDialog({ request, items, requestedBy, open, 
   const dept = departments.find(d => d.id === Number(r.department_id || (!chosen && !requestedBy ? user?.department_id : null)))
   const office = dept ? `${dept.code}: ${dept.name}` : r.department?.trim() || null
   const filer = user?.name ? `${user.name}${user.designation ? `, ${user.designation}` : ''}` : null
-  const head = requestedBy || (dept?.head_name ? `${dept.head_name}${dept.head_designation ? `, ${dept.head_designation}` : ''}` : filer)
+  const typed = r.requested_by_name?.trim() ? `${r.requested_by_name.trim()}${r.requested_by_designation?.trim() ? `, ${r.requested_by_designation.trim()}` : ''}` : null
+  const signed = !!(r.signature || r.requested_by_signed)
+  const head = typed || requestedBy || (dept?.head_name ? `${dept.head_name}${dept.head_designation ? `, ${dept.head_designation}` : ''}` : filer)
   const list = items || []
   const total = list.reduce((s, i) => s + lineTotal(i), 0)
   const today = localToday()
@@ -51,8 +53,9 @@ export default function ReviewSubmitDialog({ request, items, requestedBy, open, 
   // What looks missing or wrong: pointed out, never blocking.
   const checks = [
     !office && 'No office is chosen, so the form prints no Office/Section.',
-    !requestedBy && dept && !dept.head_name && 'This office has no head on record, so the form names you as the requesting party.',
+    !typed && !requestedBy && dept && !dept.head_name && 'This office has no head on record, so the form names you as the requesting party.',
     !head && '"Requested by" prints a blank line to sign by hand.',
+    head && !signed && 'Not signed yet: the form prints a blank line for the signature.',
     !needed && 'No date needed is given.',
     needed && needed < today && 'The date needed has already passed.',
     r.purpose_type === 'event' && !r.event_name?.trim() && 'The event has no name.',
@@ -69,7 +72,7 @@ export default function ReviewSubmitDialog({ request, items, requestedBy, open, 
             {r.pr_number && <Row label="PR number"><span className="font-mono font-semibold">{r.pr_number}</span></Row>}
             <Row label="Purpose">{r.title?.trim() || 'Not given'}</Row>
             <Row label="Office" missing={!office}>{office || 'Not chosen'}</Row>
-            <Row label="Requested by" missing={!head}>{head || 'Blank line to sign by hand'}</Row>
+            <Row label="Requested by" missing={!head}>{head ? `${head}${signed ? ' (signed)' : ''}` : 'Blank line to sign by hand'}</Row>
             <Row label="Type of use">{PURPOSE_TYPE_LABELS[r.purpose_type] || 'Not given'}</Row>
             {r.purpose_type === 'event' && (
               <Row label="Event" missing={!r.event_name?.trim()}>

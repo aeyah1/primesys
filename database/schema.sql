@@ -132,12 +132,15 @@ CREATE TABLE `purchase_requests` (
   `status`                     ENUM('draft','submitted','twg_review','revision_requested','rejected','bidding','bac_review','twg_certification','for_po','completed','cancelled') NOT NULL DEFAULT 'draft',
   `notes`                      TEXT         NULL,
   `created_by`                 INT UNSIGNED NOT NULL,
-  -- The head of the requesting office and their designation, as they stood when
-  -- the PR was filed: the form's "Requested by" names the office's head, not
-  -- whoever encoded it, and a later change of head must not rewrite PRs already
-  -- on record. Falls back to the filer when the office has no head recorded.
+  -- Who requested it, as the form's "Requested by" prints them: typed by the
+  -- Fund Administrator who files it, the office head when none is typed (frozen,
+  -- so a later change of head leaves filed PRs alone). Their signature, drawn
+  -- on the screen or uploaded, prints on the signature line (PNG data URL).
   `requested_by_name`          VARCHAR(150) NULL,
   `requested_by_designation`   VARCHAR(150) NULL,
+  `requested_by_signature`     MEDIUMTEXT   NULL,
+  `requested_by_sign_method`   ENUM('drawn','uploaded') NULL,
+  `requested_by_signed_at`     DATETIME     NULL,
   `twg_reviewed_by`            INT UNSIGNED NULL,
   `twg_reviewed_at`            TIMESTAMP    NULL DEFAULT NULL,
   `twg_comment`                TEXT         NULL,

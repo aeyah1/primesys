@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Package, Plus, Trash2, Send } from 'lucide-react'
 import ItemCategorySelector from '@/components/shared/ItemCategorySelector'
 import RequestContextForm from '@/components/shared/RequestContextForm'
+import { requesterPayload } from '@/components/shared/RequesterFields'
 import { toast } from '@/lib/toast'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -41,6 +42,7 @@ export default function PREdit() {
     title: '', fund_cluster: '', fund_source: 'STF', responsibility_center_code: '', category: 'office_supplies',
     department: '', department_id: '', purpose_type: 'personal', purpose: '', date_needed: '', recommended_by: '',
     event_name: '', event_date: '', project_name: '',
+    requested_by_name: '', requested_by_designation: '', signature: null, signature_changed: false,
   })
   const [items, setItems]   = useState([])
   const [reviewing, setReviewing] = useState(false)
@@ -89,10 +91,28 @@ export default function PREdit() {
         event_name:                 pr.event_name                 || '',
         event_date:                 pr.event_date                 ? String(pr.event_date).slice(0, 10)  : '',
         project_name:               pr.project_name               || '',
+        // Who requested it as the request names them; their signature loads below.
+        requested_by_name:          pr.requested_by_name          || '',
+        requested_by_designation:   pr.requested_by_designation   || '',
+        requested_by_touched:       !!pr.requested_by_name,
+        signature:                  null,
+        signature_changed:          false,
       })
       setInitialized(true)
     }
   }, [pr, initialized])
+
+  // The signature already on the request, shown until it is signed again or removed.
+  const { data: savedSignature } = useQuery({
+    queryKey: ['pr-signature', id],
+    queryFn: () => api.get(`/pr/${id}/requester-signature`).then(r => r.data),
+    enabled: !!pr?.requested_by_signed,
+  })
+  useEffect(() => {
+    if (initialized && savedSignature?.image) {
+      setForm(p => (p.signature || p.signature_changed ? p : { ...p, signature: { image: savedSignature.image, method: savedSignature.method } }))
+    }
+  }, [initialized, savedSignature])
 
   useEffect(() => {
     if (existingItems.length > 0 && initialized && items.length === 0) {
@@ -164,7 +184,8 @@ export default function PREdit() {
     if (submit && !confirmed) { setReviewing(true); return }
     setSaving(true)
     try {
-      await updatePR(form)
+      const { signature, signature_changed, requested_by_touched, ...details } = form
+      await updatePR({ ...details, ...requesterPayload(form) })
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to update PR')
       setSaving(false)

@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Package, Plus, Trash2, Info } from 'lucide-react'
 import ItemCategorySelector from '@/components/shared/ItemCategorySelector'
 import RequestContextForm from '@/components/shared/RequestContextForm'
+import { requesterPayload } from '@/components/shared/RequesterFields'
 import { toast } from '@/lib/toast'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -70,6 +71,11 @@ export default function PRCreate() {
     event_name: '',
     event_date: '',
     project_name: '',
+    // Who requested it, and their signature (components/shared/RequesterFields.jsx).
+    requested_by_name: '',
+    requested_by_designation: '',
+    signature: null,
+    signature_changed: false,
   })
   const setF = (k, v) => setForm(p => ({ ...p, [k]: v }))
 
@@ -232,6 +238,7 @@ export default function PRCreate() {
       event_name:                 form.purpose_type === 'event'   ? (form.event_name?.trim() || undefined) : undefined,
       event_date:                 form.purpose_type === 'event'   ? (form.event_date || undefined)        : undefined,
       project_name:               form.purpose_type === 'project' ? (form.project_name?.trim() || undefined) : undefined,
+      ...requesterPayload(form),
       ...(submitNow ? { status: 'submitted' } : {}),
       // Items go with the PR in the same request, so they're saved together.
       items: items.map(item => ({

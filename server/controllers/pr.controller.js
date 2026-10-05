@@ -15,7 +15,8 @@ const { CATEGORIES, isCategory, syncPRCategory } = require('../utils/categories'
 const crypto          = require('crypto')
 const { loadOrgSettings, fundCodeFor, FUND_SOURCE_VALUES } = require('../utils/orgSettings')
 const { temporaryRef, isTemporary } = require('../utils/prNumber')
-const { requestedBy, resolveDepartment } = require('../utils/departments')
+const { requestedBy, requesterOf, resolveDepartment } = require('../utils/departments')
+const { requesterSignature } = require('../utils/signature')
 const { reviewsCategory, notifyAreaReviewers } = require('../utils/twgAreas')
 const { assertNoBrands } = require('../utils/brandNames')
 const { linesForItems, lockOfficePlans, reviewPr } = require('../utils/ppmpUse')
@@ -190,7 +191,7 @@ exports.getById = asyncHandler(async (req, res) => {
     WHERE psl.pr_id = ? AND psl.to_status = 'revision_requested'
     ORDER BY psl.id DESC LIMIT 1
   `, [req.params.id])
-  const pr = rows[0]
+  const { requested_by_signature, ...pr } = rows[0]
   // No itemCount here: Submit stays offered on an empty draft, and the move
   // itself (changePRStatus) answers "Add at least one item before submitting".
   const facts = { ...pr, hasPO: active.length > 0, hasAnyPO: pos.length > 0, hasLot: !!has_lot, hasAward: !!has_award }
@@ -199,6 +200,7 @@ exports.getById = asyncHandler(async (req, res) => {
     && req.user.role === 'twg' && await reviewsCategory(pool, req.user.id, pr.category)
   res.json({
     ...pr,
+    requested_by_signed: !!requested_by_signature,
     // Each active PO with what this user may do with it.
     pos: active.map(({ has_deliveries, ...po }) => ({
       ...po,
@@ -238,6 +240,7 @@ exports.create = asyncHandler(async (req, res) => {
     event_name, event_date, project_name, items,
   } = req.body
   const initialStatus = (status === 'submitted') ? 'submitted' : 'draft'
+  const signature = requesterSignature(req.body)
   const prCategory    = VALID_CATEGORIES.includes(category) ? category : 'office_supplies'
   const prPurposeType = VALID_PURPOSE_TYPES.includes(purpose_type) ? purpose_type : 'personal'
 
@@ -273,7 +276,9 @@ exports.create = asyncHandler(async (req, res) => {
   const dept = await resolveDepartment(pool, { departmentId: req.user.role === 'requestor' ? null : department_id, userId: req.user.id })
   // Items picked from the office's PPMP take the line's description and unit.
   const lines = await linesForItems(pool, dept?.id, itemList)
-  const requester = requestedBy(dept, filer)
+  // Who requested it: as the Fund Administrator typed it, else the office head.
+  const requester = requesterOf(req.body, dept, filer)
+  if (signature && !requester.name) return res.status(400).json({ message: 'Name who requested it before it is signed' })
   // Office/Section prints the department's code; free text is still accepted
   // for an office that is not on the list.
   const departmentText = dept ? dept.code : (department?.trim() || null)
@@ -288,8 +293,8 @@ exports.create = asyncHandler(async (req, res) => {
          pr_number, quarter_id, title, fund_cluster, fund_source, responsibility_center_code,
          department, department_id, purpose_type, purpose, date_needed, recommended_by,
          event_name, event_date, project_name, category, status, created_by,
-         requested_by_name, requested_by_designation
-       ) VALUES (?, ?, ?, ?, ?, ?,  ?, ?, ?, ?, ?,  ?, ?, ?, ?, ?, 'draft', ?,  ?, ?)`,
+         requested_by_name, requested_by_designation, requested_by_signature, requested_by_sign_method, requested_by_signed_at
+       ) VALUES (?, ?, ?, ?, ?, ?,  ?, ?, ?, ?, ?,  ?, ?, ?, ?, ?, 'draft', ?,  ?, ?, ?, ?, ?)`,
       [
         `REQ-NEW-${crypto.randomUUID()}`, quarterId, title || null, fundCluster, fundSource, rcCode,
         departmentText, dept?.id ?? null,
@@ -302,6 +307,7 @@ exports.create = asyncHandler(async (req, res) => {
         project_name?.trim() || null,
         prCategory, req.user.id,
         requester.name, requester.designation,
+        signature?.image ?? null, signature?.method ?? null, signature ? new Date() : null,
       ]
     )
     const created = { prId: result.insertId, pr_number: temporaryRef(result.insertId) }
@@ -396,14 +402,25 @@ exports.update = asyncHandler(async (req, res) => {
   // form must name the head of the office it is actually filed under. A PR is
   // only editable before the TWG sees it, so this never rewrites an approved one.
   const [[owner]] = await pool.execute(
-    'SELECT u.name, u.designation, pr.department FROM purchase_requests pr JOIN users u ON u.id = pr.created_by WHERE pr.id = ?',
+    `SELECT u.name, u.designation, pr.department, pr.department_id, pr.requested_by_name, d.head_name, d.head_designation
+       FROM purchase_requests pr JOIN users u ON u.id = pr.created_by LEFT JOIN departments d ON d.id = pr.department_id
+      WHERE pr.id = ?`,
     [req.params.id])
   // A Fund Administrator's request stays with their own office (and its PPMP).
   const officeLocked = req.user.role === 'requestor'
   const dept = 'department_id' in req.body && !officeLocked
     ? await resolveDepartment(pool, { departmentId: department_id })
     : undefined
-  const requester = dept === undefined ? null : requestedBy(dept, owner)
+  // Who requested it: as typed (else the office head), or the new office's head when only the office changes.
+  const office = dept === undefined ? (owner.department_id ? { head_name: owner.head_name, head_designation: owner.head_designation } : null) : dept
+  const requester = 'requested_by_name' in req.body ? requesterOf(req.body, office, owner)
+    : dept === undefined ? null : requestedBy(dept, owner)
+  // A signature belongs to the person named: naming someone else drops it.
+  let signature = requesterSignature(req.body)
+  if (signature === undefined && requester && requester.name !== owner.requested_by_name) signature = null
+  if (signature && !(requester ? requester.name : owner.requested_by_name)) {
+    return res.status(400).json({ message: 'Name who requested it before it is signed' })
+  }
   const departmentText = officeLocked ? owner.department
     : dept === undefined ? (department?.trim() || null) : (dept ? dept.code : (department?.trim() || null))
   // The office and its signatory move together, and only when the request
@@ -416,11 +433,18 @@ exports.update = asyncHandler(async (req, res) => {
            fund_cluster                = ?` : ''
   const sourceValues = newSource ? [newSource, fundCodeFor(await loadOrgSettings(pool), newSource)] : []
 
-  const officeSet = dept === undefined ? '' : `,
-           department_id               = ?,
+  const officeSet = (dept === undefined ? '' : `,
+           department_id               = ?`) + (requester ? `,
            requested_by_name           = ?,
-           requested_by_designation    = ?`
-  const officeValues = dept === undefined ? [] : [dept?.id ?? null, requester?.name ?? null, requester?.designation ?? null]
+           requested_by_designation    = ?` : '') + (signature === undefined ? '' : `,
+           requested_by_signature      = ?,
+           requested_by_sign_method    = ?,
+           requested_by_signed_at      = ${signature ? 'NOW()' : 'NULL'}`)
+  const officeValues = [
+    ...(dept === undefined ? [] : [dept?.id ?? null]),
+    ...(requester ? [requester.name ?? null, requester.designation ?? null] : []),
+    ...(signature === undefined ? [] : [signature?.image ?? null, signature?.method ?? null]),
+  ]
 
   // Each context column is set unconditionally (no COALESCE) so the client can
   // legitimately CLEAR a field by sending null/empty. category and purpose_type
@@ -458,6 +482,35 @@ exports.update = asyncHandler(async (req, res) => {
     ]
   )
   res.json({ message: 'PR updated' })
+})
+
+// GET /pr/requesters?department_id= - suggestions for "Requested by": the
+// office head, then who requested for the office before, latest first. A Fund
+// Administrator gets their own office's.
+exports.requesters = asyncHandler(async (req, res) => {
+  const [[me]] = await pool.execute('SELECT department_id FROM users WHERE id = ?', [req.user.id])
+  const officeId = req.user.role === 'requestor' ? me?.department_id : (Number(req.query.department_id) || null)
+  if (!officeId) return res.json([])
+  const [[head]] = await pool.execute('SELECT head_name AS name, head_designation AS designation FROM departments WHERE id = ?', [officeId])
+  const [past] = await pool.execute(
+    `SELECT requested_by_name AS name, requested_by_designation AS designation, MAX(id) AS latest
+       FROM purchase_requests WHERE department_id = ? AND requested_by_name IS NOT NULL AND deleted_at IS NULL
+      GROUP BY requested_by_name, requested_by_designation ORDER BY latest DESC LIMIT 20`, [officeId])
+  const people = []
+  for (const p of [...(head?.name ? [{ ...head, head: true }] : []), ...past]) {
+    if (people.some(x => x.name.toLowerCase() === p.name.toLowerCase())) continue
+    people.push({ name: p.name, designation: p.designation || null, head: !!p.head })
+  }
+  res.json(people)
+})
+
+// GET /pr/:id/requester-signature - the requester's signature image, how it was made, and when.
+exports.requesterSignature = asyncHandler(async (req, res) => {
+  const [[row]] = await pool.execute(
+    'SELECT requested_by_signature AS image, requested_by_sign_method AS method, requested_by_signed_at AS signed_at FROM purchase_requests WHERE id = ?',
+    [req.params.id])
+  if (!row) return res.status(404).json({ message: 'PR not found' })
+  res.json(row.image ? row : { image: null, method: null, signed_at: null })
 })
 
 // PATCH /pr/:id/mode - how this purchase is procured. Procurement or the BAC
