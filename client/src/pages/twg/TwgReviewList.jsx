@@ -147,7 +147,7 @@ export default function TwgReviewList() {
                         <span>{pr.item_count} item{pr.item_count === 1 ? '' : 's'}</span>
                         {' · '}
                         {stage === 'certify'
-                          ? <>Approved by the BAC {fmtDatetime(pr.submitted_at)}{Number(pr.awarded_total) > 0 && <> · awards {fmtCurrency(pr.awarded_total)}</>}</>
+                          ? <>Awarded by the BAC {fmtDatetime(pr.submitted_at)}{Number(pr.awarded_total) > 0 && <> · awards {fmtCurrency(pr.awarded_total)}</>}</>
                           : <>Submitted {fmtDatetime(pr.submitted_at)}</>}
                       </p>
                       {stage === 'review' && pr.last_reviewer_name && (

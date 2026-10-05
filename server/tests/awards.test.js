@@ -1,8 +1,8 @@
 // Lots & Awards: the work queue (PRs by stage, counts, search, category),
-// recording a canvass winner for some of a PR's items at their winning prices
-// (copied on the server, within their approved budget), a supplier's details
-// kept the same on each of their awards, awards fixed while the BAC or the TWG
-// reviews them, and a reason for every cancelled award. Real HTTP against a
+// the BAC awarding some of a PR's items and the rest in a later round, at
+// their winning prices (copied on the server, within their approved budget),
+// a supplier's details kept the same on each of their awards, awards fixed
+// while the TWG certifies them, and a reason for every cancelled award. Real HTTP against a
 // throwaway database (harness.js).
 const path = require('path')
 const H    = require('./harness')
@@ -12,7 +12,7 @@ const serverReq = (m) => require(require.resolve(m, { paths: [H.SERVER] }))
 const config = require(path.join(H.SERVER, 'config.js'))
 const jwt    = serverReq('jsonwebtoken')
 
-const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 4: 'supply', 5: 'requestor', 6: 'bac' }
+const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 4: 'supply', 5: 'requestor', 6: 'bac', 7: 'twg' }
 const tok  = (id) => jwt.sign({ id, role: ROLE[id] }, config.jwt.secret, { expiresIn: '1h' })
 const LONG = 'Desktop computer set with 24-inch monitor, keyboard, mouse and UPS; '.repeat(6).slice(0, 400)
 
@@ -28,7 +28,8 @@ function fixtures() {
   return `
     SET FOREIGN_KEY_CHECKS = 0;
     INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified) VALUES
-      ${U(1, 'Admin One')}, ${U(2, 'Proc One')}, ${U(3, 'Req A')}, ${U(4, 'Sup One')}, ${U(5, 'Req B')}, ${U(6, 'Bac One')};
+      ${U(1, 'Admin One')}, ${U(2, 'Proc One')}, ${U(3, 'Req A')}, ${U(4, 'Sup One')}, ${U(5, 'Req B')}, ${U(6, 'Bac One')}, ${U(7, 'Twg One')};
+    ${H.twgAreas([7])}
     INSERT INTO purchase_requests (id, pr_number, title, status, created_by, category, department) VALUES
       ${P(70, 'bidding', 3, 'hardware')}, ${P(71, 'bidding', 5, 'event_supplies')}, ${P(72, 'for_po', 3, 'hardware')},
       ${P(73, 'for_po', 3, 'office_supplies')}, ${P(74, 'completed', 3, 'hardware')}, ${P(75, 'cancelled', 5, 'furniture')},
@@ -72,10 +73,6 @@ async function http(who, method, p, body) {
 const show = (r) => `${r.status} ${JSON.stringify(r.data)}`.slice(0, 260)
 const ids  = (r) => (r.data?.data || []).map(x => x.id)
 const same = (obj, want) => Object.entries(want).every(([k, v]) => obj?.[k] === v)
-const won  = (pr, supplier, prices, extra = {}) => ({
-  purchase_request_id: pr, awarded_to: supplier, ...extra,
-  items: Object.entries(prices).map(([item, unit_price]) => ({ pr_item_id: Number(item), unit_price })),
-})
 
 async function run() {
   const t = H.suite('LOTS & AWARDS')
@@ -86,13 +83,12 @@ async function run() {
   // Work queue
   const G1 = 'Work queue'
   await is(G1, 'counts per stage (each PR in one)', 2, 'GET', Q(), undefined,
-    (r) => r.status === 200 && same(r.data.counts.stages, { to_canvass: 1, needs_award: 3, with_bac: 1, with_twg: 1, awaiting_po: 1, po_issued: 3, cancelled: 1 }))
-  await is(G1, 'in canvass: longest waiting first', 2, 'GET', Q('&stage=needs_award'), undefined,
-    (r) => r.status === 200 && ids(r).join() === '70,77,71')
+    (r) => r.status === 200 && same(r.data.counts.stages, { to_canvass: 1, needs_award: 4, with_twg: 1, awaiting_po: 1, po_issued: 3, cancelled: 1 }))
+  await is(G1, 'with the BAC in canvass, an older one submitted for its review too: longest waiting first', 2, 'GET', Q('&stage=needs_award'), undefined,
+    (r) => r.status === 200 && ids(r).join() === '70,77,71,79')
   await is(G1, '…with the estimate, item count, and a cancelled earlier award', 2, 'GET', Q('&stage=needs_award'), undefined,
     (r) => r.status === 200 && Number(r.data.data[0].estimated_total) === 92000 && r.data.data[0].item_count === 3
            && r.data.data[1].cancelled_lots === 1 && r.data.data[1].suppliers === null && r.data.data[0].awarded_items === 0)
-  await is(G1, 'with the BAC, and with the TWG', 2, 'GET', Q('&stage=with_bac'), undefined, (r) => r.status === 200 && ids(r).join() === '79')
   await is(G1, '…the TWG\'s award waits, not yet ready for its PO', 2, 'GET', Q('&stage=with_twg'), undefined,
     (r) => r.status === 200 && ids(r).join() === '80' && r.data.data[0].suppliers === 'Zeta Supply' && r.data.data[0].awards_without_po === 0)
   await is(G1, 'awaiting PO: certified awards, with the supplier and total', 2, 'GET', Q('&stage=awaiting_po'), undefined,
@@ -101,60 +97,70 @@ async function run() {
   await is(G1, 'PO issued (and completed): latest first, with the PO', 2, 'GET', Q('&stage=po_issued'), undefined,
     (r) => r.status === 200 && ids(r).join() === '74,73,78' && r.data.data[1].po_number === 'PO-W-73')
   await is(G1, 'cancelled after an award', 2, 'GET', Q('&stage=cancelled'), undefined, (r) => r.status === 200 && ids(r).join() === '75')
-  await is(G1, 'an unknown stage shows In canvass', 2, 'GET', Q('&stage=drop_table'), undefined, (r) => r.status === 200 && ids(r).join() === '70,77,71')
+  await is(G1, 'an unknown stage shows In canvass', 2, 'GET', Q('&stage=drop_table'), undefined, (r) => r.status === 200 && ids(r).join() === '70,77,71,79')
   await is(G1, 'category filter, with the stage counts following it', 2, 'GET', Q('&stage=needs_award&category=event_supplies'), undefined,
-    (r) => r.status === 200 && ids(r).join() === '71' && same(r.data.counts.stages, { needs_award: 1, with_bac: 0, awaiting_po: 0, po_issued: 0, cancelled: 0 }))
+    (r) => r.status === 200 && ids(r).join() === '71' && same(r.data.counts.stages, { needs_award: 1, awaiting_po: 0, po_issued: 0, cancelled: 0 }))
   await is(G1, '…category counts for the stage', 2, 'GET', Q('&stage=needs_award&category=event_supplies'), undefined,
-    (r) => r.status === 200 && same(r.data.counts.categories, { hardware: 2, event_supplies: 1, furniture: 0 }))
+    (r) => r.status === 200 && same(r.data.counts.categories, { hardware: 3, event_supplies: 1, furniture: 0 }))
   await is(G1, 'search finds the supplier too', 2, 'GET', Q('&stage=po_issued&search=acme'), undefined,
     (r) => r.status === 200 && ids(r).join() === '74,78' && same(r.data.counts.stages, { needs_award: 0, awaiting_po: 1, po_issued: 2, cancelled: 0 }))
   await is(G1, 'paging', 2, 'GET', '/lots/queue?stage=needs_award&limit=2&page=2', undefined,
-    (r) => r.status === 200 && ids(r).join() === '71' && r.data.totalPages === 2 && r.data.total === 3)
+    (r) => r.status === 200 && ids(r).join() === '71,79' && r.data.totalPages === 2 && r.data.total === 4)
   await is(G1, 'supply sees the awarded PRs only (C2)', 4, 'GET', Q(), undefined,
-    (r) => r.status === 200 && same(r.data.counts.stages, { needs_award: 0, with_bac: 0, with_twg: 1, awaiting_po: 1, po_issued: 3, cancelled: 1 }))
+    (r) => r.status === 200 && same(r.data.counts.stages, { needs_award: 0, with_twg: 1, awaiting_po: 1, po_issued: 3, cancelled: 1 }))
   await is(G1, 'a requestor has no queue (403)', 3, 'GET', Q(), undefined, code(403))
 
-  // Recording a winner for some of the PR's items
-  const G3 = 'Record a winner'
-  await is(G3, 'a price above the approved budget of its item → 409', 2, 'POST', '/lots',
-    won(70, 'Acme Trading', { 701: '45000.01', 702: 500 }), code(409, /above the approved budget/))
-  const lotA = await is(G3, 'the winner of two of the PR\'s three items', 2, 'POST', '/lots',
-    won(70, 'Acme Trading', { 701: 45000, 702: 500 }, { supplier_contact: 'Ana Reyes' }),
-    (r) => r.status === 201 && r.data.items === 2 && r.data.lot_number === 'LOT-001' && Number(r.data.awarded_amount) === 91000)
-  await is(G3, '…the PR stays in canvass for the third', 2, 'GET', '/pr/70', undefined, (r) => r.status === 200 && r.data.status === 'bidding')
-  await is(G3, 'an item already won can\'t be won again → 409', 2, 'POST', '/lots', won(70, 'Other Co', { 702: 10 }), code(409, /already awarded/))
-  const lotB = await is(G3, 'the rest to the same supplier, typed differently, with no details', 2, 'POST', '/lots',
-    won(70, ' ACME   trading ', { 703: 1000 }), (r) => r.status === 201 && r.data.awarded_to === 'Acme Trading' && r.data.items === 1)
-  await is(G3, '…items copied from the PR at their winning prices, in its order, full names kept', 2, 'GET', '/lots/pr/70', undefined,
-    (r) => r.status === 200 && r.data[0].items.map(i => i.pr_item_id).join() === '701,702' && Number(r.data[0].items[0].quantity) === 2
-           && Number(r.data[0].items[1].unit_price) === 500 && r.data[1].items[0].pr_item_id === 703 && r.data[1].items[0].item_name.length === 400)
-  await is(G3, '…the later award keeps the supplier\'s details', 2, 'GET', '/lots/pr/70', undefined,
-    (r) => r.status === 200 && r.data[1].supplier_contact === 'Ana Reyes')
-  await is(G3, '…every item won: still in canvass, for the BAC and the TWG', 2, 'GET', '/pr/70', undefined, (r) => r.status === 200 && r.data.status === 'bidding')
-  await is(G3, '…so not yet waiting for its PO', 2, 'GET', Q('&stage=awaiting_po'), undefined, (r) => r.status === 200 && ids(r).join() === '72')
-  await is(G3, 'a PR with every item won takes no more → 409', 2, 'POST', '/lots', won(70, 'X', { 701: 1 }), code(409, /already awarded/))
-  await is(G3, 'an item from another PR → 400, nothing saved', 2, 'POST', '/lots', won(71, 'X', { 711: 10, 701: 10 }), code(400, /not on this PR/))
-  await is(G3, '…PR 71 has no award and is still in canvass', 2, 'GET', '/lots/pr/71', undefined, (r) => r.status === 200 && r.data.length === 0)
-  await is(G3, 'items that aren\'t ids → 400', 2, 'POST', '/lots', { purchase_request_id: 71, awarded_to: 'X', items: [{ pr_item_id: 'abc', unit_price: 1 }] }, code(400))
-  await is(G3, 'items not sent as a list → 400', 2, 'POST', '/lots', { purchase_request_id: 71, awarded_to: 'X', items: 711 }, code(400))
-  await is(G3, 'a bad email → 400', 2, 'POST', '/lots', won(71, 'X', { 711: 10 }, { supplier_email: 'nope' }), code(400))
-  await is(G3, 'a supplier name over 200 characters → 400', 2, 'POST', '/lots', won(71, 'x'.repeat(201), { 711: 10 }), code(400))
-  await is(G3, 'supply can\'t record one (403)', 4, 'POST', '/lots', won(71, 'X', { 711: 10 }), code(403))
-  await is(G3, 'not while the BAC reviews the PR → 409', 2, 'POST', '/lots', won(79, 'X', { 791: 10 }), code(409, /with the BAC/))
+  // The BAC awards some of the PR's items, then the rest in a later round
+  const G3 = 'The BAC\'s award'
+  const acme = (prices, name = 'Acme Trading') => ({
+    bidders: [{ name, prices: Object.entries(prices).map(([item, unit_price]) => ({ pr_item_id: Number(item), unit_price })) }],
+    winners: Object.keys(prices).map(item => ({ pr_item_id: Number(item), bidder: 0 })),
+  })
+  await is(G3, 'bids for two of the three items', 6, 'PUT', '/canvass/70/bids', acme({ 701: 45000, 702: 500 }), code(200))
+  await is(G3, '…the third has no winner → 409', 6, 'POST', '/canvass/70/award', {}, code(409, /Pick the winner of "Desktop/))
+  await is(G3, 'the BAC drops the third for now', 6, 'POST', '/canvass/70/items/703/drop', { reason: 'Not in this round' }, code(200))
+  await is(G3, 'a total above the approved budget of its items', 6, 'PUT', '/canvass/70/bids', acme({ 701: '45000.01', 702: 500 }), code(200))
+  await is(G3, '…can\'t be awarded → 409', 6, 'POST', '/canvass/70/award', {}, code(409, /above the approved budget/))
+  await is(G3, '…nothing was awarded', 2, 'GET', '/lots/pr/70', undefined, (r) => r.status === 200 && r.data.length === 0)
+  await is(G3, 'within it', 6, 'PUT', '/canvass/70/bids', acme({ 701: 45000, 702: 500 }), code(200))
+  await is(G3, 'Acme wins two of the PR\'s three items', 6, 'POST', '/canvass/70/award', {}, (r) => r.status === 200 && r.data.awards === 1)
+  await is(G3, '…items copied from the PR at their winning prices, in its order', 2, 'GET', '/lots/pr/70', undefined,
+    (r) => r.status === 200 && r.data[0].lot_number === 'LOT-001' && Number(r.data[0].awarded_amount) === 91000
+           && r.data[0].items.map(i => i.pr_item_id).join() === '701,702' && Number(r.data[0].items[0].quantity) === 2 && Number(r.data[0].items[1].unit_price) === 500)
+  await is(G3, 'the TWG certifies it', 7, 'POST', '/twg/70/certify', { action: 'certify' }, code(200))
+  await is(G3, 'Procurement brings the third item back', 2, 'POST', '/canvass/70/items/703/restore', undefined, code(200))
+  await is(G3, '…so the PR is in canvass with the BAC again', 2, 'GET', '/pr/70', undefined, (r) => r.status === 200 && r.data.status === 'bidding')
+  await is(G3, 'the third to the same supplier, typed differently', 6, 'PUT', '/canvass/70/bids', acme({ 703: 1000 }, ' ACME   trading '), code(200))
+  await is(G3, '…awarded', 6, 'POST', '/canvass/70/award', {}, code(200))
+  await is(G3, '…named as first written, the full item name kept', 2, 'GET', '/lots/pr/70', undefined,
+    (r) => r.status === 200 && r.data[1].awarded_to === 'Acme Trading' && r.data[1].items[0].pr_item_id === 703 && r.data[1].items[0].item_name.length === 400)
+  await is(G3, 'the TWG certifies it too', 7, 'POST', '/twg/70/certify', { action: 'certify' }, code(200))
+  await is(G3, '…so both wait for their PO', 2, 'GET', Q('&stage=awaiting_po'), undefined, (r) => r.status === 200 && ids(r).join() === '72,70')
+  await is(G3, 'a price for an item of another PR → 400', 6, 'PUT', '/canvass/71/bids',
+    { bidders: [{ name: 'X', prices: [{ pr_item_id: 711, unit_price: 10 }, { pr_item_id: 701, unit_price: 10 }] }] }, code(400, /not on this PR/))
+  await is(G3, '…PR 71 has no bids', 6, 'GET', '/canvass/71', undefined, (r) => r.status === 200 && r.data.bidders.length === 0)
+  await is(G3, 'items that aren\'t ids → 400', 6, 'PUT', '/canvass/71/bids', { bidders: [{ name: 'X', prices: [{ pr_item_id: 'abc', unit_price: 1 }] }] }, code(400))
+  await is(G3, 'prices not sent as a list → 400', 6, 'PUT', '/canvass/71/bids', { bidders: [{ name: 'X', prices: 711 }] }, code(400))
+  await is(G3, 'a bidder name over 200 characters → 400', 6, 'PUT', '/canvass/71/bids',
+    { bidders: [{ name: 'x'.repeat(201), prices: [{ pr_item_id: 711, unit_price: 10 }] }] }, code(400))
+  await is(G3, 'supply can\'t enter bids (403)', 4, 'PUT', '/canvass/71/bids', { bidders: [] }, code(403))
+  await is(G3, 'a PR an older version submitted for review: the BAC awards it the same way', 6, 'PUT', '/canvass/79/bids',
+    { bidders: [{ name: 'Omega Desk', prices: [{ pr_item_id: 791, unit_price: 4800 }] }], winners: [{ pr_item_id: 791, bidder: 0 }] }, code(200))
+  await is(G3, '…awarded, to the TWG', 6, 'POST', '/canvass/79/award', {}, (r) => r.status === 200 && r.data.awards === 1)
+  await is(G3, '…now with the TWG', 2, 'GET', '/pr/79', undefined, (r) => r.status === 200 && r.data.status === 'twg_certification')
 
   // A supplier's details: the same on each of their awards
   const G4 = 'Edit a supplier'
-  const A = lotA.data?.id, B = lotB.data?.id
+  const [A, B] = ((await http(2, 'GET', '/lots/pr/70')).data || []).map(l => l.id)
   await is(G4, 'change the phone on one award', 2, 'PATCH', `/lots/${A}`, { supplier_phone: '0999-111-2222' }, code(200))
   await is(G4, '…the supplier\'s other award on the PR has it too', 2, 'GET', '/lots/pr/70', undefined,
     (r) => r.status === 200 && r.data.every(l => l.supplier_phone === '0999-111-2222'))
-  await is(G4, 'rename the supplier on one award', 2, 'PATCH', `/lots/${B}`, { awarded_to: 'Acme Trading Corp.' }, code(200))
-  await is(G4, '…both renamed', 2, 'GET', '/lots/pr/70', undefined, (r) => r.status === 200 && r.data.every(l => l.awarded_to === 'Acme Trading Corp.'))
+  await is(G4, 'a supplier the BAC awarded can\'t be renamed → 409', 2, 'PATCH', `/lots/${B}`, { awarded_to: 'Acme Trading Corp.' }, code(409, /name is fixed/))
   await is(G4, 'an amount sent is ignored: it is the winning prices\' total', 2, 'PATCH', `/lots/${A}`, { awarded_amount: 90000, title: 'Laptops' }, code(200))
   await is(G4, '…unchanged', 2, 'GET', '/lots/pr/70', undefined,
     (r) => r.status === 200 && Number(r.data.find(l => l.id === A).awarded_amount) === 91000 && r.data.find(l => l.id === A).title === 'Laptops')
   await is(G4, 'an award the TWG is certifying can\'t change → 409', 2, 'PATCH', '/lots/7', { title: 'x' }, code(409, /with the TWG/))
-  await is(G4, 'a supplier the BAC approved can\'t be renamed → 409', 2, 'PATCH', '/lots/1', { awarded_to: 'Acme Corp' }, code(409, /name is fixed/))
+  await is(G4, 'an older approved supplier can\'t be renamed either → 409', 2, 'PATCH', '/lots/1', { awarded_to: 'Acme Corp' }, code(409, /name is fixed/))
   await is(G4, '…though the same name, typed differently, is fine', 2, 'PATCH', '/lots/1', { awarded_to: 'ACME trading' }, code(200))
 
   // Cancelling needs a reason
@@ -162,14 +168,11 @@ async function run() {
   await is(G5, 'cancel with no reason → 400', 2, 'PATCH', `/lots/${B}`, { status: 'cancelled' }, code(400, /reason/))
   await is(G5, 'a blank reason → 400', 2, 'PATCH', `/lots/${B}`, { status: 'cancelled', reason: '   ' }, code(400, /reason/))
   await is(G5, 'a reason over 500 characters → 400', 2, 'PATCH', `/lots/${B}`, { status: 'cancelled', reason: 'r'.repeat(501) }, code(400))
-  await is(G5, 'cancel one award, with the reason', 2, 'PATCH', `/lots/${B}`, { status: 'cancelled', reason: 'Recorded twice' }, code(200, /^Award cancelled$/))
+  await is(G5, 'cancel one award, with the reason: back in canvass', 2, 'PATCH', `/lots/${B}`, { status: 'cancelled', reason: 'Recorded twice' }, code(200, /back in canvass/))
   await is(G5, '…the reason and who cancelled stay on the award', 2, 'GET', '/lots/pr/70', undefined,
     (r) => r.status === 200 && r.data.find(l => l.id === B).notes === 'Cancelled by Proc One: Recorded twice')
   await is(G5, '…its item needs a winner again', 2, 'GET', '/canvass/70', undefined,
     (r) => r.status === 200 && r.data.items.find(i => i.id === 703).state === 'pending')
-  await is(G5, 'renaming now leaves the cancelled award as it was', 2, 'PATCH', `/lots/${A}`, { awarded_to: 'Acme Trading Corporation' }, code(200))
-  await is(G5, '…history kept', 2, 'GET', '/lots/pr/70', undefined,
-    (r) => r.status === 200 && r.data.find(l => l.id === B).awarded_to === 'Acme Trading Corp.' && r.data.find(l => l.id === A).awarded_to === 'Acme Trading Corporation')
   await is(G5, 'cancel the certified award of a Ready for PO PR → back in canvass', 2, 'PATCH', '/lots/1', { status: 'cancelled', reason: 'Supplier backed out' },
     code(200, /back in canvass/))
   await is(G5, '…logged with the reason', 2, 'GET', '/pr/72/logs', undefined,

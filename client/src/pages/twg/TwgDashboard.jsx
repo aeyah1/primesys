@@ -183,7 +183,7 @@ export default function TwgDashboard() {
                           {log.from_status === 'twg_certification' && log.to_status === 'for_po' && (
                             <span className="inline-flex items-center gap-1 rounded-full bg-teal-50 border border-teal-200 px-2 py-0.5 text-[10px] text-teal-700 font-semibold"><CheckCircle2 className="size-2.5" /> Certified</span>
                           )}
-                          {log.from_status === 'twg_certification' && log.to_status === 'bac_review' && (
+                          {log.from_status === 'twg_certification' && ['bidding', 'bac_review'].includes(log.to_status) && (
                             <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] text-amber-700 font-semibold"><RotateCcw className="size-2.5" /> Returned to the BAC</span>
                           )}
                           {log.to_status === 'rejected' && (

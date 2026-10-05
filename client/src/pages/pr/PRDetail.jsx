@@ -918,7 +918,7 @@ export default function PRDetail() {
       {/* Items Requested */}
       <PRItemsSection prId={id} pr={pr} canEdit={!!pr.permissions?.edit} category={pr.category} />
 
-      {/* Canvass & awards: the winners by supplier, the BAC's review and the TWG's certification (procurement, admin, BAC) */}
+      {/* Canvass & awards: the BAC's award by supplier and the TWG's certification (procurement, admin, BAC) */}
       {showCanvass && (
         <Card>
           <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
@@ -927,9 +927,8 @@ export default function PRDetail() {
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-[--color-text-primary]">Canvass &amp; Award</p>
                 <p className="text-xs text-[--color-text-secondary] mt-0.5">
-                  {pr.status === 'bidding' ? 'In canvass: record each item\'s winner and attach the canvass documents, then submit to the BAC.'
-                    : pr.status === 'bac_review' ? 'With the BAC for review.'
-                    : pr.status === 'twg_certification' ? 'Approved by the BAC; with the TWG for certification.'
+                  {['bidding', 'bac_review'].includes(pr.status) ? 'In canvass: the BAC enters the bids the canvasser brings and awards them.'
+                    : pr.status === 'twg_certification' ? 'Awarded by the BAC; with the TWG for certification.'
                     : pr.status === 'cancelled' ? 'The canvass record is kept.'
                     : 'Certified. The winners and the BAC Resolution are on the canvass page.'}
                 </p>

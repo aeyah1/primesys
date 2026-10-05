@@ -14,18 +14,12 @@ import { nameKey, cents, lineCents, useRefreshAwards } from './supplier'
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 const TEXTAREA = 'w-full rounded-md border border-[--color-border] bg-[--color-surface] px-3 py-2 text-sm text-[--color-text-primary] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent resize-y'
 
-const DETAILS = [
-  ['supplier_contact', 'Contact person', 100], ['supplier_phone', 'Phone', 50], ['supplier_email', 'Email', 200],
-  ['supplier_tin', 'TIN', 50], ['supplier_address', 'Business address', 500],
-]
-
-/* ── Edit one award's title, and its supplier's details ───────────────── */
+/* ── Edit one award's title, and its supplier's name before the BAC's award ── */
 function EditLotDialog({ lot, onClose }) {
   const refresh = useRefreshAwards(String(lot.purchase_request_id))
-  // A supplier the BAC approved keeps its name; its details can still be corrected.
+  // A supplier the BAC awarded keeps its name.
   const named = !!lot.resolution_id
-  const [form, setForm] = useState(() => Object.fromEntries(
-    [['title'], ['awarded_to'], ...DETAILS].map(([k]) => [k, lot[k] || ''])))
+  const [form, setForm] = useState(() => ({ title: lot.title || '', awarded_to: lot.awarded_to || '' }))
   const setF = (k, v) => setForm(p => ({ ...p, [k]: v }))
   const { mutate, isPending } = useMutation({
     mutationFn: (body) => api.patch(`/lots/${lot.id}`, body),
@@ -37,20 +31,12 @@ function EditLotDialog({ lot, onClose }) {
   return (
     <Dialog open onOpenChange={v => { if (!v) onClose() }}>
       <DialogContent title={`Edit ${lot.lot_number}`}
-        description="The supplier's name and details change on each of its awards here that has no purchase order yet. The amount comes from the winning prices.">
+        description="The supplier's name changes on each of its awards here that has no purchase order yet. The amount comes from the winning prices.">
         <div className="space-y-3">
           <div className="space-y-1.5">
             <Label>Supplier name</Label>
             <Input maxLength={200} value={form.awarded_to} disabled={named} onChange={e => setF('awarded_to', e.target.value)} />
-            {named && <p className="text-xs text-[--color-text-muted]">Approved by the BAC under this name. Cancel the award to award its items to another supplier.</p>}
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {DETAILS.map(([key, label, max]) => (
-              <div key={key} className={`space-y-1.5 ${key === 'supplier_address' ? 'sm:col-span-2' : ''}`}>
-                <Label>{label}</Label>
-                <Input maxLength={max} type={key === 'supplier_email' ? 'email' : 'text'} value={form[key]} onChange={e => setF(key, e.target.value)} />
-              </div>
-            ))}
+            {named && <p className="text-xs text-[--color-text-muted]">Awarded by the BAC under this name. Cancel the award to award its items to another supplier.</p>}
           </div>
           <div className="space-y-1.5">
             <Label>Lot Title <span className="text-[--color-text-muted] font-normal text-xs">(optional)</span></Label>
@@ -68,12 +54,12 @@ function EditLotDialog({ lot, onClose }) {
   )
 }
 
-// Where an award stands in its review: recorded, approved by the BAC, certified by the TWG.
+// Where an award stands: awarded by the BAC, certified by the TWG (an older one may be waiting for the BAC).
 function ReviewChip({ lot }) {
   if (lot.status !== 'awarded' || lot.po_id) return null
   const [text, cls] = lot.certified_at ? ['Certified by the TWG', 'border-teal-300 bg-teal-50 text-teal-800']
-    : lot.resolution_id ? ['Approved by the BAC', 'border-indigo-300 bg-indigo-50 text-indigo-800']
-    : ['Not yet reviewed', 'border-[--color-border-strong] bg-white text-[--color-text-secondary]']
+    : lot.resolution_id ? ['Awarded by the BAC', 'border-indigo-300 bg-indigo-50 text-indigo-800']
+    : ['Waiting for the BAC', 'border-[--color-border-strong] bg-white text-[--color-text-secondary]']
   return (
     <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${cls}`}>
       {lot.certified_at && <ShieldCheck className="size-3" />} {text}

@@ -1,6 +1,6 @@
 // TWG (Technical Working Group) controller - isolated from pr.controller.
 // Owns the review of a requestor's submission before the canvass, and the
-// certification of the canvass result the BAC approved before any purchase order.
+// certification of the BAC's award before any purchase order.
 
 const pool         = require('../db/pool')
 const notify       = require('../utils/notify')
@@ -160,9 +160,9 @@ exports.reviewPR = asyncHandler(async (req, res) => {
 })
 
 // POST /twg/:prId/certify - body: { action: 'certify' | 'return', comment }
-// The TWG checks the canvass result the BAC approved against the request. On
-// certifying, its awards are final and Procurement issues the purchase orders;
-// on returning (comment required), the BAC reviews it again.
+// The TWG checks the BAC's award against the request. On certifying, its
+// awards are final and Procurement issues the purchase orders; on returning
+// (comment required), that award is cancelled and the BAC awards it again from its bids.
 exports.certifyPR = asyncHandler(async (req, res) => {
   const { action } = req.body
   const comment = req.body.comment?.trim() || null
@@ -177,7 +177,11 @@ exports.certifyPR = asyncHandler(async (req, res) => {
 
   const { pr, lots, certificate } = await withTransaction(async (conn) => {
     if (action === 'return') {
-      const result = await changePRStatus(req.params.prId, 'bac_review', { user: req.user, via: 'twg', note: `Returned by the TWG: ${comment}`, conn })
+      // The round's awards are cancelled and their items need an award again; the BAC keeps the bids to pick again.
+      const result = await changePRStatus(req.params.prId, 'bidding', { user: req.user, via: 'twg', note: `Returned by the TWG: ${comment}`, conn })
+      await conn.execute(
+        "UPDATE lots SET status = 'cancelled', notes = CONCAT_WS('\\n', notes, ?) WHERE purchase_request_id = ? AND status = 'awarded' AND certified_at IS NULL",
+        [`Returned by the TWG: ${comment}`, result.pr.id])
       await conn.execute('UPDATE purchase_requests SET certification_return_reason = ? WHERE id = ?', [comment, result.pr.id])
       return { pr: result.pr, lots: [] }
     }

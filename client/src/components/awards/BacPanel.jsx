@@ -1,15 +1,15 @@
 import { useQuery } from '@tanstack/react-query'
-import { Scale, FileText, AlertTriangle, ShieldCheck } from 'lucide-react'
+import { FileText, AlertTriangle, ShieldCheck } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
-import { fmtCurrency, fmtDate, fmtDatetime } from '@/lib/utils'
+import { fmtCurrency, fmtDate } from '@/lib/utils'
 import { openPdf, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 
-/* Where a canvass result stands with the BAC. part 'status': returned, with
-   the BAC (which decides on its review sheet, BacReviewSheet), or with the TWG.
+/* Where a canvass stands after the BAC. part 'status': returned by the TWG
+   (the BAC awards it again on its bid sheet, BacBidSheet), or with the TWG.
    part 'resolutions': each BAC Resolution with its Notices of Award. */
 export default function BacPanel({ prId, part = 'status' }) {
   const { data } = useQuery({
@@ -63,35 +63,17 @@ export default function BacPanel({ prId, part = 'status' }) {
 
   return (
     <div className="space-y-3">
-      {data.return_reason && (
+      {data.certification_return_reason && (
         <p className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           <AlertTriangle className="size-4 shrink-0 mt-0.5" />
-          <span><span className="font-semibold">Returned by the BAC:</span> {data.return_reason}</span>
+          <span><span className="font-semibold">Returned by the TWG:</span> {data.certification_return_reason}. That award was cancelled; the BAC picks the winners again.</span>
         </p>
-      )}
-
-      {data.with_bac && (
-        <div className="space-y-2 rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-3">
-          <p className="flex items-center gap-2 text-sm text-indigo-900">
-            <Scale className="size-4 shrink-0" />
-            <span>
-              <span className="font-semibold">With the BAC for review</span> since {fmtDatetime(data.submitted_at)}
-              {data.submitted_by_name ? `, submitted by ${data.submitted_by_name}` : ''}. The winners are locked.
-            </span>
-          </p>
-          {data.certification_return_reason && (
-            <p className="flex items-start gap-2 text-sm text-amber-900">
-              <AlertTriangle className="size-4 shrink-0 mt-0.5" />
-              <span><span className="font-semibold">Returned by the TWG:</span> {data.certification_return_reason}</span>
-            </p>
-          )}
-        </div>
       )}
 
       {data.status === 'twg_certification' && (
         <p className="flex items-center gap-2 rounded-xl border border-teal-300 bg-teal-50 px-4 py-3 text-sm text-teal-900">
           <ShieldCheck className="size-4 shrink-0" />
-          <span><span className="font-semibold">Approved by the BAC.</span> The TWG checks the result against the request and certifies it.</span>
+          <span><span className="font-semibold">Awarded by the BAC.</span> The TWG checks the winners against the request and certifies them.</span>
         </p>
       )}
     </div>

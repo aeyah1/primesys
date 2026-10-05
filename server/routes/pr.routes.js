@@ -153,13 +153,13 @@ router.get('/:id/logs', prRead, c.getLogs)
 router.get('/:id/attachments',                    prRead, files.listAttachments)
 router.get('/:id/attachments/:attachId/download', prRead, files.downloadAttachment)
 router.post('/:id/attachments',
-  authorize('procurement', 'admin', 'requestor', 'supply'),
+  authorize('procurement', 'admin', 'requestor', 'supply', 'bac'),
   prAccess,        // before multer, so a blocked upload never writes a file
   upload.single('file'),
   files.uploadAttachment
 )
 router.delete('/:id/attachments/:attachId',
-  authorize('procurement', 'admin'),
+  authorize('procurement', 'admin', 'bac'),
   prAccess,
   files.deleteAttachment
 )

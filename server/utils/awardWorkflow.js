@@ -52,16 +52,6 @@ function awardLockedReason(pr, lot) {
   return null
 }
 
-// Why no award can be recorded on this PR now (null when it can): only while
-// it is in canvass, which is while some of its items still need one.
-function awardBlock(pr) {
-  if (pr.deleted_at)         return deny(409, 'This PR has been deleted')
-  if (pr.status === 'for_po') return deny(409, 'Every item on this PR is already awarded. Cancel an award to award its items again.')
-  if (REVIEWING.includes(pr.status)) return awardLockedReason(pr, {})
-  if (pr.status !== 'bidding') return deny(409, 'The canvass result is recorded while the PR is in canvass')
-  return null
-}
-
 // An award can't exceed the approved budget for its items (their estimate).
 function budgetBlock(amountCents, estimateCents, who = 'The contract amount') {
   if (estimateCents > 0 && amountCents > estimateCents) {
@@ -127,7 +117,7 @@ async function awardsForPO(db, prId, supplier) {
   const [lots] = await db.execute(
     `SELECT id, lot_number, awarded_to, awarded_amount, supplier_contact, supplier_address
        FROM lots WHERE purchase_request_id = ? AND status = 'awarded' AND po_id IS NULL AND certified_at IS NOT NULL ORDER BY id`, [prId])
-  if (!lots.length) throw httpError(409, 'No award on this PR is waiting for a purchase order. Its awards need the BAC\'s approval and the TWG\'s certification first.')
+  if (!lots.length) throw httpError(409, 'No award on this PR is waiting for a purchase order. Its awards need the BAC\'s award and the TWG\'s certification first.')
   const groups = new Map()
   for (const l of lots) {
     const key = supplierKey(l.awarded_to)
@@ -217,6 +207,6 @@ async function cancelAwards(db, prId, note) {
 
 module.exports = {
   SUPPLIER_COLUMNS, supplierKey, peso, short, cents, lineCents,
-  REVIEWING, awardLockedReason, awardBlock, budgetBlock, itemStates, awardProgress, statusFromAwards,
+  REVIEWING, awardLockedReason, budgetBlock, itemStates, awardProgress, statusFromAwards,
   awardsForPO, poItems, recordAward, announceAwards, cancelAwards,
 }

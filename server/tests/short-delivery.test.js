@@ -1,6 +1,6 @@
 // A supplier who can't deliver the rest of an order: closing a partly
 // delivered PO, the balance going back to canvass (split, whole, an older
-// award without unit prices) and through the BAC and the TWG again, the failed
+// award without unit prices) and through the BAC's award and the TWG again, the failed
 // supplier kept out, the late-delivery penalty, and the money that is paid.
 // Real HTTP against a throwaway database.
 const path = require('path')
@@ -67,10 +67,25 @@ async function run() {
     await must(2, 'POST', `/canvass/${id}/start`, { mode_of_procurement: 'Small Value Procurement' })
     return { id, items: (await must(2, 'GET', `/canvass/${id}`)).items }
   }
-  // A canvass winner at its unit prices ({ itemId: price }), and the result through the BAC and the TWG.
-  const winner = (pr, supplier, prices) => ({ purchase_request_id: pr, awarded_to: supplier, items: Object.entries(prices).map(([i, unit_price]) => ({ pr_item_id: Number(i), unit_price })) })
-  const win = (pr, supplier, prices) => must(2, 'POST', '/lots', winner(pr, supplier, prices))
-  const certify = (pr) => H.certify(BASE, tok, pr, { proc: 2, bac: 5, twg: 4 })
+  // The BAC enters one supplier's bids ({ itemId: price }), each item to it, and awards; the TWG then certifies.
+  const bidAndAward = async (pr, supplier, prices) => {
+    await must(5, 'PUT', `/canvass/${pr}/bids`, {
+      bidders: [{ name: supplier, prices: Object.entries(prices).map(([i, unit_price]) => ({ pr_item_id: Number(i), unit_price })) }],
+      winners: Object.keys(prices).map(i => ({ pr_item_id: Number(i), bidder: 0 })),
+    })
+    return http(5, 'POST', `/canvass/${pr}/award`, {})
+  }
+  const win = async (pr, supplier, prices) => {
+    const r = await bidAndAward(pr, supplier, prices)
+    if (r.status >= 400) throw new Error(`award on ${pr} -> ${show(r)}`)
+    return r.data
+  }
+  const awardIs = async (g, label, pr, supplier, prices, ok, want) => {
+    const r = await bidAndAward(pr, supplier, prices)
+    t.check(g, label, ok(r), `${show(r)}${want ? ` (want ${want})` : ''}`)
+    return r
+  }
+  const certify = (pr) => must(4, 'POST', `/twg/${pr}/certify`, { action: 'certify' })
   const poOf = async (pr, supplierName) => (await q("SELECT * FROM purchase_orders WHERE purchase_request_id = ? AND supplier_name = ? AND po_status = 'active'", [pr, supplierName]))[0]
   const lines = async (po) => (await must(2, 'GET', `/po/${po}`)).items
   const deliver = async (po, byName, who = 6) => {
@@ -123,12 +138,12 @@ async function run() {
   t.check(G, 'no more deliveries on the closed PO', (await deliver(po1.id, { Table: 1 })).status === 409)
   const del1 = (await q('SELECT id FROM deliveries WHERE po_id = ?', [po1.id]))[0].id
   await is(G, 'its delivery record stays', 2, 'DELETE', `/delivery/${del1}`, undefined, r => r.status === 409, '409')
-  await is(G, 'Alpha can\'t win the balance again', 2, 'POST', '/lots', winner(p1.id, 'Alpha Computers', { [balance1.id]: 1400 }),
+  await awardIs(G, 'Alpha can\'t win the balance again', p1.id, 'Alpha Computers', { [balance1.id]: 1400 },
     r => r.status === 409 && /failed to deliver/.test(r.data.message), '409')
-  await is(G, '…nor typed differently', 2, 'POST', '/lots', winner(p1.id, '  alpha   COMPUTERS ', { [balance1.id]: 1400 }),
+  await awardIs(G, '…nor typed differently', p1.id, '  alpha   COMPUTERS ', { [balance1.id]: 1400 },
     r => r.status === 409 && /failed to deliver/.test(r.data.message), '409')
-  await is(G, 'the next offer (Beta, P1,450) wins the balance', 2, 'POST', '/lots', winner(p1.id, 'Beta Tech', { [balance1.id]: 1450 }), r => r.status === 201)
-  t.check(G, '…which waits for the BAC and the TWG', (await statusOf(p1.id)) === 'bidding')
+  await awardIs(G, 'the next offer (Beta, P1,450) wins the balance', p1.id, 'Beta Tech', { [balance1.id]: 1450 }, r => r.status === 200)
+  t.check(G, '…which waits for the TWG', (await statusOf(p1.id)) === 'twg_certification')
   await certify(p1.id)
   t.check(G, 'the PR is Ready for PO again', (await statusOf(p1.id)) === 'for_po')
   await must(2, 'POST', '/po', { purchase_request_id: p1.id, issued_date: day(0) })
@@ -143,7 +158,11 @@ async function run() {
   const W = 'Whole line, an older award'
   const p2 = await canvassed('Laptops and mice', [{ item_name: 'Laptop', quantity: 2, estimated_cost: 50000 }, { item_name: 'Mouse', quantity: 2, estimated_cost: 500 }])
   const [laptop, mouse] = p2.items.map(i => i.id)
+  // Two awards to Alpha, in two rounds: the mice dropped from the first and brought back for the second.
+  await must(5, 'POST', `/canvass/${p2.id}/items/${mouse}/drop`, { reason: 'A later round' })
   await win(p2.id, 'Alpha Computers', { [laptop]: 49000 })
+  await certify(p2.id)
+  await must(2, 'POST', `/canvass/${p2.id}/items/${mouse}/restore`)
   await win(p2.id, 'Alpha Computers', { [mouse]: 450 })
   await certify(p2.id)
   // Awards recorded before winners had unit prices: lump sums.
@@ -166,8 +185,8 @@ async function run() {
     && (await must(2, 'GET', `/canvass/${p2.id}`)).items.find(i => i.id === mouse).state === 'pending')
   const lots2 = await q('SELECT status FROM lots WHERE purchase_request_id = ? ORDER BY id', [p2.id])
   t.check(W, 'the mice award no longer stands; the laptops\' does', lots2.map(l => l.status).join() === 'awarded,cancelled')
-  await is(W, 'Alpha can\'t win the mice again', 2, 'POST', '/lots', winner(p2.id, 'Alpha Computers', { [mouse]: 450 }), r => r.status === 409, '409')
-  await is(W, 'Beta can', 2, 'POST', '/lots', winner(p2.id, 'Beta Tech', { [mouse]: 475 }), r => r.status === 201)
+  await awardIs(W, 'Alpha can\'t win the mice again', p2.id, 'Alpha Computers', { [mouse]: 450 }, r => r.status === 409, '409')
+  await awardIs(W, 'Beta can', p2.id, 'Beta Tech', { [mouse]: 475 }, r => r.status === 200)
 
   // ── 3. The penalty while late, and the 10% mark ─────────────────────
   const L = 'Penalty'
@@ -228,9 +247,9 @@ async function run() {
   await deliver(po6.id, { Monitor: 7 })
   await must(2, 'PATCH', `/po/${po6.id}/close`, { reason: 'Only 7 in stock' })
   const b1 = (await q('SELECT id FROM pr_items WHERE balance_of = ?', [mon]))[0].id
-  await is(B, 'the balance needs its winner before the BAC', 2, 'GET', `/bac/${p6.id}`, undefined,
-    r => r.data.permissions.submit === false && /Record the winner of every item/.test(r.data.submit_blocked))
-  await is(B, 'Beta wins the balance of 3', 2, 'POST', '/lots', winner(p6.id, 'Beta Tech', { [b1]: 8500 }), r => r.status === 201)
+  await is(B, 'the balance needs its winner before the award', 5, 'POST', `/canvass/${p6.id}/award`, {},
+    r => r.status === 409 && /Pick the winner/.test(r.data.message), '409')
+  await awardIs(B, 'Beta wins the balance of 3', p6.id, 'Beta Tech', { [b1]: 8500 }, r => r.status === 200)
   await certify(p6.id)
   await must(2, 'POST', '/po', { purchase_request_id: p6.id, issued_date: day(0) })
   const po6b = await poOf(p6.id, 'Beta Tech')
@@ -239,10 +258,10 @@ async function run() {
   const b2 = (await q('SELECT id, quantity FROM pr_items WHERE balance_of = ?', [b1]))[0]
   t.check(B, 'a balance of the balance: 2 monitors', Number(b2?.quantity) === 2)
   t.check(B, 'the monitors add up: 7 + 1 + 2', (await q('SELECT SUM(quantity) AS s FROM pr_items WHERE pr_id = ?', [p6.id]))[0].s == 10)
-  await is(B, 'Alpha can\'t win the second balance either', 2, 'POST', '/lots', winner(p6.id, 'Alpha Computers', { [b2.id]: 8000 }),
+  await awardIs(B, 'Alpha can\'t win the second balance either', p6.id, 'Alpha Computers', { [b2.id]: 8000 },
     r => r.status === 409 && /failed to deliver/.test(r.data.message), '409')
-  await is(B, 'nor Beta', 2, 'POST', '/lots', winner(p6.id, 'Beta Tech', { [b2.id]: 8000 }), r => r.status === 409, '409')
-  await is(B, 'Gamma wins the last 2', 2, 'POST', '/lots', winner(p6.id, 'Gamma Office', { [b2.id]: 8800 }), r => r.status === 201)
+  await awardIs(B, 'nor Beta', p6.id, 'Beta Tech', { [b2.id]: 8000 }, r => r.status === 409, '409')
+  await awardIs(B, 'Gamma wins the last 2', p6.id, 'Gamma Office', { [b2.id]: 8800 }, r => r.status === 200)
   const shortTotal = (await q('SELECT SUM(short_amount) AS s FROM purchase_orders WHERE purchase_request_id = ?', [p6.id]))[0].s
   t.check(B, 'unpaid: 3 x P8,000 + 2 x P8,500', Number(shortTotal) === 41000, shortTotal)
 

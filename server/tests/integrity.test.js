@@ -144,7 +144,7 @@ async function run() {
 
   // WF-3: one supplier per PR; the PO comes from the awards
   const G5 = 'Supplier and PO (WF-3)'
-  await is(G5, 'award more on a PR whose items are all awarded → 409', 2, 'POST', '/lots', { purchase_request_id: 51, awarded_to: 'Other Co', items: [{ pr_item_id: 1, unit_price: 5 }] }, code(409, /already awarded/))
+  await is(G5, 'no more bids on a PR whose items are all awarded → 409', 7, 'PUT', '/canvass/51/bids', { bidders: [{ name: 'Other Co', prices: [] }] }, code(409, /in canvass/))
   const po46 = await is(G5, 'issue a PO sending a fake supplier and total', 2, 'POST', '/po',
     { purchase_request_id: 46, supplier_name: 'Evil Co', total_amount: 1, issued_date: '2026-09-12' }, code(201))
   await is(G5, '…PO names the awarded supplier and the awards\' total', 2, 'GET', `/po/${po46.data?.id}`, undefined,
@@ -166,12 +166,11 @@ async function run() {
   await is(G5, 'recanvass (Ready for PO → Bidding)', 2, 'PATCH', '/pr/52/status', { status: 'bidding', notes: 'Supplier price expired' }, code(200))
   await is(G5, '…the old award is cancelled', 2, 'GET', '/lots/pr/52', undefined, (r) => r.status === 200 && r.data.length === 1 && r.data[0].status === 'cancelled')
   await is(G5, '…and the log says so', 2, 'GET', '/pr/52/logs', undefined, (r) => r.status === 200 && r.data.some(l => l.to_status === 'bidding' && /1 award cancelled/.test(l.note)))
-  await is(G5, 'award the new supplier', 2, 'POST', '/lots', { purchase_request_id: 52, awarded_to: 'S52 New', items: [{ pr_item_id: 4, unit_price: 400 }] }, code(201))
-  await is(G5, '…no PO before the BAC and the TWG → 409', 2, 'POST', '/po', { purchase_request_id: 52, issued_date: '2026-09-12' }, code(409, /certification/))
-  await http(2, 'PATCH', '/pr/52/mode', { mode_of_procurement: 'Shopping' })
-  let through = 'ok'
-  try { await H.certify(BASE, tok, 52, { proc: 2, bac: 7, twg: 6 }) } catch (e) { through = e.message }
-  t.check(G5, '…the BAC approves and the TWG certifies it', through === 'ok', through)
+  await is(G5, 'the BAC enters the new supplier\'s bid', 7, 'PUT', '/canvass/52/bids',
+    { bidders: [{ name: 'S52 New', prices: [{ pr_item_id: 4, unit_price: 400 }] }], winners: [{ pr_item_id: 4, bidder: 0 }] }, code(200))
+  await is(G5, '…and awards it', 7, 'POST', '/canvass/52/award', {}, code(200))
+  await is(G5, '…no PO before the TWG → 409', 2, 'POST', '/po', { purchase_request_id: 52, issued_date: '2026-09-12' }, code(409, /certification/))
+  await is(G5, '…the TWG certifies it', 6, 'POST', '/twg/52/certify', { action: 'certify' }, code(200))
   const po52 = await is(G5, 'issue the PO', 2, 'POST', '/po', { purchase_request_id: 52, issued_date: '2026-09-12' }, code(201))
   await is(G5, '…from the new award only (not the old supplier or a combined total)', 2, 'GET', `/po/${po52.data?.id}`, undefined,
     (r) => r.status === 200 && r.data.supplier_name === 'S52 New' && Number(r.data.total_amount) === 400)
@@ -220,10 +219,10 @@ async function run() {
   await is(G7, 'PR: bad quantity names the item', 3, 'POST', '/pr', { title: 'x', items: [{ item_name: 'a' }, { item_name: 'b', quantity: 'x' }] }, code(400, /Item 2 quantity/))
   await is(G7, 'PR edit: department over 150 characters → 400', 3, 'PATCH', '/pr/53', { title: 't', department: 'd'.repeat(151) }, code(400))
   const one = [{ pr_item_id: 1, unit_price: 5 }]
-  await is(G7, 'award: price 0 → 400', 2, 'POST', '/lots', { purchase_request_id: 42, awarded_to: 'X', items: [{ pr_item_id: 1, unit_price: 0 }] }, code(400))
-  await is(G7, 'award: no items → 400', 2, 'POST', '/lots', { purchase_request_id: 42, awarded_to: 'X' }, code(400))
-  await is(G7, 'award: bad email → 400', 2, 'POST', '/lots', { purchase_request_id: 42, awarded_to: 'X', items: one, supplier_email: 'nope' }, code(400))
-  await is(G7, 'award: supplier name over 200 characters → 400', 2, 'POST', '/lots', { purchase_request_id: 42, awarded_to: 'x'.repeat(201), items: one }, code(400))
+  await is(G7, 'bids: price 0 → 400', 7, 'PUT', '/canvass/43/bids', { bidders: [{ name: 'X', prices: [{ pr_item_id: 1, unit_price: 0 }] }] }, code(400))
+  await is(G7, 'bids: prices not a list → 400', 7, 'PUT', '/canvass/43/bids', { bidders: [{ name: 'X', prices: 5 }] }, code(400))
+  await is(G7, 'bids: a winner that isn\'t a bidder\'s place → 400', 7, 'PUT', '/canvass/43/bids', { bidders: [{ name: 'X', prices: one }], winners: [{ pr_item_id: 1, bidder: 'x' }] }, code(400))
+  await is(G7, 'bids: bidder name over 200 characters → 400', 7, 'PUT', '/canvass/43/bids', { bidders: [{ name: 'x'.repeat(201), prices: one }] }, code(400))
   await is(G7, 'quarter: label Q5 → 400', 1, 'POST', '/quarters', { label: 'Q5', year: 2027 }, code(400))
   await is(G7, 'quarter: year 1800 → 400', 1, 'POST', '/quarters', { label: 'Q1', year: 1800 }, code(400))
   await is(G7, 'quarter: negative budget → 400', 1, 'POST', '/quarters', { label: 'Q1', year: 2027, budget: -5 }, code(400))
