@@ -2,7 +2,8 @@ const crypto    = require('crypto')
 const httpError = require('./httpError')
 
 // PPMP rules: the Fund Administrator (role requestor) uploads their own office's; it is in effect once signed and complete;
-// admins, Procurement, the BAC, and the TWG (to compare a request with it) only read.
+// admins, Procurement, the BAC, and the TWG (to compare a request with it) read. An admin may withdraw one put in effect by
+// mistake, while no request draws on it.
 const READERS = ['admin', 'procurement', 'bac', 'twg']
 
 // The office a user handles, or null.
@@ -16,8 +17,10 @@ async function loadPpmp(db, user, id, { lock = false } = {}) {
   const [[p]] = await db.execute(
     `SELECT p.id, p.department_id, p.fiscal_year, p.version_no, p.kind, p.fund_source, p.status, p.problems, p.signed_kind, p.signatures,
             p.signatories, p.file_office, p.skipped_rows, p.uploaded_by, p.uploaded_at, p.effective_at, p.content_hash, p.created_at, p.updated_at,
+            p.withdrawn_at, p.withdraw_reason, wu.name AS withdrawn_by_name,
             d.code AS office_code, d.name AS office_name, d.head_name, d.head_designation, uu.name AS uploaded_by_name
        FROM ppmps p JOIN departments d ON d.id = p.department_id LEFT JOIN users uu ON uu.id = p.uploaded_by
+       LEFT JOIN users wu ON wu.id = p.withdrawn_by
       WHERE p.id = ?${lock ? ' FOR UPDATE' : ''}`, [id ?? null])
   if (!p) throw httpError(404, 'PPMP not found')
   if (user.role === 'requestor') {
@@ -109,13 +112,23 @@ function totals(items) {
 }
 
 // What this user may do with this PPMP now: upload one not in effect again (or delete it), or upload an amendment of the one in effect.
-function ppmpPermissions(user, p, { own, newer }) {
+// `drawnOn`: how many requests draw on its items (requestsOn).
+function ppmpPermissions(user, p, { own, newer, drawnOn = 0 }) {
   const keeper = user.role === 'requestor' && own
   return {
     reupload: keeper && p.status === 'draft',
     remove:   keeper && p.status === 'draft',
     amend:    keeper && p.status === 'approved' && !newer,
+    withdraw: user.role === 'admin' && p.status === 'approved' && drawnOn === 0,
   }
 }
 
-module.exports = { READERS, norm, lineKey, compareItems, officeOf, assertOwnOffice, loadPpmp, loadItems, loadFiles, contentHash, totals, ppmpPermissions }
+// How many requests draw on a PPMP's items: open ones and drafts, deleted, rejected, and cancelled ones aside.
+async function requestsOn(db, ppmpId) {
+  const [[{ n }]] = await db.execute(
+    `SELECT COUNT(DISTINCT pr.id) AS n FROM pr_items i JOIN ppmp_items pi ON pi.id = i.ppmp_item_id JOIN purchase_requests pr ON pr.id = i.pr_id
+      WHERE pi.ppmp_id = ? AND pr.deleted_at IS NULL AND pr.status NOT IN ('rejected', 'cancelled')`, [ppmpId])
+  return Number(n)
+}
+
+module.exports = { READERS, norm, lineKey, compareItems, officeOf, assertOwnOffice, loadPpmp, loadItems, loadFiles, contentHash, totals, ppmpPermissions, requestsOn }

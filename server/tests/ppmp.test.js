@@ -174,6 +174,37 @@ async function run() {
   await is(O, 'Procurement sees every office\'s PPMPs, with why one is not in effect', 2, 'GET', '/ppmp?year=2027', undefined,
     r => r.data.length === 4 && r.data.filter(x => x.status === 'draft').every(x => x.problems.length > 0), '4')
 
+  // ── Withdrawing one put in effect by mistake ────────────────────────
+  const W = 'Withdrawing'
+  const v2id = v2.data.id
+  await is(W, 'Procurement can\'t withdraw one', 2, 'POST', `/ppmp/${v2id}/withdraw`, { reason: 'x' }, code(403), '403')
+  await is(W, 'nor the Fund Administrator', 3, 'POST', `/ppmp/${v2id}/withdraw`, { reason: 'x' }, code(403), '403')
+  await is(W, 'an admin may, while no request draws on it', 1, 'GET', `/ppmp/${v2id}`, undefined,
+    r => r.data.permissions.withdraw === true && r.data.requests_on === 0)
+  await is(W, 'a reason is required', 1, 'POST', `/ppmp/${v2id}/withdraw`, { reason: '  ' }, code(400), '400')
+  // HR's PPMP has a request drawing on it.
+  const hrPlan = (await http(6, 'GET', '/ppmp/lines')).data[0]
+  const hrLine = hrPlan.lines[0]
+  await is(W, 'HR files a draft request from its PPMP', 6, 'POST', '/pr',
+    { title: 'Supplies', items: [{ ppmp_item_id: hrLine.id, item_name: hrLine.description, quantity: 1, estimated_cost: hrLine.unit_cost }] }, code(201))
+  await is(W, '…so HR\'s PPMP can\'t be withdrawn', 1, 'POST', `/ppmp/${hrPlan.id}/withdraw`, { reason: 'Wrong file' },
+    r => r.status === 409 && /1 request draws on this PPMP/.test(r.data.message), '409')
+  await is(W, '…and isn\'t offered', 1, 'GET', `/ppmp/${hrPlan.id}`, undefined, r => r.data.permissions.withdraw === false && r.data.requests_on === 1)
+  await is(W, 'the admin withdraws ICT\'s No. 2', 1, 'POST', `/ppmp/${v2id}/withdraw`, { reason: 'Uploaded the 2026 file by mistake' },
+    r => r.status === 200 && r.data.restored_version === 1 && /PPMP No\. 1 is in effect again/.test(r.data.message))
+  await is(W, '…kept on record as withdrawn, with who and why', 2, 'GET', `/ppmp/${v2id}`, undefined,
+    r => r.data.status === 'withdrawn' && r.data.withdraw_reason === 'Uploaded the 2026 file by mistake' && r.data.withdrawn_by_name === 'User 1' && !!r.data.withdrawn_at)
+  await is(W, '…and No. 1 is in effect again', 2, 'GET', `/ppmp/${id}`, undefined, r => r.data.status === 'approved')
+  await is(W, '…requests draw on No. 1', 3, 'GET', '/ppmp/lines', undefined, r => r.data.map(p => p.id).join() === String(id))
+  t.check(W, '…the Fund Administrator is told why', await notes(3, '%was withdrawn by an admin: Uploaded the 2026 file by mistake%') === 1)
+  t.check(W, '…and Procurement', await notes(2, '%PPMP No. 2 (ICT, FY 2027) was withdrawn%') === 1)
+  await is(W, 'withdrawing it again → 409', 1, 'POST', `/ppmp/${v2id}/withdraw`, { reason: 'again' }, code(409), '409')
+  await is(W, 'the office standing shows No. 1 in effect', 1, 'GET', '/ppmp/coverage?year=2027', undefined,
+    r => r.data.offices.find(o => o.code === 'ICT')?.state === 'in_effect' && r.data.offices.find(o => o.code === 'ICT').in_effect.version_no === 1)
+  await is(W, 'with nothing before it, withdrawing leaves no PPMP in effect', 1, 'POST', `/ppmp/${id}/withdraw`, { reason: 'Wrong office file' },
+    r => r.status === 200 && r.data.restored_version === null && /can't be submitted until a PPMP is in effect/.test(r.data.message))
+  await is(W, '…ICT\'s requests have nothing to draw on', 3, 'GET', '/ppmp/lines', undefined, r => r.status === 200 && r.data.length === 0)
+
   return t.summary()
 }
 
