@@ -14,14 +14,15 @@ const lotAccess = requireAccess('lot')
 
 // Award fields, sized to the lots columns. A PO's total is the sum of its
 // supplier's awards, each the total of its winning prices.
-const supplierFields = [
-  textRule('title', 'Lot title', 200),
-  textRule('supplier_contact', 'Contact person', 100),
-  textRule('supplier_address', 'Business address', 500),
-  textRule('supplier_phone', 'Phone number', 50),
-  emailRule('supplier_email', 'Email address'),
-  textRule('supplier_tin', 'TIN', 50),
+const supplierFieldsAt = (p) => [
+  textRule(`${p}title`, 'Lot title', 200),
+  textRule(`${p}supplier_contact`, 'Contact person', 100),
+  textRule(`${p}supplier_address`, 'Business address', 500),
+  textRule(`${p}supplier_phone`, 'Phone number', 50),
+  emailRule(`${p}supplier_email`, 'Email address'),
+  textRule(`${p}supplier_tin`, 'TIN', 50),
 ]
+const supplierFields = supplierFieldsAt('')
 
 router.get('/',                  c.listAll)
 // The Work Queue (PRs by award stage).
@@ -40,6 +41,18 @@ router.post('/', authorize('procurement', 'admin'),
   moneyRule('items.*.unit_price', 'Each winning unit price', { required: true, positive: true }),
   handle,
   c.create)
+// The whole canvass sheet at once: one winner per supplier, all saved or none.
+router.post('/winners', authorize('procurement', 'admin'),
+  idRule('purchase_request_id', 'Pick the purchase request', { required: true }),
+  body('winners').isArray({ min: 1, max: 50 }).withMessage('Enter at least one winner'),
+  textRule('winners.*.awarded_to', 'Supplier name', 200, { required: true }),
+  supplierFieldsAt('winners.*.'),
+  textRule('winners.*.notes', 'Notes', 2000),
+  body('winners.*.items').isArray({ min: 1, max: 500 }).withMessage('Each winner needs at least one item'),
+  body('winners.*.items.*.pr_item_id').isInt({ min: 1 }).withMessage('Unknown item').toInt(),
+  moneyRule('winners.*.items.*.unit_price', 'Each winning unit price', { required: true, positive: true }),
+  handle,
+  c.createMany)
 router.post('/:id/items', authorize('procurement', 'admin'), lotAccess,
   textRule('item_name', 'Item name', 500, { required: true }),
   quantityRule('quantity', 'Quantity'),

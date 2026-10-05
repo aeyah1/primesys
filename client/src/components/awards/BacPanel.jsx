@@ -1,16 +1,14 @@
 import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
-import { Scale, FileText, Send, Undo2, AlertTriangle, CheckCircle2, Info, ShieldCheck } from 'lucide-react'
+import { Scale, FileText, Undo2, AlertTriangle, CheckCircle2, ShieldCheck } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
 import { fmtCurrency, fmtDate, fmtDatetime } from '@/lib/utils'
 import { openPdf, blobErrorMessage } from '@/lib/download'
-import { useAuth } from '@/context/AuthContext'
 import api from '@/lib/axios'
 import { useRefreshAwards } from './supplier'
-import { useConfirm } from '@/components/shared/ConfirmDialog'
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 const TEXTAREA = 'w-full rounded-md border border-[--color-border] bg-[--color-surface] px-3 py-2 text-sm text-[--color-text-primary] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent resize-y'
@@ -56,23 +54,14 @@ function DecideDialog({ prId, approve, onClose }) {
   )
 }
 
-/* Where a canvass result stands with the BAC. part 'status': Procurement
-   submits it, the BAC approves or returns it, the TWG certifies it. part
-   'resolutions': each BAC Resolution with its Notices of Award. */
+/* Where a canvass result stands with the BAC. part 'status': the BAC
+   approves or returns it, the TWG certifies it (Procurement submits it from the
+   canvass page's checklist). part 'resolutions': each BAC Resolution with its Notices of Award. */
 export default function BacPanel({ prId, part = 'status' }) {
-  const confirm = useConfirm()
-  const { user } = useAuth()
-  const secretariat = ['procurement', 'admin'].includes(user?.role)
-  const refresh = useRefreshAwards(prId)
   const [deciding, setDeciding] = useState(null)   // 'approve' | 'return'
   const { data } = useQuery({
     queryKey: ['bac', 'pr', prId],
     queryFn: () => api.get(`/bac/${prId}`).then(r => r.data),
-  })
-  const { mutate: submit, isPending: submitting } = useMutation({
-    mutationFn: () => api.post(`/bac/${prId}/submit`),
-    onSuccess: () => { toast.success('Submitted to the BAC for review'); refresh() },
-    onError: (err) => toast.error(err.response?.data?.message || 'Failed to submit it'),
   })
   if (!data) return null
   if (part === 'resolutions' && !data.resolutions.length) {
@@ -127,23 +116,6 @@ export default function BacPanel({ prId, part = 'status' }) {
           <span><span className="font-semibold">Returned by the BAC:</span> {data.return_reason}</span>
         </p>
       )}
-
-      {data.status === 'bidding' && secretariat && (can.submit ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[--color-border] bg-[--color-canvas] px-4 py-3">
-          <p className="text-sm text-[--color-text-secondary]">
-            Every item has its winner and the canvass documents are attached. Submit the result to the BAC for review.
-          </p>
-          <Button size="sm" className="gap-1.5" disabled={submitting}
-            onClick={async () => { if (await confirm({ title: 'Submit the canvass result to the BAC?', message: 'The winners lock until the BAC approves or returns it.', confirmLabel: 'Submit to the BAC' })) submit() }}>
-            <Send className="size-3.5" /> {submitting ? 'Submitting…' : 'Submit to the BAC'}
-          </Button>
-        </div>
-      ) : data.submit_blocked && (
-        <p className="flex items-start gap-2 rounded-xl border border-[--color-border] bg-[--color-canvas] px-4 py-3 text-sm text-[--color-text-secondary]">
-          <Info className="size-4 shrink-0 mt-0.5 text-[--color-text-muted]" />
-          <span><span className="font-semibold text-[--color-text-primary]">Before it goes to the BAC:</span> {data.submit_blocked}</span>
-        </p>
-      ))}
 
       {data.with_bac && (
         <div className="space-y-2 rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-3">

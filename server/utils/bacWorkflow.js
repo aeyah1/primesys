@@ -25,6 +25,18 @@ async function notifyBac(io, prId, prNumber, message = `PR ${prNumber} was submi
   return Promise.all(admins.map(u => notify(io, u.id, warning, 'warning', prId, 'pr')))
 }
 
+// How many canvass documents (the canvasser's RFQs and abstract, scanned) Procurement
+// attached since this canvass started; a BAC return doesn't restart it.
+async function canvassDocuments(db, prId) {
+  const [[{ files }]] = await db.execute(
+    `SELECT COUNT(*) AS files FROM pr_attachments a JOIN users u ON u.id = a.uploaded_by
+      WHERE a.pr_id = ? AND u.role IN ('procurement', 'admin')
+        AND a.created_at >= COALESCE((SELECT MAX(sl.created_at) FROM pr_status_logs sl
+                                       WHERE sl.pr_id = ? AND sl.to_status = 'bidding' AND sl.from_status <> 'bac_review'), '1970-01-01')`,
+    [prId, prId])
+  return Number(files)
+}
+
 // Current year's next resolution number, "2026-001".
 async function nextResolutionNumber(db, attempt = 0) {
   const year = new Date().getFullYear()
@@ -51,4 +63,4 @@ async function adoptResolution(conn, prId, userId, notes = null) {
   }
 }
 
-module.exports = { BAC_DECIDERS, BAC_READERS, SECRETARIAT, notifyBac, adoptResolution }
+module.exports = { BAC_DECIDERS, BAC_READERS, SECRETARIAT, notifyBac, adoptResolution, canvassDocuments }
