@@ -104,7 +104,7 @@ function RoleGuide({ role }) {
         <Step number={1} icon={Pencil}      title="Create a Purchase Request" description="Go to Purchase Requests → New Purchase Request. Say what it is for and why, then list your items with a rough price for each. You can save it as a draft and finish later." />
         <Step number={2} icon={Send}        title="It goes to the TWG"        description="Click Submit to TWG when it is ready. It is locked while they review it. To change something, open the PR, click Withdraw to edit, then click Submit to TWG again." />
         <Step number={3} icon={RotateCcw}   title="Respond to the TWG"        description="The TWG approves your PR, asks for a revision, or rejects it, with a comment. If they ask for a revision, click Edit PR, make the changes, and click Submit to TWG." />
-        <Step number={4} icon={Eye}         title="Track your PR"             description="Your PR moves from Submitted to Approved by TWG, Bidding, Ready for PO, and Completed, with a notification at every step. The progress box on your PR shows where it is, who has it, and what happens next. If Procurement has had it a while, click Remind Procurement (once per PR per hour)." />
+        <Step number={4} icon={Eye}         title="Track your PR"             description="Your PR moves from Submitted to Approved by TWG, Canvass, BAC review, TWG certification, Ready for PO, and Completed, with a notification at every step. The progress box on your PR shows where it is, who has it, and what happens next. If Procurement has had it a while, click Remind Procurement (once per PR per hour)." />
         <Step number={5} icon={CheckCircle} title="PR Completed"              description="You are told as the goods arrive, and if a supplier's delivery date changes, with the new date and why. When everything is delivered, your PR is marked Completed automatically and moves to the Archive." />
       </div>
       <Tip>You can delete a PR only while it is a draft or returned for revision. Completed, rejected, and cancelled requests stay under Done in My Requests.</Tip>
@@ -115,14 +115,15 @@ function RoleGuide({ role }) {
     <div className="space-y-4 pt-3">
       <p className="text-sm text-[--color-text-secondary] leading-relaxed">
         As a member of the <strong>Technical Working Group (TWG)</strong>, you check the specifications of every
-        Purchase Request before it reaches Procurement.
+        Purchase Request before it reaches Procurement, and certify the canvass result the BAC approved before any purchase order.
       </p>
       <div className="space-y-1">
         <Step number={1} icon={ClipboardCheck} title="Open your review queue" description="Submitted PRs in your review areas land in To Review. The admin sets your areas, for example Hardware & Equipment or Event Supplies. Open a PR to see every item, quantity, unit cost, and attachment." />
         <Step number={2} icon={CheckCircle}    title="Approve & Forward"      description="If the specifications are right, click Approve & Forward. The PR becomes Approved by TWG and moves to Procurement's queue." />
         <Step number={3} icon={RotateCcw}      title="Request a Revision"     description="If something needs to change, click Request Revision and explain what to fix (a comment is required). The Fund Administrator edits the PR and submits it to you again." />
         <Step number={4} icon={XCircle}        title="Reject"                 description="If the request can't go ahead, click Reject and give the reason. A rejected PR is final and stays in the Archive." />
-        <Step number={5} icon={ClipboardList}  title="Follow your decisions"  description="Your dashboard shows how many PRs are waiting, your weekly activity, and your recent decisions." />
+        <Step number={5} icon={CheckCircle}    title="Certify the canvass result" description="After the BAC approves the winners, the request waits under To Review, To certify. Open it: compare the winners and their prices with the requested items, the BAC Resolution, and the canvass documents in the attachments. Click Certify, and Procurement issues the purchase orders; or Return to the BAC with your comment." />
+        <Step number={6} icon={ClipboardList}  title="Follow your decisions"  description="Your dashboard shows how many PRs are waiting, your weekly activity, and your recent decisions." />
       </div>
       <Tip>The TWG reviews but doesn't edit PRs. When something needs to change, request a revision so the Fund Administrator can fix it. If a PR was filed under the wrong category, request a revision and ask the Fund Administrator to change the category.</Tip>
     </div>
@@ -131,33 +132,32 @@ function RoleGuide({ role }) {
   if (role === 'bac') return (
     <div className="space-y-4 pt-3">
       <p className="text-sm text-[--color-text-secondary] leading-relaxed">
-        As a member of the <strong>Bids and Awards Committee (BAC)</strong>, you evaluate the suppliers' quotations
-        and make the award. Procurement, as your Secretariat, gathers the quotations for you.
+        As a member of the <strong>Bids and Awards Committee (BAC)</strong>, you review the canvass result. The canvass is
+        done on paper by the campus canvasser; Procurement, as your Secretariat, records each item's winner and attaches the canvass documents.
       </p>
       <div className="space-y-1">
-        <Step number={1} icon={ClipboardCheck} title="Open For Evaluation"  description="Canvasses Procurement submitted wait here, your home page, the oldest first, with how many quotations each has. You are notified when one arrives." />
-        <Step number={2} icon={Eye}            title="Compare the offers"   description="Click the request: its Canvass & Award page opens. The Quotations tab lists each supplier's offer and the terms they gave; print the Abstract of Quotations to compare them item by item." />
-        <Step number={3} icon={XCircle}        title="Mark failed offers"   description="If an offer does not meet the specifications, click Fails specs on the Quotations tab and give the reason. It can't be awarded, doesn't count as the lowest, and the reason prints on the Abstract and the BAC Resolution." />
-        <Step number={4} icon={CheckCircle}    title="Award"                description="On the Items & Award tab, click Award from Quotations: each item starts on the lowest compliant price, and choosing another needs a reason. Set the mode of procurement first if it is blank. The award is a numbered BAC Resolution, and Procurement can then issue the purchase orders." />
-        <Step number={5} icon={RotateCcw}      title="Or return it"         description="If the canvass is not ready, for example a third quotation is needed, click Return to Procurement with the reason. Procurement fixes it and submits it again." />
-        <Step number={6} icon={Download}       title="Print the documents"  description="Each resolution on the request prints the BAC Resolution and a Notice of Award for every supplier in it." />
+        <Step number={1} icon={ClipboardCheck} title="Open For Evaluation"  description="Canvass results Procurement submitted wait here, your home page, the oldest first, with their winners' total. You are notified when one arrives." />
+        <Step number={2} icon={Eye}            title="Check the winners"    description="Click the request: its Canvass & Award page opens. Items & Winners lists each item's winning supplier and price; Canvass Documents has the canvasser's RFQs and abstract to check them against." />
+        <Step number={3} icon={CheckCircle}    title="Approve"              description="Click Approve. The winners are adopted in a numbered BAC Resolution, and the request goes to the TWG for certification." />
+        <Step number={4} icon={RotateCcw}      title="Or return it"         description="If something is wrong, for example a winner that does not match the abstract, click Return to Procurement with the reason. Procurement corrects it and submits it again. If the TWG returns it to you, its comment shows on the request." />
+        <Step number={5} icon={Download}       title="Print the documents"  description="Each resolution on the request prints the BAC Resolution and a Notice of Award for every supplier in it." />
       </div>
-      <Tip>You can award some items now and the rest later; the request stays with you until every item is awarded or you return it.</Tip>
+      <Tip>The winners are locked while you have the request. Approving again after the TWG returns it adds no new resolution unless Procurement recorded new winners.</Tip>
     </div>
   )
 
   if (role === 'procurement') return (
     <div className="space-y-4 pt-3">
       <p className="text-sm text-[--color-text-secondary] leading-relaxed">
-        As a <strong>Procurement Officer</strong>, you take TWG-approved Purchase Requests through canvassing, the award,
-        and the Purchase Order, and follow them until the goods are delivered.
+        As a <strong>Procurement Officer</strong>, you take TWG-approved Purchase Requests through the canvass, the BAC's review
+        and the TWG's certification, and the Purchase Order, and follow them until the goods are delivered.
       </p>
       <div className="space-y-1">
-        <Step number={1} icon={Eye}          title="Open it for quotations"  description="Your Work Queue opens on To canvass: every request the TWG approved, the longest waiting first. Click Open for quotations and set the mode of procurement, when quotations close, and the suppliers to email the RFQ to (choose none for a canvass on paper). On the request page, the button beside its number is always the next step; the rest is under More." />
-        <Step number={2} icon={Gavel}        title="Gather the quotations"  description="Keep your suppliers under Suppliers, each with an email. In the canvass, click Send RFQ by email and choose at least three: each gets the RFQ and a link to enter their prices, sealed until the deadline you set (they are reminded the day before, and you can extend it). Quotations handed in on paper can still be added with Add Quotation. Set the mode of procurement, and once the deadline has passed click Submit to the BAC: it evaluates the quotations and makes the award in a BAC Resolution, or returns the canvass with a reason. (If the BAC switch is off in Settings, you award directly.)" />
-        <Step number={3} icon={ShoppingCart} title="Issue a Purchase Order"  description="Each supplier awarded gets its own PO. Under Purchase Orders on the PR, set the dates and click Issue PO for each supplier. A supplier's PO can go out while other items are still being canvassed. Supply and the Fund Administrator are notified." />
+        <Step number={1} icon={Eye}          title="Start the canvass"       description="Your Work Queue opens on To canvass: every request the TWG approved, the longest waiting first. Click Start canvass and set the mode of procurement, then print the Request for Quotation (under More) for the canvasser, who canvasses the suppliers on paper. On the request page, the button beside its number is always the next step; the rest is under More." />
+        <Step number={2} icon={Gavel}        title="Record the winners"      description="When the canvasser returns the RFQs and the abstract, open the request's Canvass & Award page. Click Record a Winner for each winning supplier: type its name and details as on the abstract, tick the items it won, and enter each winning unit price. Drop an item no supplier offers. Attach the scanned RFQs and abstract under Canvass Documents, then click Submit to the BAC. The BAC approves it in a BAC Resolution or returns it with a reason; then the TWG certifies it or returns it to the BAC." />
+        <Step number={3} icon={ShoppingCart} title="Issue a Purchase Order"  description="Once the TWG certifies the result, each winning supplier gets its own PO. Under Purchase Orders on the PR, set the dates and click Issue PO for each supplier. A certified supplier's PO can go out while other items are still in canvass. Supply and the Fund Administrator are notified." />
         <Step number={4} icon={Truck}        title="Track delivery"          description="Supply records how many of each item arrived, and you can record a delivery from the PR page or the Purchase Orders page too. The Overdue tab on Purchase Orders lists every PO past its expected date. If the supplier gives a new date, click Change Expected Date on the PO and give the reason; the Fund Administrator and supply are told. Once every PO is fully delivered, and no item is left to award, the PR is Completed automatically." />
-        <Step number={5} icon={XCircle}      title="If a supplier backs out" description="Before anything is delivered, click Cancel PO on that supplier's PO, with a reason. Only its items go back to canvass for a new award; other suppliers' POs stay." />
+        <Step number={5} icon={XCircle}      title="If a supplier backs out" description="Before anything is delivered, click Cancel PO on that supplier's PO, with a reason. Only its items go back to canvass for a new winner, reviewed by the BAC and the TWG again; other suppliers' POs stay." />
       </div>
       <Tip>Once the TWG has approved a PR, it can be deleted while it has no award or PO; otherwise cancel it instead. While the TWG still has it, only an admin can cancel or delete it. Use Reports for spending and pipeline analytics, and Reminders to schedule follow-ups.</Tip>
     </div>
@@ -255,8 +255,8 @@ export default function GuidePage() {
             {[
               { number: 1, role: 'Fund Administrator',   color: 'bg-amber-500', icon: Pencil,         title: 'Fund Administrator files the PR', desc: 'The Fund Administrator lists the items with quantities, units, and estimated costs. Saving sends the PR to the TWG (Submitted).' },
               { number: 2, role: 'TWG',         color: 'bg-cyan-600',  icon: ClipboardCheck, title: 'TWG reviews the specifications', desc: 'The TWG approves the PR (Approved by TWG), asks for a revision (the Fund Administrator edits and resubmits), or rejects it (final).' },
-              { number: 3, role: 'Procurement', color: 'bg-blue-600',  icon: ClipboardList,  title: 'Procurement canvasses the PR',   desc: 'Procurement clicks Canvass PR on an approved PR. Status changes to Bidding.' },
-              { number: 4, role: 'Procurement', color: 'bg-blue-600',  icon: Gavel,          title: 'The award is recorded',          desc: "Procurement records the suppliers' quotations and awards each item to the lowest price. One PR can go to several suppliers." },
+              { number: 3, role: 'Procurement', color: 'bg-blue-600',  icon: ClipboardList,  title: 'Procurement starts the canvass', desc: 'Procurement clicks Start canvass on an approved PR and prints the RFQ. The canvasser canvasses the suppliers on paper. Status changes to Canvass.' },
+              { number: 4, role: 'Procurement', color: 'bg-blue-600',  icon: Gavel,          title: 'The winners are reviewed',       desc: "Procurement records each item's winning supplier and price and attaches the canvass documents. The BAC approves them in a BAC Resolution, then the TWG certifies them. One PR can go to several suppliers." },
               { number: 5, role: 'Procurement', color: 'bg-blue-600',  icon: ShoppingCart,   title: 'Purchase Order is issued',       desc: 'Procurement issues the PO from the PR page with the supplier, amount, and expected delivery date. Supply and the Fund Administrator are notified.' },
               { number: 6, role: 'Supply',      color: 'bg-blue-600',  icon: Truck,          title: 'Supply records the delivery',    desc: 'Supply receives the goods and records how many of each item arrived, with an Inspection and Acceptance Report (IAR) for each delivery.' },
               { number: 7, role: 'System',      color: 'bg-gray-500',  icon: CheckCircle,    title: 'PR is marked Completed',         desc: 'When every PO is fully delivered, the PR is marked Completed automatically. It then stays in the Archive with its full history.' },
@@ -277,10 +277,12 @@ export default function GuidePage() {
             ['draft',              'Not submitted yet. Only its creator can see and edit it.'],
             ['submitted',          'Waiting for the Technical Working Group (TWG) to review it. Locked while under review.'],
             ['revision_requested', 'The TWG asked for changes. The Fund Administrator edits the PR and submits it again.'],
-            ['twg_review',         'The TWG approved the specifications. Waiting for Procurement to canvass it.'],
+            ['twg_review',         'The TWG approved the specifications. Waiting for Procurement to start the canvass.'],
             ['rejected',           'The TWG rejected the request. Final, and kept in the Archive.'],
-            ['bidding',            'Procurement is canvassing suppliers.'],
-            ['for_po',             'A supplier has been awarded. Procurement issues the Purchase Order, then the PR waits for delivery.'],
+            ['bidding',            'The canvasser canvasses the suppliers; Procurement records the winners and submits them to the BAC.'],
+            ['bac_review',         'The BAC reviews the winners. It approves them in a BAC Resolution, or returns them to Procurement.'],
+            ['twg_certification',  'The TWG checks the winners against the request. It certifies them, or returns them to the BAC.'],
+            ['for_po',             'The winners are certified. Procurement issues the Purchase Orders, then the PR waits for delivery.'],
             ['completed',          'The goods were fully delivered. Final, and kept in the Archive.'],
             ['cancelled',          'Procurement cancelled the PR while it had no active Purchase Order. Final, and kept in the Archive.'],
           ].map(([status, desc], i) => (
@@ -301,13 +303,13 @@ export default function GuidePage() {
           {[
             { icon: FileText,       title: 'Purchase Requests', description: 'Create, submit, and track PRs with items, file attachments, and a full activity log.' },
             { icon: ClipboardCheck, title: 'TWG Review',        description: 'The Technical Working Group checks every PR\'s specifications before Procurement acts on it.' },
-            { icon: Gavel,          title: 'Work Queue',        description: "Procurement's home: requests by what they need next. Canvass them, record suppliers' quotations, send each award to the BAC, then issue each supplier's purchase order." },
+            { icon: Gavel,          title: 'Work Queue',        description: "Procurement's home: requests by what they need next. Start the canvass, record the winners, send them to the BAC and the TWG, then issue each supplier's purchase order." },
             { icon: ShoppingCart,   title: 'Purchase Orders',   description: 'Issued by Procurement for awarded PRs, one per supplier. Tracks the supplier, amount, what has arrived of each item, and which POs are overdue. A PO can be cancelled before delivery so its items can be awarded again.' },
             { icon: Truck,          title: 'Deliveries',        description: 'Record how many of each item arrived, attach invoices, and download Inspection and Acceptance Reports (IAR) as PDF.' },
             { icon: Archive,        title: 'Archive',           description: 'Completed, cancelled, rejected, and deleted PRs, grouped by quarter (Procurement & Admin). Fund Administrators find their finished requests under Done. Nothing is permanently erased.' },
             { icon: Bell,           title: 'Notifications',     description: 'Real-time in-app notifications for status changes, new POs, deliveries, and reminders.' },
             { icon: Clock,          title: 'Reminders',         description: 'Procurement and Admin schedule reminders for themselves or others. Due reminders are emailed automatically.' },
-            { icon: Download,       title: 'PDF Export',        description: 'Download PR Forms, Abstract of Quotations, Purchase Orders, and IAR documents for printing or filing.' },
+            { icon: Download,       title: 'PDF Export',        description: 'Download PR Forms, Requests for Quotation, BAC Resolutions, Notices of Award, Purchase Orders, and IAR documents for printing or filing.' },
             { icon: ClipboardList,  title: 'Reports',           description: 'Spending by quarter and category, budget use, and PR counts by status (Procurement & Admin only).' },
             { icon: Users,          title: 'User Management',   description: 'Admin creates accounts, assigns roles, and activates or deactivates users. Public sign-up always creates Fund Administrators; every other role is assigned here.' },
             { icon: Trash2,         title: 'Delete & Edit',     description: 'Requestors edit or delete their PRs while they are drafts or returned for revision. Procurement can delete a PR that has no award or PO; otherwise it is cancelled. Deleted PRs go to the Archive.' },
@@ -328,7 +330,7 @@ export default function GuidePage() {
           {[
             'New PRs are filed under the current active quarter automatically. If no quarter is active, the PR is numbered by year instead.',
             'All notifications appear in the bell icon (top right). Click "View all" to see the full notification history.',
-            'You can download the PR Form PDF at any time from the PR page. The Abstract of Quotations is available once the TWG has approved the PR.',
+            'You can download the PR Form PDF at any time from the PR page. The Request for Quotation is available once the TWG has approved the PR.',
             'To change your password, go to Settings → Security.',
             'Reminders can be set for any date. The system emails you automatically when they are due.',
           ].map((tip, i) => (

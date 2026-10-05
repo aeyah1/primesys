@@ -2,7 +2,7 @@ const { W, M, BLACK, ROW_H, PAD, FS, BOTTOM, amount, fmtDate, forms } = require(
 const { approverFor, bacMembers } = require('../utils/orgSettings')
 
 // BAC Resolution recommending award, in the campus's house style: the same
-// letterhead, bordered grid and signature blocks as its RFQ and Abstract.
+// letterhead, bordered grid and signature blocks as its RFQ and purchase order.
 //
 // NOT a reproduction of a COA or GPPB template. None was supplied, so this
 // follows the usual shape of a BAC resolution (WHEREAS clauses, the resolving
@@ -21,8 +21,8 @@ const COLS = [
 ]
 const X = COLS.reduce((acc, c) => [...acc, acc[acc.length - 1] + c.width], [M])
 
-// data: { resolution, pr, abc, disqualified: [{ supplier, reason }], lots: [{ lot_number, awarded_to, awarded_amount, notes, few_quotations_reason, items: [{ item_name }] }], quoteCount, orgSettings }
-module.exports = function drawBacResolution(doc, { resolution, pr, abc, lots, quoteCount, disqualified = [], orgSettings = {} }) {
+// data: { resolution, pr, abc, lots: [{ lot_number, awarded_to, awarded_amount, notes, items: [{ item_name }] }], orgSettings }
+module.exports = function drawBacResolution(doc, { resolution, pr, abc, lots, orgSettings = {} }) {
   const f = forms(doc)
   const s = (key, fallback = '') => (orgSettings[key] || '').trim() || fallback
   const total = lots.reduce((sum, l) => sum + Math.round(Number(l.awarded_amount || 0) * 100), 0) / 100
@@ -46,15 +46,8 @@ module.exports = function drawBacResolution(doc, { resolution, pr, abc, lots, qu
   const office = pr.department || 'the requesting office'
   para('WHEREAS,', `${office} submitted Purchase Request No. ${pr.pr_number} dated ${fmtDate(pr.created_at)} for ${purpose}, with an Approved Budget for the Contract of PHP ${amount(abc)};`)
   para('WHEREAS,', `the procurement is undertaken through ${pr.mode_of_procurement || 'the mode recorded by the Committee'}, pursuant to ${LAW};`)
-  para('WHEREAS,', quoteCount > 0
-    ? `Requests for Quotation were issued and ${quoteCount} quotation${quoteCount === 1 ? ' was' : 's were'} received and evaluated, as shown in the Abstract of Quotations;`
-    : 'the offers below were evaluated by the Committee;')
-  if (disqualified.length) {
-    para('WHEREAS,', `the Committee found the following offers not responsive to the specifications: ${disqualified.map(d => `${d.supplier} (${d.reason})`).join('; ')};`)
-  }
-  para('WHEREAS,', 'after evaluation, the offers below were found to be the lowest calculated and responsive quotations, except where a reason is stated;')
-  const few = [...new Set(lots.map(l => l.few_quotations_reason).filter(Boolean))]
-  if (few.length) para('WHEREAS,', `the award rests on fewer quotations than the campus requires, for this reason: ${few.join('; ')};`)
+  para('WHEREAS,', 'Requests for Quotation were issued and the canvass was conducted, and its result was reviewed by the Committee;')
+  para('WHEREAS,', 'after review, the offers below were found to be the lowest calculated and responsive quotations, except where a reason is stated;')
   para('NOW, THEREFORE,', `the Bids and Awards Committee RESOLVES, as it hereby RESOLVES, to recommend to the ${approver.designation || 'Head of the Procuring Entity'} the award of contract as follows:`)
 
   // ── The awards ─────────────────────────────────────────────────────

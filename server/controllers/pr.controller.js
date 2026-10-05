@@ -149,7 +149,7 @@ exports.stats = asyncHandler(async (req, res) => {
 
   const out = {
     total: 0, draft: 0, submitted: 0, twg_review: 0, revision_requested: 0, rejected: 0,
-    bidding: 0, for_po: 0, completed: 0, cancelled: 0, deleted: Number(deleted),
+    bidding: 0, bac_review: 0, twg_certification: 0, for_po: 0, completed: 0, cancelled: 0, deleted: Number(deleted),
     pending_delivery: 0, partial_delivery: 0, delivered: 0,
   }
   for (const r of prRows) {
@@ -217,8 +217,8 @@ exports.getById = asyncHandler(async (req, res) => {
   // No itemCount here: Submit stays offered on an empty draft, and the move
   // itself (changePRStatus) answers "Add at least one item before submitting".
   const facts = { ...pr, hasPO: active.length > 0, hasAnyPO: pos.length > 0, hasLot: !!has_lot, hasAward: !!has_award }
-  // TWG decision: a submitted PR, by a reviewer of its area or an admin.
-  const twgReview = pr.status === 'submitted' && !pr.deleted_at
+  // TWG decisions, by a reviewer of its area: the review of a submitted PR, and the certification of its canvass result.
+  const twgDecides = !pr.deleted_at && ['submitted', 'twg_certification'].includes(pr.status)
     && req.user.role === 'twg' && await reviewsCategory(pool, req.user.id, pr.category)
   res.json({
     ...pr,
@@ -234,7 +234,8 @@ exports.getById = asyncHandler(async (req, res) => {
     revision,
     permissions: {
       ...prPermissions(req.user, facts),
-      twg_review: twgReview,
+      twg_review:  twgDecides && pr.status === 'submitted',
+      twg_certify: twgDecides && pr.status === 'twg_certification',
     },
   })
 })
@@ -390,7 +391,7 @@ exports.updateStatus = asyncHandler(async (req, res) => {
 
   if (created_by !== req.user.id) {
     const statusLabels = {
-      bidding:   'is now under canvass',
+      bidding:   'is now in canvass',
       cancelled: 'has been cancelled',
       draft:     'has been returned to draft',
       submitted: 'has been submitted',

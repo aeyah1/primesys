@@ -34,13 +34,24 @@ export function requestProgress(pr) {
       return { step: 2, title: 'Approved, waiting for Procurement', who: 'Procurement Office',
         next: 'Procurement will ask suppliers for prices.' }
     case 'bidding':
+    case 'bac_review':
+    case 'twg_certification': {
       // Some items may already be ordered while a supplier is found for the rest.
       if (po) {
         return { step: 3, title: 'Partly ordered', who: 'Procurement Office',
           next: `Some items are ordered from ${po.supplier_name}. Procurement is still finding a supplier for the rest.` }
       }
+      if (pr.status === 'bac_review') {
+        return { step: 2, title: 'Suppliers chosen, being reviewed', who: 'Bids and Awards Committee (BAC)',
+          next: 'Then the TWG checks the result, and Procurement prepares the purchase order.' }
+      }
+      if (pr.status === 'twg_certification') {
+        return { step: 2, title: 'Suppliers chosen, being checked', who: 'Technical Working Group (TWG)',
+          next: 'Once the TWG certifies it, Procurement prepares the purchase order.' }
+      }
       return { step: 2, title: 'Finding a supplier', who: 'Procurement Office',
-        next: 'Once a supplier is chosen, Procurement prepares the purchase order.' }
+        next: 'The canvasser asks suppliers for prices. The chosen suppliers are then reviewed before the purchase order.' }
+    }
     case 'for_po':
       if (!po) {
         return { step: 3, title: 'Supplier chosen', who: 'Procurement Office',

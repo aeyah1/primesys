@@ -12,11 +12,12 @@ const drawQuarterRegister = require('../pdf/quarterRegister')
 // moved or locked here; the list itself is GET /pr?quarter_id=. Staff only
 // (routes/archive.routes.js), within their usual scope (C2).
 
-const IN_PROGRESS = ['draft', 'submitted', 'revision_requested', 'twg_review', 'bidding', 'for_po']
+const IN_PROGRESS = ['draft', 'submitted', 'revision_requested', 'twg_review', 'bidding', 'bac_review', 'twg_certification', 'for_po']
 const inList = (list) => list.map(s => `'${s}'`).join(', ')
 const STATUS_LABELS = {
   draft: 'Draft', submitted: 'Submitted', twg_review: 'Approved by TWG', revision_requested: 'Revision requested',
-  rejected: 'Rejected by TWG', bidding: 'Bidding', for_po: 'Ready for PO', completed: 'Completed', cancelled: 'Cancelled',
+  rejected: 'Rejected by TWG', bidding: 'Canvass', bac_review: 'BAC review', twg_certification: 'TWG certification',
+  for_po: 'Ready for PO', completed: 'Completed', cancelled: 'Cancelled',
 }
 
 // A request's estimated budget (dropped items left out) and what its active POs are worth, less any undelivered balance.

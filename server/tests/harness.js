@@ -97,6 +97,11 @@ const twgAreas = (userIds, areas = ALL_AREAS) =>
 const LINK_POS = `UPDATE lots l JOIN purchase_orders po ON po.purchase_request_id = l.purchase_request_id AND po.po_status = 'active'
                      SET l.po_id = po.id WHERE l.status = 'awarded' AND l.po_id IS NULL;`
 
+// Fixture awards written before the TWG certified them: the ones ready for a
+// PO or past it count as certified, as server/db/canvass_outside.sql sets it for existing data.
+const CERTIFIED = `UPDATE lots l JOIN purchase_requests pr ON pr.id = l.purchase_request_id SET l.certified_at = l.created_at
+                     WHERE l.status = 'awarded' AND (l.po_id IS NOT NULL OR pr.status IN ('for_po', 'completed'));`
+
 // Fixture SQL giving an office a Final PPMP in effect for this year, one line per item name with plenty
 // planned and every month scheduled, so its test requests can be submitted (server/utils/ppmpUse.js).
 const ppmpFor = (deptId, names, { id = 900, year = new Date().getFullYear(), quantity = 100000, unitCost = 9999999, fund = 'STF' } = {}) => `
@@ -104,6 +109,32 @@ const ppmpFor = (deptId, names, { id = 900, year = new Date().getFullYear(), qua
     VALUES (${id}, ${deptId}, ${year}, 1, 'final', '${fund}', 'approved', NOW());
   INSERT INTO ppmp_items (id, ppmp_id, description, unit, quantity, unit_cost, months, sort_order) VALUES
     ${names.map((n, i) => `(${id * 100 + i}, ${id}, '${n.replace(/'/g, "''")}', 'pc', ${quantity}, ${unitCost}, '1,2,3,4,5,6,7,8,9,10,11,12', ${i})`).join(', ')};`
+
+// A scanned canvass document (the canvasser's RFQs and abstract), as a PR attachment upload.
+const canvassScan = () => {
+  const form = new FormData()
+  form.append('file', new Blob(['%PDF-1.4\n%%EOF\n'], { type: 'application/pdf' }), 'canvass.pdf')
+  return form
+}
+
+// Takes a PR in canvass, its winners recorded, through review: Procurement
+// attaches the canvass scan and submits it to the BAC, the BAC approves it,
+// and the TWG certifies it. `tok(id)` signs a user's token; `as` names the
+// { proc, bac, twg } users. Throws on any refusal.
+async function certify(base, tok, prId, as) {
+  const call = async (who, p, body = {}) => {
+    const form = body instanceof FormData
+    const res = await fetch(base + p, {
+      method: 'POST', body: form ? body : JSON.stringify(body),
+      headers: { Authorization: `Bearer ${tok(who)}`, ...(form ? {} : { 'Content-Type': 'application/json' }) },
+    })
+    if (!res.ok) throw new Error(`POST ${p} → ${res.status} ${(await res.text()).slice(0, 200)}`)
+  }
+  await call(as.proc, `/pr/${prId}/attachments`, canvassScan())
+  await call(as.proc, `/bac/${prId}/submit`)
+  await call(as.bac, `/bac/${prId}/approve`)
+  await call(as.twg, `/twg/${prId}/certify`, { action: 'certify' })
+}
 
 const listUploads = () => new Set(UPLOADS.flatMap(d => (fs.existsSync(d) ? fs.readdirSync(d).map(f => path.join(d, f)) : [])))
 
@@ -169,4 +200,4 @@ async function main({ db, base, fixtures = '', onMail, run }) {
   }
 }
 
-module.exports = { SERVER, CLIENT, LOGS, print, configure, buildDb, dropDb, sql, bootServer, suite, main, twgAreas, ALL_AREAS, LINK_POS, ppmpFor }
+module.exports = { SERVER, CLIENT, LOGS, print, configure, buildDb, dropDb, sql, bootServer, suite, main, twgAreas, ALL_AREAS, LINK_POS, CERTIFIED, ppmpFor, canvassScan, certify }

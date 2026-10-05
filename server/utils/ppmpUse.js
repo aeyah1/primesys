@@ -7,7 +7,7 @@ const { norm, lineKey } = require('./ppmp')
 // cancelled, or deleted; an item dropped from the procurement gives its back.
 // A line keeps its identity across the PPMP's versions by description and unit,
 // so an amended PPMP carries over what earlier requests already used.
-const HOLDING = ['submitted', 'revision_requested', 'twg_review', 'bidding', 'for_po', 'completed']
+const HOLDING = ['submitted', 'revision_requested', 'twg_review', 'bidding', 'bac_review', 'twg_certification', 'for_po', 'completed']
 const MONTHS  = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 
 const round2  = (n) => Math.round(n * 100) / 100

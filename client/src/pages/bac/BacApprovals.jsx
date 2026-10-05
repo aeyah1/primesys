@@ -12,12 +12,12 @@ import { openPdf, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
 
 const VIEWS = [
-  { key: 'pending',  label: 'To evaluate',  empty: 'No canvass is waiting for the BAC.' },
-  { key: 'approved', label: 'Resolutions',          empty: 'The BAC has not approved any awards yet.' },
+  { key: 'pending',  label: 'To review',   empty: 'No canvass result is waiting for the BAC.' },
+  { key: 'approved', label: 'Resolutions', empty: 'The BAC has not approved any canvass result yet.' },
 ]
 
-// The Bids and Awards Committee's queue: canvasses Procurement submitted for
-// its evaluation, and the resolutions it adopted. The award is made on the PR page.
+// The Bids and Awards Committee's queue: canvass results Procurement submitted
+// for its review, and the resolutions it adopted. It approves or returns them on the canvass page.
 export default function BacApprovals() {
   const [view, setView]     = useState('pending')
   const [search, setSearch] = useState('')
@@ -39,7 +39,7 @@ export default function BacApprovals() {
         <div>
           <h2 className="text-ui-2xl font-bold text-[--color-text-primary]">For Evaluation</h2>
           <p className="text-ui-sm text-[--color-text-secondary] mt-0.5">
-            Canvasses Procurement submitted: evaluate the quotations and make the award
+            Canvass results Procurement submitted: check the winners against the canvass documents, then approve or return them
           </p>
         </div>
         <div className="relative max-w-72">
@@ -77,7 +77,7 @@ export default function BacApprovals() {
               : rows.map(row => (
                 <div key={view === 'approved' ? row.resolution_id : row.id}
                   className="flex items-start justify-between gap-4 px-6 py-4 border-b border-[--color-border] last:border-0 hover:bg-overlay/60 transition-colors">
-                  <Link to={`/pr/${row.id}/canvass?tab=${view === 'approved' ? 'resolutions' : 'award'}`} className="min-w-0 flex-1">
+                  <Link to={`/pr/${row.id}/canvass?tab=${view === 'approved' ? 'resolutions' : 'winners'}`} className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       {view === 'approved' && (
                         <span className="text-ui-sm font-bold text-[--color-text-primary]">Resolution No. {row.resolution_number}</span>
@@ -87,8 +87,8 @@ export default function BacApprovals() {
                     {row.title && <p className="text-ui-sm text-[--color-text-primary] mt-1 line-clamp-2">{row.title}</p>}
                     <p className="text-[10px] text-[--color-text-muted] mt-1.5">
                       {view === 'pending'
-                        ? <>{row.quotations} quotation{Number(row.quotations) === 1 ? '' : 's'} · {row.items} item{Number(row.items) === 1 ? '' : 's'} · budget <span className="font-semibold text-[--color-text-secondary]">{fmtCurrency(row.total)}</span>{' · '}{row.mode_of_procurement || 'No mode set'}{' · '}Submitted {fmtDatetime(row.since)}</>
-                        : <>{row.suppliers}{' · '}<span className="font-semibold text-[--color-text-secondary]">{fmtCurrency(row.total)}</span>{' · '}Awarded {fmtDate(row.resolved_on)} by {row.approved_by_name}</>}
+                        ? <>{row.awards} award{Number(row.awards) === 1 ? '' : 's'} for <span className="font-semibold text-[--color-text-secondary]">{fmtCurrency(row.awarded_total)}</span> · {row.items} item{Number(row.items) === 1 ? '' : 's'}, budget {fmtCurrency(row.total)}{' · '}{row.mode_of_procurement || 'No mode set'}{' · '}Submitted {fmtDatetime(row.since)}{row.certification_return_reason ? ' · Returned by the TWG' : ''}</>
+                        : <>{row.suppliers}{' · '}<span className="font-semibold text-[--color-text-secondary]">{fmtCurrency(row.total)}</span>{' · '}Approved {fmtDate(row.resolved_on)} by {row.approved_by_name}</>}
                     </p>
                   </Link>
                   <div className="flex items-center gap-2 shrink-0">
@@ -97,7 +97,7 @@ export default function BacApprovals() {
                         <FileText className="size-3.5" /> Resolution
                       </Button>
                     ) : <Scale className="size-4 text-[--color-brand]" />}
-                    <Link to={`/pr/${row.id}/canvass?tab=${view === 'approved' ? 'resolutions' : 'award'}`} aria-label={`Open ${row.pr_number}`}>
+                    <Link to={`/pr/${row.id}/canvass?tab=${view === 'approved' ? 'resolutions' : 'winners'}`} aria-label={`Open ${row.pr_number}`}>
                       <ChevronRight className="size-4 text-[--color-text-muted]" />
                     </Link>
                   </div>

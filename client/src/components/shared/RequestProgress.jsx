@@ -16,7 +16,7 @@ export default function RequestProgress({ pr }) {
   // The soonest expected date among its POs not yet delivered.
   const next = (pr.pos || []).filter(po => po.delivery_status !== 'delivered' && po.expected_delivery_date)
     .map(po => String(po.expected_delivery_date).slice(0, 10)).sort()[0]
-  const expected = ['for_po', 'bidding'].includes(pr.status) && next ? ` Expected by ${fmtDate(next)}.` : ''
+  const expected = ['for_po', 'bidding', 'bac_review', 'twg_certification'].includes(pr.status) && next ? ` Expected by ${fmtDate(next)}.` : ''
 
   return (
     <Card>

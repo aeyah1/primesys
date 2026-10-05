@@ -11,8 +11,6 @@ import PageSkeleton from '@/components/shared/PageSkeleton'
 const Register          = lazy(() => import('@/pages/auth/Register'))
 const ForgotPassword    = lazy(() => import('@/pages/auth/ForgotPassword'))
 const ResetPassword     = lazy(() => import('@/pages/auth/ResetPassword'))
-// A supplier's quotation page, from an emailed RFQ link: no account, and open to signed-in users too.
-const QuotePage         = lazy(() => import('@/pages/quote/QuotePage'))
 
 // Signed-in pages are lazy too, and their code is preloaded once someone signs in.
 const signedInPages = []
@@ -37,8 +35,6 @@ const GuidePage         = page(() => import('@/pages/guide/GuidePage'))
 const TwgReviewList     = page(() => import('@/pages/twg/TwgReviewList'))
 const TwgReviewDetail   = page(() => import('@/pages/twg/TwgReviewDetail'))
 const BacApprovals      = page(() => import('@/pages/bac/BacApprovals'))
-const SupplierList      = page(() => import('@/pages/suppliers/SupplierList'))
-const SupplierProfile   = page(() => import('@/pages/suppliers/SupplierProfile'))
 const PpmpList          = page(() => import('@/pages/ppmp/PpmpList'))
 const PpmpDetail        = page(() => import('@/pages/ppmp/PpmpDetail'))
 
@@ -83,7 +79,6 @@ export default function App() {
         <Route path="/register"        element={<PublicRoute><Register /></PublicRoute>} />
         <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
         <Route path="/reset-password"  element={<PublicRoute><ResetPassword /></PublicRoute>} />
-        <Route path="/quote/:token"    element={<QuotePage />} />
 
         <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
           <Route path="dashboard" element={<Dashboard />} />
@@ -111,10 +106,8 @@ export default function App() {
           <Route path="twg/reviews"     element={<ProtectedRoute roles={['twg']}><TwgReviewList /></ProtectedRoute>} />
           <Route path="twg/reviews/:id" element={<ProtectedRoute roles={['twg']}><TwgReviewDetail /></ProtectedRoute>} />
           <Route path="bac"             element={<ProtectedRoute roles={['bac','admin','procurement']}><BacApprovals /></ProtectedRoute>} />
-          <Route path="suppliers"       element={<ProtectedRoute roles={['procurement','admin']}><SupplierList /></ProtectedRoute>} />
           <Route path="ppmp"            element={<ProtectedRoute roles={['requestor','admin','procurement','bac','twg']}><PpmpList /></ProtectedRoute>} />
           <Route path="ppmp/:id"        element={<ProtectedRoute roles={['requestor','admin','procurement','bac','twg']}><PpmpDetail /></ProtectedRoute>} />
-          <Route path="suppliers/:id"   element={<ProtectedRoute roles={['procurement','admin']}><SupplierProfile /></ProtectedRoute>} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

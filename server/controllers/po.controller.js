@@ -190,8 +190,8 @@ exports.create = asyncHandler(async (req, res) => {
 
   const created = await withTransaction(async (conn) => {
     const pr = await loadPR(conn, purchase_request_id, { lock: true })
-    if (pr.deleted_at || !['bidding', 'for_po'].includes(pr.status)) {
-      throw httpError(400, 'A Purchase Order can only be issued after a supplier has been selected (lot awarded). This PR has not reached that stage yet.')
+    if (pr.deleted_at || !['bidding', 'bac_review', 'twg_certification', 'for_po'].includes(pr.status)) {
+      throw httpError(400, 'A Purchase Order can only be issued once the TWG has certified the canvass result. This PR has not reached that stage yet.')
     }
     const award = await awardsForPO(conn, pr.id, supplier)
 
@@ -202,10 +202,10 @@ exports.create = asyncHandler(async (req, res) => {
       try {
         const [result] = await conn.execute(
           `INSERT INTO purchase_orders
-             (po_number, purchase_request_id, supplier_name, supplier_id, supplier_contact, supplier_address,
+             (po_number, purchase_request_id, supplier_name, supplier_contact, supplier_address,
               issued_date, total_amount, expected_delivery_date, notes, po_status, issued_by)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
-          [po_number, pr.id, award.supplier_name, award.supplier_id, award.supplier_contact, award.supplier_address,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
+          [po_number, pr.id, award.supplier_name, award.supplier_contact, award.supplier_address,
            issued_date, award.total_amount, expected_delivery_date || null, notes || null, req.user.id]
         )
         // Those awards are now this PO's (and fixed with it).
@@ -258,7 +258,7 @@ exports.generatePDF = asyncHandler(async (req, res) => {
 
   const orgSettings = await loadOrgSettings(pool)
   const items = await poItems(pool, po.id, po.pr_id)
-  // Awarded unit prices when every line has one (awards from quotations);
+  // Awarded unit prices when every line has one (the canvass winners' prices);
   // otherwise the PR's estimates, and the contract amount is the total.
   const priced = items.length > 0 && items.every(i => i.unit_price != null)
 
@@ -316,14 +316,13 @@ exports.cancel = asyncHandler(async (req, res) => {
   res.json({ message: 'Purchase order cancelled', pr_status: po.status })
 })
 
-// PATCH /po/:id/close - { reason, carry_quotes, short_amount }: the supplier
+// PATCH /po/:id/close - { reason, short_amount }: the supplier
 // can't deliver the rest of a partly delivered PO. What arrived is kept; the
 // rest goes back to canvass (utils/shortDelivery.js). The requestor, the
 // supply officers, and the BAC are told.
 exports.close = asyncHandler(async (req, res) => {
   const done = await withTransaction((conn) => closeShort(conn, req.params.id, req.user, {
     reason: req.body.reason.trim(),
-    carryQuotes: req.body.carry_quotes !== false,
     shortAmount: req.body.short_amount ?? null,
   }))
   const { po, pr, balances } = done

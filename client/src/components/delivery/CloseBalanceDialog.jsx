@@ -17,7 +17,6 @@ import { TEXTAREA, hundredths, qty, useRefreshDeliveries } from './shared'
 export default function CloseBalanceDialog({ poId, onClose }) {
   const refresh = useRefreshDeliveries()
   const [reason, setReason] = useState('')
-  const [carry, setCarry]   = useState(true)
   const [value, setValue]   = useState('')
   const { data: po } = useQuery({
     queryKey: ['po-detail', String(poId)],
@@ -25,7 +24,7 @@ export default function CloseBalanceDialog({ poId, onClose }) {
   })
   const { mutate, isPending } = useMutation({
     mutationFn: () => api.patch(`/po/${poId}/close`, {
-      reason: reason.trim(), carry_quotes: carry, ...(priced ? {} : { short_amount: value }),
+      reason: reason.trim(), ...(priced ? {} : { short_amount: value }),
     }),
     onSuccess: ({ data }) => {
       toast.success(`${data.message}. ${data.balances.length ? 'The undelivered items are back under canvass.' : ''}`)
@@ -48,7 +47,7 @@ export default function CloseBalanceDialog({ poId, onClose }) {
           <div className="space-y-4">
             <p className="text-sm text-[--color-text-secondary]">
               Use this when the supplier can't deliver the rest. What arrived is kept and paid for; the items below are not paid,
-              and they go back to canvass for a new award. This can't be undone.
+              and they go back to canvass, then to the BAC and the TWG, for a new award. This can't be undone.
             </p>
 
             <div className="rounded-lg border border-[--color-border] overflow-x-auto">
@@ -95,13 +94,7 @@ export default function CloseBalanceDialog({ poId, onClose }) {
               </p>
             )}
 
-            <label className="flex items-start gap-2 text-sm cursor-pointer">
-              <input type="checkbox" className="size-4 mt-0.5 accent-[--color-brand]" checked={carry} onChange={e => setCarry(e.target.checked)} />
-              <span>
-                <span className="font-medium text-[--color-text-primary]">Offer the balance to the other suppliers at their quoted prices</span>
-                <span className="block text-xs text-[--color-text-muted]">So it can be awarded to the next offer without a new canvass. {po.supplier_name} can't be awarded these items again.</span>
-              </span>
-            </label>
+            <p className="text-xs text-[--color-text-muted]">{po.supplier_name} can't be awarded these items again.</p>
 
             <div className="space-y-1.5">
               <Label>Reason <span className="text-red-600 text-xs">*</span></Label>

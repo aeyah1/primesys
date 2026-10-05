@@ -519,7 +519,7 @@ const MOVED = {
   submitted:          (pr) => [`${pr.pr_number} sent to the TWG`, 'You will be notified when they review it.'],
   draft:              (pr) => [`${pr.pr_number} is back to draft`, 'Edit it, then submit it again.'],
   revision_requested: (pr) => [`Returned to ${pr.created_by_name} for revision`, 'They are told what to change.'],
-  bidding:            (pr) => [`${pr.pr_number} is open for canvass`],
+  bidding:            (pr) => [`${pr.pr_number} is back in canvass`],
   cancelled:          (pr) => [`${pr.pr_number} cancelled`],
 }
 
@@ -551,8 +551,8 @@ export default function PRDetail() {
   const isRequestor = user?.role === 'requestor'
   const isSupply    = user?.role === 'supply'
   const isBac       = user?.role === 'bac'
-  // The canvass and awards: Procurement's work, and the BAC's to approve (supply sees only the POs).
-  const showCanvass = (canManage || isBac) && !!pr && ['bidding', 'for_po', 'completed', 'cancelled'].includes(pr.status)
+  // The canvass and awards: Procurement's work, and the BAC's to review (supply sees only the POs).
+  const showCanvass = (canManage || isBac) && !!pr && ['bidding', 'bac_review', 'twg_certification', 'for_po', 'completed', 'cancelled'].includes(pr.status)
   // One delivery status over every PO: delivered once all are, partial once any delivery is in.
   const pos = pr?.pos || []
   const deliveryStatus = !pos.length ? null
@@ -580,7 +580,6 @@ export default function PRDetail() {
   }
 
   const downloadPRForm   = () => openPDF(`/pr/${id}/pdf`,       'PR Form')
-  const downloadAbstract = () => openPDF(`/lots/pr/${id}/pdf`,  'Abstract of Quotations')
   const downloadRFQ      = () => openPDF(`/pr/${id}/rfq`,       'Request for Quotation')
 
   // How this purchase is procured; Procurement sets it once the canvass is set up.
@@ -842,20 +841,10 @@ export default function PRDetail() {
         >
           <FileDown className="size-3.5" /> PR Form
         </button>
-        {/* The BAC evaluates from the Abstract of Quotations */}
-        {isBac && pr.status !== 'draft' && pr.status !== 'submitted' && (
-          <button
-            onClick={downloadAbstract}
-            title="Download Abstract of Quotations"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[--color-border] text-xs font-medium text-[--color-text-secondary] hover:text-[--color-brand] hover:border-[--color-brand] transition-colors shrink-0"
-          >
-            <FileDown className="size-3.5" /> Abstract
-          </button>
-        )}
         {/* Procurement: the one next step for this stage, the rest under More */}
         {canManage && !pr.deleted_at && (
           <ProcurementActions pr={pr} updateStatus={updateStatus} isPending={isPending}
-            onReturn={() => setReturnOpen(true)} downloadRFQ={downloadRFQ} downloadAbstract={downloadAbstract} />
+            onReturn={() => setReturnOpen(true)} downloadRFQ={downloadRFQ} />
         )}
       </div>
 
@@ -926,7 +915,7 @@ export default function PRDetail() {
       {/* Items Requested */}
       <PRItemsSection prId={id} pr={pr} canEdit={!!pr.permissions?.edit} category={pr.category} />
 
-      {/* Canvass & awards: quotations, awards by supplier, and the BAC's approval (procurement, admin, BAC) */}
+      {/* Canvass & awards: the winners by supplier, the BAC's review and the TWG's certification (procurement, admin, BAC) */}
       {showCanvass && (
         <Card>
           <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
@@ -935,11 +924,11 @@ export default function PRDetail() {
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-[--color-text-primary]">Canvass &amp; Award</p>
                 <p className="text-xs text-[--color-text-secondary] mt-0.5">
-                  {pr.status === 'bidding' && pr.bac_submitted_at ? 'With the BAC for evaluation.'
-                    : pr.status === 'bidding' && pr.quotations_due && new Date(pr.quotations_due) > new Date() ? `Quotations close ${fmtDate(pr.quotations_due)}.`
-                    : pr.status === 'bidding' ? 'Quotations are in; the canvass is being decided.'
+                  {pr.status === 'bidding' ? 'In canvass: record each item\'s winner and attach the canvass documents, then submit to the BAC.'
+                    : pr.status === 'bac_review' ? 'With the BAC for review.'
+                    : pr.status === 'twg_certification' ? 'Approved by the BAC; with the TWG for certification.'
                     : pr.status === 'cancelled' ? 'The canvass record is kept.'
-                    : 'Awarded. The quotations, the award and its resolution are on the canvass page.'}
+                    : 'Certified. The winners and the BAC Resolution are on the canvass page.'}
                 </p>
               </div>
             </div>

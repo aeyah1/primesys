@@ -13,9 +13,8 @@ const { poLines, hundredths, syncPODelivery } = require('./deliveryWorkflow')
 // The undelivered quantity goes back to canvass. A line that arrived in part
 // splits its PR item: the item keeps what arrived, and a balance item (pr_items.
 // balance_of) takes the rest. A line with nothing delivered puts its whole item
-// back. Other suppliers' quoted prices for the item carry over to the balance,
-// so the BAC can award it to the next offer; the supplier who failed to deliver
-// can't be awarded that item or its balance again.
+// back, to be canvassed and reviewed by the BAC and the TWG again; the supplier
+// who failed to deliver can't be awarded that item or its balance again.
 //
 // Late delivery is charged at 1/10 of 1% of the undelivered value per day
 // (the penalty clause on the PO); at 10% of the contract the office may
@@ -84,9 +83,9 @@ function failedBlock(failedFor, item, supplier) {
 }
 
 // Closes the PO's balance, inside the caller's transaction. body: { reason,
-// carry_quotes (default true), short_amount (only when an undelivered line has
-// no unit price) }. Resolves with what changed, for the notices.
-async function closeShort(conn, poId, user, { reason, carryQuotes = true, shortAmount = null }) {
+// short_amount (only when an undelivered line has no unit price) }. Resolves
+// with what changed, for the notices.
+async function closeShort(conn, poId, user, { reason, shortAmount = null }) {
   const [[po]] = await conn.execute(
     `SELECT po.*, DATEDIFF(CURDATE(), po.expected_delivery_date) AS days_past
        FROM purchase_orders po WHERE po.id = ? FOR UPDATE`, [poId])
@@ -94,7 +93,9 @@ async function closeShort(conn, poId, user, { reason, carryQuotes = true, shortA
   const pr = await loadPR(conn, po.purchase_request_id, { lock: true })
   const denied = closeBlock(user, po, pr)
   if (denied) throw httpError(denied.status, denied.message)
-  if (!['bidding', 'for_po'].includes(pr.status)) throw httpError(409, 'This PR is closed')
+  if (!['bidding', 'for_po'].includes(pr.status)) {
+    throw httpError(409, ['bac_review', 'twg_certification'].includes(pr.status) ? 'This PR is with the BAC or the TWG for review. Close the PO once it is back.' : 'This PR is closed')
+  }
 
   const lines = await poLines(conn, po.id)
   if (!lines.length) throw httpError(409, 'This purchase order has no item lines to close. Record its deliveries item by item.')
@@ -111,7 +112,6 @@ async function closeShort(conn, poId, user, { reason, carryQuotes = true, shortA
   }
   const late = penalty(shortCents, po.days_past, totalCents)
 
-  const failed = supplierKey(po.supplier_name)
   const balances = []
   for (const line of owed) {
     await conn.execute('UPDATE lot_items SET short_quantity = short_quantity + ? WHERE id = ?', [line.remaining.toFixed(2), line.id])
@@ -127,21 +127,10 @@ async function closeShort(conn, poId, user, { reason, carryQuotes = true, shortA
     }
     // Part of it arrived: the item keeps that part, and a balance item takes the rest.
     await conn.execute('UPDATE pr_items SET quantity = quantity - ? WHERE id = ?', [line.remaining.toFixed(2), item.id])
-    const [ins] = await conn.execute(
+    await conn.execute(
       `INSERT INTO pr_items (pr_id, ppmp_item_id, stock_property_no, group_label, category, item_name, quantity, unit, estimated_cost, notes, balance_of)
        SELECT pr_id, ppmp_item_id, stock_property_no, group_label, category, item_name, ?, unit, estimated_cost, notes, id FROM pr_items WHERE id = ?`,
       [line.remaining.toFixed(2), item.id])
-    if (carryQuotes) {
-      const [offers] = await conn.execute(
-        `SELECT qi.quotation_id, qi.unit_price, q.supplier_name FROM quotation_items qi JOIN quotations q ON q.id = qi.quotation_id
-          WHERE qi.pr_item_id = ? AND q.purchase_request_id = ? AND q.disqualified_reason IS NULL`, [item.id, pr.id])
-      const kept = offers.filter(o => supplierKey(o.supplier_name) !== failed)
-      if (kept.length) {
-        await conn.execute(
-          `INSERT INTO quotation_items (quotation_id, pr_item_id, unit_price) VALUES ${kept.map(() => '(?, ?, ?)').join(', ')}`,
-          kept.flatMap(o => [o.quotation_id, ins.insertId, o.unit_price]))
-      }
-    }
     balances.push({ item_name: line.item_name, quantity: line.remaining, unit: line.unit, split: true })
   }
 

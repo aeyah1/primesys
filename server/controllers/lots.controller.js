@@ -5,19 +5,12 @@ const httpError       = require('../utils/httpError')
 const withTransaction = require('../db/transaction')
 const { loadPR, syncPRProgress } = require('../utils/prWorkflow')
 const {
-  SUPPLIER_COLUMNS, supplierKey, short, cents, lineCents,
-  awardLockedReason, awardBlock, budgetBlock, itemStates, recordAward, announceAwards,
+  SUPPLIER_COLUMNS, supplierKey, short, lineCents,
+  awardLockedReason, awardBlock, budgetBlock, itemStates, recordAward,
 } = require('../utils/awardWorkflow')
 const { paging }     = require('../middleware/validate')
 const { CATEGORIES } = require('../utils/categories')
-const drawAbstract   = require('../pdf/abstractOfQuotations')
-const { loadOrgSettings } = require('../utils/orgSettings')
-const notify = require('../utils/notify')
-const { sendAwardNotices } = require('../utils/awardNotice')
 const { failedSuppliers, failedBlock } = require('../utils/shortDelivery')
-const { awardDenied, modeMissing, bacAwards, adoptResolution, releaseIfDone } = require('../utils/bacWorkflow')
-const { sealedBlock } = require('../utils/rfqWorkflow')
-const { resolveSupplier, supplierDetails, supplierIdByName } = require('../utils/suppliers')
 
 // The lot and its PR's facts; with `lock` (inside a transaction), the PR row
 // first and then the lot, the same order as every other award write.
@@ -124,13 +117,13 @@ exports.deleteItem = asyncHandler(async (req, res) => {
   res.json({ message: 'Item removed' })
 })
 
-// Records an award by hand (no quotation): a supplier, the PR items it
-// covers (by default every item not yet awarded), and a lump-sum contract
-// amount, which can't exceed the items' approved budget. While the BAC awards,
-// only the BAC may, and the award is its resolution.
+// Records a winner of the canvass, which is done outside the system: the
+// supplier as typed (with its details), the PR items it won, and each one's
+// winning unit price. The award's amount is their total, within the items'
+// approved budget. Procurement's, while the PR is in canvass; the BAC and the
+// TWG review the result before any purchase order (bac.controller).
 exports.create = asyncHandler(async (req, res) => {
-  const { purchase_request_id, title, awarded_to, awarded_amount, pr_item_ids } = req.body
-  // checked in the route (amount required: a PO's total is the sum of its awards)
+  const { purchase_request_id, title, awarded_to, notes, items: picks } = req.body   // checked in the route
 
   // Scoped lookup (C2): a PR this user can't see is "not found".
   const scope = prScope(req.user)
@@ -144,79 +137,53 @@ exports.create = asyncHandler(async (req, res) => {
     const pr = await loadPR(conn, purchase_request_id, { lock: true })
     const blocked = awardBlock(pr)
     if (blocked) throw httpError(blocked.status, blocked.message)
-    const bacOn = await bacAwards(conn)
-    const denied = awardDenied(req.user, pr, bacOn) || await sealedBlock(conn, pr.id)
-    if (denied) throw httpError(denied.status, denied.message)
 
     const { items } = await itemStates(conn, pr.id)
-    let covered = items.filter(i => i.state === 'pending')
-    if (Array.isArray(pr_item_ids)) {
-      covered = [...new Set(pr_item_ids)].map(id => items.find(i => i.id === id))
-      if (covered.some(i => !i)) throw httpError(400, 'Some of the chosen items are not on this PR')
-      const taken = covered.find(i => i.state !== 'pending')
-      if (taken) throw httpError(409, `"${short(taken.item_name)}" is already ${taken.state}`)
-    }
-    if (items.length && !covered.length) throw httpError(409, 'Choose the items this award covers')
-
-    const amount = cents(awarded_amount)
-    const over = budgetBlock(amount, estimateCents(covered))
+    const seen = new Set()
+    const won = picks.map(p => {
+      const item = items.find(i => i.id === p.pr_item_id)
+      if (!item) throw httpError(400, 'Some of the chosen items are not on this PR')
+      if (seen.has(item.id)) throw httpError(400, `"${short(item.item_name)}" is chosen twice`)
+      seen.add(item.id)
+      if (item.state !== 'pending') throw httpError(409, `"${short(item.item_name)}" is already ${item.state}`)
+      return { item, price: p.unit_price }
+    })
+    const amount = won.reduce((s, w) => s + lineCents(w.item.quantity, w.price), 0)
+    const over = budgetBlock(amount, estimateCents(won.map(w => w.item)))
     if (over) throw httpError(over.status, over.message)
 
-    // A supplier from the list brings its own details. One typed in by name
-    // keeps the name as first written on an earlier award here, and any detail left out.
-    let supplier, details, supplierId
-    if (req.body.supplier_id) {
-      const listed = await resolveSupplier(conn, req.body, req.user.id)
-      supplier = listed.name
-      supplierId = listed.id
-      details = supplierDetails(listed)
-    } else {
-      if (!awarded_to?.trim()) throw httpError(400, 'Choose the supplier')
-      const [awards] = await conn.execute(
-        `SELECT awarded_to, ${SUPPLIER_COLUMNS.join(', ')} FROM lots WHERE purchase_request_id = ? AND status = 'awarded' ORDER BY id`, [pr.id])
-      const same = awards.find(a => supplierKey(a.awarded_to) === supplierKey(awarded_to))
-      supplier = same ? same.awarded_to : awarded_to.trim()
-      details = Object.fromEntries(SUPPLIER_COLUMNS.map(c => [c, req.body[c] || same?.[c] || null]))
-      supplierId = await supplierIdByName(conn, supplier)
-    }
+    // The name as first written on an earlier award here, and any detail left out.
+    const [awards] = await conn.execute(
+      `SELECT awarded_to, ${SUPPLIER_COLUMNS.join(', ')} FROM lots WHERE purchase_request_id = ? AND status = 'awarded' ORDER BY id`, [pr.id])
+    const same = awards.find(a => supplierKey(a.awarded_to) === supplierKey(awarded_to))
+    const supplier = same ? same.awarded_to : awarded_to.trim()
+    const details = Object.fromEntries(SUPPLIER_COLUMNS.map(c => [c, req.body[c] || same?.[c] || null]))
 
     // A supplier that failed to deliver one of these items before can't be awarded it again.
     const failedFor = await failedSuppliers(conn, pr.id)
-    for (const item of covered) {
+    for (const { item } of won) {
       const failed = failedBlock(failedFor, item, supplier)
       if (failed) throw httpError(failed.status, failed.message)
     }
-    const noMode = modeMissing(pr, bacOn)
-    if (noMode) throw httpError(noMode.status, noMode.message)
-    const resolution = bacOn ? await adoptResolution(conn, pr.id, req.user.id) : null
     const lot = await recordAward(conn, {
-      resolutionId: resolution?.id ?? null, prId: pr.id, supplier, supplierId, amount: (amount / 100).toFixed(2), details, title: title || null, userId: req.user.id, items: covered,
+      prId: pr.id, supplier, amount: (amount / 100).toFixed(2), details, title: title || null, notes: notes?.trim() || null,
+      userId: req.user.id, items: won.map(w => w.item), prices: won.map(w => w.price),
     })
-    const by = resolution ? ` (BAC Resolution No. ${resolution.resolution_number})` : ''
-    await syncPRProgress(conn, pr.id, { user: req.user, note: `${lot.lot_number} awarded to ${supplier}${by}` })
-    if (bacOn) await releaseIfDone(conn, pr.id, (await itemStates(conn, pr.id)).items.filter(i => i.state === 'pending').length)
-    return { ...lot, pr, resolution, awarded_to: supplier, items: covered.length }
+    await syncPRProgress(conn, pr.id, { user: req.user, note: `${lot.lot_number} awarded to ${supplier}` })
+    return { ...lot, awarded_to: supplier, awarded_amount: (amount / 100).toFixed(2), items: won.length }
   })
-
-  await announceAwards(req.io, created.pr.pr_number, [created])
-  if (created.resolution && created.pr.bac_submitted_by) {
-    await notify(req.io, created.pr.bac_submitted_by,
-      `PR ${created.pr.pr_number}: the BAC awarded it in Resolution No. ${created.resolution.resolution_number}. The purchase orders can be issued.`,
-      'info', created.pr.id, 'pr')
-  }
-  // The winners with a confirmed email get their Notice of Award; the rest are delivered by hand.
-  if (created.resolution) await sendAwardNotices(created.pr.id, created.resolution.id).catch(err => console.error('[award] notices:', err.message))
-  res.status(201).json({ id: created.id, lot_number: created.lot_number, resolution: created.resolution, awarded_to: created.awarded_to, items: created.items })
+  res.status(201).json(created)
 })
 
 // Edits an award, or cancels it (status 'cancelled', with a reason). The
-// title and amount are this lot's; the supplier's name and details change on
-// every award to that supplier on the PR that has no PO yet. An award is fixed
-// once it has a PO or its PR is closed (WF-2); a cancelled award stays
+// title is this lot's; the supplier's name and details change on every award
+// to that supplier on the PR that has no PO yet. The amount comes from the
+// winning prices. An award is fixed while the BAC or the TWG reviews it, once
+// it has a PO, or once its PR is closed (WF-2); a cancelled award stays
 // cancelled, and its items need an award again (a Ready for PO PR goes back
-// to canvass).
+// to canvass, to be reviewed again).
 exports.update = asyncHandler(async (req, res) => {
-  const { status, title, description, notes, awarded_to, awarded_amount, reason } = req.body
+  const { status, title, description, notes, awarded_to, reason } = req.body
   // checked in the route (status: awarded or cancelled)
   const cancelling = status === 'cancelled'
   if (cancelling && !reason?.trim()) return res.status(400).json({ message: 'Give a reason for cancelling this award' })
@@ -238,22 +205,15 @@ exports.update = asyncHandler(async (req, res) => {
     }
 
     if (lot.status !== 'awarded') throw httpError(409, 'Only an awarded lot can be edited')
-    if (awarded_amount != null && awarded_amount !== '') {
-      if (lot.resolution_id) throw httpError(409, 'This amount was awarded in a BAC Resolution, so it is fixed')
-      if (lot.quotation_id) throw httpError(409, 'This award\'s amount comes from the supplier\'s quoted prices, so it can\'t be edited')
-      const [covered] = await conn.execute(
-        `SELECT i.quantity, i.estimated_cost FROM lot_items li JOIN pr_items i ON i.id = li.pr_item_id WHERE li.lot_id = ?`, [lot.id])
-      const over = budgetBlock(cents(awarded_amount), estimateCents(covered))
-      if (over) throw httpError(over.status, over.message)
-    }
+    const renamed = awarded_to?.trim() && supplierKey(awarded_to) !== supplierKey(lot.awarded_to)
+    if (renamed && lot.resolution_id) throw httpError(409, 'The BAC approved this award to its supplier, so the name is fixed. Cancel it to award the items again.')
     await conn.execute(`
       UPDATE lots SET
         title          = COALESCE(?, title),
         description    = COALESCE(?, description),
-        awarded_amount = COALESCE(?, awarded_amount),
         notes          = COALESCE(?, notes)
       WHERE id = ?
-    `, [title || null, description || null, awarded_amount || null, notes || null, lot.id])
+    `, [title || null, description || null, notes || null, lot.id])
 
     const supplier = [awarded_to, ...SUPPLIER_COLUMNS.map(c => req.body[c])].map(v => v?.trim() || null)
     if (supplier.some(Boolean)) {
@@ -265,11 +225,6 @@ exports.update = asyncHandler(async (req, res) => {
           WHERE id IN (${ids.map(() => '?').join(', ')})`,
         [...supplier, ...ids]
       )
-      // A new name may be a different listed supplier (or none).
-      if (awarded_to?.trim()) {
-        await conn.execute(`UPDATE lots SET supplier_id = ? WHERE id IN (${ids.map(() => '?').join(', ')})`,
-          [await supplierIdByName(conn, awarded_to), ...ids])
-      }
     }
     return { reopened: false }
   })
@@ -284,17 +239,19 @@ exports.update = asyncHandler(async (req, res) => {
 // Lots & Awards work queue
 // PRs by what they need next. A PR awarded in part can be in more than one:
 //   to_canvass   approved by the TWG, canvass not started yet
-//   needs_award  under canvass (Bidding): some items still need an award
-//   with_bac     submitted to the BAC, which evaluates and awards
-//   awaiting_po  awards with no purchase order yet
+//   needs_award  in canvass: the winners to record and submit to the BAC
+//   with_bac     the BAC reviews the canvass result
+//   with_twg     the TWG certifies the result the BAC approved
+//   awaiting_po  certified awards with no purchase order yet
 //   po_issued    at least one active purchase order
 //   cancelled    cancelled after an award was recorded
 const HAS_LOTS  = 'EXISTS (SELECT 1 FROM lots hl WHERE hl.purchase_request_id = pr.id)'
 const STAGES = {
   to_canvass:  "pr.status = 'twg_review'",
-  needs_award: "(pr.status = 'bidding' AND pr.bac_submitted_at IS NULL)",
-  with_bac:    "(pr.status = 'bidding' AND pr.bac_submitted_at IS NOT NULL)",
-  awaiting_po: "(pr.status IN ('bidding', 'for_po') AND EXISTS (SELECT 1 FROM lots wl WHERE wl.purchase_request_id = pr.id AND wl.status = 'awarded' AND wl.po_id IS NULL))",
+  needs_award: "pr.status = 'bidding'",
+  with_bac:    "pr.status = 'bac_review'",
+  with_twg:    "pr.status = 'twg_certification'",
+  awaiting_po: "(pr.status IN ('bidding', 'bac_review', 'twg_certification', 'for_po') AND EXISTS (SELECT 1 FROM lots wl WHERE wl.purchase_request_id = pr.id AND wl.status = 'awarded' AND wl.po_id IS NULL AND wl.certified_at IS NOT NULL))",
   po_issued:   "EXISTS (SELECT 1 FROM purchase_orders apo WHERE apo.purchase_request_id = pr.id AND apo.po_status = 'active')",
   cancelled:   `(pr.status = 'cancelled' AND ${HAS_LOTS})`,
 }
@@ -303,6 +260,7 @@ const STAGE_ORDER = {
   to_canvass:  'stage_since ASC, pr.id ASC',
   needs_award: 'stage_since ASC, pr.id ASC',
   with_bac:    'stage_since ASC, pr.id ASC',
+  with_twg:    'stage_since ASC, pr.id ASC',
   awaiting_po: 'stage_since ASC, pr.id ASC',
   po_issued:   'stage_since DESC, pr.id DESC',
   cancelled:   'stage_since DESC, pr.id DESC',
@@ -341,16 +299,14 @@ exports.queue = asyncHandler(async (req, res) => {
            (SELECT COUNT(*) FROM lots l WHERE l.purchase_request_id = pr.id AND l.status = 'cancelled') AS cancelled_lots,
            ${AWARDED('COALESCE(SUM(l.awarded_amount), 0)')} AS awarded_total,
            ${AWARDED("GROUP_CONCAT(DISTINCT l.awarded_to ORDER BY l.awarded_to SEPARATOR ', ')")} AS suppliers,
-           ${AWARDED('COALESCE(SUM(l.po_id IS NULL), 0)')} AS awards_without_po,
+           ${AWARDED('COALESCE(SUM(l.po_id IS NULL AND l.certified_at IS NOT NULL), 0)')} AS awards_without_po,
            ${ACTIVE_POS('COUNT(*)')} AS po_count,
            ${ACTIVE_POS('MIN(px.po_number)')} AS po_number,
            ${ACTIVE_POS(`CASE WHEN COUNT(*) = 0 THEN NULL
                               WHEN SUM(px.delivery_status = 'delivered') = COUNT(*) THEN 'delivered'
                               WHEN SUM(px.delivery_status <> 'pending') > 0 THEN 'partial'
                               ELSE 'pending' END`)} AS delivery_status,
-           pr.quotations_due, pr.quotations_due > NOW() AS quotations_open,
-           (SELECT COUNT(*) FROM rfq_invitations ri WHERE ri.purchase_request_id = pr.id) AS invited,
-           (SELECT COUNT(*) FROM quotations qq WHERE qq.purchase_request_id = pr.id) AS quotations,
+           pr.mode_of_procurement, pr.bac_return_reason,
            COALESCE((SELECT MAX(sl.created_at) FROM pr_status_logs sl WHERE sl.pr_id = pr.id AND sl.to_status = pr.status), pr.created_at) AS stage_since
       FROM purchase_requests pr
       JOIN users u ON u.id = pr.created_by
@@ -380,47 +336,4 @@ exports.queue = asyncHandler(async (req, res) => {
       categories: Object.fromEntries(CATEGORIES.map(c => [c, Number(byCategory.find(x => x.category === c)?.n || 0)])),
     },
   })
-})
-
-// Abstract of Quotations (PDF)
-// With quotations: every supplier's unit price per PR item side by side (the
-// lowest marked, the awarded ones bold), their totals, then the awards. With
-// awards only (recorded without quotations): each award and its items.
-
-exports.generateAbstract = asyncHandler(async (req, res) => {
-  const PDFDocument = require('pdfkit')
-  const { M } = require('../utils/pdfHelpers')
-  const prId = req.params.prId
-
-  const [[pr]] = await pool.execute(`
-    SELECT pr.id, pr.pr_number, pr.title, pr.created_at, pr.purpose, pr.mode_of_procurement,
-           u.name AS created_by_name, q.label AS quarter_label, q.year AS quarter_year
-      FROM purchase_requests pr
-      JOIN users u ON pr.created_by = u.id
-      LEFT JOIN quarters q ON q.id = pr.quarter_id
-     WHERE pr.id = ?`, [prId])
-  if (!pr) return res.status(404).json({ message: 'PR not found' })
-  // The comparison would show sealed prices, so it waits for the RFQ deadline.
-  const sealed = await sealedBlock(pool, prId)
-  if (sealed) return res.status(sealed.status).json({ message: sealed.message })
-
-  const [quotes] = await pool.execute('SELECT * FROM quotations WHERE purchase_request_id = ? ORDER BY id', [prId])
-  const [prices] = await pool.execute(
-    `SELECT qi.* FROM quotation_items qi JOIN quotations q ON q.id = qi.quotation_id WHERE q.purchase_request_id = ?`, [prId])
-  const [lots] = await pool.execute(
-    `SELECT l.*, po.po_number FROM lots l LEFT JOIN purchase_orders po ON po.id = l.po_id WHERE l.purchase_request_id = ? ORDER BY l.id`, [prId])
-  if (!quotes.length && !lots.length) return res.status(404).json({ message: 'No quotations or awards have been recorded for this PR yet' })
-  const lotIds = lots.map(l => l.id)
-  const [lotItems] = lotIds.length
-    ? await pool.execute(`SELECT * FROM lot_items WHERE lot_id IN (${lotIds.map(() => '?').join(',')}) ORDER BY lot_id, id`, lotIds)
-    : [[]]
-  const { items } = await itemStates(pool, prId)
-  const orgSettings = await loadOrgSettings(pool)
-
-  const doc = new PDFDocument({ size: 'LETTER', layout: quotes.length ? 'landscape' : 'portrait', margin: M })
-  res.setHeader('Content-Type', 'application/pdf')
-  res.setHeader('Content-Disposition', `attachment; filename="Abstract-${pr.pr_number}.pdf"`)
-  doc.pipe(res)
-  drawAbstract(doc, { pr, quotes, prices, lots, lotItems, items, orgSettings })
-  doc.end()
 })

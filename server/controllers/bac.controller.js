@@ -6,56 +6,103 @@ const httpError       = require('../utils/httpError')
 const withTransaction = require('../db/transaction')
 const { prScope }     = require('../middleware/scope.middleware')
 const { paging }      = require('../middleware/validate')
-const { loadPR }      = require('../utils/prWorkflow')
-const { itemStates } = require('../utils/awardWorkflow')
-const { BAC_DECIDERS, BAC_READERS, SECRETARIAT, bacAwards, notifyBac } = require('../utils/bacWorkflow')
-const { rfqOpen, sealedBlock } = require('../utils/rfqWorkflow')
+const { loadPR, changePRStatus } = require('../utils/prWorkflow')
+const { short, itemStates } = require('../utils/awardWorkflow')
+const { BAC_DECIDERS, BAC_READERS, SECRETARIAT, notifyBac, adoptResolution } = require('../utils/bacWorkflow')
+const { notifyAreaReviewers } = require('../utils/twgAreas')
 const { loadOrgSettings } = require('../utils/orgSettings')
 const { M }            = require('../pdf/campusForm')
 const drawResolution   = require('../pdf/bacResolution')
-const { resolutionOf, noticeFor, drawOf, emailNotice, noticeStatus } = require('../utils/awardNotice')
+const { resolutionOf, noticeFor, drawOf, noticeLeads } = require('../utils/awardNotice')
 
 // The Bids and Awards Committee's work
-// Procurement (the BAC Secretariat) submits a PR under canvass to the BAC once
-// its quotations are in. The BAC evaluates them and awards on the canvass
-// (canvass.controller / lots.controller), which adopts a BAC Resolution, or
-// returns the PR here with a reason. Resolutions print as the BAC Resolution
-// and a Notice of Award per supplier.
+// Procurement (the BAC Secretariat) submits the canvass result to the BAC once
+// every item has its winner and the canvass documents are attached (BAC
+// review). The BAC approves it, which adopts a BAC Resolution for the new
+// awards and sends the PR to the TWG for certification, or returns it to
+// Procurement with the reason. Resolutions print as the BAC Resolution and a
+// Notice of Award per supplier.
 
-const WITH_BAC = "(pr.status = 'bidding' AND pr.bac_submitted_at IS NOT NULL)"
+// Why the canvass result can't go to the BAC now (null when it can).
+async function submitBlock(db, pr) {
+  const deny = (message) => ({ status: 409, message })
+  if (pr.status !== 'bidding') return deny('The canvass result goes to the BAC while the PR is in canvass')
+  if (!pr.mode_of_procurement) return deny('Set the mode of procurement first')
+  const { items } = await itemStates(db, pr.id)
+  const pending = items.find(i => i.state === 'pending')
+  if (pending) return deny(`Record the winner of every item first ("${short(pending.item_name)}" has none), or drop an item no supplier offers`)
+  const [[{ fresh }]] = await db.execute(
+    "SELECT COUNT(*) AS fresh FROM lots WHERE purchase_request_id = ? AND status = 'awarded' AND certified_at IS NULL", [pr.id])
+  if (!Number(fresh)) return deny('No new award waits for the BAC')
+  // The canvass documents: a file Procurement attached since this canvass started (a BAC return doesn't restart it).
+  const [[{ files }]] = await db.execute(
+    `SELECT COUNT(*) AS files FROM pr_attachments a JOIN users u ON u.id = a.uploaded_by
+      WHERE a.pr_id = ? AND u.role IN ('procurement', 'admin')
+        AND a.created_at >= COALESCE((SELECT MAX(sl.created_at) FROM pr_status_logs sl
+                                       WHERE sl.pr_id = ? AND sl.to_status = 'bidding' AND sl.from_status <> 'bac_review'), '1970-01-01')`,
+    [pr.id, pr.id])
+  if (!Number(files)) return deny('Attach the canvass documents (the canvasser\'s RFQs and abstract) to the PR first')
+  return null
+}
 
-// POST /bac/:prId/submit - the Secretariat hands the canvass to the BAC. The
-// quotations lock until the BAC awards every item or returns the PR.
+// POST /bac/:prId/submit - the Secretariat hands the canvass result to the BAC.
 exports.submit = asyncHandler(async (req, res) => {
   const pr = await withTransaction(async (conn) => {
     const pr = await loadPR(conn, req.params.prId, { lock: true })
     if (!pr || pr.deleted_at) throw httpError(404, 'PR not found')
-    if (!(await bacAwards(conn))) throw httpError(409, 'The BAC does not award on this campus (Settings > Organization)')
-    if (pr.status !== 'bidding') throw httpError(409, 'A PR goes to the BAC while it is under canvass')
-    if (pr.bac_submitted_at) throw httpError(409, 'This PR is already with the BAC')
-    const sealed = await sealedBlock(conn, pr.id)
-    if (sealed) throw httpError(sealed.status, sealed.message)
-    const { items } = await itemStates(conn, pr.id)
-    if (!items.some(i => i.state === 'pending')) throw httpError(409, 'Nothing on this PR still needs an award')
+    const blocked = await submitBlock(conn, pr)
+    if (blocked) throw httpError(blocked.status, blocked.message)
+    await changePRStatus(pr.id, 'bac_review', { user: req.user, via: 'bac', note: 'Canvass result submitted to the BAC', conn })
     await conn.execute(
       'UPDATE purchase_requests SET bac_submitted_at = NOW(), bac_submitted_by = ?, bac_return_reason = NULL WHERE id = ?',
       [req.user.id, pr.id])
     return pr
   })
   await notifyBac(req.io, pr.id, pr.pr_number)
-  res.json({ message: 'Submitted to the BAC for evaluation' })
+  res.json({ message: 'Submitted to the BAC for review' })
 })
 
-// POST /bac/:prId/return - { reason }: the BAC hands the canvass back to the
-// Secretariat (e.g. more quotations are needed). Awards already made stay.
+// POST /bac/:prId/approve - { notes }: the BAC approves the canvass result. Its
+// new awards are adopted in a BAC Resolution (awards the TWG returned keep
+// theirs), and the PR goes to the TWG for certification.
+exports.approve = asyncHandler(async (req, res) => {
+  const { pr, resolution } = await withTransaction(async (conn) => {
+    const pr = await loadPR(conn, req.params.prId, { lock: true })
+    if (!pr || pr.deleted_at) throw httpError(404, 'PR not found')
+    if (pr.status !== 'bac_review') throw httpError(409, 'This PR is not with the BAC')
+    const [round] = await conn.execute(
+      "SELECT id, resolution_id FROM lots WHERE purchase_request_id = ? AND status = 'awarded' AND certified_at IS NULL", [pr.id])
+    if (!round.length) throw httpError(409, 'No award waits for the BAC\'s approval')
+    const fresh = round.filter(l => !l.resolution_id).map(l => l.id)
+    const resolution = fresh.length ? await adoptResolution(conn, pr.id, req.user.id, req.body.notes?.trim()) : null
+    if (resolution) {
+      await conn.execute(`UPDATE lots SET resolution_id = ? WHERE id IN (${fresh.map(() => '?').join(', ')})`, [resolution.id, ...fresh])
+    }
+    await changePRStatus(pr.id, 'twg_certification', {
+      user: req.user, via: 'bac', conn,
+      note: resolution ? `Approved by the BAC in Resolution No. ${resolution.resolution_number}` : 'Approved by the BAC again',
+    })
+    return { pr, resolution }
+  })
+  await notifyAreaReviewers(req.io, pr, { certify: true })
+  if (pr.bac_submitted_by) {
+    const by = resolution ? ` in Resolution No. ${resolution.resolution_number}` : ''
+    await notify(req.io, pr.bac_submitted_by, `PR ${pr.pr_number} was approved by the BAC${by} and is with the TWG for certification.`, 'info', pr.id, 'pr')
+  }
+  res.json({ message: 'Approved and sent to the TWG for certification', resolution })
+})
+
+// POST /bac/:prId/return - { reason }: the BAC hands the canvass result back to
+// the Secretariat (e.g. a winner recorded wrong). The awards stay, to be corrected.
 exports.returnToSecretariat = asyncHandler(async (req, res) => {
   const reason = req.body.reason?.trim()
   if (!reason) return res.status(400).json({ message: 'Give the reason for returning it' })
   const pr = await withTransaction(async (conn) => {
     const pr = await loadPR(conn, req.params.prId, { lock: true })
     if (!pr || pr.deleted_at) throw httpError(404, 'PR not found')
-    if (pr.status !== 'bidding' || !pr.bac_submitted_at) throw httpError(409, 'This PR is not with the BAC')
-    await conn.execute('UPDATE purchase_requests SET bac_submitted_at = NULL, bac_return_reason = ? WHERE id = ?', [reason, pr.id])
+    if (pr.status !== 'bac_review') throw httpError(409, 'This PR is not with the BAC')
+    await changePRStatus(pr.id, 'bidding', { user: req.user, via: 'bac', note: `Returned by the BAC: ${reason}`, conn })
+    await conn.execute('UPDATE purchase_requests SET bac_return_reason = ? WHERE id = ?', [reason, pr.id])
     return pr
   })
   if (pr.bac_submitted_by) {
@@ -65,7 +112,7 @@ exports.returnToSecretariat = asyncHandler(async (req, res) => {
 })
 
 // GET /bac/queue?view=pending|approved&search=&page= - PRs waiting for the
-// BAC's evaluation, or the resolutions it adopted, with both counts.
+// BAC's review, or the resolutions it adopted, with both counts.
 exports.queue = asyncHandler(async (req, res) => {
   const view = req.query.view === 'approved' ? 'approved' : 'pending'
   const { page, limit, offset } = paging(req.query, { defaultLimit: 20, maxLimit: 100 })
@@ -75,7 +122,7 @@ exports.queue = asyncHandler(async (req, res) => {
   if (search) { where.push('(pr.pr_number LIKE ? OR pr.title LIKE ?)'); params.push(search, search) }
 
   const [[counts]] = await pool.execute(`
-    SELECT (SELECT COUNT(*) FROM purchase_requests pr WHERE ${where.join(' AND ')} AND ${WITH_BAC}) AS pending,
+    SELECT (SELECT COUNT(*) FROM purchase_requests pr WHERE ${where.join(' AND ')} AND pr.status = 'bac_review') AS pending,
            (SELECT COUNT(*) FROM bac_resolutions r JOIN purchase_requests pr ON pr.id = r.purchase_request_id WHERE ${where.join(' AND ')}) AS approved`,
     [...params, ...params])
 
@@ -83,11 +130,13 @@ exports.queue = asyncHandler(async (req, res) => {
   if (view === 'pending') {
     [rows] = await pool.execute(`
       SELECT pr.id, pr.pr_number, pr.title, pr.department, pr.mode_of_procurement, pr.bac_submitted_at AS since,
-             (SELECT COUNT(*) FROM quotations q WHERE q.purchase_request_id = pr.id) AS quotations,
+             pr.certification_return_reason,
+             (SELECT COUNT(*) FROM lots l WHERE l.purchase_request_id = pr.id AND l.status = 'awarded' AND l.certified_at IS NULL) AS awards,
+             (SELECT COALESCE(SUM(l.awarded_amount), 0) FROM lots l WHERE l.purchase_request_id = pr.id AND l.status = 'awarded' AND l.certified_at IS NULL) AS awarded_total,
              (SELECT COUNT(*) FROM pr_items i WHERE i.pr_id = pr.id AND i.dropped_at IS NULL) AS items,
              (SELECT COALESCE(SUM(i.quantity * i.estimated_cost), 0) FROM pr_items i WHERE i.pr_id = pr.id AND i.dropped_at IS NULL) AS total
         FROM purchase_requests pr
-       WHERE ${where.join(' AND ')} AND ${WITH_BAC}
+       WHERE ${where.join(' AND ')} AND pr.status = 'bac_review'
        ORDER BY pr.bac_submitted_at ASC, pr.id ASC
        LIMIT ${limit} OFFSET ${offset}`, params)
   } else {
@@ -113,42 +162,41 @@ exports.queue = asyncHandler(async (req, res) => {
 // GET /bac/:prId - where the PR stands with the BAC, its resolutions (each with
 // its awards), and what this user may do.
 exports.summary = asyncHandler(async (req, res) => {
-  const prId = req.params.prId
-  const [[pr]] = await pool.execute(
-    `SELECT pr.status, pr.deleted_at, pr.bac_submitted_at, pr.bac_return_reason, u.name AS submitted_by_name
-       FROM purchase_requests pr LEFT JOIN users u ON u.id = pr.bac_submitted_by WHERE pr.id = ?`, [prId])
+  const pr = await loadPR(pool, req.params.prId)
+  const [[extra]] = await pool.execute(
+    `SELECT pr.bac_return_reason, pr.certification_return_reason, u.name AS submitted_by_name
+       FROM purchase_requests pr LEFT JOIN users u ON u.id = pr.bac_submitted_by WHERE pr.id = ?`, [pr.id])
   const [resolutions] = await pool.execute(`
     SELECT r.id, r.resolution_number, r.resolved_on, r.notes, r.created_at, u.name AS approved_by_name
       FROM bac_resolutions r JOIN users u ON u.id = r.approved_by
-     WHERE r.purchase_request_id = ? ORDER BY r.id`, [prId])
+     WHERE r.purchase_request_id = ? ORDER BY r.id`, [pr.id])
   const [lots] = await pool.execute(
-    'SELECT * FROM lots WHERE purchase_request_id = ? AND resolution_id IS NOT NULL ORDER BY id', [prId])
-  const bacOn = await bacAwards(pool)
-  const bidding = pr.status === 'bidding' && !pr.deleted_at
-  const withBac = bidding && !!pr.bac_submitted_at
-  const pending = bidding ? (await itemStates(pool, prId)).items.filter(i => i.state === 'pending').length : 0
-  const sealed = bidding && await rfqOpen(pool, prId)
+    'SELECT * FROM lots WHERE purchase_request_id = ? AND resolution_id IS NOT NULL ORDER BY id', [pr.id])
+  const live = !pr.deleted_at
+  const withBac = live && pr.status === 'bac_review'
+  const blocked = live && pr.status === 'bidding' ? await submitBlock(pool, pr) : null
   res.json({
-    required: bacOn,
+    status: pr.status,
     with_bac: withBac,
-    rfq_open: sealed,
     submitted_at: withBac ? pr.bac_submitted_at : null,
-    submitted_by_name: withBac ? pr.submitted_by_name : null,
-    return_reason: !withBac && bidding ? pr.bac_return_reason : null,
-    resolutions: await Promise.all(resolutions.map(async (r) => {
+    submitted_by_name: withBac ? extra.submitted_by_name : null,
+    return_reason: live && pr.status === 'bidding' ? extra.bac_return_reason : null,
+    certification_return_reason: withBac ? extra.certification_return_reason : null,
+    submit_blocked: blocked?.message ?? null,
+    resolutions: resolutions.map(r => {
       const theirs = lots.filter(l => l.resolution_id === r.id)
       return {
         ...r,
-        lots: theirs.map(({ id, lot_number, awarded_to, awarded_amount, status, resolution_id }) =>
-          ({ id, lot_number, awarded_to, awarded_amount, status, resolution_id })),
-        notices: await noticeStatus(theirs),
+        lots: theirs.map(({ id, lot_number, awarded_to, awarded_amount, status, resolution_id, certified_at }) =>
+          ({ id, lot_number, awarded_to, awarded_amount, status, resolution_id, certified_at })),
+        notices: noticeLeads(theirs),
       }
-    })),
+    }),
     permissions: {
-      submit: bacOn && bidding && !withBac && !sealed && pending > 0 && SECRETARIAT.includes(req.user.role),
-      return: withBac && BAC_DECIDERS.includes(req.user.role),
-      print:  BAC_READERS.includes(req.user.role),
-      email_notice: SECRETARIAT.includes(req.user.role) && !pr.deleted_at,
+      submit:  live && pr.status === 'bidding' && !blocked && SECRETARIAT.includes(req.user.role),
+      approve: withBac && BAC_DECIDERS.includes(req.user.role),
+      return:  withBac && BAC_DECIDERS.includes(req.user.role),
+      print:   [...BAC_READERS, 'twg'].includes(req.user.role),
     },
   })
 })
@@ -162,18 +210,14 @@ function sendPdf(res, filename, draw) {
   doc.end()
 }
 
-// GET /bac/:prId/resolutions/:rid/pdf - the BAC Resolution, naming any offer
-// the BAC found failing the specifications.
+// GET /bac/:prId/resolutions/:rid/pdf - the BAC Resolution.
 exports.resolutionPdf = asyncHandler(async (req, res) => {
   const { resolution, pr, lots } = await resolutionOf(req.params.prId, req.params.rid)
   const [[{ abc }]] = await pool.execute(
     'SELECT COALESCE(SUM(quantity * estimated_cost), 0) AS abc FROM pr_items WHERE pr_id = ? AND dropped_at IS NULL', [pr.id])
-  const [quotes] = await pool.execute(
-    'SELECT supplier_name, disqualified_reason FROM quotations WHERE purchase_request_id = ? ORDER BY id', [pr.id])
   const orgSettings = await loadOrgSettings(pool)
-  const disqualified = quotes.filter(q => q.disqualified_reason).map(q => ({ supplier: q.supplier_name, reason: q.disqualified_reason }))
   sendPdf(res, `BAC-Resolution-${resolution.resolution_number}.pdf`, (doc) =>
-    drawResolution(doc, { resolution, pr, abc, lots, quoteCount: quotes.length, disqualified, orgSettings }))
+    drawResolution(doc, { resolution, pr, abc, lots, orgSettings }))
 })
 
 // GET /bac/:prId/resolutions/:rid/notice/:lotId - the Notice of Award to the
@@ -181,12 +225,4 @@ exports.resolutionPdf = asyncHandler(async (req, res) => {
 exports.noticePdf = asyncHandler(async (req, res) => {
   const n = await noticeFor(req.params.prId, req.params.rid, req.params.lotId)
   sendPdf(res, n.filename, drawOf(n, await loadOrgSettings(pool)))
-})
-
-// POST /bac/:prId/resolutions/:rid/notice/:lotId/email - emails that supplier
-// its Notice of Award when the award's own email didn't go out (the address
-// was confirmed later, or the send failed).
-exports.emailNotice = asyncHandler(async (req, res) => {
-  const { to } = await emailNotice(req.params.prId, req.params.rid, req.params.lotId)
-  res.json({ message: `Notice of Award emailed to ${to}` })
 })

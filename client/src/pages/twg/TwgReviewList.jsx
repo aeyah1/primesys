@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Search, ClipboardCheck, ChevronRight, CheckCircle2, AlertTriangle, History } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PRStatusBadge, CategoryBadge } from '@/components/shared/StatusBadge'
-import { fmtDatetime, CATEGORY_LABELS } from '@/lib/utils'
+import { fmtDatetime, fmtCurrency, CATEGORY_LABELS } from '@/lib/utils'
 import api from '@/lib/axios'
 
 // The signed-in member's review areas (admins: all). A TWG member's queue
@@ -23,7 +23,15 @@ export const areasText = (areasInfo) => !areasInfo ? ''
   : areasInfo.all ? 'All areas (administrator)'
   : areasInfo.areas.map(a => CATEGORY_LABELS[a]).join(', ')
 
+// The two things the TWG decides: a request before the canvass, and the canvass result after the BAC.
+const STAGES = [
+  { key: 'review',  label: 'To review',  empty: 'No purchase requests in your areas are awaiting TWG review right now.' },
+  { key: 'certify', label: 'To certify', empty: 'No canvass result in your areas is waiting for the TWG\'s certification.' },
+]
+
 export default function TwgReviewList() {
+  const [params, setParams] = useSearchParams()
+  const stage = params.get('stage') === 'certify' ? 'certify' : 'review'
   const [search, setSearch] = useState('')
   const [area, setArea]     = useState('')
   const { data: areasInfo } = useTwgAreas()
@@ -31,12 +39,12 @@ export default function TwgReviewList() {
   const noAreas = areasInfo && !areasInfo.all && myAreas.length === 0
 
   const { data, isLoading } = useQuery({
-    queryKey: ['twg', 'pending', { search, area }],
+    queryKey: ['twg', 'pending', { search, area, stage }],
     queryFn: () => {
-      const params = new URLSearchParams()
-      if (search) params.set('search', search)
-      if (area)   params.set('category', area)
-      return api.get(`/twg/pending?${params}`).then(r => r.data)
+      const q = new URLSearchParams({ stage })
+      if (search) q.set('search', search)
+      if (area)   q.set('category', area)
+      return api.get(`/twg/pending?${q}`).then(r => r.data)
     },
     enabled: !noAreas,
   })
@@ -63,6 +71,16 @@ export default function TwgReviewList() {
             className="pl-9"
           />
         </div>
+      </div>
+
+      <div className="flex items-center gap-1 border-b border-[--color-border]">
+        {STAGES.map(s => (
+          <button key={s.key} onClick={() => setParams(s.key === 'review' ? {} : { stage: s.key }, { replace: true })}
+            className={`px-3 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-colors mb-[-1px] ${
+              stage === s.key ? 'border-[--color-brand] text-[--color-brand]' : 'border-transparent text-[--color-text-muted] hover:text-[--color-text-primary]'}`}>
+            {s.label}
+          </button>
+        ))}
       </div>
 
       {/* One chip per review area (only worth showing with more than one) */}
@@ -101,7 +119,7 @@ export default function TwgReviewList() {
                   <CheckCircle2 className="size-10 text-[--color-text-muted] mx-auto mb-3" />
                   <p className="text-ui-sm font-semibold text-[--color-text-primary]">All caught up</p>
                   <p className="text-ui-xs text-[--color-text-muted] mt-1">
-                    No purchase requests in your areas are awaiting TWG review right now.
+                    {STAGES.find(s => s.key === stage).empty}
                   </p>
                 </div>
               )
@@ -128,9 +146,11 @@ export default function TwgReviewList() {
                         {' · '}
                         <span>{pr.item_count} item{pr.item_count === 1 ? '' : 's'}</span>
                         {' · '}
-                        Submitted {fmtDatetime(pr.submitted_at)}
+                        {stage === 'certify'
+                          ? <>Approved by the BAC {fmtDatetime(pr.submitted_at)}{Number(pr.awarded_total) > 0 && <> · awards {fmtCurrency(pr.awarded_total)}</>}</>
+                          : <>Submitted {fmtDatetime(pr.submitted_at)}</>}
                       </p>
-                      {pr.last_reviewer_name && (
+                      {stage === 'review' && pr.last_reviewer_name && (
                         <p className="flex items-center gap-1 text-[10px] font-medium text-amber-700 mt-1">
                           <History className="size-3" /> Resubmitted after a review by {pr.last_reviewer_name}
                         </p>

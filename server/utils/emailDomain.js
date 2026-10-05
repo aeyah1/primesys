@@ -1,8 +1,7 @@
 const dns = require('dns').promises
 
 // Whether an email's domain can receive mail, so a typo like "gmial.com" is
-// caught when a supplier is saved. It can't tell whether the mailbox itself
-// exists; that is proven only when the supplier answers (suppliers.email_confirmed).
+// caught when it is saved. It can't tell whether the mailbox itself exists.
 
 // Answers meaning the name has no such record (anything else: DNS couldn't be asked).
 const MISSING = new Set(['ENOTFOUND', 'ENODATA'])

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { Trophy, ChevronDown, ChevronRight, Pencil, Phone, Mail, MapPin, CreditCard, User, ShoppingCart } from 'lucide-react'
+import { Trophy, ChevronDown, ChevronRight, Pencil, Phone, Mail, MapPin, CreditCard, User, ShoppingCart, ShieldCheck } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -14,51 +14,70 @@ import { nameKey, cents, lineCents, useRefreshAwards } from './supplier'
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 const TEXTAREA = 'w-full rounded-md border border-[--color-border] bg-[--color-surface] px-3 py-2 text-sm text-[--color-text-primary] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent resize-y'
 
-/* ── Edit one award's title and (lump-sum) amount ─────────────────────── */
+const DETAILS = [
+  ['supplier_contact', 'Contact person', 100], ['supplier_phone', 'Phone', 50], ['supplier_email', 'Email', 200],
+  ['supplier_tin', 'TIN', 50], ['supplier_address', 'Business address', 500],
+]
+
+/* ── Edit one award's title, and its supplier's details ───────────────── */
 function EditLotDialog({ lot, onClose }) {
   const refresh = useRefreshAwards(String(lot.purchase_request_id))
-  const fromQuote = !!lot.quotation_id
-  const [title, setTitle]   = useState(lot.title || '')
-  const [amount, setAmount] = useState(lot.awarded_amount ? String(Number(lot.awarded_amount)) : '')
-  // The approved budget of the PR items this award covers.
-  const budget = (lot.items || []).filter(i => i.pr_item_id).reduce((s, i) => s + lineCents(i.quantity, i.estimated_cost), 0)
-  const over = !fromQuote && budget > 0 && cents(amount) > budget
+  // A supplier the BAC approved keeps its name; its details can still be corrected.
+  const named = !!lot.resolution_id
+  const [form, setForm] = useState(() => Object.fromEntries(
+    [['title'], ['awarded_to'], ...DETAILS].map(([k]) => [k, lot[k] || ''])))
+  const setF = (k, v) => setForm(p => ({ ...p, [k]: v }))
   const { mutate, isPending } = useMutation({
     mutationFn: (body) => api.patch(`/lots/${lot.id}`, body),
     onSuccess: () => { toast.success(`${lot.lot_number} updated`); refresh(); onClose() },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to update'),
   })
-  const save = () => mutate({ title: title.trim() || undefined, ...(fromQuote ? {} : { awarded_amount: amount.trim() }) })
+  const save = () => mutate(Object.fromEntries(Object.entries(form)
+    .filter(([k]) => !(named && k === 'awarded_to')).map(([k, v]) => [k, v.trim() || undefined])))
   return (
     <Dialog open onOpenChange={v => { if (!v) onClose() }}>
-      <DialogContent title={`Edit ${lot.lot_number}`}>
+      <DialogContent title={`Edit ${lot.lot_number}`}
+        description="The supplier's name and details change on each of its awards here that has no purchase order yet. The amount comes from the winning prices.">
         <div className="space-y-3">
           <div className="space-y-1.5">
-            <Label>Contract Amount (₱)</Label>
-            {fromQuote ? (
-              <p className="text-sm text-[--color-text-secondary]">
-                {fmtCurrency(lot.awarded_amount)}: the supplier's quoted prices. To change it, cancel this award and award the items again.
-              </p>
-            ) : (
-              <>
-                <Input type="number" min="0.01" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} />
-                {over && <p className="text-xs font-medium text-red-700">Above the approved budget for its items ({fmtCurrency(budget / 100)}).</p>}
-              </>
-            )}
+            <Label>Supplier name</Label>
+            <Input maxLength={200} value={form.awarded_to} disabled={named} onChange={e => setF('awarded_to', e.target.value)} />
+            {named && <p className="text-xs text-[--color-text-muted]">Approved by the BAC under this name. Cancel the award to award its items to another supplier.</p>}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {DETAILS.map(([key, label, max]) => (
+              <div key={key} className={`space-y-1.5 ${key === 'supplier_address' ? 'sm:col-span-2' : ''}`}>
+                <Label>{label}</Label>
+                <Input maxLength={max} type={key === 'supplier_email' ? 'email' : 'text'} value={form[key]} onChange={e => setF(key, e.target.value)} />
+              </div>
+            ))}
           </div>
           <div className="space-y-1.5">
             <Label>Lot Title <span className="text-[--color-text-muted] font-normal text-xs">(optional)</span></Label>
-            <Input placeholder="e.g. Meals & Snacks" value={title} onChange={e => setTitle(e.target.value)} />
+            <Input maxLength={200} placeholder="e.g. Meals & Snacks" value={form.title} onChange={e => setF('title', e.target.value)} />
           </div>
         </div>
         <DialogFooter className="px-0 pb-0 pt-6">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button disabled={isPending || over || (!fromQuote && !(cents(amount) > 0))} onClick={save}>
+          <Button disabled={isPending || !form.awarded_to.trim()} onClick={save}>
             {isPending ? 'Saving…' : 'Save Changes'}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+// Where an award stands in its review: recorded, approved by the BAC, certified by the TWG.
+function ReviewChip({ lot }) {
+  if (lot.status !== 'awarded' || lot.po_id) return null
+  const [text, cls] = lot.certified_at ? ['Certified by the TWG', 'border-teal-300 bg-teal-50 text-teal-800']
+    : lot.resolution_id ? ['Approved by the BAC', 'border-indigo-300 bg-indigo-50 text-indigo-800']
+    : ['Not yet reviewed', 'border-[--color-border-strong] bg-white text-[--color-text-secondary]']
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${cls}`}>
+      {lot.certified_at && <ShieldCheck className="size-3" />} {text}
+    </span>
   )
 }
 
@@ -106,6 +125,7 @@ function LotRow({ lot, canManage, prStatus }) {
   const items     = lot.items || []
   const editable  = canManage && lot.status === 'awarded' && !lot.locked
   const cancelled = lot.status === 'cancelled'
+  const priced    = items.some(i => i.unit_price != null)
 
   return (
     <div className="border-t border-[--color-border]">
@@ -117,14 +137,15 @@ function LotRow({ lot, canManage, prStatus }) {
             {lot.title || items.filter(i => i.pr_item_id).map(i => i.item_name).join(', ') || 'Whole PR'}
           </p>
           <p className="text-xs text-[--color-text-muted]">
-            {plural(items.length, 'item')}{lot.quotation_id ? ', from a quotation' : ', lump sum'}{cancelled && lot.awarded_to ? `, ${lot.awarded_to}` : ''}
+            {plural(items.length, 'item')}{priced ? '' : ', lump sum'}{cancelled && lot.awarded_to ? `, ${lot.awarded_to}` : ''}
           </p>
         </div>
         <span className="text-sm font-semibold tabular-nums text-[--color-text-primary]">{lot.awarded_amount ? fmtCurrency(lot.awarded_amount) : 'No amount'}</span>
+        <ReviewChip lot={lot} />
         <LotStatusBadge status={lot.status} />
         <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
           {editable && (
-            <button onClick={() => setEditing(true)} title="Edit title and amount"
+            <button onClick={() => setEditing(true)} title="Edit the title and the supplier's details"
               className="p-1.5 rounded-lg text-[--color-text-muted] hover:text-[--color-brand] hover:bg-[--color-overlay] transition-colors">
               <Pencil className="size-3.5" />
             </button>
@@ -147,7 +168,7 @@ function LotRow({ lot, canManage, prStatus }) {
                 <tr className="bg-[--color-canvas] text-xs font-bold uppercase tracking-wider text-[--color-text-secondary]">
                   <th className="px-3 py-2.5 text-left">Item</th>
                   <th className="px-3 py-2.5 text-right whitespace-nowrap">Qty</th>
-                  <th className="px-3 py-2.5 text-right whitespace-nowrap">{lot.quotation_id ? 'Unit price' : 'Budget / unit'}</th>
+                  <th className="px-3 py-2.5 text-right whitespace-nowrap">{priced ? 'Unit price' : 'Budget / unit'}</th>
                   <th className="px-3 py-2.5 text-right whitespace-nowrap">Total</th>
                 </tr>
               </thead>
@@ -203,7 +224,7 @@ export default function AwardList({ lots, canManage, prStatus }) {
     <div className="space-y-3">
       {groups.map(g => {
         const lead    = g.lots.find(l => l.supplier_contact || l.supplier_phone || l.supplier_email || l.supplier_address || l.supplier_tin) || g.lots[0]
-        const waiting = g.lots.filter(l => !l.po_id)
+        const waiting = g.lots.filter(l => !l.po_id && l.certified_at)
         const total   = g.lots.reduce((s, l) => s + cents(l.awarded_amount), 0)
         const pos     = [...new Map(g.lots.filter(l => l.po_number).map(l => [l.po_number, l])).values()]
         return (

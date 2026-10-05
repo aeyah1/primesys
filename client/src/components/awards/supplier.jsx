@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 
-// Shared bits of the canvass and award screens. A supplier's details come from
-// the Suppliers list (SupplierPicker), never typed on a quotation or award.
+// Shared bits of the canvass and award screens. A winner's supplier is typed
+// as on the canvasser's abstract (the canvass is done outside the system).
 
 // Names that differ only in upper/lower case or spacing are the same
 // (server: awardWorkflow.supplierKey).
@@ -22,11 +22,11 @@ export function SectionTitle({ children, action }) {
   )
 }
 
-// Everything that shows awards, refreshed after any award, quotation, or PO change.
+// Everything that shows awards, refreshed after any award, review, or PO change.
 export function useRefreshAwards(prId) {
   const qc = useQueryClient()
   return () => {
-    for (const key of [['canvass', prId], ['lots'], ['lot-queue'], ['pr', prId], ['pr-list'], ['pr-stats'], ['pr-logs', prId], ['po-list'], ['bac'], ['suppliers']]) {
+    for (const key of [['canvass', prId], ['lots'], ['lot-queue'], ['pr', prId], ['pr-list'], ['pr-stats'], ['pr-logs', prId], ['po-list'], ['bac'], ['twg']]) {
       qc.invalidateQueries({ queryKey: key })
     }
   }
