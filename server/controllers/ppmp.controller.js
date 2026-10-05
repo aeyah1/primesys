@@ -10,7 +10,6 @@ const notify          = require('../utils/notify')
 const fileStore       = require('../utils/fileStore')
 const { readTable }   = require('../utils/sheetImport')
 const { mapPpmp, completeness, rowBlockers } = require('../utils/ppmpImport')
-const { readPdfSignatures, pdfSigned } = require('../utils/pdfSignature')
 const { loadOrgSettings } = require('../utils/orgSettings')
 const { assertNoBrands, brandIn } = require('../utils/brandNames')
 const { usablePlans, linesLeft, withUsage } = require('../utils/ppmpUse')
@@ -18,9 +17,9 @@ const { compareItems, officeOf, assertOwnOffice, loadPpmp, loadItems, loadFiles,
 const { M } = require('../pdf/campusForm')
 const drawPpmp = require('../pdf/ppmpForm')
 
-// The PPMP of each office, uploaded from its signed original. It is in effect once signed and complete; no one else approves it.
+// The PPMP of each office, uploaded as its softcopy (Excel, CSV, or Word): the file is the PPMP. It is in effect once complete;
+// no one else approves it. (PPMPs uploaded before 2026-10 also carry a signed copy, kept with them.)
 const DATA_TYPES   = ['.xlsx', '.csv', '.docx']
-const SIGNED_TYPES = ['.pdf', '.jpg', '.jpeg', '.png', '.webp']
 const ext = (f) => path.extname(f.originalname).toLowerCase()
 const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex')
 const label = (p) => `PPMP No. ${p.version_no} (${p.office_code}, FY ${p.fiscal_year})`
@@ -40,70 +39,36 @@ async function tellStaff(io, message, ppmpId) {
   for (const u of staff) await notify(io, u.id, message, 'info', ppmpId, 'ppmp').catch(err => console.error('[notify] PPMP notice failed:', err.message))
 }
 
-// The uploaded files: the data file the items are read from (required), and the signed copy.
-function uploadedFiles(req) {
+// The uploaded softcopy the items are read from.
+function uploadedFile(req) {
   const data = req.files?.data?.[0]
-  const signed = req.files?.signed?.[0] || null
-  if (!data) throw httpError(400, 'Upload the PPMP data file (Excel, CSV, or Word)')
-  if (!DATA_TYPES.includes(ext(data))) throw httpError(400, 'Items are read from Excel (.xlsx), CSV, or Word (.docx) files. A PDF or scan goes in as the signed copy.')
-  if (signed && !SIGNED_TYPES.includes(ext(signed))) throw httpError(400, 'The signed copy must be a PDF or an image (JPG, PNG, WEBP)')
-  return { data, signed }
-}
-
-// How the signed copy is signed. digital: a PDF whose signatures all hold (checked here); paper: a copy with no digital
-// signature, declared signed on paper by the uploader; broken: a digital signature that fails; unsigned: neither; missing: no copy.
-function signatureOf(signed, buf, paperDeclared) {
-  if (!signed) return { state: 'missing', signatures: [], problem: 'No signed copy is attached: a digitally signed PDF, or a scan of the copy signed on paper.' }
-  const signatures = ext(signed) === '.pdf' ? readPdfSignatures(buf) : []
-  if (signatures.length) {
-    if (pdfSigned(signatures)) return { state: 'digital', signatures, problem: null }
-    const failed = signatures.find(x => x.problem || !x.valid)
-    return { state: 'broken', signatures, problem: `The signed copy's digital signature doesn't hold: ${(failed?.problem || 'it could not be checked').replace(/\.$/, '')}.` }
-  }
-  return paperDeclared
-    ? { state: 'paper', signatures, problem: null }
-    : { state: 'unsigned', signatures, problem: 'The signed copy has no digital signature, and it wasn\'t confirmed as signed on paper.' }
-}
-
-// Whether two names are the same person's: every word of the shorter one is in the other (titles like "Ph. D." aside).
-const nameWords = (n) => String(n || '').toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/).filter(w => w.length > 1 && !['phd', 'ph', 'dr', 'mr', 'ms', 'mrs', 'engr', 'atty'].includes(w))
-const sameName = (a, b) => {
-  const [x, y] = [nameWords(a), nameWords(b)].sort((p, q) => p.length - q.length)
-  return x.length > 0 && x.every(w => y.includes(w))
+  if (!data) throw httpError(400, 'Upload the PPMP softcopy (Excel, CSV, or Word)')
+  if (!DATA_TYPES.includes(ext(data))) throw httpError(400, 'The PPMP is read from its softcopy: an Excel (.xlsx), CSV, or Word (.docx) file')
+  return data
 }
 
 // Things worth knowing that don't keep a PPMP from taking effect.
-function notesOf(read, signature) {
-  const notes = []
-  for (const sig of signature.signatures.filter(x => x.valid && x.signer)) {
-    if (sig.self_signed) notes.push(`${sig.signer}'s certificate was issued by ${sig.signer} themself, so no authority (such as PNPKI) vouches for the name.`)
-    if (!read.signatories.some(x => x.name && sameName(x.name, sig.signer))) notes.push(`${sig.signer} signed it digitally, but isn't named in its signature block.`)
-  }
+function notesOf(read) {
   const sum = Math.round(read.items.reduce((t, i) => t + (i.quantity || 0) * (i.unit_cost || 0), 0) * 100) / 100
-  if (read.file_total != null && Math.abs(read.file_total - sum) > 1) notes.push(`The file's total is ${peso(read.file_total)}, but its items add up to ${peso(sum)}.`)
-  return notes
+  return read.file_total != null && Math.abs(read.file_total - sum) > 1 ? [`The file's total is ${peso(read.file_total)}, but its items add up to ${peso(sum)}.`] : []
 }
 
-// Reads and checks an upload: the items, the office named in the file, the signature, and what keeps it from being complete.
-// `keep` is the file rows to take (by default every row that can go in); `paperDeclared` is the uploader's word for a paper signature.
-async function inspect(req, { keep = null, paperDeclared = false } = {}) {
-  const { data, signed } = uploadedFiles(req)
+// Reads and checks an upload: the items, the office named in the file, and what keeps it from being complete.
+// `keep` is the file rows to take (by default every row that can go in).
+async function inspect(req, { keep = null } = {}) {
+  const data = uploadedFile(req)
   const dataBuf = await fs.promises.readFile(data.path)
-  const signedBuf = signed ? await fs.promises.readFile(signed.path) : null
   const read = mapPpmp(readTable(dataBuf, ext(data)))
   await assertOwnOffice(pool, req.user.id, read.header.office)
   const kept = keep ? read.items.filter(i => keep.includes(i.row)) : read.items.filter(i => !rowBlockers(i).length && !brandIn(i.description))
-  const signature = signatureOf(signed, signedBuf, paperDeclared)
-  const problems = [...completeness(read, kept), ...(signature.problem ? [signature.problem] : [])]
-  return { data, signed, dataBuf, signedBuf, read, kept, signature, problems, notes: notesOf(read, signature) }
+  return { data, dataBuf, read, kept, problems: completeness(read, kept), notes: notesOf(read) }
 }
 
-// Saves an upload (new, an amendment, or one not in effect uploaded again). Signed and complete, it takes effect at once
-// and replaces the version in effect; otherwise it is kept, not in effect, with what is missing.
+// Saves an upload (new, an amendment, or one not in effect uploaded again). Complete, it takes effect at once and
+// replaces the version in effect; otherwise it is kept, not in effect, with what is missing.
 async function saveUpload(req, { ppmpId = null } = {}) {
   const keep = (req.body.rows || []).map(Number)
-  const x = await inspect(req, { keep, paperDeclared: req.body.paper_signed === true })
-  const { data, signed, dataBuf, signedBuf, read, kept, signature, problems } = x
+  const { data, dataBuf, read, kept, problems } = await inspect(req, { keep })
   if (!kept.length) throw httpError(400, 'Keep at least one item')
   const blocked = kept.find(i => rowBlockers(i).length)
   if (blocked) throw httpError(400, `Row ${blocked.row} can't go in: ${rowBlockers(blocked)[0].toLowerCase()}. Fix it in the file, or leave the row out.`)
@@ -150,34 +115,27 @@ async function saveUpload(req, { ppmpId = null } = {}) {
           [p.id, i.part, i.category || null, i.code || null, i.description, i.unit, i.quantity, i.unit_cost, i.mode_of_procurement || null, months, i.remarks || null, i.row, k])
       }
       // The files are stored before their rows, so a row never points at a missing file.
-      for (const [role, file, buf] of [['data', data, dataBuf], ['signed', signed, signedBuf]].filter(([, f]) => f)) {
-        await fileStore.keep('ppmp', file)
-        file.kept = true
-        stored.push({ added: file.filename })
-        await conn.execute(
-          'INSERT INTO ppmp_attachments (ppmp_id, role, filename, original_name, mimetype, size, sha256, uploaded_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-          [p.id, role, file.filename, file.originalname, file.mimetype, file.size, sha256(buf), req.user.id])
-      }
+      await fileStore.keep('ppmp', data)
+      data.kept = true
+      stored.push({ added: data.filename })
+      await conn.execute(
+        'INSERT INTO ppmp_attachments (ppmp_id, role, filename, original_name, mimetype, size, sha256, uploaded_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [p.id, 'data', data.filename, data.originalname, data.mimetype, data.size, sha256(dataBuf), req.user.id])
       const hash = contentHash({ ...p, kind, fund_source: fund }, await loadItems(conn, p.id), await loadFiles(conn, p.id))
       if (inEffect) {
         await conn.execute(`UPDATE ppmps SET status = 'superseded' WHERE department_id = ? AND fiscal_year = ? AND status = 'approved' AND id <> ?`,
           [p.department_id, p.fiscal_year, p.id])
       }
       await conn.execute(
-        `UPDATE ppmps SET status = ?, problems = ?, signed_kind = ?, signatures = ?, signatories = ?, uploaded_by = ?, uploaded_at = NOW(),
+        `UPDATE ppmps SET status = ?, problems = ?, signed_kind = NULL, signatures = NULL, signatories = ?, uploaded_by = ?, uploaded_at = NOW(),
                 effective_at = ${inEffect ? 'NOW()' : 'NULL'}, content_hash = ?, file_office = ?, skipped_rows = ? WHERE id = ?`,
         [inEffect ? 'approved' : 'draft', inEffect ? null : JSON.stringify(problems),
-         ['digital', 'paper'].includes(signature.state) ? signature.state : null,
-         signature.signatures.length ? JSON.stringify(signature.signatures) : null,
          read.signatories.length ? JSON.stringify(read.signatories) : null,
          req.user.id, hash, read.header.office, skipped.length ? JSON.stringify(skipped) : null, p.id])
       return p
     })
     stored.filter(f => f.old).forEach(f => fileStore.remove('ppmp', f.old))
-    if (inEffect) {
-      const how = signature.state === 'digital' ? `signed digitally by ${signature.signatures.map(g => g.signer).join(' and ')}` : 'signed on paper'
-      await tellStaff(req.io, `${label(p)} is in effect (${how})`, p.id)
-    }
+    if (inEffect) await tellStaff(req.io, `${label(p)} is in effect`, p.id)
     return { p, inEffect, problems }
   } catch (err) {
     stored.filter(f => f.added).forEach(f => fileStore.remove('ppmp', f.added))
@@ -204,7 +162,7 @@ exports.list = asyncHandler(async (req, res) => {
 })
 
 // GET /ppmp/coverage?year= - where each active office's PPMP for the year stands, and so whether its requests can be submitted.
-// in_effect: a Final PPMP is in effect; not_in_effect: one is uploaded but unsigned or incomplete; indicative: only an
+// in_effect: a Final PPMP is in effect; not_in_effect: one is uploaded but incomplete; indicative: only an
 // Indicative one is in effect; none: nothing uploaded. `pending` is a later version not in effect.
 exports.coverage = asyncHandler(async (req, res) => {
   const year = req.query.year || new Date().getFullYear()
@@ -264,12 +222,11 @@ exports.get = asyncHandler(async (req, res) => {
   })
 })
 
-// POST /ppmp/read - reads and checks an upload for review (items, signature block, signature, what is missing); nothing is saved.
+// POST /ppmp/read - reads and checks an upload for review (items, signature block, what is missing); nothing is saved.
 exports.read = asyncHandler(async (req, res) => {
-  const { read, signature, notes } = await inspect(req)
+  const { read, notes } = await inspect(req)
   res.json({
     ...read, notes,
-    signature: { state: signature.state, signatures: signature.signatures, problem: signature.problem },
     // What the file itself is missing, whatever rows are kept.
     file_problems: completeness(read, []),
   })

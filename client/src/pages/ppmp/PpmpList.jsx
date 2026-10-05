@@ -26,9 +26,9 @@ const STATUS_FILTERS = [
 // Where an office's PPMP for the year stands (GET /ppmp/coverage), and what that means for its requests.
 const STANDING = {
   in_effect:     { label: 'Final PPMP in effect', tone: 'border-green-200 bg-green-50 text-green-800', requests: 'Can be submitted' },
-  not_in_effect: { label: 'Not in effect', tone: 'border-amber-200 bg-amber-50 text-amber-800', requests: 'Not until it is signed and complete' },
+  not_in_effect: { label: 'Not in effect', tone: 'border-amber-200 bg-amber-50 text-amber-800', requests: 'Not until it is complete' },
   indicative:    { label: 'Indicative only', tone: 'border-amber-200 bg-amber-50 text-amber-800', requests: 'Not until the Final PPMP is in effect' },
-  none:          { label: 'No PPMP', tone: 'border-[--color-border] bg-[--color-overlay] text-[--color-text-secondary]', requests: 'Not until a signed Final PPMP is uploaded' },
+  none:          { label: 'No PPMP', tone: 'border-[--color-border] bg-[--color-overlay] text-[--color-text-secondary]', requests: 'Not until a Final PPMP is uploaded' },
 }
 
 // The PPMPs this user may see: a Fund Administrator's own office's, or every office's for Procurement, BAC, and admins.
@@ -57,8 +57,8 @@ export default function PpmpList() {
           <h2 className="text-ui-lg font-bold text-[--color-text-primary]">Project Procurement Management Plans</h2>
           <p className="text-ui-sm text-[--color-text-secondary] mt-0.5">
             {keeper
-              ? 'Your office\'s PPMP, uploaded from the signed original. Once it is signed and complete, it is in effect and your purchase requests draw on it.'
-              : 'Each office\'s PPMP, uploaded from its signed original. You can view it, open the original files, and print it.'}
+              ? 'Your office\'s PPMP, uploaded as its softcopy. Once it is complete, it is in effect and your purchase requests draw on it.'
+              : 'Each office\'s PPMP, uploaded as its softcopy. You can view it, open the original file, and print it.'}
           </p>
         </div>
         {keeper && <Button onClick={() => setOpen(true)} className="gap-2"><Upload className="size-4" /> Upload PPMP</Button>}
@@ -123,7 +123,7 @@ export default function PpmpList() {
                         <TableRow key={i}>{Array(cols).fill(0).map((_, j) => <TableCell key={j}><Skeleton className="h-4" /></TableCell>)}</TableRow>
                       ))
                     : !shown.length
-                      ? <TableEmpty colSpan={cols} message={rows.length ? 'No PPMP matches these filters.' : keeper ? 'No PPMP yet. Upload your office\'s signed PPMP to start.' : 'No office has uploaded a PPMP yet.'} />
+                      ? <TableEmpty colSpan={cols} message={rows.length ? 'No PPMP matches these filters.' : keeper ? 'No PPMP yet. Upload your office\'s PPMP softcopy to start.' : 'No office has uploaded a PPMP yet.'} />
                       : shown.map(r => (
                         <TableRow key={r.id} className="cursor-pointer" onClick={() => navigate(`/ppmp/${r.id}`)}>
                           <TableCell className="font-semibold">FY {r.fiscal_year}</TableCell>
@@ -163,13 +163,13 @@ function OwnStanding({ rows }) {
   if (inEffect.length) {
     return (
       <Notice tone="green" icon={ShieldCheck} title={`Your requests draw on your Final PPMP for FY ${inEffect.map(v => v.fiscal_year).sort().join(' and FY ')}, in effect`}>
-        {pending ? `PPMP No. ${pending.version_no} isn't in effect yet (${pending.problems[0] || 'unsigned or incomplete'}); requests keep using the one in effect until it is.` : 'Pick each request\'s items from it on the New Request page.'}
+        {pending ? `PPMP No. ${pending.version_no} isn't in effect yet (${pending.problems[0] || 'incomplete'}); requests keep using the one in effect until it is.` : 'Pick each request\'s items from it on the New Request page.'}
       </Notice>
     )
   }
   if (pending) return <Notice tone="amber" icon={AlertTriangle} title="Your PPMP is not in effect yet">{pending.problems.join(' ')} Requests can be saved as drafts, but can't be submitted until it is in effect.</Notice>
-  if (indicative) return <Notice tone="amber" icon={Info} title="Only an Indicative PPMP is in effect">Requests are based on the Final PPMP. Upload it once it is signed.</Notice>
-  return <Notice tone="red" icon={AlertTriangle} title="No PPMP yet">Upload your office's signed Final PPMP. Requests can't be submitted until it is in effect.</Notice>
+  if (indicative) return <Notice tone="amber" icon={Info} title="Only an Indicative PPMP is in effect">Requests are based on the Final PPMP. Upload it once it is ready.</Notice>
+  return <Notice tone="red" icon={AlertTriangle} title="No PPMP yet">Upload your office's Final PPMP. Requests can't be submitted until it is in effect.</Notice>
 }
 
 // Every office's PPMP standing for a year: who can submit requests, and who is still waiting on theirs.
@@ -229,7 +229,7 @@ function Coverage() {
                             PPMP No. {shownPlan.version_no} · {fmtCurrency(shownPlan.total)}
                           </Link>
                         )}
-                        {o.in_effect && <span className="block text-[11px] text-[--color-text-muted]">Signed {o.in_effect.signed_kind === 'digital' ? 'digitally' : 'on paper'}</span>}
+                        {o.in_effect?.signed_kind && <span className="block text-[11px] text-[--color-text-muted]">Signed {o.in_effect.signed_kind === 'digital' ? 'digitally' : 'on paper'}</span>}
                         {o.in_effect && o.pending && (
                           <Link to={`/ppmp/${o.pending.id}`} className="block text-[11px] text-amber-700 hover:underline">Amendment No. {o.pending.version_no} not in effect yet</Link>
                         )}

@@ -122,11 +122,11 @@ module.exports = function drawPpmp(doc, { ppmp: p, items, totals, orgSettings = 
     ? `Signed digitally by ${signers.join(' and ')}; the signatures were checked by PRimeSys when it was uploaded.`
     : p.signed_kind === 'paper'
       ? `Signed on paper: the scanned signed copy is kept with this PPMP (uploaded by ${p.uploaded_by_name || 'its Fund Administrator'}${p.uploaded_at ? `, ${fmtDate(p.uploaded_at)}` : ''}).`
-      : 'Not signed, so this PPMP is not in effect.'
+      : `Uploaded from the office's softcopy by ${p.uploaded_by_name || 'its Fund Administrator'}${p.uploaded_at ? `, ${fmtDate(p.uploaded_at)}` : ''}.`
   doc.font('Times-Italic').fontSize(8).fillColor(BLACK).text(how, M, y, { width: W, align: 'center' })
   y += 14
   if (p.content_hash) {
     doc.font('Courier').fontSize(7).fillColor(BLACK)
-      .text(`System copy of the office's signed PPMP, kept with its original files in PRimeSys. Fingerprint (SHA-256): ${p.content_hash}`, M, y, { width: W, align: 'center' })
+      .text(`System copy of the office's PPMP, kept with its original file in PRimeSys. Fingerprint (SHA-256): ${p.content_hash}`, M, y, { width: W, align: 'center' })
   }
 }

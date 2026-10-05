@@ -229,7 +229,7 @@ export function NoPpmpNotice({ requestor }) {
       <AlertTriangle className="size-4 shrink-0 mt-0.5 text-amber-700" />
       <p className="text-ui-sm text-amber-900 leading-relaxed">
         {requestor
-          ? 'Your office has no Final PPMP in effect yet, so there is nothing to request from. Upload it, signed and complete, on the PPMP page; its items can then be requested here.'
+          ? 'Your office has no Final PPMP in effect yet, so there is nothing to request from. Upload it, complete, on the PPMP page; its items can then be requested here.'
           : 'This office has no Final PPMP in effect yet. Pick an office whose PPMP is in effect; the request\'s items must come from it.'}
       </p>
     </div>

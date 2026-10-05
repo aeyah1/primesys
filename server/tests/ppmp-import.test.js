@@ -118,7 +118,7 @@ async function run() {
   // ── What is refused ──────────────────────────────────────────────────
   const F = 'Refused'
   await is(F, 'a file with no item table', 3, makeXlsx([['Just a note'], ['Nothing else']]), 'note.xlsx', r => r.status === 400 && /No item table/.test(r.data.message), '400')
-  await is(F, 'a PDF is not read (it is the signed copy)', 3, PDF, 'ppmp.pdf', r => r.status === 400 && /signed copy/.test(r.data.message), '400')
+  await is(F, 'a PDF is not read (the softcopy is Excel, CSV, or Word)', 3, PDF, 'ppmp.pdf', r => r.status === 400 && /softcopy/.test(r.data.message), '400')
   await is(F, 'a text file named .xlsx', 3, Buffer.from('not a workbook'), 'fake.xlsx', r => r.status === 400 && /don't match its type/.test(r.data.message), '400')
   await is(F, 'Procurement can\'t read files in', 2, xlsx, 'p.xlsx', r => r.status === 403, '403')
 

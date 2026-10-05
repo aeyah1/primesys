@@ -11,7 +11,7 @@ const makeUploader = require('../utils/upload')
 
 const upload = makeUploader('ppmp')
 
-// PPMPs: Fund Administrators upload their office's, in effect once signed and complete; admins, Procurement, the BAC, and the TWG read;
+// PPMPs: Fund Administrators upload their office's softcopy, in effect once complete; admins, Procurement, the BAC, and the TWG read;
 // an admin may withdraw one put in effect by mistake.
 router.use(auth, authorize('requestor', 'admin', 'procurement', 'bac', 'twg'))
 
@@ -22,15 +22,14 @@ const payload = (req, _res, next) => {
   try { req.body = JSON.parse(req.body?.payload || '{}') } catch { return next(httpError(400, 'The upload is incomplete. Try again.')) }
   next()
 }
-// The items are read from the file itself; the upload only says which file rows to keep, the picks for what the
-// file leaves out (year, Indicative or Final, source of funds), and whether a copy without a digital signature is signed on paper.
+// The items are read from the softcopy itself; the upload only says which file rows to keep, and the picks for what the
+// file leaves out (year, Indicative or Final, source of funds).
 const choices = [
   body('fiscal_year').optional({ values: 'null' }).isInt({ min: 2020, max: 2100 }).withMessage('Pick the fiscal year').toInt(),
   oneOfRule('kind', 'Pick Indicative or Final', ['indicative', 'final'], { required: true }),
   oneOfRule('fund_source', 'Pick the source of funds', FUND_SOURCE_VALUES, { required: true }),
   body('rows').isArray({ min: 1, max: 500 }).withMessage('Keep at least one item'),
   body('rows.*').isInt({ min: 1 }).withMessage('Unknown file row').toInt(),
-  body('paper_signed').optional().isBoolean({ strict: true }).withMessage('Say whether the copy is signed on paper'),
   handle,
 ]
 // Once the reply is sent, uploaded files that were not stored as a PPMP's originals are deleted.
@@ -38,7 +37,7 @@ const cleanup = (req, res, next) => {
   res.on('finish', () => Object.values(req.files || {}).flat().filter(f => !f.kept).forEach(f => fs.unlink(f.path, () => {})))
   next()
 }
-const files = [upload.fields(['data', 'signed']), cleanup]
+const files = [upload.fields(['data']), cleanup]
 
 router.get('/',          c.list)
 // What a purchase request may draw on: the lines of the office's Final PPMP in effect, and what is left of each.

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { FileSpreadsheet, FileSignature, AlertTriangle, CheckCircle2, ShieldCheck, ShieldAlert, Upload, Info } from 'lucide-react'
+import { FileSpreadsheet, AlertTriangle, CheckCircle2, Upload, Info } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -29,60 +29,20 @@ function FilePick({ icon: Icon, title, hint, accept, file, onPick }) {
   )
 }
 
-// How the signed copy reads, and for a copy with no digital signature, the Fund Administrator's word that it is signed on paper.
-function SignaturePanel({ signature, paper, onPaper, signatories }) {
-  const named = signatories.filter(s => s.name).map(s => s.name).join(', ')
-  if (signature.state === 'digital') {
-    return (
-      <div className="flex items-start gap-3 rounded-xl border border-green-300 bg-green-50 px-4 py-3 text-green-900">
-        <ShieldCheck className="size-5 shrink-0 mt-0.5" />
-        <div className="text-ui-sm">
-          <p className="font-semibold">Signed digitally, and unchanged since it was signed</p>
-          {signature.signatures.map((s, k) => (
-            <p key={k} className="opacity-90">{s.signer}{s.issuer && !s.self_signed ? `, certificate by ${s.issuer}` : ' (self-issued certificate)'}{s.signed_at ? `, ${new Date(s.signed_at).toLocaleString('en-PH')}` : ''}</p>
-          ))}
-        </div>
-      </div>
-    )
-  }
-  if (signature.state === 'unsigned') {
-    return (
-      <label className={`flex items-start gap-3 rounded-xl border px-4 py-3 cursor-pointer ${paper ? 'border-green-300 bg-green-50 text-green-900' : 'border-amber-300 bg-amber-50 text-amber-900'}`}>
-        <input type="checkbox" checked={paper} onChange={e => onPaper(e.target.checked)} className="mt-1 size-4 accent-[--color-brand]" />
-        <span className="text-ui-sm">
-          <span className="font-semibold">The signed copy has no digital signature. It is signed on paper.</span>
-          <span className="block opacity-90">
-            Tick this to confirm the attached copy bears the signatures of {named || 'the people named in its signature block'}.
-            The system can't check a handwritten signature; your confirmation is recorded with the upload.
-          </span>
-        </span>
-      </label>
-    )
-  }
-  return (
-    <div className="flex items-start gap-3 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-red-900">
-      <ShieldAlert className="size-5 shrink-0 mt-0.5" />
-      <p className="text-ui-sm"><span className="font-semibold">{signature.state === 'missing' ? 'No signed copy is attached.' : 'The digital signature doesn\'t hold.'}</span> {signature.problem}</p>
-    </div>
-  )
-}
-
-// Uploads the office's PPMP from its original: the data file is read, the signed copy checked, and the PPMP takes effect at once
-// when it is signed and complete. `ppmp` is set when one not in effect is uploaded again, `fiscalYear` when an amendment is uploaded.
+// Uploads the office's PPMP softcopy (Excel, CSV, or Word): the file is read, and the PPMP takes effect at once when it is
+// complete. `ppmp` is set when one not in effect is uploaded again, `fiscalYear` when an amendment is uploaded.
 export default function PpmpUploadDialog({ open, ppmp = null, fiscalYear = null, onDone, onClose }) {
   const thisYear = new Date().getFullYear()
   const [data, setData] = useState(null)
-  const [signed, setSigned] = useState(null)
   const [reading, setReading] = useState(false)
   const [sending, setSending] = useState(false)
   const [result, setResult] = useState(null)
   const [keep, setKeep] = useState(() => new Set())
-  const [paper, setPaper] = useState(false)
   const [head, setHead] = useState({ fiscal_year: '', kind: 'final', fund_source: 'STF' })
   const fixedYear = ppmp?.fiscal_year || fiscalYear
   useEffect(() => {
     if (open) {
-      setData(null); setSigned(null); setResult(null); setPaper(false)
+      setData(null); setResult(null)
       setHead({ fiscal_year: fixedYear ? String(fixedYear) : '', kind: ppmp?.kind || 'final', fund_source: ppmp?.fund_source || 'STF' })
     }
   }, [open])
@@ -92,7 +52,6 @@ export default function PpmpUploadDialog({ open, ppmp = null, fiscalYear = null,
     try {
       const body = new FormData()
       body.append('data', data)
-      if (signed) body.append('signed', signed)
       const { data: r } = await api.post('/ppmp/read', body)
       setResult(r)
       // Every row that can go in starts kept; one naming a brand, or missing what a row needs, starts left out.
@@ -117,8 +76,6 @@ export default function PpmpUploadDialog({ open, ppmp = null, fiscalYear = null,
     ...result.file_problems,
     ...(kept.some(r => !r.mode_of_procurement) ? [`${kept.filter(r => !r.mode_of_procurement).length} kept item(s) have no mode of procurement (row ${rowList(kept.filter(r => !r.mode_of_procurement))}).`] : []),
     ...(kept.some(r => !r.months.length) ? [`${kept.filter(r => !r.months.length).length} kept item(s) have no month marked (row ${rowList(kept.filter(r => !r.months.length))}).`] : []),
-    ...(result.signature.state === 'unsigned' && !paper ? ['Confirm the copy is signed on paper, or attach a digitally signed PDF.'] : []),
-    ...(['missing', 'broken'].includes(result.signature.state) ? [result.signature.problem] : []),
   ]
 
   const submit = async () => {
@@ -127,10 +84,8 @@ export default function PpmpUploadDialog({ open, ppmp = null, fiscalYear = null,
     try {
       const body = new FormData()
       body.append('data', data)
-      if (signed) body.append('signed', signed)
       body.append('payload', JSON.stringify({
-        fiscal_year: Number(head.fiscal_year), kind: head.kind, fund_source: head.fund_source,
-        rows: kept.map(r => r.row), paper_signed: result.signature.state === 'unsigned' && paper,
+        fiscal_year: Number(head.fiscal_year), kind: head.kind, fund_source: head.fund_source, rows: kept.map(r => r.row),
       }))
       const { data: res } = ppmp ? await api.put(`/ppmp/${ppmp.id}`, body) : await api.post('/ppmp', body)
       if (res.in_effect) toast.success(res.message)
@@ -149,18 +104,14 @@ export default function PpmpUploadDialog({ open, ppmp = null, fiscalYear = null,
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
       <DialogContent className="max-w-6xl"
         title={ppmp ? `Upload PPMP No. ${ppmp.version_no} Again` : fiscalYear ? `Upload Amended PPMP, FY ${fiscalYear}` : 'Upload PPMP'}
-        description="Upload your office's PPMP as it was made and signed. Signed and complete, it is in effect at once; your purchase requests draw on it.">
+        description="Upload your office's PPMP softcopy. Complete, it is in effect at once; your purchase requests draw on it.">
         {!result ? (
           <div className="space-y-4 pt-2">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <FilePick icon={FileSpreadsheet} title="1. PPMP data file" hint="Excel (.xlsx), CSV, or Word (.docx)" accept=".xlsx,.csv,.docx" file={data} onPick={setData} />
-              <FilePick icon={FileSignature} title="2. Signed copy" hint="A digitally signed PDF, or a scan of the copy signed on paper" accept=".pdf,.jpg,.jpeg,.png,.webp" file={signed} onPick={setSigned} />
-            </div>
-            <div className="text-ui-xs text-[--color-text-secondary] space-y-1">
-              <p>The items are read from the data file as they are, so fix anything wrong in the file itself. It must name your office at the top
-                (End-User or Implementing Unit) and the fiscal year, and have a signature block naming who prepared it and who approved it.</p>
-              <p>A PDF signed digitally (PNPKI, Adobe) is checked by the system. A scan of a copy signed on paper is accepted with your confirmation.</p>
-            </div>
+            <FilePick icon={FileSpreadsheet} title="PPMP softcopy" hint="Excel (.xlsx), CSV, or Word (.docx)" accept=".xlsx,.csv,.docx" file={data} onPick={setData} />
+            <p className="text-ui-xs text-[--color-text-secondary]">
+              The items are read from the file as they are, so fix anything wrong in the file itself. It must name your office at the top
+              (End-User or Implementing Unit) and the fiscal year, and have a signature block naming who prepared it and who approved it.
+            </p>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
               <Button onClick={read} disabled={!data || reading}>{reading ? 'Reading...' : 'Read and Check'}</Button>
@@ -168,8 +119,6 @@ export default function PpmpUploadDialog({ open, ppmp = null, fiscalYear = null,
           </div>
         ) : (
           <div className="space-y-3 pt-2">
-            <SignaturePanel signature={result.signature} paper={paper} onPaper={setPaper} signatories={result.signatories} />
-
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1.5">
                 <Label>Fiscal Year</Label>
@@ -283,12 +232,12 @@ export default function PpmpUploadDialog({ open, ppmp = null, fiscalYear = null,
               </div>
             ) : (
               <p className="flex items-center gap-2 rounded-xl border border-green-300 bg-green-50 px-4 py-3 text-ui-sm font-semibold text-green-900">
-                <CheckCircle2 className="size-4" /> Signed and complete: it is in effect as soon as it is uploaded.
+                <CheckCircle2 className="size-4" /> Complete: it is in effect as soon as it is uploaded.
               </p>
             )}
 
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setResult(null)} disabled={sending}>Choose Other Files</Button>
+              <Button type="button" variant="outline" onClick={() => setResult(null)} disabled={sending}>Choose Another File</Button>
               <Button onClick={submit} disabled={sending || !!yearClash} className="gap-2"><Upload className="size-4" /> {sending ? 'Uploading...' : 'Upload PPMP'}</Button>
             </DialogFooter>
           </div>

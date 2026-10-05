@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge'
 export const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 export const PARTS = { ps: 'Part I: Available at PS-DBM', other: 'Part II: Other items' }
 
-// A PPMP's status as a badge: in effect once signed and complete, not in effect until then, replaced by a later version,
+// A PPMP's status as a badge: in effect once complete, not in effect until then, replaced by a later version,
 // or withdrawn by an admin as a mistake.
 const LOOK = {
   draft:      ['Not in effect', 'bg-amber-50 text-amber-800 border-amber-300'],
