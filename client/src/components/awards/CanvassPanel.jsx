@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
-import { Trophy, Ban, Undo2 } from 'lucide-react'
+import { Undo2 } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -10,7 +10,7 @@ import { fmtCurrency, fmtDate } from '@/lib/utils'
 import { useAuth } from '@/context/AuthContext'
 import api from '@/lib/axios'
 import { lineCents, useRefreshAwards } from './supplier'
-import RecordAwardDialog from './RecordAwardDialog'
+import CanvassSheet from './CanvassSheet'
 import AwardList from './AwardList'
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
@@ -70,15 +70,14 @@ function ItemStatus({ item }) {
   return <span className="inline-flex rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Needs a winner</span>
 }
 
-/* A PR's canvass result (pages/pr/CanvassPage.jsx): each item and its winner,
-   recording winners and dropping items while in canvass, and the awards by
-   supplier. pr: { id, pr_number, title, status }. */
+/* A PR's canvass result (pages/pr/CanvassPage.jsx): while in canvass, the
+   sheet the winners are entered on (CanvassSheet); afterwards each item and its
+   winner; then the awards by supplier. pr: { id, pr_number, title, status }. */
 export default function CanvassPanel({ pr }) {
   const prId = String(pr.id)
   const { user } = useAuth()
   const canManage = ['admin', 'procurement'].includes(user?.role)
   const refresh = useRefreshAwards(prId)
-  const [recording, setRecording] = useState(false)
   const [dropping, setDropping]   = useState(null)    // the item being dropped
 
   const { data: canvass, isLoading } = useQuery({
@@ -98,7 +97,6 @@ export default function CanvassPanel({ pr }) {
   if (isLoading || !canvass) return <div className="space-y-2">{Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-12" />)}</div>
 
   const { items, permissions: can } = canvass
-  const pending  = items.filter(i => i.state === 'pending')
   const awarded  = items.filter(i => i.state === 'awarded').length
   const dropped  = items.filter(i => i.state === 'dropped').length
   const suppliers = new Set(lots.filter(l => l.status === 'awarded').map(l => l.awarded_to.trim().toLowerCase())).size
@@ -111,14 +109,11 @@ export default function CanvassPanel({ pr }) {
           {dropped > 0 && `, ${dropped} dropped`}
           {suppliers > 0 && `, from ${plural(suppliers, 'supplier')}`}
         </p>
-        {can.record && pending.length > 0 && (
-          <Button size="sm" className="gap-1.5" onClick={() => setRecording(true)}>
-            <Trophy className="size-3.5" /> Record a Winner
-          </Button>
-        )}
       </div>
 
-      {items.length > 0 && (
+      {can.record ? (
+        <CanvassSheet pr={pr} items={items} lots={lots} onDrop={setDropping} onRestore={restore} />
+      ) : items.length > 0 && (
         <div className="rounded-xl border border-[--color-border] overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -127,7 +122,7 @@ export default function CanvassPanel({ pr }) {
                 <th className="px-3 py-2.5 text-right whitespace-nowrap">Qty</th>
                 <th className="px-3 py-2.5 text-right whitespace-nowrap">Budget</th>
                 <th className="px-3 py-2.5">Winner</th>
-                {(can.record || can.restore) && <th className="px-3 py-2.5 w-10" />}
+                {can.restore && <th className="px-3 py-2.5 w-10" />}
               </tr>
             </thead>
             <tbody>
@@ -146,14 +141,8 @@ export default function CanvassPanel({ pr }) {
                     {Number(i.estimated_cost) > 0 ? fmtCurrency(lineCents(i.quantity, i.estimated_cost) / 100) : 'None'}
                   </td>
                   <td className="px-3 py-2.5"><ItemStatus item={i} /></td>
-                  {(can.record || can.restore) && (
+                  {can.restore && (
                     <td className="px-2 py-1.5 text-right">
-                      {i.state === 'pending' && can.record && (
-                        <button onClick={() => setDropping(i)} title="Drop this item (it can't be procured)"
-                          className="p-1.5 rounded-lg text-[--color-text-muted] hover:text-red-600 hover:bg-red-50 transition-colors">
-                          <Ban className="size-3.5" />
-                        </button>
-                      )}
                       {i.state === 'dropped' && can.restore && (
                         <button onClick={() => restore(i)} title="Bring it back to canvass"
                           className="p-1.5 rounded-lg text-[--color-text-muted] hover:text-[--color-brand] hover:bg-[--color-overlay] transition-colors">
@@ -169,16 +158,8 @@ export default function CanvassPanel({ pr }) {
         </div>
       )}
 
-      {can.record && !lots.length && (
-        <p className="rounded-lg border border-[--color-border] bg-[--color-canvas] px-4 py-3 text-xs text-[--color-text-secondary]">
-          Once the canvasser returns the RFQs and the abstract, record each item's winning supplier and price. Different items can go
-          to different suppliers, each with its own purchase order.
-        </p>
-      )}
-
       <AwardList lots={lots} canManage={canManage} prStatus={pr.status} />
 
-      <RecordAwardDialog pr={pr} open={recording} onClose={() => setRecording(false)} />
       {dropping && <DropItemDialog prId={prId} item={dropping} onClose={() => setDropping(null)} />}
     </div>
   )

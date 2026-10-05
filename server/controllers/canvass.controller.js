@@ -6,6 +6,7 @@ const notify          = require('../utils/notify')
 const { loadPR, changePRStatus, syncPRProgress } = require('../utils/prWorkflow')
 const { short, itemStates } = require('../utils/awardWorkflow')
 const { isTemporary, suggestPrNumber, assignPrNumber } = require('../utils/prNumber')
+const { canvassDocuments } = require('../utils/bacWorkflow')
 
 // The canvass of one PR
 // The canvass is done outside the system: once the TWG approves the request,
@@ -31,6 +32,8 @@ exports.summary = asyncHandler(async (req, res) => {
     // The PR number Procurement gives the request when the canvass starts, the next one suggested.
     pr_number_assigned: !isTemporary(pr.pr_number),
     suggested_pr_number: start && isTemporary(pr.pr_number) ? await suggestPrNumber(pool) : null,
+    // The canvass documents attached since the canvass started (needed before the BAC).
+    documents: pr.status === 'bidding' ? await canvassDocuments(pool, pr.id) : null,
     whole_award: wholeAward,
     items: items.map(({ award, ...i }) => ({
       ...i,

@@ -21,7 +21,8 @@ const chip = (Icon, text, cls = 'border-[--color-border] bg-[--color-canvas] tex
    and the rest under More. pr: the request with its permissions;
    updateStatus({ status, notes }) / isPending: the page's status change;
    onReturn(): opens "Return for revision"; downloadRFQ: the printed RFQ.
-   compact: the next step and the PDF only (the status changes stay on the request page). */
+   compact: the next step and the PDF only (the status changes stay on the request page,
+   the submit to the BAC on the canvass page's checklist). */
 export default function ProcurementActions({ pr, updateStatus, isPending, onReturn, downloadRFQ, compact = false }) {
   const confirm = useConfirm()
   const refresh = useRefreshAwards(String(pr.id))
@@ -33,7 +34,7 @@ export default function ProcurementActions({ pr, updateStatus, isPending, onRetu
   const { data: bac } = useQuery({
     queryKey: ['bac', 'pr', String(pr.id)],
     queryFn: () => api.get(`/bac/${pr.id}`).then(r => r.data),
-    enabled: bidding,
+    enabled: bidding && !compact,
   })
   // Certified awards still waiting for their purchase order (the same query as the canvass's award list).
   const { data: lots = [] } = useQuery({
@@ -56,7 +57,7 @@ export default function ProcurementActions({ pr, updateStatus, isPending, onRetu
         <Gavel className="size-4" /> Start canvass
       </Button>
     )
-  } else if (bidding && bac?.permissions?.submit) {
+  } else if (bidding && !compact && bac?.permissions?.submit) {
     primary = (
       <Button size="sm" className="gap-2 shrink-0" disabled={submitting}
         onClick={async () => { if (await confirm({ title: 'Submit the canvass result to the BAC?', message: 'The winners lock until the BAC approves or returns it.', confirmLabel: 'Submit to the BAC' })) submitToBac() }}>

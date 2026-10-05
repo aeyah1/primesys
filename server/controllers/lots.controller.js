@@ -123,57 +123,77 @@ exports.deleteItem = asyncHandler(async (req, res) => {
 // approved budget. Procurement's, while the PR is in canvass; the BAC and the
 // TWG review the result before any purchase order (bac.controller).
 exports.create = asyncHandler(async (req, res) => {
-  const { purchase_request_id, title, awarded_to, notes, items: picks } = req.body   // checked in the route
-
-  // Scoped lookup (C2): a PR this user can't see is "not found".
-  const scope = prScope(req.user)
-  const [visible] = await pool.execute(
-    `SELECT pr.id FROM purchase_requests pr WHERE pr.id = ? AND ${scope.sql}`,
-    [purchase_request_id, ...scope.params]
-  )
-  if (!visible.length) return res.status(404).json({ message: 'PR not found' })
-
   const created = await withTransaction(async (conn) => {
-    const pr = await loadPR(conn, purchase_request_id, { lock: true })
-    const blocked = awardBlock(pr)
-    if (blocked) throw httpError(blocked.status, blocked.message)
-
-    const { items } = await itemStates(conn, pr.id)
-    const seen = new Set()
-    const won = picks.map(p => {
-      const item = items.find(i => i.id === p.pr_item_id)
-      if (!item) throw httpError(400, 'Some of the chosen items are not on this PR')
-      if (seen.has(item.id)) throw httpError(400, `"${short(item.item_name)}" is chosen twice`)
-      seen.add(item.id)
-      if (item.state !== 'pending') throw httpError(409, `"${short(item.item_name)}" is already ${item.state}`)
-      return { item, price: p.unit_price }
-    })
-    const amount = won.reduce((s, w) => s + lineCents(w.item.quantity, w.price), 0)
-    const over = budgetBlock(amount, estimateCents(won.map(w => w.item)))
-    if (over) throw httpError(over.status, over.message)
-
-    // The name as first written on an earlier award here, and any detail left out.
-    const [awards] = await conn.execute(
-      `SELECT awarded_to, ${SUPPLIER_COLUMNS.join(', ')} FROM lots WHERE purchase_request_id = ? AND status = 'awarded' ORDER BY id`, [pr.id])
-    const same = awards.find(a => supplierKey(a.awarded_to) === supplierKey(awarded_to))
-    const supplier = same ? same.awarded_to : awarded_to.trim()
-    const details = Object.fromEntries(SUPPLIER_COLUMNS.map(c => [c, req.body[c] || same?.[c] || null]))
-
-    // A supplier that failed to deliver one of these items before can't be awarded it again.
-    const failedFor = await failedSuppliers(conn, pr.id)
-    for (const { item } of won) {
-      const failed = failedBlock(failedFor, item, supplier)
-      if (failed) throw httpError(failed.status, failed.message)
-    }
-    const lot = await recordAward(conn, {
-      prId: pr.id, supplier, amount: (amount / 100).toFixed(2), details, title: title || null, notes: notes?.trim() || null,
-      userId: req.user.id, items: won.map(w => w.item), prices: won.map(w => w.price),
-    })
-    await syncPRProgress(conn, pr.id, { user: req.user, note: `${lot.lot_number} awarded to ${supplier}` })
-    return { ...lot, awarded_to: supplier, awarded_amount: (amount / 100).toFixed(2), items: won.length }
+    const pr = await lockForWinners(req, conn, req.body.purchase_request_id)
+    const lot = await recordWinner(conn, pr, req.body, req.user)
+    await syncPRProgress(conn, pr.id, { user: req.user, note: `${lot.lot_number} awarded to ${lot.awarded_to}` })
+    return lot
   })
   res.status(201).json(created)
 })
+
+// POST /lots/winners - { purchase_request_id, winners: [{ awarded_to, supplier details, items: [{ pr_item_id, unit_price }] }] }:
+// the whole canvass sheet at once, one award per supplier, all saved or none.
+exports.createMany = asyncHandler(async (req, res) => {
+  const lots = await withTransaction(async (conn) => {
+    const pr = await lockForWinners(req, conn, req.body.purchase_request_id)
+    const made = []
+    for (const w of req.body.winners) made.push(await recordWinner(conn, pr, w, req.user))
+    await syncPRProgress(conn, pr.id, { user: req.user, note: made.map(l => `${l.lot_number} awarded to ${l.awarded_to}`).join('; ') })
+    return made
+  })
+  res.status(201).json({ lots, message: `${lots.length} winner${lots.length === 1 ? '' : 's'} recorded` })
+})
+
+// The PR the winners are for, locked, when this user may see it (C2) and it is in canvass.
+async function lockForWinners(req, conn, prId) {
+  const scope = prScope(req.user)
+  const [visible] = await conn.execute(`SELECT pr.id FROM purchase_requests pr WHERE pr.id = ? AND ${scope.sql}`, [prId, ...scope.params])
+  if (!visible.length) throw httpError(404, 'PR not found')
+  const pr = await loadPR(conn, prId, { lock: true })
+  const blocked = awardBlock(pr)
+  if (blocked) throw httpError(blocked.status, blocked.message)
+  return pr
+}
+
+// Records one winner of the canvass on `pr` (locked by the caller), inside its
+// transaction: the supplier as typed (with its details), the PR items it won
+// and each one's winning unit price, the total within those items' approved
+// budget. w: { awarded_to, title, notes, supplier details, items: [{ pr_item_id, unit_price }] }.
+async function recordWinner(conn, pr, w, user) {
+  const { items } = await itemStates(conn, pr.id)
+  const seen = new Set()
+  const won = w.items.map(p => {
+    const item = items.find(i => i.id === p.pr_item_id)
+    if (!item) throw httpError(400, 'Some of the chosen items are not on this PR')
+    if (seen.has(item.id)) throw httpError(400, `"${short(item.item_name)}" is chosen twice`)
+    seen.add(item.id)
+    if (item.state !== 'pending') throw httpError(409, `"${short(item.item_name)}" is already ${item.state}`)
+    return { item, price: p.unit_price }
+  })
+  const amount = won.reduce((s, x) => s + lineCents(x.item.quantity, x.price), 0)
+  const over = budgetBlock(amount, estimateCents(won.map(x => x.item)), `The award to ${w.awarded_to.trim()}`)
+  if (over) throw httpError(over.status, over.message)
+
+  // The name as first written on an earlier award here, and any detail left out.
+  const [awards] = await conn.execute(
+    `SELECT awarded_to, ${SUPPLIER_COLUMNS.join(', ')} FROM lots WHERE purchase_request_id = ? AND status = 'awarded' ORDER BY id`, [pr.id])
+  const same = awards.find(a => supplierKey(a.awarded_to) === supplierKey(w.awarded_to))
+  const supplier = same ? same.awarded_to : w.awarded_to.trim()
+  const details = Object.fromEntries(SUPPLIER_COLUMNS.map(c => [c, w[c] || same?.[c] || null]))
+
+  // A supplier that failed to deliver one of these items before can't be awarded it again.
+  const failedFor = await failedSuppliers(conn, pr.id)
+  for (const { item } of won) {
+    const failed = failedBlock(failedFor, item, supplier)
+    if (failed) throw httpError(failed.status, failed.message)
+  }
+  const lot = await recordAward(conn, {
+    prId: pr.id, supplier, amount: (amount / 100).toFixed(2), details, title: w.title || null, notes: w.notes?.trim() || null,
+    userId: user.id, items: won.map(x => x.item), prices: won.map(x => x.price),
+  })
+  return { ...lot, awarded_to: supplier, awarded_amount: (amount / 100).toFixed(2), items: won.length }
+}
 
 // Edits an award, or cancels it (status 'cancelled', with a reason). The
 // title is this lot's; the supplier's name and details change on every award

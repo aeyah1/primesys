@@ -8,7 +8,7 @@ const { prScope }     = require('../middleware/scope.middleware')
 const { paging }      = require('../middleware/validate')
 const { loadPR, changePRStatus } = require('../utils/prWorkflow')
 const { short, itemStates } = require('../utils/awardWorkflow')
-const { BAC_DECIDERS, BAC_READERS, SECRETARIAT, notifyBac, adoptResolution } = require('../utils/bacWorkflow')
+const { BAC_DECIDERS, BAC_READERS, SECRETARIAT, notifyBac, adoptResolution, canvassDocuments } = require('../utils/bacWorkflow')
 const { notifyAreaReviewers } = require('../utils/twgAreas')
 const { loadOrgSettings } = require('../utils/orgSettings')
 const { M }            = require('../pdf/campusForm')
@@ -34,14 +34,7 @@ async function submitBlock(db, pr) {
   const [[{ fresh }]] = await db.execute(
     "SELECT COUNT(*) AS fresh FROM lots WHERE purchase_request_id = ? AND status = 'awarded' AND certified_at IS NULL", [pr.id])
   if (!Number(fresh)) return deny('No new award waits for the BAC')
-  // The canvass documents: a file Procurement attached since this canvass started (a BAC return doesn't restart it).
-  const [[{ files }]] = await db.execute(
-    `SELECT COUNT(*) AS files FROM pr_attachments a JOIN users u ON u.id = a.uploaded_by
-      WHERE a.pr_id = ? AND u.role IN ('procurement', 'admin')
-        AND a.created_at >= COALESCE((SELECT MAX(sl.created_at) FROM pr_status_logs sl
-                                       WHERE sl.pr_id = ? AND sl.to_status = 'bidding' AND sl.from_status <> 'bac_review'), '1970-01-01')`,
-    [pr.id, pr.id])
-  if (!Number(files)) return deny('Attach the canvass documents (the canvasser\'s RFQs and abstract) to the PR first')
+  if (!(await canvassDocuments(db, pr.id))) return deny('Attach the canvass documents (the canvasser\'s RFQs and abstract) to the PR first')
   return null
 }
 

@@ -243,6 +243,26 @@ async function run() {
   await is(G7, 'bring the chairs back', 2, 'POST', '/canvass/82/items/821/restore', undefined, code(200))
   await is(G7, '…needs a winner again', 2, 'GET', '/canvass/82', undefined, (r) => r.status === 200 && r.data.items.find(i => i.id === 821).state === 'pending')
 
+  // The canvass sheet: every winner of the abstract saved at once
+  const G9 = 'The canvass sheet'
+  const sheet = (winners) => ({ purchase_request_id: 82, winners })
+  const echo = { awarded_to: 'Echo Furniture', items: [{ pr_item_id: 821, unit_price: 2400 }] }
+  await is(G9, 'a requestor can\'t save it (403)', 3, 'POST', '/lots/winners', sheet([echo]), code(403))
+  await is(G9, 'no winners → 400', 2, 'POST', '/lots/winners', sheet([]), code(400, /at least one winner/))
+  await is(G9, 'a winner without items → 400', 2, 'POST', '/lots/winners', sheet([{ awarded_to: 'X', items: [] }]), code(400, /at least one item/))
+  await is(G9, 'one winner above its budget → 409', 2, 'POST', '/lots/winners',
+    sheet([echo, { awarded_to: 'Foxtrot Wood', items: [{ pr_item_id: 822, unit_price: '8000.01' }] }]), code(409, /Foxtrot Wood .* above the approved budget/))
+  await is(G9, '…and none of the sheet was saved', 2, 'GET', '/lots/pr/82', undefined, (r) => r.status === 200 && r.data.length === 0)
+  await is(G9, 'an item on two winners → 409', 2, 'POST', '/lots/winners',
+    sheet([echo, { awarded_to: 'Foxtrot Wood', items: [{ pr_item_id: 821, unit_price: 2000 }] }]), code(409, /already awarded/))
+  await is(G9, 'save two winners at once', 2, 'POST', '/lots/winners',
+    sheet([echo, { awarded_to: 'Foxtrot Wood', items: [{ pr_item_id: 822, unit_price: 7900 }] }]),
+    (r) => r.status === 201 && r.data.lots.length === 2 && r.data.message === '2 winners recorded')
+  await is(G9, '…each item has its winner, one award per supplier', 2, 'GET', '/canvass/82', undefined,
+    (r) => r.status === 200 && r.data.items.every(i => i.state === 'awarded')
+           && r.data.items.find(i => i.id === 822).awarded_to === 'Foxtrot Wood' && num(r.data.items.find(i => i.id === 821).awarded_price) === 2400)
+  await is(G9, '…the canvass documents still to attach', 2, 'GET', '/canvass/82', undefined, (r) => r.status === 200 && r.data.documents === 0)
+
   // A cancelled PR
   const G8 = 'Cancelling'
   await is(G8, 'record a winner', 2, 'POST', '/lots', { purchase_request_id: 83, awarded_to: 'Delta Office', items: [{ pr_item_id: 831, unit_price: 9000 }] }, code(201))
