@@ -10,6 +10,7 @@ const { handle, textRule, moneyRule, quantityRule, dateRule, idRule, oneOfRule }
 const { FUND_SOURCE_VALUES } = require('../utils/orgSettings')
 const { PROCUREMENT_MODES } = require('../utils/procurementModes')
 const { CATEGORIES } = require('../utils/categories')
+const { METHODS: SIGN_METHODS } = require('../utils/signature')
 const { requireAccess } = require('../middleware/scope.middleware')
 const makeUploader = require('../utils/upload')
 
@@ -25,6 +26,12 @@ const prFields = (titleRequired) => [
   idRule('department_id', 'Pick a valid office'),
   textRule('purpose', 'Purpose', 2000),
   textRule('recommended_by', 'Recommended by', 150),
+  // Who requested it (typed by the Fund Administrator), and their signature: a PNG image, checked in the controller.
+  textRule('requested_by_name', 'Requested by', 150),
+  textRule('requested_by_designation', 'Designation of who requested it', 150),
+  body('requested_by_signature').optional({ values: 'null' }).isString().withMessage('The signature must be an image')
+    .isLength({ max: 200 * 1024 }).withMessage('The signature image is too large (100 KB at most)'),
+  oneOfRule('requested_by_sign_method', 'Say how it was signed', SIGN_METHODS),
   textRule('event_name', 'Event name', 200),
   textRule('project_name', 'Project name', 200),
   textRule('notes', 'Notes', 2000),
@@ -70,6 +77,8 @@ router.use(auth)
 router.get('/',          c.list)
 router.get('/stats',     c.stats)
 router.get('/reads',     c.listReads)
+// Suggestions for "Requested by": the office head and who requested for it before.
+router.get('/requesters', authorize('procurement', 'admin', 'requestor'), c.requesters)
 // Every /:id route is scoped: 404 unless this user may see the PR (C2).
 // Read-only routes (prRead) also reach deleted PRs, so the archive can open them.
 const prAccess = requireAccess('pr')
@@ -79,6 +88,7 @@ router.get('/:id/pdf',   prRead, c.generatePDF)
 // The Request for Quotation, for the staff who canvass suppliers.
 router.get('/:id/rfq',   authorize('procurement', 'admin'), prRead, c.generateRFQ)
 router.get('/:id',       prRead, c.getById)
+router.get('/:id/requester-signature', prRead, c.requesterSignature)
 // Its items against the office's PPMP.
 router.get('/:id/ppmp',  prRead, c.ppmpReview)
 
