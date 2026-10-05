@@ -276,7 +276,7 @@ async function run() {
     ['admin: list users', 'GET', '/users'], ['admin: create a user', 'POST', '/users', { name: 'X', username: 'x_user', email: 'x@auth.invalid', password: 'Longenough1', role: 'admin' }],
     ['admin: change own role', 'PATCH', `/users/${0}`, { name: 'X', role: 'admin' }],
     ['procurement: issue PO', 'POST', '/po', { purchase_request_id: 1, supplier_name: 'S', issued_date: '2026-09-11', total_amount: 5 }],
-    ['procurement: reports', 'GET', '/reports/summary'], ['procurement: award', 'POST', '/lots', { purchase_request_id: 1, awarded_to: 'S' }],
+    ['procurement: reports', 'GET', '/reports/summary'], ['BAC: award', 'POST', '/canvass/1/award', {}],
     ['TWG: review a PR', 'POST', '/twg/1/review', { action: 'approve' }], ['supply: supply update', 'PATCH', '/delivery/1/supply-update', { notes: 'x' }],
   ]) {
     const rr = await http(m, route.replace('/0', `/${u1Token ? JSON.parse(Buffer.from(u1Token.split('.')[1], 'base64url')).id : 0}`), body, u1Token)

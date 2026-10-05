@@ -111,29 +111,27 @@ const ppmpFor = (deptId, names, { id = 900, year = new Date().getFullYear(), qua
     ${names.map((n, i) => `(${id * 100 + i}, ${id}, '${n.replace(/'/g, "''")}', 'pc', ${quantity}, ${unitCost}, '1,2,3,4,5,6,7,8,9,10,11,12', ${i})`).join(', ')};`
 
 // A scanned canvass document (the canvasser's RFQs and abstract), as a PR attachment upload.
-const canvassScan = () => {
-  const form = new FormData()
-  form.append('file', new Blob(['%PDF-1.4\n%%EOF\n'], { type: 'application/pdf' }), 'canvass.pdf')
-  return form
-}
-
-// Takes a PR in canvass, its winners recorded, through review: Procurement
-// attaches the canvass scan and submits it to the BAC, the BAC approves it,
-// and the TWG certifies it. `tok(id)` signs a user's token; `as` names the
-// { proc, bac, twg } users. Throws on any refusal.
-async function certify(base, tok, prId, as) {
-  const call = async (who, p, body = {}) => {
-    const form = body instanceof FormData
+// Takes a PR in canvass through the BAC's award and the TWG's certification:
+// the BAC enters the bids and awards each item to its lowest bidder, then the
+// TWG certifies (left out when `as` names no twg). `tok(id)` signs a user's
+// token; `as` names the { bac, twg } users; bids: [{ name, prices: { [pr_item_id]: unit_price } }].
+// Throws on any refusal.
+async function award(base, tok, prId, as, bids) {
+  const call = async (who, method, p, body = {}) => {
     const res = await fetch(base + p, {
-      method: 'POST', body: form ? body : JSON.stringify(body),
-      headers: { Authorization: `Bearer ${tok(who)}`, ...(form ? {} : { 'Content-Type': 'application/json' }) },
+      method, body: JSON.stringify(body),
+      headers: { Authorization: `Bearer ${tok(who)}`, 'Content-Type': 'application/json' },
     })
-    if (!res.ok) throw new Error(`POST ${p} → ${res.status} ${(await res.text()).slice(0, 200)}`)
+    if (!res.ok) throw new Error(`${method} ${p} → ${res.status} ${(await res.text()).slice(0, 200)}`)
   }
-  await call(as.proc, `/pr/${prId}/attachments`, canvassScan())
-  await call(as.proc, `/bac/${prId}/submit`)
-  await call(as.bac, `/bac/${prId}/approve`)
-  await call(as.twg, `/twg/${prId}/certify`, { action: 'certify' })
+  const ids = [...new Set(bids.flatMap(b => Object.keys(b.prices).map(Number)))]
+  const lowest = (id) => bids.reduce((best, b, n) => (b.prices[id] != null && (best < 0 || Number(b.prices[id]) < Number(bids[best].prices[id])) ? n : best), -1)
+  await call(as.bac, 'PUT', `/canvass/${prId}/bids`, {
+    bidders: bids.map(b => ({ name: b.name, prices: Object.entries(b.prices).map(([id, unit_price]) => ({ pr_item_id: Number(id), unit_price })) })),
+    winners: ids.map(id => ({ pr_item_id: id, bidder: lowest(id) })),
+  })
+  await call(as.bac, 'POST', `/canvass/${prId}/award`)
+  if (as.twg) await call(as.twg, 'POST', `/twg/${prId}/certify`, { action: 'certify' })
 }
 
 const listUploads = () => new Set(UPLOADS.flatMap(d => (fs.existsSync(d) ? fs.readdirSync(d).map(f => path.join(d, f)) : [])))
@@ -200,4 +198,4 @@ async function main({ db, base, fixtures = '', onMail, run }) {
   }
 }
 
-module.exports = { SERVER, CLIENT, LOGS, print, configure, buildDb, dropDb, sql, bootServer, suite, main, twgAreas, ALL_AREAS, LINK_POS, CERTIFIED, ppmpFor, canvassScan, certify }
+module.exports = { SERVER, CLIENT, LOGS, print, configure, buildDb, dropDb, sql, bootServer, suite, main, twgAreas, ALL_AREAS, LINK_POS, CERTIFIED, ppmpFor, award }

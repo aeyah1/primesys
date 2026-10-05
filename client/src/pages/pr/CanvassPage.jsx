@@ -1,33 +1,32 @@
 import { Link, useParams } from 'react-router-dom'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Check, Paperclip, Printer, Send, FileSpreadsheet } from 'lucide-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { ArrowLeft, Check, Paperclip, Printer, Scale } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PRStatusBadge, CategoryBadge } from '@/components/shared/StatusBadge'
 import AttachmentsPanel from '@/components/shared/AttachmentsPanel'
-import { useConfirm } from '@/components/shared/ConfirmDialog'
 import { useAuth } from '@/context/AuthContext'
 import { openPdf, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
 import CanvassPanel from '@/components/awards/CanvassPanel'
 import BacPanel from '@/components/awards/BacPanel'
-import BacReviewSheet from '@/components/awards/BacReviewSheet'
+import BacBidSheet from '@/components/awards/BacBidSheet'
 import TwgCertificates from '@/components/awards/TwgCertificates'
-import { useRefreshAwards } from '@/components/awards/supplier'
 import ProcurementActions from './ProcurementActions'
 
-// The steps of a canvass result, from the canvass to the purchase orders.
+// The steps of a canvass, from the canvass to the purchase orders.
 const STEPS = [
-  { key: 'bidding',           label: 'Canvass' },
-  { key: 'bac_review',        label: 'BAC review' },
+  { key: 'bidding',           label: 'Canvass and BAC award' },
   { key: 'twg_certification', label: 'TWG certification' },
   { key: 'for_po',            label: 'Purchase orders' },
 ]
 
 function StepBar({ status }) {
-  const index = status === 'completed' ? STEPS.length : STEPS.findIndex(s => s.key === status)
+  // A request an older version submitted for the BAC's review is still at the BAC's award.
+  const at = status === 'bac_review' ? 'bidding' : status
+  const index = at === 'completed' ? STEPS.length : STEPS.findIndex(s => s.key === at)
   return (
     <ol className="flex flex-wrap items-center gap-2">
       {STEPS.map((s, i) => (
@@ -45,52 +44,31 @@ function StepBar({ status }) {
   )
 }
 
-/* Procurement's four steps while the request is in canvass, each with where it
-   stands and what to do: print the RFQ, enter the winners, attach the canvass
-   documents, submit to the BAC. */
-function Checklist({ pr, canvass, bac, onPrintRfq }) {
-  const confirm = useConfirm()
-  const refresh = useRefreshAwards(String(pr.id))
-  const { mutate: submit, isPending: submitting } = useMutation({
-    mutationFn: () => api.post(`/bac/${pr.id}/submit`),
-    onSuccess: () => { toast.success('Submitted to the BAC for review'); refresh() },
-    onError: (err) => toast.error(err.response?.data?.message || 'Failed to submit it'),
-  })
-  const items = canvass.items.filter(i => i.state !== 'dropped')
-  const won = items.filter(i => i.state === 'awarded').length
-  const docs = canvass.documents || 0
-  const ready = !!bac?.permissions?.submit
-  const steps = [
-    { title: 'Print the RFQ', text: 'For the canvasser, who canvasses the suppliers on paper.', done: null,
-      action: <Button size="sm" variant="outline" className="gap-1.5" onClick={onPrintRfq}><Printer className="size-3.5" /> Print RFQ</Button> },
-    { title: 'Enter the winners', text: `${won} of ${items.length} item${items.length === 1 ? ' has its' : 's have their'} winner, from the canvasser's abstract.`, done: items.length > 0 && won === items.length,
-      action: <Button size="sm" variant="ghost" asChild className="gap-1.5"><a href="#winners"><FileSpreadsheet className="size-3.5" /> Go to the sheet</a></Button> },
-    { title: 'Attach the canvass documents', text: docs ? `${docs} file${docs === 1 ? '' : 's'} attached.` : 'The canvasser\'s RFQs and abstract, scanned.', done: docs > 0,
-      action: <Button size="sm" variant="ghost" asChild className="gap-1.5"><a href="#documents"><Paperclip className="size-3.5" /> Attach</a></Button> },
-    { title: 'Submit to the BAC', text: ready ? 'Everything is in. The winners lock while the BAC reviews them.' : (bac?.submit_blocked || 'Finish the steps above.'), done: false,
-      action: (
-        <Button size="sm" className="gap-1.5" disabled={!ready || submitting}
-          onClick={async () => { if (await confirm({ title: 'Submit the canvass result to the BAC?', message: 'The winners lock until the BAC approves or returns it.', confirmLabel: 'Submit to the BAC' })) submit() }}>
-          <Send className="size-3.5" /> {submitting ? 'Submitting…' : 'Submit to the BAC'}
-        </Button>
-      ) },
-  ]
+// Procurement's part of the canvass: the RFQ, signed by hand for the canvasser; then the BAC has it.
+function ProcurementPart({ canvass, onPrintRfq }) {
+  const bidders = canvass.bidders.length
   return (
     <Card>
-      <CardContent className="grid grid-cols-1 gap-4 py-4 sm:grid-cols-2 lg:grid-cols-4">
-        {steps.map((s, k) => (
-          <div key={s.title} className="flex flex-col gap-2">
-            <div className="flex items-center gap-2">
-              <span className={`flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
-                s.done ? 'bg-emerald-600 text-white' : 'border border-[--color-border-strong] text-[--color-text-secondary]'}`}>
-                {s.done ? <Check className="size-3.5" /> : k + 1}
-              </span>
-              <p className="text-sm font-semibold text-[--color-text-primary]">{s.title}</p>
-            </div>
-            <p className="text-xs text-[--color-text-secondary] flex-1">{s.text}</p>
-            <div>{s.action}</div>
-          </div>
-        ))}
+      <CardContent className="grid grid-cols-1 gap-4 py-4 sm:grid-cols-2">
+        <div className="flex flex-col gap-2">
+          <p className="flex items-center gap-2 text-sm font-semibold text-[--color-text-primary]">
+            <span className="flex size-6 items-center justify-center rounded-full border border-[--color-border-strong] text-xs font-bold text-[--color-text-secondary]">1</span>
+            Print the RFQ
+          </p>
+          <p className="flex-1 text-xs text-[--color-text-secondary]">Sign it by hand and give it to the canvasser, who canvasses the suppliers on paper.</p>
+          <div><Button size="sm" variant="outline" className="gap-1.5" onClick={onPrintRfq}><Printer className="size-3.5" /> Print RFQ</Button></div>
+        </div>
+        <div className="flex flex-col gap-2">
+          <p className="flex items-center gap-2 text-sm font-semibold text-[--color-text-primary]">
+            <span className="flex size-6 items-center justify-center rounded-full border border-[--color-border-strong] text-xs font-bold text-[--color-text-secondary]">2</span>
+            With the BAC
+          </p>
+          <p className="flex items-start gap-1.5 text-xs text-[--color-text-secondary]">
+            <Scale className="size-3.5 shrink-0 mt-0.5 text-[--color-text-muted]" />
+            The canvasser brings the bids to the BAC, which enters them and awards. You are told when it goes to the TWG.
+            {bidders > 0 ? ` ${bidders} bidder${bidders === 1 ? '' : 's'} entered so far.` : ''}
+          </p>
+        </div>
       </CardContent>
     </Card>
   )
@@ -99,8 +77,9 @@ function Checklist({ pr, canvass, bac, onPrintRfq }) {
 const Heading = ({ id, children }) => <h3 id={id} className="scroll-mt-20 text-ui-sm font-bold uppercase tracking-wide text-[--color-text-secondary]">{children}</h3>
 
 // A request's canvass on a page of its own. The canvass is done outside the
-// system; here Procurement enters its winners on one sheet and attaches its
-// documents, the BAC reviews it, and the TWG certifies it. The request page links here.
+// system: Procurement prints the RFQ for the canvasser, the BAC enters the
+// bids the canvasser brings and awards them, and the TWG certifies the award.
+// The request page links here.
 export default function CanvassPage() {
   const { id } = useParams()
   const { user } = useAuth()
@@ -122,13 +101,11 @@ export default function CanvassPage() {
     queryFn: () => api.get(`/bac/${id}`).then(r => r.data),
     enabled: opened,
   })
-  const pdf = (endpoint, label) => openPdf(endpoint)
-    .catch(async (err) => toast.error(await blobErrorMessage(err, `Could not open the ${label}`)))
-  const printRfq = () => pdf(`/pr/${id}/rfq`, 'Request for Quotation')
+  const printRfq = () => openPdf(`/pr/${id}/rfq`)
+    .catch(async (err) => toast.error(await blobErrorMessage(err, 'Could not open the Request for Quotation')))
 
   if (isLoading || !pr) return <div className="space-y-3">{Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-16" />)}</div>
-  const inCanvass = pr.status === 'bidding'
-  const reviewing = !!bac?.with_bac && (bac.permissions.approve || bac.permissions.return)
+  const bidding = !!canvass?.permissions?.bid
 
   return (
     <div className="space-y-5">
@@ -165,10 +142,10 @@ export default function CanvassPage() {
         </Card>
       ) : (
         <>
-          {inCanvass && canManage && canvass && <Checklist pr={pr} canvass={canvass} bac={bac} onPrintRfq={printRfq} />}
+          {canManage && canvass && ['bidding', 'bac_review'].includes(pr.status) && <ProcurementPart canvass={canvass} onPrintRfq={printRfq} />}
           <BacPanel prId={String(pr.id)} part="status" />
 
-          {reviewing ? <BacReviewSheet pr={pr} bac={bac} /> : (
+          {bidding ? <BacBidSheet key={pr.id} pr={pr} canvass={canvass} /> : (
             <>
               <section className="space-y-3">
                 <Heading id="winners">Items &amp; winners</Heading>
@@ -179,11 +156,11 @@ export default function CanvassPage() {
                 <Heading id="documents">Canvass documents</Heading>
                 <p className="flex items-start gap-2 text-xs text-[--color-text-secondary]">
                   <Paperclip className="size-3.5 shrink-0 mt-0.5 text-[--color-text-muted]" />
-                  The canvasser's RFQs and abstract, scanned. The BAC and the TWG review the winners against them.
+                  The canvasser's documents the BAC attached: the abstract and the suppliers' RFQs.
                 </p>
                 <AttachmentsPanel endpoint={`/pr/${pr.id}`} queryKey={`pr-attachments-${pr.id}`}
                   canUpload={canManage && !pr.deleted_at} canDelete={canManage && !pr.deleted_at && !['completed', 'rejected', 'cancelled'].includes(pr.status)}
-                  onChange={() => { qc.invalidateQueries({ queryKey: ['bac', 'pr', String(pr.id)] }); qc.invalidateQueries({ queryKey: ['canvass', String(pr.id)] }) }} />
+                  onChange={() => qc.invalidateQueries({ queryKey: ['canvass', String(pr.id)] })} />
               </section>
             </>
           )}

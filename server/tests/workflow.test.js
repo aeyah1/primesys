@@ -92,10 +92,10 @@ const R = []
 const add = (g, label, who, m, p, body, fn, want) => R.push({ g, label, who, m, p, body, fn, want })
 // A step that isn't one request: `run` throws to fail it.
 const step = (g, label, run) => R.push({ g, label, run })
-// The canvass result of a PR through the BAC and the TWG (mode set, scan attached).
-const review = (g, prId) => step(g, '…the BAC approves and the TWG certifies it', async () => {
-  await http(2, 'PATCH', `/pr/${prId}/mode`, { mode_of_procurement: 'Shopping' })
-  await H.certify(BASE, tok, prId, { proc: 2, bac: 7, twg: 6 })
+// The BAC's award of a PR, certified by the TWG.
+const review = (g, prId) => step(g, '…the TWG certifies the BAC\'s award', async () => {
+  const r = await http(6, 'POST', `/twg/${prId}/certify`, { action: 'certify' })
+  if (r.status !== 200) throw new Error(show(r))
 })
 // set_mode: Procurement or an admin may still pick the mode of procurement (no award yet, PR not closed).
 const P_ = (edit, del, next, twg_review = false, set_mode = false) => ({ edit, delete: del, next_statuses: next, set_mode, twg_review, twg_certify: false })
@@ -164,25 +164,28 @@ add('TWG', 'second review of same PR',              6, 'POST', '/twg/21/review',
 add('TWG', 'review a draft by ID (TWG never sees drafts)', 6, 'POST', '/twg/13/review', { action: 'approve' }, code(404), '404')
 add('TWG', 'request revision on resubmitted PR',    6, 'POST', '/twg/14/review', { action: 'revise', comment: 'fix specs' }, code(200), '200')
 
-// Awards (lots)
-const won = (pr, supplier, item, price) => ({ purchase_request_id: pr, awarded_to: supplier, items: [{ pr_item_id: item, unit_price: price }] })
-add('Award', 'award lot while bidding',             2, 'POST', '/lots', won(18, 'S18', 180, 400), code(201), '201')
-add('Award', '…PR stays in canvass for the BAC',    2, 'GET',  '/pr/18', undefined, statusIs('bidding'), 'bidding')
+// Awards: the BAC enters a bid and awards it
+const bid = (supplier, item, price) => ({ bidders: [{ name: supplier, prices: [{ pr_item_id: item, unit_price: price }] }], winners: [{ pr_item_id: item, bidder: 0 }] })
+add('Award', 'the BAC enters the bid while in canvass', 7, 'PUT', '/canvass/18/bids', bid('S18', 180, 400), code(200), '200')
+add('Award', '…and awards it',                      7, 'POST', '/canvass/18/award', {}, code(200), '200')
+add('Award', '…PR goes to the TWG',                 2, 'GET',  '/pr/18', undefined, statusIs('twg_certification'), 'twg_certification')
 review('Award', 18)
 add('Award', '…PR moved to for_po',                 2, 'GET',  '/pr/18', undefined, statusIs('for_po'), 'for_po')
 add('Award', '…audit log written (was missing)',    2, 'GET',  '/pr/18/logs', undefined, logHas('twg_certification', 'for_po'), 'twg_certification→for_po')
 // Its award covered every item, so nothing is left to award.
-add('Award', 'another lot, same supplier',          2, 'POST', '/lots', won(18, ' s18 ', 180, 250), code(409), '409 every item awarded')
-add('Award', '…nor another supplier',               2, 'POST', '/lots', won(18, 'S18b', 180, 250), code(409), '409 every item awarded')
-add('Award', 'award before canvass',                2, 'POST', '/lots', won(20, 'X', 1, 100), code(409), '409')
+add('Award', 'no more bids, same supplier',         7, 'PUT', '/canvass/18/bids', bid(' s18 ', 180, 250), code(409), '409 every item awarded')
+add('Award', '…nor another supplier',               7, 'PUT', '/canvass/18/bids', bid('S18b', 180, 250), code(409), '409 every item awarded')
+add('Award', 'award before canvass',                7, 'POST', '/canvass/20/award', {}, code(409), '409')
 add('Award', '…no lot left behind (rolled back)',   2, 'GET',  '/lots/pr/20', undefined, (r) => r.status === 200 && r.data.length === 0, '[]')
-add('Award', 'award after PO issued',               2, 'POST', '/lots', won(19, 'X', 1, 100), code(409), '409')
+add('Award', 'award after PO issued',               7, 'POST', '/canvass/19/award', {}, code(409), '409')
 // Recanvass (for_po -> bidding, above) cancelled PR 22's award (WF-3); a
 // cancelled award can't be revived (WF-2), so the PR is awarded anew.
 add('Award', 'recanvass cancelled the old award',   2, 'GET',  '/lots/pr/22', undefined, (r) => r.status === 200 && r.data.every(l => l.status === 'cancelled'), 'all cancelled')
 add('Award', 'reviving the cancelled award refused', 2, 'PATCH', '/lots/6', { status: 'awarded', awarded_to: 'S22' }, code(409), '409')
-add('Award', 'a new award instead',                 2, 'POST', '/lots', won(22, 'S22-new', 220, 800), code(201), '201')
-add('Award', '…recanvassed PR waits for the BAC',   2, 'GET',  '/pr/22', undefined, statusIs('bidding'), 'bidding')
+add('Award', '…the recanvassed PR waits for the BAC', 2, 'GET',  '/pr/22', undefined, statusIs('bidding'), 'bidding')
+add('Award', 'a new bid',                           7, 'PUT', '/canvass/22/bids', bid('S22-new', 220, 800), code(200), '200')
+add('Award', '…awarded instead',                    7, 'POST', '/canvass/22/award', {}, code(200), '200')
+add('Award', '…and with the TWG',                   2, 'GET',  '/pr/22', undefined, statusIs('twg_certification'), 'twg_certification')
 
 // Completion by delivery
 add('Delivery', 'complete delivery recorded',       2, 'POST', '/delivery', { po_id: 3, delivered_date: '2026-09-10', status: 'complete' }, code(201), '201')
@@ -259,7 +262,8 @@ add('PO cancel', 'no delivery on a cancelled PO',        2, 'POST', '/delivery',
 add('PO cancel', 'PO list hides cancelled by default',   2, 'GET', '/po?limit=100', undefined, (r) => r.status === 200 && !idsOf(r.data).includes(5), 'no 5')
 add('PO cancel', 'Cancelled tab lists it',               2, 'GET', '/po?po_status=cancelled&limit=100', undefined, idsEq([5]), 'ids=[5]')
 add('PO cancel', 'cancelled PO PDF still opens',         2, 'GET', '/po/5/pdf', undefined, code(200), '200')
-add('PO cancel', 're-award the next supplier',           2, 'POST', '/lots', won(28, 'S28b', 280, 950), code(201), '201')
+add('PO cancel', 'the BAC bids the next supplier',       7, 'PUT', '/canvass/28/bids', bid('S28b', 280, 950), code(200), '200')
+add('PO cancel', '…and re-awards',                       7, 'POST', '/canvass/28/award', {}, code(200), '200')
 review('PO cancel', 28)
 add('PO cancel', 'issue a replacement PO',               2, 'POST', '/po', { purchase_request_id: 28, supplier_name: 'S28b', issued_date: '2026-09-11', total_amount: 950 }, code(201), '201')
 add('PO cancel', 'another PO with no award waiting refused', 2, 'POST', '/po', { purchase_request_id: 28, supplier_name: 'X', issued_date: '2026-09-11', total_amount: 1 }, code(409), '409')

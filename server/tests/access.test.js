@@ -137,7 +137,7 @@ add('Procurement', 'PR stats: drafts = own only',      2, 'GET', '/pr/stats', un
 add('Procurement', 'lots / PO / delivery lists = all', 2, 'GET', '/lots', undefined, sameIds([1, 2, 3, 4]), 'ids=[1,2,3,4]')
 add('Procurement', 'PO list = all',                    2, 'GET', '/po?limit=100', undefined, sameIds([1, 2]), 'ids=[1,2]')
 add('Procurement', 'delivery list = all',              2, 'GET', '/delivery', undefined, sameIds([1, 2]), 'ids=[1,2]')
-add('Procurement', "create lot on requestor's draft",  2, 'POST', '/lots', { purchase_request_id: 8, awarded_to: 'X', items: [{ pr_item_id: 1, unit_price: 1 }] }, code(404), '404')
+add('Procurement', "canvass of requestor's draft",     2, 'GET', '/canvass/8', undefined, code(404), '404')
 // Items are locked for every role from submission on (audit WF-1).
 add('Procurement', 'add item at twg_review (locked)',  2, 'POST', '/pr/3/items', { item_name: 'spec' }, code(409), '409')
 add('Procurement', 'add item while bidding (locked)',  2, 'POST', '/pr/4/items', { item_name: 'spec' }, code(409), '409')

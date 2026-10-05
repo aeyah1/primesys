@@ -60,8 +60,8 @@ const SLIDES = {
     {
       Icon:  Gavel,
       color: 'from-purple-400 to-pink-400',
-      title: 'Record the Winners',
-      body:  'When the canvasser is done, record each item\'s winning supplier and price, attach the canvass documents, and submit them to the BAC. After the BAC approves and the TWG certifies them, each supplier gets its own purchase order.',
+      title: 'Sign the RFQ, Then the BAC Awards',
+      body:  'Sign the printed RFQ by hand and give it to the canvasser, who brings the bids to the BAC. The BAC enters them and awards; after the TWG certifies the award, each supplier gets its own purchase order.',
     },
     {
       Icon:  ShoppingCart,
@@ -127,7 +127,7 @@ const SLIDES = {
       Icon:  CheckCircle,
       color: 'from-emerald-400 to-teal-400',
       title: 'Approve & Forward',
-      body:  'If the specifications are correct, click Approve & Forward. The PR moves to Procurement\'s queue for the canvass. Later, you certify the winners the BAC approved, under To certify.',
+      body:  'If the specifications are correct, click Approve & Forward. The PR moves to Procurement\'s queue for the canvass. Later, you certify the winners the BAC awarded, under To certify.',
     },
     {
       Icon:  RotateCcw,
@@ -148,19 +148,19 @@ const SLIDES = {
       logo: true,
       color: 'from-indigo-400 to-blue-400',
       title: 'Welcome to PRimeSys!',
-      body:  "You're logged in as a member of the Bids and Awards Committee. You review the canvass result Procurement records and approve it in a BAC Resolution.",
+      body:  "You're logged in as a member of the Bids and Awards Committee. The canvasser brings you the bids; you enter them, pick the winners, and award them in a BAC Resolution.",
     },
     {
       Icon:  ClipboardCheck,
       color: 'from-amber-400 to-orange-400',
       title: 'For Evaluation',
-      body:  'Canvass results Procurement submits wait under For Evaluation, your home page. Open one to check each item\'s winner against the canvass documents.',
+      body:  'Requests in canvass wait under For Evaluation, your home page. Open one and click Read the canvasser\'s file: the abstract (Excel, Word, CSV, a scanned PDF or a photo) fills the bid sheet for you to check.',
     },
     {
       Icon:  CheckCircle,
       color: 'from-emerald-400 to-teal-400',
-      title: 'Approve or Return',
-      body:  'Approve the winners in a numbered BAC Resolution, and the request goes to the TWG for certification. Or return it to Procurement with a reason.',
+      title: 'Pick and Award',
+      body:  'Each item goes to its lowest bid unless you pick another, with the reason. Click Award: the winners are adopted in a numbered BAC Resolution and the request goes to the TWG for certification.',
     },
     {
       Icon:  Download,

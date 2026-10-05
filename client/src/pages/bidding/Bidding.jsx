@@ -17,11 +17,10 @@ const PAGE_SIZE = 20
 
 // Procurement's work, in the order a request moves (lots.controller STAGES).
 // A PR awarded in part can be in more than one: its other items go through the
-// canvass and the reviews again while the certified suppliers wait for their POs.
+// canvass, the BAC's award and the TWG again while the certified suppliers wait for their POs.
 const STAGES = [
   { key: 'to_canvass',  label: 'To canvass',   empty: 'No request approved by the TWG is waiting to be canvassed.' },
-  { key: 'needs_award', label: 'In canvass',   empty: 'No request is in canvass.' },
-  { key: 'with_bac',    label: 'With the BAC', empty: 'No request is with the BAC for review.' },
+  { key: 'needs_award', label: 'With the BAC', empty: 'No request is in canvass with the BAC.' },
   { key: 'with_twg',    label: 'With the TWG', empty: 'No request is waiting for the TWG\'s certification.' },
   { key: 'awaiting_po', label: 'Issue PO',     empty: 'No awards are waiting for a purchase order.' },
   { key: 'po_issued',   label: 'PO issued',    empty: 'No purchase orders have been issued yet.' },
@@ -89,12 +88,12 @@ function AwardRow({ row, stage, canManage, onOpen, onStart }) {
       </div>
 
       <div className="basis-32 text-xs space-y-1">
-        {['to_canvass', 'needs_award', 'with_bac', 'with_twg', 'awaiting_po'].includes(stage) && (
+        {['to_canvass', 'needs_award', 'with_twg', 'awaiting_po'].includes(stage) && (
           <p className={days > 3 ? 'font-semibold text-amber-700' : 'text-[--color-text-muted]'}>Waiting {plural(days, 'day')}</p>
         )}
-        {stage === 'needs_award' && row.bac_return_reason && (
-          <p className="flex items-center gap-1 font-semibold text-amber-700" title={row.bac_return_reason}>
-            <AlertTriangle className="size-3 shrink-0" /> Returned by the BAC
+        {stage === 'needs_award' && row.certification_return_reason && (
+          <p className="flex items-center gap-1 font-semibold text-amber-700" title={row.certification_return_reason}>
+            <AlertTriangle className="size-3 shrink-0" /> Returned by the TWG
           </p>
         )}
         {row.po_count > 0 && (stage === 'po_issued' || stage === 'awaiting_po') && (
@@ -110,10 +109,6 @@ function AwardRow({ row, stage, canManage, onOpen, onStart }) {
         {canManage && stage === 'to_canvass' ? (
           <Button size="sm" className="gap-1.5" onClick={onStart}>
             <Gavel className="size-3.5" /> Start canvass
-          </Button>
-        ) : canManage && stage === 'needs_award' ? (
-          <Button size="sm" className="gap-1.5" onClick={onOpen}>
-            <Trophy className="size-3.5" /> Record winners
           </Button>
         ) : canManage && stage === 'awaiting_po' ? (
           <Button size="sm" asChild className="gap-1.5">
@@ -229,7 +224,7 @@ export default function Bidding() {
               {search || category ? 'No PRs match these filters.' : current.empty}
             </p>
             {canManage && stage === 'needs_award' && !search && !category && (
-              <p className="text-ui-xs text-[--color-text-muted] mt-1">A request moves here when you start its canvass under To canvass.</p>
+              <p className="text-ui-xs text-[--color-text-muted] mt-1">A request moves here when you start its canvass under To canvass; the BAC then enters the bids and awards.</p>
             )}
           </div>
         ) : (

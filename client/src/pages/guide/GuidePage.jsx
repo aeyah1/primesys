@@ -115,7 +115,7 @@ function RoleGuide({ role }) {
     <div className="space-y-4 pt-3">
       <p className="text-sm text-[--color-text-secondary] leading-relaxed">
         As a member of the <strong>Technical Working Group (TWG)</strong>, you check the specifications of every
-        Purchase Request before it reaches Procurement, and certify the canvass result the BAC approved before any purchase order.
+        Purchase Request before it reaches Procurement, and certify the award the BAC made before any purchase order.
       </p>
       <div className="space-y-1">
         <Step number={1} icon={ClipboardCheck} title="Open your review queue" description="Submitted PRs in your review areas land in To Review. The admin sets your areas, for example Hardware & Equipment or Event Supplies. Open a PR to see every item, quantity, unit cost, and attachment." />
@@ -132,32 +132,32 @@ function RoleGuide({ role }) {
   if (role === 'bac') return (
     <div className="space-y-4 pt-3">
       <p className="text-sm text-[--color-text-secondary] leading-relaxed">
-        As a member of the <strong>Bids and Awards Committee (BAC)</strong>, you review the canvass result. The canvass is
-        done on paper by the campus canvasser; Procurement, as your Secretariat, records each item's winner and attaches the canvass documents.
+        As a member of the <strong>Bids and Awards Committee (BAC)</strong>, you award the canvass. The canvass is done on
+        paper by the campus canvasser, who brings the bids to you; you enter them, pick each item's winner, and award.
       </p>
       <div className="space-y-1">
-        <Step number={1} icon={ClipboardCheck} title="Open For Evaluation"  description="Canvass results Procurement submitted wait here, your home page, the oldest first, with their winners' total. You are notified when one arrives." />
-        <Step number={2} icon={Eye}            title="Check the winners"    description="Click the request: its review sheet opens. Each item shows its winner, the amount, the budget, and the difference, with the totals; the canvasser's RFQs and abstract open beside it to check them against." />
-        <Step number={3} icon={CheckCircle}    title="Approve"              description="Below the sheet, add an optional note for the resolution in Comments and click Approve. The winners are adopted in a numbered BAC Resolution, and the request goes to the TWG for certification." />
-        <Step number={4} icon={RotateCcw}      title="Or return it"         description="If something is wrong, for example a winner that does not match the abstract, write the reason in Comments and click Return to Procurement. Procurement corrects it and submits it again. If the TWG returns it to you, its comment shows on the request." />
-        <Step number={5} icon={Download}       title="Print the documents"  description="Each resolution on the request prints the BAC Resolution and a Notice of Award for every supplier in it." />
+        <Step number={1} icon={ClipboardCheck} title="Open For Evaluation"   description="Every request in canvass waits here under To award, your home page, the oldest first. You are notified when Procurement starts a canvass, and when the TWG returns an award to you." />
+        <Step number={2} icon={Eye}            title="Enter the bids"        description="Open the request: its bid sheet lists the items down and the bidders across. Click Read the canvasser's file and choose the abstract (Excel, Word or CSV), a scanned PDF, or a photo; it is attached to the request and opens beside the sheet, and the bidders and prices read from it fill the sheet. Check every price against the file and correct what was misread, or type the bids yourself with Add bidder." />
+        <Step number={3} icon={CheckCircle}    title="Pick the winners"      description="Each item goes to its lowest bid unless you pick another bidder; then give the reason. A supplier's total can't be above the approved budget of the items it wins. Drop an item no supplier offered. Save keeps the sheet to finish later." />
+        <Step number={4} icon={Gavel}          title="Award"                 description="Add an optional note for the resolution and click Award. The winners are adopted in a numbered BAC Resolution and the request goes to the TWG for certification. If the TWG returns it, that award is cancelled and the request is back here with the TWG's comment and your bids, to award again." />
+        <Step number={5} icon={Download}       title="Print the documents"   description="Each resolution on the request prints the BAC Resolution and a Notice of Award for every supplier in it." />
       </div>
-      <Tip>The winners are locked while you have the request. Approving again after the TWG returns it adds no new resolution unless Procurement recorded new winners.</Tip>
+      <Tip>Suppliers are recorded by name only. The bids stay on record with the award, for the TWG and for audit.</Tip>
     </div>
   )
 
   if (role === 'procurement') return (
     <div className="space-y-4 pt-3">
       <p className="text-sm text-[--color-text-secondary] leading-relaxed">
-        As a <strong>Procurement Officer</strong>, you take TWG-approved Purchase Requests through the canvass, the BAC's review
-        and the TWG's certification, and the Purchase Order, and follow them until the goods are delivered.
+        As a <strong>Procurement Officer</strong>, you start the canvass of TWG-approved Purchase Requests and print their RFQs,
+        then issue the Purchase Orders once the BAC has awarded and the TWG certified, and follow them until the goods are delivered.
       </p>
       <div className="space-y-1">
         <Step number={1} icon={Eye}          title="Start the canvass"       description="Your Work Queue opens on To canvass: every request the TWG approved, the longest waiting first. Click Start canvass, confirm the PR number the system suggests (or change it), and set the mode of procurement; then print the Request for Quotation (under More) for the canvasser, who canvasses the suppliers on paper. On the request page, the button beside its number is always the next step; the rest is under More." />
-        <Step number={2} icon={Gavel}        title="Record the winners"      description="When the canvasser returns the RFQs and the abstract, open the request's Canvass & Award page and follow its checklist. On the sheet, type each item's winning supplier and unit price as on the abstract, then click Save winners (a new supplier's details are optional). Drop an item no supplier offers. Attach the scanned RFQs and abstract under Canvass Documents, then click Submit to the BAC. The BAC approves it in a BAC Resolution or returns it with a reason; then the TWG certifies it or returns it to the BAC." />
+        <Step number={2} icon={Gavel}        title="Sign the RFQ, then the BAC has it" description="Print the RFQ, sign it by hand, and give it to the canvasser. The canvasser brings the bids to the BAC, which enters them and awards; the TWG then certifies the award. The request waits under With the BAC and With the TWG in your Work Queue, and you are told when it moves." />
         <Step number={3} icon={ShoppingCart} title="Issue a Purchase Order"  description="Once the TWG certifies the result, each winning supplier gets its own PO. Under Purchase Orders on the PR, set the dates and click Issue PO for each supplier. A certified supplier's PO can go out while other items are still in canvass. Supply and the Fund Administrator are notified." />
         <Step number={4} icon={Truck}        title="Track delivery"          description="Supply records how many of each item arrived, and you can record a delivery from the PR page or the Purchase Orders page too. The Overdue tab on Purchase Orders lists every PO past its expected date. If the supplier gives a new date, click Change Expected Date on the PO and give the reason; the Fund Administrator and supply are told. Once every PO is fully delivered, and no item is left to award, the PR is Completed automatically." />
-        <Step number={5} icon={XCircle}      title="If a supplier backs out" description="Before anything is delivered, click Cancel PO on that supplier's PO, with a reason. Only its items go back to canvass for a new winner, reviewed by the BAC and the TWG again; other suppliers' POs stay." />
+        <Step number={5} icon={XCircle}      title="If a supplier backs out" description="Before anything is delivered, click Cancel PO on that supplier's PO, with a reason. Only its items go back to canvass, for the BAC to award again and the TWG to certify; other suppliers' POs stay." />
       </div>
       <Tip>Once the TWG has approved a PR, it can be deleted while it has no award or PO; otherwise cancel it instead. While the TWG still has it, only an admin can cancel or delete it. Use Reports for spending and pipeline analytics, and Reminders to schedule follow-ups.</Tip>
     </div>
@@ -256,7 +256,7 @@ export default function GuidePage() {
               { number: 1, role: 'Fund Administrator',   color: 'bg-amber-500', icon: Pencil,         title: 'Fund Administrator files the PR', desc: 'The Fund Administrator lists the items with quantities, units, and estimated costs. Saving sends the PR to the TWG (Submitted).' },
               { number: 2, role: 'TWG',         color: 'bg-cyan-600',  icon: ClipboardCheck, title: 'TWG reviews the specifications', desc: 'The TWG approves the PR (Approved by TWG), asks for a revision (the Fund Administrator edits and resubmits), or rejects it (final).' },
               { number: 3, role: 'Procurement', color: 'bg-blue-600',  icon: ClipboardList,  title: 'Procurement starts the canvass', desc: 'Procurement clicks Start canvass on an approved PR and prints the RFQ. The canvasser canvasses the suppliers on paper. Status changes to Canvass.' },
-              { number: 4, role: 'Procurement', color: 'bg-blue-600',  icon: Gavel,          title: 'The winners are reviewed',       desc: "Procurement records each item's winning supplier and price and attaches the canvass documents. The BAC approves them in a BAC Resolution, then the TWG certifies them. One PR can go to several suppliers." },
+              { number: 4, role: 'BAC',         color: 'bg-indigo-600', icon: Gavel,         title: 'The BAC awards',                 desc: "The canvasser brings the bids to the BAC, which enters them (or reads the canvasser's file), picks each item's winner, and awards in a BAC Resolution. The TWG then certifies the award. One PR can go to several suppliers." },
               { number: 5, role: 'Procurement', color: 'bg-blue-600',  icon: ShoppingCart,   title: 'Purchase Order is issued',       desc: 'Procurement issues the PO from the PR page with the supplier, amount, and expected delivery date. Supply and the Fund Administrator are notified.' },
               { number: 6, role: 'Supply',      color: 'bg-blue-600',  icon: Truck,          title: 'Supply records the delivery',    desc: 'Supply receives the goods and records how many of each item arrived, with an Inspection and Acceptance Report (IAR) for each delivery.' },
               { number: 7, role: 'System',      color: 'bg-gray-500',  icon: CheckCircle,    title: 'PR is marked Completed',         desc: 'When every PO is fully delivered, the PR is marked Completed automatically. It then stays in the Archive with its full history.' },
@@ -279,8 +279,8 @@ export default function GuidePage() {
             ['revision_requested', 'The TWG asked for changes. The Fund Administrator edits the PR and submits it again.'],
             ['twg_review',         'The TWG approved the specifications. Waiting for Procurement to start the canvass.'],
             ['rejected',           'The TWG rejected the request. Final, and kept in the Archive.'],
-            ['bidding',            'The canvasser canvasses the suppliers; Procurement records the winners and submits them to the BAC.'],
-            ['bac_review',         'The BAC reviews the winners. It approves them in a BAC Resolution, or returns them to Procurement.'],
+            ['bidding',            'The canvasser canvasses the suppliers and brings the bids to the BAC, which enters them and awards.'],
+            ['bac_review',         'Left from an earlier version: with the BAC, which awards it the same way.'],
             ['twg_certification',  'The TWG checks the winners against the request. It certifies them, or returns them to the BAC.'],
             ['for_po',             'The winners are certified. Procurement issues the Purchase Orders, then the PR waits for delivery.'],
             ['completed',          'The goods were fully delivered. Final, and kept in the Archive.'],
@@ -303,7 +303,7 @@ export default function GuidePage() {
           {[
             { icon: FileText,       title: 'Purchase Requests', description: 'Create, submit, and track PRs with items, file attachments, and a full activity log.' },
             { icon: ClipboardCheck, title: 'TWG Review',        description: 'The Technical Working Group checks every PR\'s specifications before Procurement acts on it.' },
-            { icon: Gavel,          title: 'Work Queue',        description: "Procurement's home: requests by what they need next. Start the canvass, record the winners, send them to the BAC and the TWG, then issue each supplier's purchase order." },
+            { icon: Gavel,          title: 'Work Queue',        description: "Procurement's home: requests by what they need next. Start the canvass and print the RFQ, follow the BAC's award and the TWG's certification, then issue each supplier's purchase order." },
             { icon: ShoppingCart,   title: 'Purchase Orders',   description: 'Issued by Procurement for awarded PRs, one per supplier. Tracks the supplier, amount, what has arrived of each item, and which POs are overdue. A PO can be cancelled before delivery so its items can be awarded again.' },
             { icon: Truck,          title: 'Deliveries',        description: 'Record how many of each item arrived, attach invoices, and download Inspection and Acceptance Reports (IAR) as PDF.' },
             { icon: Archive,        title: 'Archive',           description: 'Completed, cancelled, rejected, and deleted PRs, grouped by quarter (Procurement & Admin). Fund Administrators find their finished requests under Done. Nothing is permanently erased.' },

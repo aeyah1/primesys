@@ -10,7 +10,7 @@ const config = require(path.join(H.SERVER, 'config.js'))
 const jwt    = serverReq('jsonwebtoken')
 const { PROCUREMENT_MODES } = require(path.join(H.SERVER, 'utils', 'procurementModes'))
 
-const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 4: 'twg' }
+const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 4: 'twg', 5: 'bac' }
 const tok  = (id) => jwt.sign({ id, tv: 0 }, config.jwt.secret, { expiresIn: '1h' })
 
 function fixtures() {
@@ -20,7 +20,7 @@ function fixtures() {
   return `
     SET FOREIGN_KEY_CHECKS = 0;
     INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified) VALUES
-      ${U(1, 'Admin One')}, ${U(2, 'Proc One')}, ${U(3, 'Req One')}, ${U(4, 'Twg One')};
+      ${U(1, 'Admin One')}, ${U(2, 'Proc One')}, ${U(3, 'Req One')}, ${U(4, 'Twg One')}, ${U(5, 'Bac One')};
     INSERT INTO quarters (id, label, year, start_date, end_date, is_active) VALUES
       (1, 'Q1', ${new Date().getFullYear()}, '${new Date().getFullYear()}-01-01', '${new Date().getFullYear()}-12-31', 1);
     ${H.twgAreas([4])}
@@ -93,7 +93,9 @@ async function run() {
   await is('Canvass', '…the mode is on the record', 2, 'GET', `/pr/${id}`, undefined, r => r.data.mode_of_procurement === 'Shopping' && r.data.status === 'bidding')
   await is('Canvass', 'it may still change before a winner is recorded', 2, 'PATCH', `/pr/${id}/mode`, { mode_of_procurement: 'Small Value Procurement' }, r => r.status === 200)
   const item = (await http(2, 'GET', `/canvass/${id}`)).data.items[0].id
-  await is('Canvass', 'record the winner', 2, 'POST', '/lots', { purchase_request_id: id, awarded_to: 'Supplier 1', items: [{ pr_item_id: item, unit_price: 49000 }] }, r => r.status === 201)
+  await is('Canvass', 'the BAC enters the winning bid', 5, 'PUT', `/canvass/${id}/bids`,
+    { bidders: [{ name: 'Supplier 1', prices: [{ pr_item_id: item, unit_price: 49000 }] }], winners: [{ pr_item_id: item, bidder: 0 }] }, r => r.status === 200)
+  await is('Canvass', '…and awards it', 5, 'POST', `/canvass/${id}/award`, {}, r => r.status === 200)
   await is('Canvass', '…then the mode is fixed', 2, 'PATCH', `/pr/${id}/mode`, { mode_of_procurement: 'Shopping' }, r => r.status === 409 && /fixed/.test(r.data.message), '409')
 
   return t.summary()

@@ -41,10 +41,11 @@ const TWG_STAGES = ['submitted', 'revision_requested', 'twg_certification']
 // (editBlock), so the requestor fixes it and it goes back through the TWG.
 //
 // After the TWG approves, Procurement starts the canvass (Canvass, status
-// bidding), done outside the system by the canvasser; Procurement records the
-// winners and submits them to the BAC (BAC review), which sends them to the
-// TWG (TWG certification) or back to Procurement; the TWG certifies them
-// (Ready for PO) or returns them to the BAC. From then on the awards decide
+// bidding), done outside the system by the canvasser, who brings the bids to
+// the BAC; the BAC enters them and awards (TWG certification); the TWG
+// certifies the awards (Ready for PO) or returns them to the BAC's canvass.
+// BAC review is left from an older flow, where Procurement submitted the
+// winners to the BAC; the BAC awards those the same way. From then on the awards decide
 // (syncPRProgress): an item needing an award again (an award or PO cancelled,
 // a PO closed short) puts the request back in canvass, to be reviewed again,
 // and Completed follows once every award's PO is delivered.
@@ -56,11 +57,11 @@ const TRANSITIONS = {
   revision_requested: { submitted: { roles: EDITORS, owner: true }, cancelled: { roles: ADMIN } },
   twg_review:         { bidding: { via: 'canvass' }, revision_requested: { roles: STAFF, reason: true },
                         cancelled: { roles: STAFF } },
-  bidding:            { bac_review: { via: 'bac' }, for_po: { via: 'award' },
+  bidding:            { twg_certification: { via: 'bac' }, for_po: { via: 'award' },
                         revision_requested: { roles: STAFF, reason: true, noAward: true },
                         cancelled: { roles: STAFF, noPO: true } },
-  bac_review:         { twg_certification: { via: 'bac' }, bidding: { via: 'bac' }, cancelled: { roles: STAFF, noPO: true } },
-  twg_certification:  { for_po: { via: 'twg' }, bac_review: { via: 'twg' }, cancelled: { roles: ADMIN, noPO: true } },
+  bac_review:         { twg_certification: { via: 'bac' }, cancelled: { roles: STAFF, noPO: true } },
+  twg_certification:  { for_po: { via: 'twg' }, bidding: { via: 'twg' }, cancelled: { roles: ADMIN, noPO: true } },
   for_po:             { bidding: { roles: STAFF, noPO: true, alsoVia: 'award' }, completed: { via: 'delivery' },
                         cancelled: { roles: STAFF, noPO: true } },
   rejected:  {},
@@ -68,7 +69,7 @@ const TRANSITIONS = {
   cancelled: {},
 }
 const PR_STATUSES = Object.keys(TRANSITIONS)
-const VIA_LABELS  = { twg: 'a TWG review', award: 'the awards', delivery: 'a completed delivery', canvass: 'starting the canvass', bac: 'the BAC review' }
+const VIA_LABELS  = { twg: 'a TWG review', award: 'the awards', delivery: 'a completed delivery', canvass: 'starting the canvass', bac: 'the BAC\'s award' }
 
 // A PR's items and details change only before the TWG has it: while it is a
 // draft or returned for revision. From submission on it is locked for every

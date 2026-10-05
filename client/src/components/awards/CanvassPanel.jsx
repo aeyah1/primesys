@@ -10,13 +10,13 @@ import { fmtCurrency, fmtDate } from '@/lib/utils'
 import { useAuth } from '@/context/AuthContext'
 import api from '@/lib/axios'
 import { lineCents, useRefreshAwards } from './supplier'
-import CanvassSheet from './CanvassSheet'
+import BidsTable from './BidsTable'
 import AwardList from './AwardList'
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 
-/* ── Drop an item that can't be procured, with the reason ─────────────── */
-function DropItemDialog({ prId, item, onClose }) {
+/* ── Drop an item that can't be procured, with the reason (the BAC's) ──── */
+export function DropItemDialog({ prId, item, onClose }) {
   const refresh = useRefreshAwards(prId)
   const [reason, setReason] = useState('')
   const { mutate, isPending } = useMutation({
@@ -70,15 +70,14 @@ function ItemStatus({ item }) {
   return <span className="inline-flex rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Needs a winner</span>
 }
 
-/* A PR's canvass result (pages/pr/CanvassPage.jsx): while in canvass, the
-   sheet the winners are entered on (CanvassSheet); afterwards each item and its
-   winner; then the awards by supplier. pr: { id, pr_number, title, status }. */
+/* A PR's canvass, read only (pages/pr/CanvassPage.jsx; the BAC enters the
+   bids on BacBidSheet): each item and its winner, every bid the BAC entered,
+   then the awards by supplier. pr: { id, pr_number, title, status }. */
 export default function CanvassPanel({ pr }) {
   const prId = String(pr.id)
   const { user } = useAuth()
   const canManage = ['admin', 'procurement'].includes(user?.role)
   const refresh = useRefreshAwards(prId)
-  const [dropping, setDropping]   = useState(null)    // the item being dropped
 
   const { data: canvass, isLoading } = useQuery({
     queryKey: ['canvass', prId],
@@ -111,9 +110,7 @@ export default function CanvassPanel({ pr }) {
         </p>
       </div>
 
-      {can.record ? (
-        <CanvassSheet pr={pr} items={items} lots={lots} onDrop={setDropping} onRestore={restore} />
-      ) : items.length > 0 && (
+      {items.length > 0 && (
         <div className="rounded-xl border border-[--color-border] overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -158,9 +155,15 @@ export default function CanvassPanel({ pr }) {
         </div>
       )}
 
+      {canvass.bidders.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-bold uppercase tracking-wider text-[--color-text-secondary]">Every bid</p>
+          <BidsTable items={items} bidders={canvass.bidders} />
+        </div>
+      )}
+
       <AwardList lots={lots} canManage={canManage} prStatus={pr.status} />
 
-      {dropping && <DropItemDialog prId={prId} item={dropping} onClose={() => setDropping(null)} />}
     </div>
   )
 }

@@ -2,39 +2,21 @@ const pool   = require('../db/pool')
 const notify = require('./notify')
 
 // Bids and Awards Committee rules
-// The canvass is done outside the system. Procurement, the BAC's Secretariat
-// (RA 12009 IRR 44.1), records each item's winner from it, attaches the
-// canvass documents, and submits the request to the BAC (status bac_review).
-// The BAC reviews the result: it approves, which adopts a BAC Resolution for
-// the awards and sends the request to the TWG for certification, or returns
-// it to Procurement with the reason.
+// The canvass is done outside the system. The canvasser brings the bids to the
+// BAC, which enters them and awards (utils/canvassBids.js): each award round
+// adopts a BAC Resolution and goes to the TWG for certification.
 
-// Who reviews and approves: the BAC alone (admins supervise).
-const BAC_DECIDERS = ['bac']
-// Who may read the BAC's queue and print its documents.
+// Who may read the BAC's queue and print its documents (only the BAC awards; admins supervise).
 const BAC_READERS = ['bac', 'admin', 'procurement']
-const SECRETARIAT = ['procurement', 'admin']
 
-// Tells the BAC a PR waits for its review. With no active BAC member the
-// admins are warned instead, since nobody could review it.
-async function notifyBac(io, prId, prNumber, message = `PR ${prNumber} was submitted to the BAC for review of its canvass.`) {
+// Tells the BAC a PR waits for it. With no active BAC member the admins are
+// warned instead, since nobody could award it.
+async function notifyBac(io, prId, prNumber, message) {
   const [members] = await pool.execute("SELECT id FROM users WHERE role = 'bac' AND is_active = 1")
   if (members.length) return Promise.all(members.map(u => notify(io, u.id, message, 'info', prId, 'pr')))
   const [admins] = await pool.execute("SELECT id FROM users WHERE role = 'admin' AND is_active = 1")
-  const warning = `PR ${prNumber} waits for the BAC's review, but no BAC member is active. Assign one in User Management.`
+  const warning = `PR ${prNumber} waits for the BAC, but no BAC member is active. Assign one in User Management.`
   return Promise.all(admins.map(u => notify(io, u.id, warning, 'warning', prId, 'pr')))
-}
-
-// How many canvass documents (the canvasser's RFQs and abstract, scanned) Procurement
-// attached since this canvass started; a BAC return doesn't restart it.
-async function canvassDocuments(db, prId) {
-  const [[{ files }]] = await db.execute(
-    `SELECT COUNT(*) AS files FROM pr_attachments a JOIN users u ON u.id = a.uploaded_by
-      WHERE a.pr_id = ? AND u.role IN ('procurement', 'admin')
-        AND a.created_at >= COALESCE((SELECT MAX(sl.created_at) FROM pr_status_logs sl
-                                       WHERE sl.pr_id = ? AND sl.to_status = 'bidding' AND sl.from_status <> 'bac_review'), '1970-01-01')`,
-    [prId, prId])
-  return Number(files)
 }
 
 // Current year's next resolution number, "2026-001".
@@ -63,4 +45,4 @@ async function adoptResolution(conn, prId, userId, notes = null) {
   }
 }
 
-module.exports = { BAC_DECIDERS, BAC_READERS, SECRETARIAT, notifyBac, adoptResolution, canvassDocuments }
+module.exports = { BAC_READERS, notifyBac, adoptResolution }

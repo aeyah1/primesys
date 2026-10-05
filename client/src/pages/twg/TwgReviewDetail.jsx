@@ -20,6 +20,7 @@ import AwardList from '@/components/awards/AwardList'
 import PpmpComparison, { usePrPpmp, ViewPpmpButton } from '@/components/ppmp/PpmpComparison'
 import BacPanel from '@/components/awards/BacPanel'
 import TwgCertificates from '@/components/awards/TwgCertificates'
+import BidsTable from '@/components/awards/BidsTable'
 import SignatureDialog from '@/components/shared/SignatureDialog'
 import { useAuth } from '@/context/AuthContext'
 import { openPdf, blobErrorMessage } from '@/lib/download'
@@ -58,11 +59,17 @@ export default function TwgReviewDetail() {
   const { data: review } = usePrPpmp(id)
   const planName = review?.plan ? `${review.plan.office_code} PPMP, FY ${review.plan.fiscal_year}` : null
 
-  // The canvass result the BAC approved, while the TWG certifies it.
+  // The BAC's award, while the TWG certifies it.
   const certifying = pr?.status === 'twg_certification'
   const { data: lots = [] } = useQuery({
     queryKey: ['lots', id],
     queryFn: () => api.get(`/lots/pr/${id}`).then(r => r.data),
+    enabled: certifying,
+  })
+  // Every bid the BAC entered, to compare with the winners.
+  const { data: canvass } = useQuery({
+    queryKey: ['canvass', id],
+    queryFn: () => api.get(`/canvass/${id}`).then(r => r.data),
     enabled: certifying,
   })
   // The suggested Cert. No. for the certificate (same query as the resolutions panel).
@@ -217,7 +224,7 @@ export default function TwgReviewDetail() {
         </div>
       )}
 
-      {/* The canvass result to certify: the winners the BAC approved, its resolution, and the canvass documents below */}
+      {/* The award to certify: the BAC's winners, every bid, its resolution, and the canvass documents below */}
       {certifying && (
         <Card>
           <CardHeader>
@@ -226,12 +233,13 @@ export default function TwgReviewDetail() {
               <CardTitle>Canvass Result to Certify</CardTitle>
             </div>
             <p className="text-ui-xs text-[--color-text-secondary] mt-1">
-              The BAC approved these winners. Check them against the requested items and the canvass documents in the attachments,
+              The BAC awarded these winners. Check them against the requested items, every bid, and the canvass documents in the attachments,
               then certify them, or return them to the BAC with your comment.
             </p>
           </CardHeader>
           <CardContent className="space-y-4">
             <AwardList lots={lots} canManage={false} prStatus={pr.status} />
+            {canvass?.bidders?.length > 0 && <BidsTable items={canvass.items} bidders={canvass.bidders} />}
             <BacPanel prId={String(pr.id)} part="resolutions" />
           </CardContent>
         </Card>
