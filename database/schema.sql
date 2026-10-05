@@ -490,8 +490,9 @@ CREATE TABLE `ppmps` (
   `version_no`         INT UNSIGNED NOT NULL DEFAULT 1,
   `kind`               ENUM('indicative','final') NOT NULL DEFAULT 'final',
   `fund_source`        ENUM('STF','GAA','IGP') NOT NULL DEFAULT 'STF',
-  -- draft: kept but not in effect (see problems); approved: signed and complete, in effect; superseded: a later version took effect.
-  `status`             ENUM('draft','approved','superseded') NOT NULL DEFAULT 'draft',
+  -- draft: kept but not in effect (see problems); approved: signed and complete, in effect; superseded: a later version took effect;
+  -- withdrawn: an admin took it back as a mistake (withdrawn_*), the version it replaced in effect again.
+  `status`             ENUM('draft','approved','superseded','withdrawn') NOT NULL DEFAULT 'draft',
   -- Why it is not in effect: what is unsigned or missing (JSON list); null once it is.
   `problems`           TEXT NULL,
   -- How the signed copy is signed: digital (checked by the system) or paper (declared by the uploader).
@@ -508,10 +509,14 @@ CREATE TABLE `ppmps` (
   `content_hash`       CHAR(64) NULL,
   `created_at`         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at`         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `withdrawn_at`       DATETIME NULL,
+  `withdrawn_by`       INT UNSIGNED NULL,
+  `withdraw_reason`    VARCHAR(500) NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_ppmp_version` (`department_id`, `fiscal_year`, `version_no`),
   CONSTRAINT `fk_ppmp_department`  FOREIGN KEY (`department_id`) REFERENCES `departments` (`id`),
-  CONSTRAINT `fk_ppmp_uploaded_by` FOREIGN KEY (`uploaded_by`)   REFERENCES `users` (`id`) ON DELETE SET NULL
+  CONSTRAINT `fk_ppmp_uploaded_by` FOREIGN KEY (`uploaded_by`)   REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_ppmp_withdrawn_by` FOREIGN KEY (`withdrawn_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE `ppmp_items` (

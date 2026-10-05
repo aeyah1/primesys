@@ -4,11 +4,13 @@ import { Badge } from '@/components/ui/badge'
 export const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 export const PARTS = { ps: 'Part I: Available at PS-DBM', other: 'Part II: Other items' }
 
-// A PPMP's status as a badge: in effect once signed and complete, not in effect until then, replaced by a later version.
+// A PPMP's status as a badge: in effect once signed and complete, not in effect until then, replaced by a later version,
+// or withdrawn by an admin as a mistake.
 const LOOK = {
   draft:      ['Not in effect', 'bg-amber-50 text-amber-800 border-amber-300'],
   approved:   ['In effect', 'bg-green-50 text-green-800 border-green-300'],
   superseded: ['Replaced', 'bg-slate-50 text-slate-500 border-slate-300'],
+  withdrawn:  ['Withdrawn', 'bg-red-50 text-red-700 border-red-300'],
 }
 export const STATUS_LABELS = Object.fromEntries(Object.entries(LOOK).map(([k, [label]]) => [k, label]))
 

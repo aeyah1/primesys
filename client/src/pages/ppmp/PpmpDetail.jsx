@@ -2,7 +2,7 @@ import { Fragment, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  ArrowLeft, Trash2, Printer, Upload, ShieldCheck, ShieldAlert, AlertTriangle, FileSpreadsheet, FileSignature, PenLine, Search, GitCompare, FilePlus,
+  ArrowLeft, Trash2, Printer, Upload, ShieldCheck, ShieldAlert, AlertTriangle, FileSpreadsheet, FileSignature, PenLine, Search, GitCompare, FilePlus, Undo2,
 } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Card, CardContent } from '@/components/ui/card'
@@ -11,6 +11,8 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Label } from '@/components/ui/label'
+import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
 import { useConfirm } from '@/components/shared/ConfirmDialog'
 import { PpmpStatusBadge, STATUS_LABELS, MONTHS, PARTS } from '@/components/ppmp/PpmpStatusBadge'
 import PpmpUploadDialog from '@/components/ppmp/PpmpUploadDialog'
@@ -35,13 +37,15 @@ export default function PpmpDetail() {
   const [shownLine, setShownLine] = useState(null)   // the line whose requests are listed
   const [find, setFind] = useState(NO_FIND)
   const [picked, setPicked] = useState(() => new Set())   // lines ticked for "Request these"
+  const [withdrawing, setWithdrawing] = useState(null)    // the reason being written, while the withdraw dialog is open
   const { user } = useAuth()
 
   const { data: p, isLoading, isError } = useQuery({
     queryKey: ['ppmp', id],
     queryFn: () => api.get(`/ppmp/${id}`).then(r => r.data),
   })
-  const refresh = () => { qc.invalidateQueries({ queryKey: ['ppmp', id] }); qc.invalidateQueries({ queryKey: ['ppmp-list'] }) }
+  // Every PPMP view: withdrawing one puts the version it replaced back in effect.
+  const refresh = () => { qc.invalidateQueries({ queryKey: ['ppmp'] }); qc.invalidateQueries({ queryKey: ['ppmp-list'] }) }
   const { mutate: act, isPending: acting } = useMutation({
     mutationFn: ({ path, body, method = 'post' }) => api[method](`/ppmp/${id}${path}`, body),
     onSuccess: (res, { path }) => {
@@ -117,8 +121,14 @@ export default function PpmpDetail() {
               {can.remove && <Button variant="ghost" onClick={remove} disabled={acting} className="gap-2 text-red-600"><Trash2 className="size-4" /> Delete</Button>}
               {can.reupload && <Button onClick={() => setUploading('again')} className="gap-2"><Upload className="size-4" /> Upload Again</Button>}
               {can.amend && <Button variant="outline" onClick={() => setUploading('amend')} className="gap-2"><Upload className="size-4" /> Upload Amended PPMP</Button>}
+              {can.withdraw && <Button variant="outline" onClick={() => setWithdrawing('')} className="gap-2 text-red-600 hover:text-red-700"><Undo2 className="size-4" /> Withdraw</Button>}
             </div>
           </div>
+          {user?.role === 'admin' && p.status === 'approved' && p.requests_on > 0 && (
+            <p className="text-ui-xs text-[--color-text-muted]">
+              {p.requests_on} request{p.requests_on === 1 ? ' draws' : 's draw'} on this PPMP, so it can't be withdrawn. Its office can upload a corrected version instead.
+            </p>
+          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {[['data', 'Data file (items read from it)', FileSpreadsheet], ['signed', 'Signed copy', FileSignature]].map(([role, title, Icon]) => {
@@ -164,6 +174,11 @@ export default function PpmpDetail() {
         </CardContent>
       </Card>
 
+      {p.status === 'withdrawn' && (
+        <Notice tone="red" icon={Undo2} title="Withdrawn: requests can't use this PPMP">
+          Withdrawn by {p.withdrawn_by_name || 'an admin'} on {fmtDatetime(p.withdrawn_at)}: {p.withdraw_reason}{/[.!?]$/.test(p.withdraw_reason || '') ? '' : '.'} It is kept on record.
+        </Notice>
+      )}
       {p.status === 'draft' && (
         <Notice tone="amber" icon={AlertTriangle} title="Not in effect: requests can't use this PPMP yet">
           {p.problems.join(' ')}{can.reupload ? ' Upload it again once that is fixed.' : ''}
@@ -342,6 +357,27 @@ export default function PpmpDetail() {
           )}
         </CardContent>
       </Card>
+
+      {withdrawing !== null && (
+        <Dialog open onOpenChange={v => { if (!v) setWithdrawing(null) }}>
+          <DialogContent title={`Withdraw PPMP No. ${p.version_no}`}
+            description="For a PPMP put in effect by mistake. It is kept on record as withdrawn; the version it replaced, if any, is in effect again, and the office uploads the right one. The Fund Administrator is told why.">
+            <div className="space-y-1.5">
+              <Label htmlFor="withdraw-reason">Reason <span className="text-red-600 text-xs">*</span></Label>
+              <textarea id="withdraw-reason" rows={3} maxLength={500} autoFocus value={withdrawing} onChange={e => setWithdrawing(e.target.value)}
+                placeholder="e.g. The file uploaded is last year's PPMP"
+                className="w-full rounded-md border border-[--color-border] bg-[--color-surface] px-3 py-2 text-sm text-[--color-text-primary] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent resize-y" />
+            </div>
+            <DialogFooter className="px-0 pb-0 pt-6">
+              <Button variant="outline" onClick={() => setWithdrawing(null)} disabled={acting}>Cancel</Button>
+              <Button variant="danger" disabled={acting || !withdrawing.trim()}
+                onClick={() => act({ path: '/withdraw', body: { reason: withdrawing.trim() } }, { onSuccess: () => setWithdrawing(null) })}>
+                {acting ? 'Withdrawing…' : 'Withdraw'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
 
       <PpmpUploadDialog
         open={!!uploading}

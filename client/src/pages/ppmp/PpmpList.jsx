@@ -21,6 +21,7 @@ const STATUS_FILTERS = [
   { value: 'approved', label: 'In effect' },
   { value: 'draft', label: 'Not in effect' },
   { value: 'superseded', label: 'Replaced' },
+  { value: 'withdrawn', label: 'Withdrawn' },
 ]
 // Where an office's PPMP for the year stands (GET /ppmp/coverage), and what that means for its requests.
 const STANDING = {

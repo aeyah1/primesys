@@ -5,13 +5,14 @@ const c         = require('../controllers/ppmp.controller')
 const auth      = require('../middleware/auth.middleware')
 const authorize = require('../middleware/authorize.middleware')
 const httpError = require('../utils/httpError')
-const { handle, oneOfRule } = require('../middleware/validate')
+const { handle, oneOfRule, textRule } = require('../middleware/validate')
 const { FUND_SOURCE_VALUES } = require('../utils/orgSettings')
 const makeUploader = require('../utils/upload')
 
 const upload = makeUploader('ppmp')
 
-// PPMPs: Fund Administrators upload their office's, in effect once signed and complete; admins, Procurement, the BAC, and the TWG read.
+// PPMPs: Fund Administrators upload their office's, in effect once signed and complete; admins, Procurement, the BAC, and the TWG read;
+// an admin may withdraw one put in effect by mistake.
 router.use(auth, authorize('requestor', 'admin', 'procurement', 'bac', 'twg'))
 
 const id = [param('id').isInt({ min: 1 }).withMessage('PPMP not found'), handle]
@@ -56,5 +57,7 @@ router.get('/:id/pdf',   id, c.pdf)
 router.get('/:id/files/:fileId', id, param('fileId').isInt({ min: 1 }).withMessage('File not found'), handle, c.downloadFile)
 router.put('/:id',       keeper, id, files, payload, choices, c.reupload)
 router.delete('/:id',    keeper, id, c.remove)
+// An admin takes back a PPMP put in effect by mistake, with the reason.
+router.post('/:id/withdraw', authorize('admin'), id, textRule('reason', 'Reason', 500, { required: true }), handle, c.withdraw)
 
 module.exports = router

@@ -14,7 +14,7 @@ const { readPdfSignatures, pdfSigned } = require('../utils/pdfSignature')
 const { loadOrgSettings } = require('../utils/orgSettings')
 const { assertNoBrands, brandIn } = require('../utils/brandNames')
 const { usablePlans, linesLeft, withUsage } = require('../utils/ppmpUse')
-const { compareItems, officeOf, assertOwnOffice, loadPpmp, loadItems, loadFiles, contentHash, totals, ppmpPermissions } = require('../utils/ppmp')
+const { compareItems, officeOf, assertOwnOffice, loadPpmp, loadItems, loadFiles, contentHash, totals, ppmpPermissions, requestsOn } = require('../utils/ppmp')
 const { M } = require('../pdf/campusForm')
 const drawPpmp = require('../pdf/ppmpForm')
 
@@ -215,7 +215,7 @@ exports.coverage = asyncHandler(async (req, res) => {
   const [plans] = await pool.execute(
     `SELECT p.id, p.department_id, p.version_no, p.kind, p.status, p.problems, p.signed_kind,
             (SELECT COALESCE(SUM(i.quantity * i.unit_cost), 0) FROM ppmp_items i WHERE i.ppmp_id = p.id) AS total
-       FROM ppmps p WHERE p.fiscal_year = ? AND p.status <> 'superseded' ORDER BY p.version_no DESC`, [year])
+       FROM ppmps p WHERE p.fiscal_year = ? AND p.status IN ('draft', 'approved') ORDER BY p.version_no DESC`, [year])
   const brief = (p) => p && { id: p.id, version_no: p.version_no, kind: p.kind, signed_kind: p.signed_kind, total: Number(p.total), problems: p.problems ? JSON.parse(p.problems) : [] }
   res.json({
     year: Number(year),
@@ -253,12 +253,14 @@ exports.get = asyncHandler(async (req, res) => {
   // What changed from the version this one replaces: the latest one in effect before it.
   const prev = versions.find(v => v.version_no < p.version_no && ['approved', 'superseded'].includes(v.status))
   const changes = prev ? { against: { id: prev.id, version_no: prev.version_no }, ...compareItems(await loadItems(pool, prev.id), items) } : null
+  const drawnOn = p.status === 'approved' ? await requestsOn(pool, p.id) : 0
   res.json({
     ...p, items: used.items, files, totals: totals(items), versions,
     requested_amount: used.requested_amount, changes,
     // Whether the items and files still match the fingerprint taken when it was uploaded.
     hash_ok: p.content_hash ? p.content_hash === contentHash(p, items, files) : null,
-    permissions: ppmpPermissions(req.user, p, { own: req.user.role === 'requestor', newer: await newerOpen(pool, p) }),
+    requests_on: drawnOn,
+    permissions: ppmpPermissions(req.user, p, { own: req.user.role === 'requestor', newer: await newerOpen(pool, p), drawnOn }),
   })
 })
 
@@ -304,6 +306,39 @@ exports.remove = asyncHandler(async (req, res) => {
   })
   files.forEach(f => fileStore.remove('ppmp', f.filename))
   res.json({ message: 'PPMP deleted' })
+})
+
+// POST /ppmp/:id/withdraw - { reason }: an admin takes back a PPMP put in effect by mistake, while no request draws on
+// it. It is kept on record as withdrawn; the version it replaced, if any, is in effect again. The office's Fund
+// Administrator, admins, and Procurement are told.
+exports.withdraw = asyncHandler(async (req, res) => {
+  const reason = req.body.reason.trim()   // checked in the route
+  const { p, restored } = await withTransaction(async (conn) => {
+    // The office's plans in effect are locked first, the way a submission locks them (utils/ppmpUse.js lockOfficePlans).
+    const [[target]] = await conn.execute('SELECT department_id FROM ppmps WHERE id = ?', [req.params.id])
+    if (target) await conn.execute("SELECT id FROM ppmps WHERE department_id = ? AND status = 'approved' FOR UPDATE", [target.department_id])
+    const p = await loadPpmp(conn, req.user, req.params.id, { lock: true })
+    if (p.status !== 'approved') throw httpError(409, `This PPMP is ${p.status === 'draft' ? 'not in effect' : p.status}, so there is nothing to withdraw`)
+    const drawnOn = await requestsOn(conn, p.id)
+    if (drawnOn) {
+      throw httpError(409, `${drawnOn} request${drawnOn === 1 ? ' draws' : 's draw'} on this PPMP, so it can't be withdrawn. Its office can upload a corrected version instead.`)
+    }
+    await conn.execute(
+      "UPDATE ppmps SET status = 'withdrawn', withdrawn_at = NOW(), withdrawn_by = ?, withdraw_reason = ? WHERE id = ?",
+      [req.user.id, reason, p.id])
+    const [[prev]] = await conn.execute(
+      `SELECT id, version_no FROM ppmps WHERE department_id = ? AND fiscal_year = ? AND status = 'superseded'
+        ORDER BY version_no DESC LIMIT 1 FOR UPDATE`, [p.department_id, p.fiscal_year])
+    if (prev) await conn.execute("UPDATE ppmps SET status = 'approved' WHERE id = ?", [prev.id])
+    return { p, restored: prev || null }
+  })
+  const after = restored ? `PPMP No. ${restored.version_no} is in effect again.` : `${p.office_code}'s requests can't be submitted until a PPMP is in effect.`
+  if (p.uploaded_by) {
+    await notify(req.io, p.uploaded_by, `${label(p)} was withdrawn by an admin: ${reason}. ${after} Upload the right one.`, 'warning', p.id, 'ppmp')
+      .catch(err => console.error('[notify] PPMP notice failed:', err.message))
+  }
+  await tellStaff(req.io, `${label(p)} was withdrawn: ${reason}. ${after}`, p.id)
+  res.json({ message: `${label(p)} withdrawn. ${after}`, restored_version: restored?.version_no ?? null })
 })
 
 // GET /ppmp/:id/files/:fileId - one of the original files, for anyone who may see the PPMP.
