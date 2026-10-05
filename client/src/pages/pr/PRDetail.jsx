@@ -43,7 +43,7 @@ const ITD = ({ children, className = '' }) => (
 
 const EMPTY_ITEM = { group_label: '', stock_property_no: '', category: '', ppmp_item_id: null, line: null, quantity: '1', estimated_cost: '', specs: {} }
 // Who may open the office's PPMP from a request (the PPMP pages' own roles).
-const PPMP_VIEWERS = ['requestor', 'admin', 'procurement', 'bac']
+const PPMP_VIEWERS = ['requestor', 'admin', 'procurement', 'bac', 'twg']
 
 function PRItemsSection({ prId, pr, canEdit, category }) {
   const { user } = useAuth()

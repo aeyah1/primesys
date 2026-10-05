@@ -36,7 +36,7 @@ function menuFor(role) {
       return [{ label: 'My Work', items: [home, { to: '/pr/create', label: 'New Request', icon: FilePlus }, PPMP] },
               { label: 'Help', items: [NOTIFICATIONS, GUIDE] }, ACCOUNT]
     case 'twg':
-      return [{ label: 'My Work', items: [home, { to: '/twg/reviews', label: 'To Review', icon: ClipboardCheck }] },
+      return [{ label: 'My Work', items: [home, { to: '/twg/reviews', label: 'To Review', icon: ClipboardCheck }, PPMP] },
               { label: 'Help', items: [NOTIFICATIONS, GUIDE] }, ACCOUNT]
     case 'procurement':
       return [{ label: 'My Work', items: [home, ALL_REQUESTS, { to: '/po', label: 'Purchase Orders', icon: ShoppingCart }, SUPPLIERS] },
