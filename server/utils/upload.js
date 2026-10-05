@@ -94,7 +94,7 @@ function makeUploader(subdir) {
 
   return {
     single: (field) => [withClearErrors(receiver(1).single(field)), checkSignature],
-    // Several named files, e.g. fields(['data', 'signed']): one of each at most.
+    // Several named files, e.g. fields(['data']): one of each at most.
     fields: (names) => [withClearErrors(receiver(names.length).fields(names.map(name => ({ name, maxCount: 1 })))), checkSignature],
   }
 }

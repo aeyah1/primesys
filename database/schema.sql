@@ -482,7 +482,7 @@ CREATE TABLE `password_reset_tokens` (
   CONSTRAINT `fk_prt_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- PPMP: each office's plan for a fiscal year, uploaded from its signed original; in effect once signed and complete (server/db/add_ppmp.sql).
+-- PPMP: each office's plan for a fiscal year, uploaded as its softcopy; in effect once complete (server/db/add_ppmp.sql).
 CREATE TABLE `ppmps` (
   `id`                 INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `department_id`      INT UNSIGNED NOT NULL,
@@ -495,9 +495,9 @@ CREATE TABLE `ppmps` (
   `status`             ENUM('draft','approved','superseded','withdrawn') NOT NULL DEFAULT 'draft',
   -- Why it is not in effect: what is unsigned or missing (JSON list); null once it is.
   `problems`           TEXT NULL,
-  -- How the signed copy is signed: digital (checked by the system) or paper (declared by the uploader).
+  -- PPMPs uploaded before 2026-10 only: how the signed copy was signed, digital (checked) or paper (declared by the uploader).
   `signed_kind`        ENUM('digital','paper') NULL,
-  -- The digital signatures on the signed copy, with their checks (JSON).
+  -- PPMPs uploaded before 2026-10 only: the digital signatures on the signed copy, with their checks (JSON).
   `signatures`         TEXT NULL,
   -- The file's signature block: who prepared, approved, or reviewed it (JSON).
   `signatories`        TEXT NULL,
@@ -541,7 +541,7 @@ CREATE TABLE `ppmp_items` (
 
 ALTER TABLE `pr_items` ADD CONSTRAINT `fk_pr_items_ppmp_item` FOREIGN KEY (`ppmp_item_id`) REFERENCES `ppmp_items` (`id`);
 
--- The two original files of a PPMP: the data file its items were read from, and the signed copy.
+-- The original files of a PPMP: the softcopy its items were read from (and, before 2026-10, the signed copy).
 CREATE TABLE `ppmp_attachments` (
   `id`            INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `ppmp_id`       INT UNSIGNED NOT NULL,

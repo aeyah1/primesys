@@ -27,7 +27,7 @@ const monthList = (months) => (months || []).map(m => MONTHS[m - 1]).join(', ')
 const NO_FIND = { text: '', part: 'all', category: 'all', mode: 'all', month: 'all' }
 const fmtSize = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`)
 
-// One PPMP, as uploaded from its signed original: how it is signed, whether it is in effect, its items, and its original files.
+// One PPMP, as uploaded from its softcopy: whether it is in effect, its items, and its original file (with a signed copy for older ones).
 export default function PpmpDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -131,7 +131,7 @@ export default function PpmpDetail() {
           )}
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {[['data', 'Data file (items read from it)', FileSpreadsheet], ['signed', 'Signed copy', FileSignature]].map(([role, title, Icon]) => {
+            {[['data', 'PPMP softcopy (items read from it)', FileSpreadsheet], ['signed', 'Signed copy', FileSignature]].filter(([role]) => role === 'data' || fileOf(role)).map(([role, title, Icon]) => {
               const f = fileOf(role)
               return (
                 <button key={role} type="button" disabled={!f} onClick={() => f && download(f)}
