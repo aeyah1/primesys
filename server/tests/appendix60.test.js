@@ -17,6 +17,9 @@ const jwt    = serverReq('jsonwebtoken')
 const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor' }
 const tok  = (id) => jwt.sign({ id, role: ROLE[id] }, config.jwt.secret, { expiresIn: '1h' })
 const YEAR = new Date().getFullYear()
+const MONTH = new Date().getMonth() + 1
+// A PR number in the default format, {PREFIX}-{YYYY}-{M}-{NNNN}.
+const num = (prefix, n) => `${prefix}-${YEAR}-${MONTH}-${String(n).padStart(4, '0')}`
 
 function fixtures() {
   const hash = serverReq('bcryptjs').hashSync('Test@1234', 4)
@@ -105,32 +108,43 @@ async function run() {
     r => r.status === 200 && r.data.suggested_pr_number === want && r.data.pr_number_assigned === false, want)
   const start = (id, body) => http(2, 'POST', `/canvass/${id}/start`, { mode_of_procurement: 'Shopping', ...body })
   await is('Numbering', 'no RFQ before the number', 2, 'GET', `/pr/${first}/rfq`, undefined, r => r.status === 409, '409')
-  await suggests(first, `CSO ${YEAR}-001`, 'the next number is suggested in the form\'s format (the legacy one ignored)')
-  let r = await start(first, { pr_number: `CSO ${YEAR}-001` })
-  t.check('Numbering', 'Procurement confirms it as the canvass starts', r.status === 200 && r.data.pr_number === `CSO ${YEAR}-001`, show(r))
-  await is('Numbering', '…the PR now carries it', 3, 'GET', `/pr/${first}`, undefined, r => r.data.pr_number === `CSO ${YEAR}-001`)
+  await suggests(first, `${num('CSO', 1)}`, 'the next number is suggested in the form\'s format (the legacy one ignored)')
+  let r = await start(first, { pr_number: `${num('CSO', 1)}` })
+  t.check('Numbering', 'Procurement confirms it as the canvass starts', r.status === 200 && r.data.pr_number === `${num('CSO', 1)}`, show(r))
+  await is('Numbering', '…the PR now carries it', 3, 'GET', `/pr/${first}`, undefined, r => r.data.pr_number === `${num('CSO', 1)}`)
   await is('Numbering', '…logged', 2, 'GET', `/pr/${first}/logs`, undefined,
-    r => r.data.some(l => l.to_status === 'bidding' && l.note === `Canvass started (Shopping); PR number CSO ${YEAR}-001 assigned`))
+    r => r.data.some(l => l.to_status === 'bidding' && l.note === `Canvass started (Shopping); PR number ${num('CSO', 1)} assigned`))
   await is('Numbering', '…the requestor is told both', 3, 'GET', '/notifications', undefined,
-    r => r.data.some(n => n.message.startsWith(`PR CSO ${YEAR}-001 (REQ-`) && n.message.endsWith('Window blinds is now in canvass.')))
+    r => r.data.some(n => n.message.startsWith(`PR ${num('CSO', 1)} (REQ-`) && n.message.endsWith('Window blinds is now in canvass.')))
   await is('Numbering', '…and the RFQ prints', 2, 'GET', `/pr/${first}/rfq`, undefined, r => r.status === 200 && r.type.includes('pdf'))
-  await suggests(second, `CSO ${YEAR}-002`, 'the sequence keeps counting')
+  await suggests(second, `${num('CSO', 2)}`, 'the sequence keeps counting')
   r = await start(second, {})
-  t.check('Numbering', 'with none given, the suggestion is used', r.status === 200 && r.data.pr_number === `CSO ${YEAR}-002`, show(r))
-  r = await start(third, { pr_number: `CSO ${YEAR}-010` })
-  t.check('Numbering', 'Procurement may change it', r.status === 200 && r.data.pr_number === `CSO ${YEAR}-010`, show(r))
-  await suggests(fourth, `CSO ${YEAR}-011`, '…and the count follows the highest')
-  r = await start(fourth, { pr_number: `CSO ${YEAR}-001` })
+  t.check('Numbering', 'with none given, the suggestion is used', r.status === 200 && r.data.pr_number === `${num('CSO', 2)}`, show(r))
+  r = await start(third, { pr_number: `${num('CSO', 10)}` })
+  t.check('Numbering', 'Procurement may change it', r.status === 200 && r.data.pr_number === `${num('CSO', 10)}`, show(r))
+  await suggests(fourth, `${num('CSO', 11)}`, '…and the count follows the highest')
+  r = await start(fourth, { pr_number: `${num('CSO', 1)}` })
   t.check('Numbering', 'a number another request has is refused', r.status === 409 && /already the number/.test(r.data.message), show(r))
   r = await start(fourth, { pr_number: 'REQ-000001' })
   t.check('Numbering', 'a temporary reference is no PR number', r.status === 400, show(r))
   await is('Numbering', '…nothing changed', 2, 'GET', `/pr/${fourth}`, undefined, r => r.data.status === 'twg_review' && /^REQ-/.test(r.data.pr_number))
   await is('Numbering', 'changing the prefix starts a new sequence', 1, 'PATCH', '/settings',
     { pr_number_prefix: 'DCS' }, r => r.status === 200)
-  await suggests(fourth, `DCS ${YEAR}-001`, '…so the next is DCS 001')
+  await suggests(fourth, `${num('DCS', 1)}`, '…so the next is DCS 001')
   await is('Numbering', 'put the prefix back', 1, 'PATCH', '/settings',
     { pr_number_prefix: 'CSO' }, r => r.status === 200)
-  await suggests(fourth, `CSO ${YEAR}-011`, '…and the original sequence resumes')
+  await suggests(fourth, `${num('CSO', 11)}`, '…and the original sequence resumes')
+
+  // The campus sets how its PR numbers read.
+  await is('Numbering', 'a format with no running count is refused', 1, 'PATCH', '/settings', { pr_number_format: '{PREFIX}-{YYYY}' },
+    r => r.status === 400 && /running count/.test(r.data.message), '400')
+  await is('Numbering', '…and one without the year', 1, 'PATCH', '/settings', { pr_number_format: '{PREFIX}-{NNNN}' },
+    r => r.status === 400 && /year/.test(r.data.message), '400')
+  await is('Numbering', '…and one with a wildcard', 1, 'PATCH', '/settings', { pr_number_format: '{PREFIX}_{YYYY}-{NNNN}' }, r => r.status === 400, '400')
+  await is('Numbering', 'the campus sets its own format', 1, 'PATCH', '/settings', { pr_number_format: '{PREFIX} {YYYY}-{MM}-{NNNN}' }, r => r.status === 200)
+  await suggests(fourth, `CSO ${YEAR}-${String(MONTH).padStart(2, '0')}-0001`, '…the next number follows it, counted on its own')
+  await is('Numbering', 'blank goes back to the default', 1, 'PATCH', '/settings', { pr_number_format: '' }, r => r.status === 200)
+  await suggests(fourth, `${num('CSO', 11)}`, '…CSO-year-month-count again')
 
   // ── The filer's designation ─────────────────────────────────────────
   const prId = first
@@ -193,7 +207,7 @@ async function run() {
 
   const text = await renderText({ pr: rows[0], orgSettings: org, items: itemRows })
   for (const [label, value] of [
-    ['the PR number',            `CSO ${YEAR}-001`],
+    ['the PR number',            `${num('CSO', 1)}`],
     ['the entity name',          'NEMSU - Cantilan Campus'],
     ['the fund cluster',         '05 206441'],
     ['the office/section',       'DCS'],

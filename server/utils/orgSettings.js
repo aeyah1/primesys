@@ -11,7 +11,8 @@ const SETTING_KEYS = [
   'entity_telefax',
   'entity_website',
   'responsibility_center_code',
-  'pr_number_prefix',             // the "CSO" in "CSO 2026-001"
+  'pr_number_prefix',             // the {PREFIX} of the PR number format, e.g. "CSO"
+  'pr_number_format',             // how PR numbers read, e.g. "{PREFIX}-{YYYY}-{M}-{NNNN}" (utils/prNumber.js)
 
   // Source of fund: the code printed for each choice (FUND_SOURCES below)
   'fund_cluster',                 // the default, used when a request names no source

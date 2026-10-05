@@ -13,13 +13,26 @@ import api from '@/lib/axios'
 // guards this in App.jsx too. Keep these keys in step with
 // server/utils/orgSettings.js.
 
+// The PR number format when none is set (server/utils/prNumber.js).
+const DEFAULT_PR_FORMAT = '{PREFIX}-{YYYY}-{M}-{NNNN}'
+
 // The Purchase Request form's own header.
 const FIELDS = [
   { key: 'entity_name',                title: 'Entity name',                placeholder: 'NEMSU - Cantilan Campus' },
   { key: 'responsibility_center_code', title: 'Responsibility center code', placeholder: '08-106-000000' },
   { key: 'pr_number_prefix',           title: 'PR number prefix',           placeholder: 'CSO',
-    hint: 'New PR numbers read "CSO 2026-001". Letters, numbers, spaces and dashes only.' },
+    hint: 'The {PREFIX} of the PR number format. Letters, numbers, spaces and dashes only.' },
+  { key: 'pr_number_format',           title: 'PR number format',           placeholder: DEFAULT_PR_FORMAT,
+    hint: (f) => `Procurement gives each request its number when the canvass starts, the next one filled in automatically. ${'{PREFIX}'} the prefix, ${'{YYYY}'} the year, ${'{M}'} or ${'{MM}'} the month, ${'{NNNN}'} the count (it starts again each year). The next number reads like ${prNumberPreview(f.pr_number_format, f.pr_number_prefix)}.` },
 ]
+
+// How a PR number in this format reads, the count at 1 (server/utils/numberFormat.js does the real work).
+function prNumberPreview(format, prefix) {
+  const now = new Date()
+  return (format?.trim() || DEFAULT_PR_FORMAT).replace(/\{(PREFIX|YYYY|YY|MM|M|N{1,6})\}/g, (_, t) => (
+    t === 'PREFIX' ? (prefix?.trim() || 'CSO') : t === 'YYYY' ? String(now.getFullYear()) : t === 'YY' ? String(now.getFullYear()).slice(2)
+      : t === 'MM' ? String(now.getMonth() + 1).padStart(2, '0') : t === 'M' ? String(now.getMonth() + 1) : '1'.padStart(t.length, '0')))
+}
 
 // The letterhead at the top of the Request for Quotation.
 const LETTERHEAD = [
@@ -112,7 +125,7 @@ export default function OrganizationTab() {
         placeholder={placeholder}
         disabled={isLoading}
       />
-      {hint && <p className="text-[11px] text-[--color-text-muted]">{hint}</p>}
+      {hint && <p className="text-[11px] text-[--color-text-muted]">{typeof hint === 'function' ? hint(form) : hint}</p>}
     </div>
   )
 
