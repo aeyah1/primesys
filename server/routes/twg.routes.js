@@ -15,6 +15,7 @@ router.get('/recent',  c.recent)
 // 404 unless the PR is visible to this member (their review areas, C2).
 // Deciding is the TWG's alone; admins may read the queue to supervise it.
 router.post('/:prId/review', authorize('twg'), requireAccess('pr', 'prId'), textRule('comment', 'Comment', 2000), handle, c.reviewPR)
-router.post('/:prId/certify', authorize('twg'), requireAccess('pr', 'prId'), textRule('comment', 'Comment', 2000), handle, c.certifyPR)
+router.post('/:prId/certify', authorize('twg'), requireAccess('pr', 'prId'),
+  textRule('comment', 'Comment', 2000), textRule('cert_no', 'Cert. No.', 30), handle, c.certifyPR)
 
 module.exports = router

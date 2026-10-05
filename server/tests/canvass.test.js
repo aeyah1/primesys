@@ -50,6 +50,8 @@ async function http(who, method, p, body) {
 }
 const show = (r) => `${r.status} ${r.type.includes('pdf') ? `(pdf${r.pdf ? '' : ', cut off'})` : JSON.stringify(r.data)}`.slice(0, 260)
 const isPDF = (r) => r.status === 200 && r.pdf
+// A 1 x 1 PNG, standing in for a signature.
+const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
 const num  = (v) => Number(v)
 const same = (obj, want) => Object.entries(want).every(([k, v]) => obj?.[k] === v)
 
@@ -173,9 +175,28 @@ async function run() {
   await is(G3, '…the BAC is told', 6, 'GET', '/notifications', undefined,
     (r) => r.status === 200 && r.data.some(n => /returned by the TWG: The printer is not the model requested/.test(n.message)))
   await is(G3, 'the BAC approves it again, with no new resolution', 6, 'POST', '/bac/80/approve', {}, (r) => r.status === 200 && r.data.resolution === null)
-  await is(G3, 'the TWG certifies it', 5, 'POST', '/twg/80/certify', { action: 'certify', comment: 'Matches the request' }, code(200))
+  const Y = new Date().getFullYear()
+  await is(G3, 'a Cert. No. is suggested, the first of the year', 5, 'GET', '/bac/80', undefined,
+    (r) => r.status === 200 && new RegExp(`^${Y}-\\d{2}-001$`).test(r.data.suggested_cert_no) && r.data.certificates.length === 0)
+  await is(G3, 'a Cert. No. with other characters → 400', 5, 'POST', '/twg/80/certify', { action: 'certify', cert_no: '2026%10' }, code(400, /Cert. No./))
+  await is(G3, 'a signature that is not a PNG → 400', 5, 'POST', '/twg/80/certify', { action: 'certify', signature: 'data:image/png;base64,AAAA' }, code(400, /PNG/))
+  await H.sql(TEST_DB, "INSERT INTO twg_certificates (cert_no, pr_id, certified_by) VALUES ('2025-12-900', 83, 5)")
+  await is(G3, 'a Cert. No. already given → 409', 5, 'POST', '/twg/80/certify', { action: 'certify', cert_no: '2025-12-900' }, code(409, /already on another certificate/))
+  await is(G3, '…and nothing was certified', 5, 'GET', '/pr/80', undefined, (r) => r.status === 200 && r.data.status === 'twg_certification')
+  await is(G3, 'the TWG certifies it, numbered after the paper ones and signed', 5, 'POST', '/twg/80/certify',
+    { action: 'certify', comment: 'Matches the request', cert_no: `${Y}-09-851`, signature: PNG, sign_method: 'uploaded' },
+    (r) => r.status === 200 && r.data.certificate?.cert_no === `${Y}-09-851` && /Cert. No. \d{4}-09-851/.test(r.data.message))
+  const cert = await is(G3, '…its certificate, signed', 2, 'GET', '/bac/80', undefined,
+    (r) => r.status === 200 && r.data.certificates.length === 1 && same(r.data.certificates[0], { cert_no: `${Y}-09-851`, signed: true, certified_by_name: 'Twg One' })
+           && r.data.suggested_cert_no === null)
+  const certPdf = `/bac/80/certificates/${cert.data?.certificates?.[0]?.id}/pdf`
+  await H.sql(TEST_DB, "INSERT INTO org_settings (setting_key, setting_value) VALUES ('entity_address', 'Cantilan, Surigao del Sur'), ('entity_website', 'www.example.edu.ph')")
+  await is(G3, '…printed for the TWG', 5, 'GET', certPdf, undefined, isPDF)
+  await is(G3, '…and for Procurement', 2, 'GET', certPdf, undefined, isPDF)
+  await is(G3, '…not for a requestor (403)', 3, 'GET', certPdf, undefined, code(403))
+  await is(G3, 'an unknown certificate → 404', 2, 'GET', '/bac/80/certificates/9999/pdf', undefined, code(404))
   await is(G3, '…Ready for PO, every award certified', 2, 'GET', '/lots/pr/80', undefined,
-    (r) => r.status === 200 && r.data.every(l => l.certified_at && l.certified_by === 5 && l.resolution_id === rid))
+    (r) => r.status === 200 && r.data.every(l => l.certified_at && l.certified_by === 5 && l.resolution_id === rid && l.certificate_id === cert.data?.certificates?.[0]?.id))
   await is(G3, 'certifying again → 409', 5, 'POST', '/twg/80/certify', { action: 'certify' }, code(409))
   await is(G3, '…logged', 2, 'GET', '/pr/80/logs', undefined,
     (r) => r.status === 200 && r.data.some(l => l.from_status === 'twg_certification' && l.to_status === 'for_po' && l.note === 'Matches the request'))
@@ -229,6 +250,9 @@ async function run() {
   t.check(G6, 'scan, BAC approval and TWG certification', through === 'ok', through)
   await is(G6, '…Ready for PO, in its own resolution', 6, 'GET', '/bac/81', undefined,
     (r) => r.status === 200 && r.data.resolutions.length === 1 && /-002$/.test(r.data.resolutions[0].resolution_number))
+  await is(G6, '…and its own certificate, the next number, unsigned', 2, 'GET', '/bac/81', undefined,
+    (r) => r.status === 200 && r.data.certificates.length === 1 && /^\d{4}-\d{2}-852$/.test(r.data.certificates[0].cert_no) && r.data.certificates[0].signed === false)
+  await is(G6, '…its certificate prints', 5, 'GET', `/bac/81/certificates/${(await http(2, 'GET', '/bac/81')).data?.certificates?.[0]?.id}/pdf`, undefined, isPDF)
   await is(G6, '…its PO', 2, 'POST', '/po', { purchase_request_id: 81, issued_date: '2026-09-09' }, (r) => r.status === 201 && num(r.data.total_amount) === 2900)
 
   // Dropping items
