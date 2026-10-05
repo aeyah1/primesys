@@ -1,28 +1,36 @@
 const httpError = require('./httpError')
 const { loadOrgSettings, prNumberPrefix } = require('./orgSettings')
+const { formatError, render, nextNumber } = require('./numberFormat')
 
 // A request's PR number
 // A new request carries a temporary reference (REQ-000123) until Procurement
 // assigns its PR number, when the canvass starts: the campus numbers the
-// requests it procures, after the TWG approves them. The number is the one the
-// printed form carries, "CSO 2026-001" (CSO is org_settings.pr_number_prefix,
-// counted per calendar year); the system suggests the next one and Procurement
-// confirms or changes it. Older requests were numbered when filed and keep it.
+// requests it procures, after the TWG approves them. The number follows the
+// format set in Organization settings (org_settings.pr_number_format, e.g.
+// "CSO-2026-9-0001", counted per calendar year; utils/numberFormat.js); the
+// system suggests the next one and Procurement confirms or changes it. Older
+// requests were numbered when filed and keep theirs.
 
 const TEMPORARY = /^REQ-\d+$/
+const DEFAULT_PR_FORMAT = '{PREFIX}-{YYYY}-{M}-{NNNN}'
 const isTemporary = (number) => TEMPORARY.test(String(number || ''))
 const temporaryRef = (id) => `REQ-${String(id).padStart(6, '0')}`
 
-// The next number for this year: MAX(suffix) + 1 over the numbers already
-// given, so it is stable across deletions. Numbers in an older format don't
-// match the LIKE, so they neither block nor renumber.
+// Why a PR number format can't be used (null when it can): a number it makes
+// must not read as a temporary reference.
+function prFormatError(format) {
+  const err = formatError(format)
+  if (err) return err
+  return isTemporary(render(format, { prefix: 'CSO', n: 1 })) ? 'That format reads like a temporary reference (REQ-...); add the year or another separator' : null
+}
+
+// The PR number format in effect: the one set, or the default.
+const prFormatOf = (org) => (org.pr_number_format && !prFormatError(org.pr_number_format) ? org.pr_number_format : DEFAULT_PR_FORMAT)
+
+// The next PR number for this year in the format set (utils/numberFormat.js).
 async function suggestPrNumber(db) {
   const org = await loadOrgSettings(db)
-  const stem = `${prNumberPrefix(org.pr_number_prefix)} ${new Date().getFullYear()}-`
-  const [[{ max_n }]] = await db.execute(
-    `SELECT MAX(CAST(SUBSTRING(pr_number, ${stem.length + 1}) AS UNSIGNED)) AS max_n FROM purchase_requests WHERE pr_number LIKE ?`,
-    [`${stem}%`])
-  return stem + String(Number(max_n || 0) + 1).padStart(3, '0')
+  return nextNumber(db, { table: 'purchase_requests', column: 'pr_number', format: prFormatOf(org), prefix: prNumberPrefix(org.pr_number_prefix) })
 }
 
 // Gives the PR `pr` (prWorkflow.loadPR facts) its number, inside the caller's
@@ -43,4 +51,4 @@ async function assignPrNumber(conn, pr, wanted) {
   return number
 }
 
-module.exports = { isTemporary, temporaryRef, suggestPrNumber, assignPrNumber }
+module.exports = { DEFAULT_PR_FORMAT, isTemporary, temporaryRef, prFormatError, suggestPrNumber, assignPrNumber }

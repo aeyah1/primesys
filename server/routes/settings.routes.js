@@ -5,6 +5,7 @@ const auth     = require('../middleware/auth.middleware')
 const authorize = require('../middleware/authorize.middleware')
 const { handle, textRule, moneyRule } = require('../middleware/validate')
 const { PR_PREFIX } = require('../utils/orgSettings')
+const { prFormatError } = require('../utils/prNumber')
 
 router.get('/',    auth, c.get)
 
@@ -23,6 +24,10 @@ router.patch('/',  auth, authorize('admin'),
     .isString().withMessage('PR number prefix must be text').bail()
     .trim().matches(PR_PREFIX)
     .withMessage('PR number prefix may only use letters, numbers, spaces and dashes (15 characters at most)'),
+  // How PR numbers read; blank means the default.
+  body('pr_number_format').if(v => v !== undefined && v !== null && v !== '')
+    .isString().withMessage('PR number format must be text').bail()
+    .trim().custom(v => { const err = prFormatError(v); if (err) throw new Error(err); return true }),
 
   // Source of fund: the code printed for each choice
   textRule('fund_cluster', 'Default fund cluster', 50),
