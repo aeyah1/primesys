@@ -11,8 +11,8 @@ const makeUploader = require('../utils/upload')
 
 const upload = makeUploader('ppmp')
 
-// PPMPs: Fund Administrators upload their office's, in effect once signed and complete; admins, Procurement, and BAC read.
-router.use(auth, authorize('requestor', 'admin', 'procurement', 'bac'))
+// PPMPs: Fund Administrators upload their office's, in effect once signed and complete; admins, Procurement, the BAC, and the TWG read.
+router.use(auth, authorize('requestor', 'admin', 'procurement', 'bac', 'twg'))
 
 const id = [param('id').isInt({ min: 1 }).withMessage('PPMP not found'), handle]
 const keeper = authorize('requestor')
@@ -46,7 +46,7 @@ router.get('/lines',
   query('pr_id').optional().isInt({ min: 1 }).withMessage('Unknown request').toInt(),
   handle, c.lines)
 // Every office's PPMP standing for a year, for those who follow all offices.
-router.get('/coverage', authorize('admin', 'procurement', 'bac'),
+router.get('/coverage', authorize('admin', 'procurement', 'bac', 'twg'),
   query('year').optional().isInt({ min: 2020, max: 2100 }).withMessage('Pick a valid year').toInt(),
   handle, c.coverage)
 router.post('/read',     keeper, files, c.read)

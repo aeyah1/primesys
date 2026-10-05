@@ -130,7 +130,9 @@ async function run() {
   await is(A, '…nor its files', 6, 'GET', `/ppmp/${id}/files/${signedFile?.id}`, undefined, code(404), '404')
   await is(A, 'Procurement reads it, without any action', 2, 'GET', `/ppmp/${id}`, undefined, r => r.status === 200 && !Object.values(r.data.permissions).some(Boolean))
   await is(A, 'there is no approving step', 1, 'POST', `/ppmp/${id}/approve`, undefined, code(404), '404')
-  await is(A, 'TWG can\'t', 4, 'GET', `/ppmp/${id}`, undefined, code(403), '403')
+  await is(A, 'the TWG reads it too, to compare requests with it, without any action', 4, 'GET', `/ppmp/${id}`, undefined,
+    r => r.status === 200 && !Object.values(r.data.permissions).some(Boolean))
+  await is(A, '…but can\'t upload one', 4, 'POST', '/ppmp', form(base), code(403), '403')
   await is(A, 'Supply can\'t', 8, 'GET', '/ppmp', undefined, code(403), '403')
   await is(A, 'a PPMP in effect can\'t be deleted', 3, 'DELETE', `/ppmp/${id}`, undefined, code(409), '409')
   await is(A, '…nor uploaded over', 3, 'PUT', `/ppmp/${id}`, form(base), code(409), '409')

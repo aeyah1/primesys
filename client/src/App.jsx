@@ -112,8 +112,8 @@ export default function App() {
           <Route path="twg/reviews/:id" element={<ProtectedRoute roles={['twg']}><TwgReviewDetail /></ProtectedRoute>} />
           <Route path="bac"             element={<ProtectedRoute roles={['bac','admin','procurement']}><BacApprovals /></ProtectedRoute>} />
           <Route path="suppliers"       element={<ProtectedRoute roles={['procurement','admin']}><SupplierList /></ProtectedRoute>} />
-          <Route path="ppmp"            element={<ProtectedRoute roles={['requestor','admin','procurement','bac']}><PpmpList /></ProtectedRoute>} />
-          <Route path="ppmp/:id"        element={<ProtectedRoute roles={['requestor','admin','procurement','bac']}><PpmpDetail /></ProtectedRoute>} />
+          <Route path="ppmp"            element={<ProtectedRoute roles={['requestor','admin','procurement','bac','twg']}><PpmpList /></ProtectedRoute>} />
+          <Route path="ppmp/:id"        element={<ProtectedRoute roles={['requestor','admin','procurement','bac','twg']}><PpmpDetail /></ProtectedRoute>} />
           <Route path="suppliers/:id"   element={<ProtectedRoute roles={['procurement','admin']}><SupplierProfile /></ProtectedRoute>} />
         </Route>
 
