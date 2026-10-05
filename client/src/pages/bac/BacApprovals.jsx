@@ -77,7 +77,7 @@ export default function BacApprovals() {
               : rows.map(row => (
                 <div key={view === 'approved' ? row.resolution_id : row.id}
                   className="flex items-start justify-between gap-4 px-6 py-4 border-b border-[--color-border] last:border-0 hover:bg-overlay/60 transition-colors">
-                  <Link to={`/pr/${row.id}/canvass?tab=${view === 'approved' ? 'resolutions' : 'winners'}`} className="min-w-0 flex-1">
+                  <Link to={`/pr/${row.id}/canvass${view === 'approved' ? '#resolutions' : ''}`} className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       {view === 'approved' && (
                         <span className="text-ui-sm font-bold text-[--color-text-primary]">Resolution No. {row.resolution_number}</span>
@@ -97,7 +97,7 @@ export default function BacApprovals() {
                         <FileText className="size-3.5" /> Resolution
                       </Button>
                     ) : <Scale className="size-4 text-[--color-brand]" />}
-                    <Link to={`/pr/${row.id}/canvass?tab=${view === 'approved' ? 'resolutions' : 'winners'}`} aria-label={`Open ${row.pr_number}`}>
+                    <Link to={`/pr/${row.id}/canvass${view === 'approved' ? '#resolutions' : ''}`} aria-label={`Open ${row.pr_number}`}>
                       <ChevronRight className="size-4 text-[--color-text-muted]" />
                     </Link>
                   </div>

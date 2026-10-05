@@ -13,6 +13,7 @@ import { openPdf, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
 import CanvassPanel from '@/components/awards/CanvassPanel'
 import BacPanel from '@/components/awards/BacPanel'
+import BacReviewSheet from '@/components/awards/BacReviewSheet'
 import { useRefreshAwards } from '@/components/awards/supplier'
 import ProcurementActions from './ProcurementActions'
 
@@ -126,6 +127,7 @@ export default function CanvassPage() {
 
   if (isLoading || !pr) return <div className="space-y-3">{Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-16" />)}</div>
   const inCanvass = pr.status === 'bidding'
+  const reviewing = !!bac?.with_bac && (bac.permissions.approve || bac.permissions.return)
 
   return (
     <div className="space-y-5">
@@ -165,21 +167,25 @@ export default function CanvassPage() {
           {inCanvass && canManage && canvass && <Checklist pr={pr} canvass={canvass} bac={bac} onPrintRfq={printRfq} />}
           <BacPanel prId={String(pr.id)} part="status" />
 
-          <section className="space-y-3">
-            <Heading id="winners">Items &amp; winners</Heading>
-            <CanvassPanel pr={pr} />
-          </section>
+          {reviewing ? <BacReviewSheet pr={pr} bac={bac} /> : (
+            <>
+              <section className="space-y-3">
+                <Heading id="winners">Items &amp; winners</Heading>
+                <CanvassPanel pr={pr} />
+              </section>
 
-          <section className="space-y-3">
-            <Heading id="documents">Canvass documents</Heading>
-            <p className="flex items-start gap-2 text-xs text-[--color-text-secondary]">
-              <Paperclip className="size-3.5 shrink-0 mt-0.5 text-[--color-text-muted]" />
-              The canvasser's RFQs and abstract, scanned. The BAC and the TWG review the winners against them.
-            </p>
-            <AttachmentsPanel endpoint={`/pr/${pr.id}`} queryKey={`pr-attachments-${pr.id}`}
-              canUpload={canManage && !pr.deleted_at} canDelete={canManage && !pr.deleted_at && !['completed', 'rejected', 'cancelled'].includes(pr.status)}
-              onChange={() => { qc.invalidateQueries({ queryKey: ['bac', 'pr', String(pr.id)] }); qc.invalidateQueries({ queryKey: ['canvass', String(pr.id)] }) }} />
-          </section>
+              <section className="space-y-3">
+                <Heading id="documents">Canvass documents</Heading>
+                <p className="flex items-start gap-2 text-xs text-[--color-text-secondary]">
+                  <Paperclip className="size-3.5 shrink-0 mt-0.5 text-[--color-text-muted]" />
+                  The canvasser's RFQs and abstract, scanned. The BAC and the TWG review the winners against them.
+                </p>
+                <AttachmentsPanel endpoint={`/pr/${pr.id}`} queryKey={`pr-attachments-${pr.id}`}
+                  canUpload={canManage && !pr.deleted_at} canDelete={canManage && !pr.deleted_at && !['completed', 'rejected', 'cancelled'].includes(pr.status)}
+                  onChange={() => { qc.invalidateQueries({ queryKey: ['bac', 'pr', String(pr.id)] }); qc.invalidateQueries({ queryKey: ['canvass', String(pr.id)] }) }} />
+              </section>
+            </>
+          )}
 
           {bac?.resolutions?.length > 0 && (
             <section className="space-y-3">
