@@ -9,6 +9,8 @@ const withTransaction    = require('../db/transaction')
 const { changePRStatus } = require('../utils/prWorkflow')
 const { announceAwards } = require('../utils/awardWorkflow')
 const { notifyBac }      = require('../utils/bacWorkflow')
+const { issueCertificate } = require('../utils/twgCertificate')
+const { checkSignature, METHODS } = require('../utils/signature')
 const { paging }         = require('../middleware/validate')
 const { CATEGORIES, categoryLabel } = require('../utils/categories')
 const { IN_AREA, areasOf, reviewsCategory } = require('../utils/twgAreas')
@@ -168,8 +170,12 @@ exports.certifyPR = asyncHandler(async (req, res) => {
   if (action === 'return' && !comment) return res.status(400).json({ message: 'A comment is required when returning it to the BAC' })
   const denied = await notReviewer(req.user, req.params.prId)
   if (denied) return res.status(denied.status).json({ message: denied.message })
+  // The certifier's signature on the certificate, signed on the screen or uploaded (optional).
+  const signature = action === 'certify' && req.body.signature
+    ? { image: checkSignature(req.body.signature), method: METHODS.includes(req.body.sign_method) ? req.body.sign_method : 'drawn' }
+    : null
 
-  const { pr, lots } = await withTransaction(async (conn) => {
+  const { pr, lots, certificate } = await withTransaction(async (conn) => {
     if (action === 'return') {
       const result = await changePRStatus(req.params.prId, 'bac_review', { user: req.user, via: 'twg', note: `Returned by the TWG: ${comment}`, conn })
       await conn.execute('UPDATE purchase_requests SET certification_return_reason = ? WHERE id = ?', [comment, result.pr.id])
@@ -185,7 +191,8 @@ exports.certifyPR = asyncHandler(async (req, res) => {
     await conn.execute(
       'UPDATE purchase_requests SET twg_certified_by = ?, twg_certified_at = NOW(), twg_certification_note = ?, certification_return_reason = NULL WHERE id = ?',
       [req.user.id, comment, result.pr.id])
-    return { pr: result.pr, lots }
+    const certificate = await issueCertificate(conn, { prId: result.pr.id, lotIds: lots.map(l => l.id), user: req.user, certNo: req.body.cert_no, signature })
+    return { pr: result.pr, lots, certificate }
   })
 
   const prLabel = pr.title ? `${pr.pr_number} — ${pr.title}` : pr.pr_number
@@ -197,7 +204,7 @@ exports.certifyPR = asyncHandler(async (req, res) => {
   const [procs] = await pool.execute("SELECT id FROM users WHERE role = 'procurement' AND is_active = 1")
   await Promise.all(procs.map(p => notify(req.io, p.id,
     `PR ${prLabel}: the TWG certified the canvass result. The purchase orders can be issued.`, 'success', pr.id, 'pr')))
-  res.json({ message: 'Certified. The purchase orders can be issued.' })
+  res.json({ message: `Certified in Cert. No. ${certificate.cert_no}. The purchase orders can be issued.`, certificate })
 })
 
 // GET /twg/stats - dashboard tiles for the TWG dashboard, counted over this

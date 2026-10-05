@@ -288,6 +288,7 @@ CREATE TABLE `lots` (
   -- Certified by the TWG after the BAC's review; only a certified award gets a purchase order.
   `certified_at`        DATETIME      NULL,
   `certified_by`        INT UNSIGNED  NULL,
+  `certificate_id`      INT UNSIGNED  NULL,   -- the TWG certificate; FK added after twg_certificates, below
   `po_id`              INT UNSIGNED  NULL,   -- FK added after purchase_orders, below
   `created_by`          INT UNSIGNED  NOT NULL,
   `created_at`          TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -340,6 +341,26 @@ CREATE TABLE `bac_resolutions` (
 
 ALTER TABLE `lots`
   ADD CONSTRAINT `fk_lots_resolution` FOREIGN KEY (`resolution_id`) REFERENCES `bac_resolutions` (`id`) ON DELETE SET NULL;
+
+-- One per TWG certification of a PR's approved awards, numbered per year
+-- (suggested 2026-10-001, editable). Printed as the Certification (Goods and services).
+CREATE TABLE `twg_certificates` (
+  `id`           INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `cert_no`      VARCHAR(30)  NOT NULL,
+  `pr_id`        INT UNSIGNED NOT NULL,
+  `certified_by` INT UNSIGNED NULL,
+  `signature`    MEDIUMTEXT   NULL,       -- PNG data URL, signed on the screen or uploaded
+  `sign_method`  ENUM('drawn','uploaded') NULL,
+  `created_at`   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_twg_cert_no` (`cert_no`),
+  KEY `idx_twg_cert_pr` (`pr_id`),
+  CONSTRAINT `fk_twg_cert_pr` FOREIGN KEY (`pr_id`)        REFERENCES `purchase_requests` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_twg_cert_by` FOREIGN KEY (`certified_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE `lots`
+  ADD CONSTRAINT `fk_lots_certificate` FOREIGN KEY (`certificate_id`) REFERENCES `twg_certificates` (`id`) ON DELETE SET NULL;
 
 -- Purchase orders
 -- One PO per supplier's awards (lots.po_id), so a PR can have several active

@@ -3,11 +3,13 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, CheckCircle2, RotateCcw, XCircle, Paperclip, FileDown,
-  Package, Info, Calendar, User, ShieldCheck, Undo2, ListChecks,
+  Package, Info, Calendar, User, ShieldCheck, Undo2, ListChecks, PenLine,
 } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
 import { PRStatusBadge, CategoryBadge } from '@/components/shared/StatusBadge'
@@ -17,6 +19,9 @@ import AttachmentsPanel from '@/components/shared/AttachmentsPanel'
 import AwardList from '@/components/awards/AwardList'
 import PpmpComparison, { usePrPpmp, ViewPpmpButton } from '@/components/ppmp/PpmpComparison'
 import BacPanel from '@/components/awards/BacPanel'
+import TwgCertificates from '@/components/awards/TwgCertificates'
+import SignatureDialog from '@/components/shared/SignatureDialog'
+import { useAuth } from '@/context/AuthContext'
 import { openPdf, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
 
@@ -24,9 +29,13 @@ export default function TwgReviewDetail() {
   const { id } = useParams()
   const nav = useNavigate()
   const qc = useQueryClient()
+  const { user } = useAuth()
 
   const [action, setAction] = useState(null)   // 'approve' | 'revise' | 'reject', or 'certify' | 'return' for a canvass result
   const [comment, setComment] = useState('')
+  const [certNo, setCertNo] = useState('')           // the certificate's number, suggested by the server
+  const [signature, setSignature] = useState(null)   // { image, method } on the certificate, or null
+  const [signing, setSigning] = useState(false)
 
   const { data: pr, isLoading: prLoading } = useQuery({
     queryKey: ['pr', id],
@@ -56,6 +65,12 @@ export default function TwgReviewDetail() {
     queryFn: () => api.get(`/lots/pr/${id}`).then(r => r.data),
     enabled: certifying,
   })
+  // The suggested Cert. No. for the certificate (same query as the resolutions panel).
+  const { data: bac } = useQuery({
+    queryKey: ['bac', 'pr', id],
+    queryFn: () => api.get(`/bac/${id}`).then(r => r.data),
+    enabled: certifying,
+  })
 
   const openPRForm = async () => {
     try { await openPdf(`/pr/${id}/pdf`) }
@@ -64,15 +79,21 @@ export default function TwgReviewDetail() {
 
   const certifyAction = action === 'certify' || action === 'return'
   const { mutate: submitReview, isPending: submitting } = useMutation({
-    mutationFn: () => api.post(`/twg/${id}/${certifyAction ? 'certify' : 'review'}`, { action, comment: comment.trim() || null }),
-    onSuccess: () => {
+    mutationFn: () => api.post(`/twg/${id}/${certifyAction ? 'certify' : 'review'}`, {
+      action, comment: comment.trim() || null,
+      ...(action === 'certify' ? { cert_no: certNo.trim() || undefined, signature: signature?.image, sign_method: signature?.method } : {}),
+    }),
+    onSuccess: ({ data }) => {
       const msg = action === 'approve' ? 'PR approved and forwarded to Procurement'
                 : action === 'revise'  ? 'Revision requested. The Fund Administrator has been notified.'
-                : action === 'certify' ? 'Canvass result certified. Procurement can issue the purchase orders.'
+                : action === 'certify' ? data.message
                 : action === 'return'  ? 'Returned to the BAC with your comment'
                                        : 'PR rejected. The Fund Administrator has been notified.'
-      toast.success(msg)
+      toast.success(msg, action === 'certify' && data.certificate ? {
+        action: { label: 'Print certificate', onClick: () => openPdf(`/bac/${id}/certificates/${data.certificate.id}/pdf`).catch(async (err) => toast.error(await blobErrorMessage(err, 'Could not open the TWG Certification'))) },
+      } : undefined)
       qc.invalidateQueries({ queryKey: ['twg'] })
+      qc.invalidateQueries({ queryKey: ['bac', 'pr', id] })
       qc.invalidateQueries({ queryKey: ['pr', id] })
       qc.invalidateQueries({ queryKey: ['lots', id] })
       setAction(null)
@@ -107,6 +128,8 @@ export default function TwgReviewDetail() {
   function openAction(next) {
     setAction(next)
     setComment('')
+    setCertNo(bac?.suggested_cert_no || '')
+    setSignature(null)
   }
 
   return (
@@ -213,6 +236,8 @@ export default function TwgReviewDetail() {
           </CardContent>
         </Card>
       )}
+
+      <TwgCertificates prId={String(pr.id)} />
 
       {/* Notice if already reviewed */}
       {!['submitted', 'twg_certification'].includes(pr.status) && (
@@ -453,6 +478,31 @@ export default function TwgReviewDetail() {
               </div>
             )}
 
+            {/* The certificate: its number and, optionally, the certifier's signature. */}
+            {action === 'certify' && (
+              <div className="grid grid-cols-1 gap-4 rounded-lg border border-[--color-border] bg-[--color-canvas] p-3.5 sm:grid-cols-[200px_1fr]">
+                <div className="space-y-1.5">
+                  <Label htmlFor="cert-no">Cert. No.</Label>
+                  <Input id="cert-no" value={certNo} maxLength={30} onChange={e => setCertNo(e.target.value)} placeholder="e.g. 2026-10-001" />
+                  <p className="text-[10px] text-[--color-text-muted]">Suggested. Change it to follow the paper numbering.</p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Signature on the certificate <span className="text-[--color-text-muted] font-normal text-xs">(optional)</span></Label>
+                  {signature ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="rounded-md border border-[--color-border] bg-white px-2 py-1"><img src={signature.image} alt={`Signature of ${user?.name || 'the TWG member'}`} className="h-10" /></div>
+                      <Button type="button" size="sm" variant="ghost" onClick={() => setSignature(null)}>Remove</Button>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-[--color-text-secondary]">Unsigned, the certificate prints a blank line to sign by hand.</p>
+                  )}
+                  <Button type="button" size="sm" variant="outline" className="gap-1.5" onClick={() => setSigning(true)}>
+                    <PenLine className="size-3.5" /> {signature ? 'Sign again' : 'Sign the certificate'}
+                  </Button>
+                </div>
+              </div>
+            )}
+
             <textarea
               value={comment}
               onChange={e => setComment(e.target.value)}
@@ -464,7 +514,7 @@ export default function TwgReviewDetail() {
                 : action === 'revise' ? 'Be specific: which items, what to fix, why…'
                 : 'Reason for rejection (required)…'
               }
-              autoFocus
+              autoFocus={action !== 'certify'}
               className="w-full rounded-md border border-[--color-border] bg-[--color-surface] px-3 py-2 text-ui-sm text-[--color-text-primary] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent"
             />
             {action === 'revise' && !comment.trim() && (
@@ -500,6 +550,7 @@ export default function TwgReviewDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {signing && <SignatureDialog signer={user?.name} onClose={() => setSigning(false)} onSave={setSignature} />}
     </div>
   )
 }

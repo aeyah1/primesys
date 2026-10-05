@@ -14,6 +14,7 @@ import api from '@/lib/axios'
 import CanvassPanel from '@/components/awards/CanvassPanel'
 import BacPanel from '@/components/awards/BacPanel'
 import BacReviewSheet from '@/components/awards/BacReviewSheet'
+import TwgCertificates from '@/components/awards/TwgCertificates'
 import { useRefreshAwards } from '@/components/awards/supplier'
 import ProcurementActions from './ProcurementActions'
 
@@ -191,6 +192,13 @@ export default function CanvassPage() {
             <section className="space-y-3">
               <Heading id="resolutions">BAC resolutions</Heading>
               <BacPanel prId={String(pr.id)} part="resolutions" />
+            </section>
+          )}
+
+          {bac?.certificates?.length > 0 && (
+            <section className="space-y-3">
+              <Heading id="certificates">TWG certificates</Heading>
+              <TwgCertificates prId={String(pr.id)} />
             </section>
           )}
         </>

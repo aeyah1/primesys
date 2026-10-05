@@ -13,6 +13,8 @@ const { notifyAreaReviewers } = require('../utils/twgAreas')
 const { loadOrgSettings } = require('../utils/orgSettings')
 const { M }            = require('../pdf/campusForm')
 const drawResolution   = require('../pdf/bacResolution')
+const drawTwgCertificate = require('../pdf/twgCertificate')
+const { suggestCertNo, certificateOf } = require('../utils/twgCertificate')
 const { resolutionOf, noticeFor, drawOf, noticeLeads } = require('../utils/awardNotice')
 
 // The Bids and Awards Committee's work
@@ -165,6 +167,10 @@ exports.summary = asyncHandler(async (req, res) => {
      WHERE r.purchase_request_id = ? ORDER BY r.id`, [pr.id])
   const [lots] = await pool.execute(
     'SELECT * FROM lots WHERE purchase_request_id = ? AND resolution_id IS NOT NULL ORDER BY id', [pr.id])
+  const [certificates] = await pool.execute(`
+    SELECT c.id, c.cert_no, c.created_at, c.signature IS NOT NULL AS signed, u.name AS certified_by_name
+      FROM twg_certificates c LEFT JOIN users u ON u.id = c.certified_by
+     WHERE c.pr_id = ? ORDER BY c.id`, [pr.id])
   const live = !pr.deleted_at
   const withBac = live && pr.status === 'bac_review'
   const blocked = live && pr.status === 'bidding' ? await submitBlock(pool, pr) : null
@@ -185,6 +191,9 @@ exports.summary = asyncHandler(async (req, res) => {
         notices: noticeLeads(theirs),
       }
     }),
+    // The TWG's certificates, and the Cert. No. suggested for the next one while the TWG certifies.
+    certificates: certificates.map(c => ({ ...c, signed: !!c.signed })),
+    suggested_cert_no: live && pr.status === 'twg_certification' ? await suggestCertNo(pool) : null,
     permissions: {
       submit:  live && pr.status === 'bidding' && !blocked && SECRETARIAT.includes(req.user.role),
       approve: withBac && BAC_DECIDERS.includes(req.user.role),
@@ -211,6 +220,14 @@ exports.resolutionPdf = asyncHandler(async (req, res) => {
   const orgSettings = await loadOrgSettings(pool)
   sendPdf(res, `BAC-Resolution-${resolution.resolution_number}.pdf`, (doc) =>
     drawResolution(doc, { resolution, pr, abc, lots, orgSettings }))
+})
+
+// GET /bac/:prId/certificates/:cid/pdf - the TWG's Certification (Goods and services).
+exports.certificatePdf = asyncHandler(async (req, res) => {
+  const data = await certificateOf(pool, req.params.prId, req.params.cid)
+  const orgSettings = await loadOrgSettings(pool)
+  sendPdf(res, `TWG-Certification-${data.cert.cert_no.replace(/[^A-Za-z0-9.-]+/g, '-')}.pdf`, (doc) =>
+    drawTwgCertificate(doc, { ...data, orgSettings }))
 })
 
 // GET /bac/:prId/resolutions/:rid/notice/:lotId - the Notice of Award to the
