@@ -1,11 +1,14 @@
 // TWG (Technical Working Group) controller - isolated from pr.controller.
-// Owns the review surface between a requestor's submission and procurement bidding.
+// Owns the review of a requestor's submission before the canvass, and the
+// certification of the canvass result the BAC approved before any purchase order.
 
 const pool         = require('../db/pool')
 const notify       = require('../utils/notify')
 const asyncHandler = require('../utils/asyncHandler')
 const withTransaction    = require('../db/transaction')
 const { changePRStatus } = require('../utils/prWorkflow')
+const { announceAwards } = require('../utils/awardWorkflow')
+const { notifyBac }      = require('../utils/bacWorkflow')
 const { paging }         = require('../middleware/validate')
 const { CATEGORIES, categoryLabel } = require('../utils/categories')
 const { IN_AREA, areasOf, reviewsCategory } = require('../utils/twgAreas')
@@ -19,14 +22,16 @@ exports.areas = asyncHandler(async (req, res) => {
   res.json({ all, areas: all ? CATEGORIES : await areasOf(pool, req.user.id) })
 })
 
-// GET /twg/pending - PRs awaiting TWG review (status = 'submitted') in this
-// member's areas, oldest submission first. ?category= narrows to one area.
+// GET /twg/pending?stage=review|certify - PRs awaiting the TWG's review
+// (submitted) or certification (twg_certification) in this member's areas,
+// oldest first. ?category= narrows to one area.
 exports.listPending = asyncHandler(async (req, res) => {
   const { page, limit, offset } = paging(req.query, { defaultLimit: 20, maxLimit: 100 })
   const search = req.query.search?.trim()
   const area   = areaFilter(req.user)
+  const status = req.query.stage === 'certify' ? 'twg_certification' : 'submitted'
 
-  let where = ["pr.status = 'submitted'", 'pr.deleted_at IS NULL', area.sql]
+  let where = [`pr.status = '${status}'`, 'pr.deleted_at IS NULL', area.sql]
   const params = [...area.params]
   if (CATEGORIES.includes(req.query.category)) { where.push('pr.category = ?'); params.push(req.query.category) }
   if (search) {
@@ -35,7 +40,7 @@ exports.listPending = asyncHandler(async (req, res) => {
   }
   const w = `WHERE ${where.join(' AND ')}`
 
-  // submitted_at: when it was last sent to the TWG (a resubmission counts).
+  // submitted_at: when it was last sent to the TWG for this stage (a resubmission counts).
   // last_reviewer_name: the TWG member who last decided on it, if any.
   // uncovered: no active TWG member reviews its area (shown to admins).
   const [rows] = await pool.execute(`
@@ -43,8 +48,11 @@ exports.listPending = asyncHandler(async (req, res) => {
            u.name AS created_by_name,
            q.label AS quarter_label, q.year AS quarter_year,
            (SELECT COUNT(*) FROM pr_items WHERE pr_id = pr.id) AS item_count,
-           COALESCE((SELECT MAX(sl.created_at) FROM pr_status_logs sl WHERE sl.pr_id = pr.id AND sl.to_status = 'submitted'),
+           COALESCE((SELECT MAX(sl.created_at) FROM pr_status_logs sl WHERE sl.pr_id = pr.id AND sl.to_status = '${status}'),
                     pr.created_at) AS submitted_at,
+           pr.mode_of_procurement,
+           (SELECT COALESCE(SUM(l.awarded_amount), 0) FROM lots l
+             WHERE l.purchase_request_id = pr.id AND l.status = 'awarded' AND l.certified_at IS NULL) AS awarded_total,
            (SELECT ru.name FROM pr_status_logs rl JOIN users ru ON ru.id = rl.changed_by
              WHERE rl.pr_id = pr.id AND rl.from_status = 'submitted'
                AND rl.to_status IN ('twg_review', 'revision_requested', 'rejected')
@@ -68,6 +76,19 @@ exports.listPending = asyncHandler(async (req, res) => {
   })
 })
 
+// Why this member can't decide on the PR (null when they can): only a reviewer of
+// its area decides (admins supervise, they don't review). The route already
+// answers 404 for a PR this member can't see; this covers one they can see
+// because they reviewed it before, in an area no longer theirs.
+async function notReviewer(user, prId) {
+  const [[target]] = await pool.execute('SELECT category FROM purchase_requests WHERE id = ?', [prId])
+  if (!target) return { status: 404, message: 'PR not found' }
+  if (!(await reviewsCategory(pool, user.id, target.category))) {
+    return { status: 403, message: `This PR is in ${categoryLabel(target.category)}, which is not one of your review areas` }
+  }
+  return null
+}
+
 // POST /twg/:prId/review - body: { action: 'approve' | 'revise' | 'reject', comment }
 // Comment is REQUIRED for 'revise' and 'reject'; optional for 'approve'.
 exports.reviewPR = asyncHandler(async (req, res) => {
@@ -80,14 +101,8 @@ exports.reviewPR = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: `A comment is required when ${what}` })
   }
 
-  // Only a reviewer of the PR's area decides on it (admins supervise, they don't review). The route
-  // already answers 404 for a PR this member can't see; this covers one they
-  // can see because they reviewed it before, in an area no longer theirs.
-  const [[target]] = await pool.execute('SELECT category FROM purchase_requests WHERE id = ?', [req.params.prId])
-  if (!target) return res.status(404).json({ message: 'PR not found' })
-  if (!(await reviewsCategory(pool, req.user.id, target.category))) {
-    return res.status(403).json({ message: `This PR is in ${categoryLabel(target.category)}, which is not one of your review areas` })
-  }
+  const denied = await notReviewer(req.user, req.params.prId)
+  if (denied) return res.status(denied.status).json({ message: denied.message })
 
   const toStatus =
     action === 'approve' ? 'twg_review'         :
@@ -119,7 +134,7 @@ exports.reviewPR = asyncHandler(async (req, res) => {
     )
     for (const p of procs) {
       await notify(req.io, p.id,
-        `PR ${prLabel} (${categoryLabel(target.category)}) was approved by TWG and is ready for canvass.`,
+        `PR ${prLabel} (${categoryLabel(pr.category)}) was approved by TWG and is ready for canvass.`,
         'info', pr.id, 'pr'
       )
     }
@@ -142,6 +157,49 @@ exports.reviewPR = asyncHandler(async (req, res) => {
   res.json({ message: `PR ${resultLabel}` })
 })
 
+// POST /twg/:prId/certify - body: { action: 'certify' | 'return', comment }
+// The TWG checks the canvass result the BAC approved against the request. On
+// certifying, its awards are final and Procurement issues the purchase orders;
+// on returning (comment required), the BAC reviews it again.
+exports.certifyPR = asyncHandler(async (req, res) => {
+  const { action } = req.body
+  const comment = req.body.comment?.trim() || null
+  if (!['certify', 'return'].includes(action)) return res.status(400).json({ message: 'Action must be "certify" or "return"' })
+  if (action === 'return' && !comment) return res.status(400).json({ message: 'A comment is required when returning it to the BAC' })
+  const denied = await notReviewer(req.user, req.params.prId)
+  if (denied) return res.status(denied.status).json({ message: denied.message })
+
+  const { pr, lots } = await withTransaction(async (conn) => {
+    if (action === 'return') {
+      const result = await changePRStatus(req.params.prId, 'bac_review', { user: req.user, via: 'twg', note: `Returned by the TWG: ${comment}`, conn })
+      await conn.execute('UPDATE purchase_requests SET certification_return_reason = ? WHERE id = ?', [comment, result.pr.id])
+      return { pr: result.pr, lots: [] }
+    }
+    const result = await changePRStatus(req.params.prId, 'for_po', { user: req.user, via: 'twg', note: comment || 'Canvass result certified by the TWG', conn })
+    const [lots] = await conn.execute(
+      "SELECT id, lot_number, awarded_to FROM lots WHERE purchase_request_id = ? AND status = 'awarded' AND certified_at IS NULL FOR UPDATE", [result.pr.id])
+    if (lots.length) {
+      await conn.execute(`UPDATE lots SET certified_at = NOW(), certified_by = ? WHERE id IN (${lots.map(() => '?').join(', ')})`,
+        [req.user.id, ...lots.map(l => l.id)])
+    }
+    await conn.execute(
+      'UPDATE purchase_requests SET twg_certified_by = ?, twg_certified_at = NOW(), twg_certification_note = ?, certification_return_reason = NULL WHERE id = ?',
+      [req.user.id, comment, result.pr.id])
+    return { pr: result.pr, lots }
+  })
+
+  const prLabel = pr.title ? `${pr.pr_number} — ${pr.title}` : pr.pr_number
+  if (action === 'return') {
+    await notifyBac(req.io, pr.id, pr.pr_number, `PR ${prLabel} was returned by the TWG: ${comment}`)
+    return res.json({ message: 'Returned to the BAC' })
+  }
+  await announceAwards(req.io, pr.pr_number, lots)
+  const [procs] = await pool.execute("SELECT id FROM users WHERE role = 'procurement' AND is_active = 1")
+  await Promise.all(procs.map(p => notify(req.io, p.id,
+    `PR ${prLabel}: the TWG certified the canvass result. The purchase orders can be issued.`, 'success', pr.id, 'pr')))
+  res.json({ message: 'Certified. The purchase orders can be issued.' })
+})
+
 // GET /twg/stats - dashboard tiles for the TWG dashboard, counted over this
 // member's review areas (admins: all), with the pending count per area.
 exports.stats = asyncHandler(async (req, res) => {
@@ -151,6 +209,7 @@ exports.stats = asyncHandler(async (req, res) => {
   const [[counts]] = await pool.execute(`
     SELECT
       SUM(pr.status = 'submitted')          AS pending,
+      SUM(pr.status = 'twg_certification')  AS certify_pending,
       SUM(pr.status = 'twg_review')         AS approved_total,
       SUM(pr.status = 'revision_requested') AS revision_requested_total
     FROM purchase_requests pr
@@ -183,6 +242,7 @@ exports.stats = asyncHandler(async (req, res) => {
 
   res.json({
     pending:                  Number(counts.pending          || 0),
+    certify_pending:          Number(counts.certify_pending  || 0),
     approved_total:           Number(counts.approved_total   || 0),
     revision_requested_total: Number(counts.revision_requested_total || 0),
     approved_week:            Number(weekly.approved_week    || 0),
@@ -193,7 +253,7 @@ exports.stats = asyncHandler(async (req, res) => {
   })
 })
 
-// GET /twg/recent - last 10 PRs THIS TWG user has actioned.
+// GET /twg/recent - last 10 PRs THIS TWG user has reviewed or certified.
 exports.recent = asyncHandler(async (req, res) => {
   const [rows] = await pool.execute(`
     SELECT psl.id, psl.from_status, psl.to_status, psl.note, psl.created_at,
@@ -201,7 +261,7 @@ exports.recent = asyncHandler(async (req, res) => {
     FROM pr_status_logs psl
     JOIN purchase_requests pr ON pr.id = psl.pr_id
     WHERE psl.changed_by = ?
-      AND psl.to_status IN ('twg_review', 'revision_requested', 'rejected')
+      AND (psl.to_status IN ('twg_review', 'revision_requested', 'rejected') OR psl.from_status = 'twg_certification')
     ORDER BY psl.created_at DESC
     LIMIT 10
   `, [req.user.id])

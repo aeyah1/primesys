@@ -3,7 +3,7 @@ import {
   LayoutDashboard, FileText, ShoppingCart, Truck,
   Users, Calendar, ChevronRight, Bell, Archive,
   LogOut, Settings as SettingsIcon, Gavel, AlarmClock, BookOpen,
-  ClipboardCheck, BarChart3, Scale, FilePlus, PackageCheck, Building2, Store, ListChecks,
+  ClipboardCheck, BarChart3, Scale, FilePlus, PackageCheck, Building2, ListChecks,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useNavigate } from 'react-router-dom'
@@ -20,7 +20,6 @@ const NOTIFICATIONS = { to: '/notifications', label: 'Notifications',   icon: Be
 const REMINDERS     = { to: '/reminders',     label: 'Reminders',       icon: AlarmClock }
 const GUIDE         = { to: '/guide',         label: 'User Guide',      icon: BookOpen }
 const ALL_REQUESTS  = { to: '/pr',            label: 'All Requests',    icon: FileText }
-const SUPPLIERS     = { to: '/suppliers',     label: 'Suppliers',       icon: Store }
 const PPMP          = { to: '/ppmp',          label: 'PPMP',            icon: ListChecks }
 const ACCOUNT       = { label: 'Account', items: [{ to: '/settings', label: 'Settings', icon: SettingsIcon }] }
 const RECORDS       = { label: 'Records', items: [
@@ -39,7 +38,7 @@ function menuFor(role) {
       return [{ label: 'My Work', items: [home, { to: '/twg/reviews', label: 'To Review', icon: ClipboardCheck }, PPMP] },
               { label: 'Help', items: [NOTIFICATIONS, GUIDE] }, ACCOUNT]
     case 'procurement':
-      return [{ label: 'My Work', items: [home, ALL_REQUESTS, { to: '/po', label: 'Purchase Orders', icon: ShoppingCart }, SUPPLIERS] },
+      return [{ label: 'My Work', items: [home, ALL_REQUESTS, { to: '/po', label: 'Purchase Orders', icon: ShoppingCart }] },
               RECORDS, { label: 'Help', items: [NOTIFICATIONS, REMINDERS, GUIDE] }, ACCOUNT]
     case 'bac':
       return [{ label: 'My Work', items: [home, PPMP] }, { label: 'Help', items: [NOTIFICATIONS, GUIDE] }, ACCOUNT]
@@ -50,7 +49,6 @@ function menuFor(role) {
       return [{ label: 'Overview', items: [home, ALL_REQUESTS] }, RECORDS,
               { label: 'Administration', items: [
                 { to: '/users', label: 'User Management', icon: Users },
-                SUPPLIERS,
                 { to: '/settings?tab=organization', label: 'Organization', icon: Building2 },
                 { to: '/quarters', label: 'Quarters', icon: Calendar },
               ] },

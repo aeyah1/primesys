@@ -7,9 +7,8 @@ const { approverFor } = require('../utils/orgSettings')
 // and filed as-is.
 //
 // This file deliberately does not use the shared report helpers in
-// utils/pdfHelpers.js (beyond the page margin): those style the PO, the
-// Inspection Report and the Abstract of Quotations, and this form must not
-// drift when they are restyled.
+// utils/pdfHelpers.js (beyond the page margin): those style the PO and the
+// Inspection Report, and this form must not drift when they are restyled.
 //
 // Three item tiers map onto columns the system already has:
 //   group_label  -> section heading   ("WINDOW BLINDS", bold)

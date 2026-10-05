@@ -13,7 +13,7 @@ import api from '@/lib/axios'
 const STEP_HELP = [
   'You describe what you need and submit it.',
   'The Technical Working Group checks the details and may ask for changes.',
-  'The Procurement Office asks suppliers for prices and picks one.',
+  'The canvasser asks suppliers for prices; the BAC and the TWG review the chosen ones.',
   'A purchase order is sent to the supplier.',
   'The Supply Office receives the items, and your request is done.',
 ]
@@ -22,7 +22,7 @@ const STEP_HELP = [
 const TABS = [
   { key: 'needs_me',    label: 'Needs me',    statuses: ['draft', 'revision_requested'],
     empty: 'Nothing waits for you. Drafts and requests sent back for changes appear here.' },
-  { key: 'in_progress', label: 'In progress', statuses: ['submitted', 'twg_review', 'bidding', 'for_po'],
+  { key: 'in_progress', label: 'In progress', statuses: ['submitted', 'twg_review', 'bidding', 'bac_review', 'twg_certification', 'for_po'],
     empty: 'No request is moving right now.' },
   { key: 'done',        label: 'Done',        statuses: ['completed', 'rejected', 'cancelled'],
     empty: 'Finished, rejected and cancelled requests appear here.' },

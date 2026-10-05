@@ -38,12 +38,7 @@ const SETTING_KEYS = [
   'canvasser_name',
   'canvasser_designation',
 
-  // How many supplier quotations the campus expects before an award.
-  'minimum_quotations',
-
-  // The Bids and Awards Committee: whether awards wait for its approval, and
-  // its chairman and members as they sign the BAC Resolution.
-  'bac_approval_required',        // '1' on; anything else off
+  // The Bids and Awards Committee's chairman and members as they sign the BAC Resolution.
   'bac_chairman_name',
   'bac_chairman_designation',
   'bac_members',                  // one name per line
@@ -92,13 +87,10 @@ function approverFor(org, total) {
     : { name: org.approved_by_name    || '', designation: org.approved_by_designation    || '', threshold, above: false }
 }
 
-// True when new awards wait for the BAC's approval.
-const bacApprovalRequired = (org) => String(org.bac_approval_required || '').trim() === '1'
-
 // The BAC members, one per line, blanks dropped.
 const bacMembers = (org) => String(org.bac_members || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean)
 
 module.exports = {
   SETTING_KEYS, FUND_SOURCES, FUND_SOURCE_VALUES, PR_PREFIX, DEFAULT_PR_PREFIX, DEFAULT_APPROVER_THRESHOLD,
-  loadOrgSettings, prNumberPrefix, fundCodeFor, approverFor, bacApprovalRequired, bacMembers,
+  loadOrgSettings, prNumberPrefix, fundCodeFor, approverFor, bacMembers,
 }

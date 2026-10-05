@@ -58,8 +58,7 @@ function pesosInWords(value) {
 }
 
 // Returns the drawing helpers bound to one document. Width is read from the
-// page rather than assumed, because the Abstract of Quotations turns landscape
-// once there are enough suppliers to compare.
+// page rather than assumed, so a landscape page draws to its own margins.
 function forms(doc) {
   const pageW = () => doc.page.width - M * 2
   // Text inside a box, vertically centred.

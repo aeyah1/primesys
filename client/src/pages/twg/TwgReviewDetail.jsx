@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, CheckCircle2, RotateCcw, XCircle, Paperclip, FileDown,
-  Package, Info, Calendar, User,
+  Package, Info, Calendar, User, ShieldCheck, Undo2,
 } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -11,9 +11,11 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
 import { PRStatusBadge, CategoryBadge } from '@/components/shared/StatusBadge'
-import { fmtCurrency, fmtDatetime, CATEGORY_LABELS, groupItemsBySection } from '@/lib/utils'
+import { fmtCurrency, fmtDatetime, CATEGORY_LABELS, PR_STATUS_LABELS, groupItemsBySection } from '@/lib/utils'
 import RequestContextDisplay from '@/components/shared/RequestContextDisplay'
 import AttachmentsPanel from '@/components/shared/AttachmentsPanel'
+import AwardList from '@/components/awards/AwardList'
+import BacPanel from '@/components/awards/BacPanel'
 import { openPdf, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
 
@@ -22,7 +24,7 @@ export default function TwgReviewDetail() {
   const nav = useNavigate()
   const qc = useQueryClient()
 
-  const [action, setAction] = useState(null)   // 'approve' | 'revise' | null
+  const [action, setAction] = useState(null)   // 'approve' | 'revise' | 'reject', or 'certify' | 'return' for a canvass result
   const [comment, setComment] = useState('')
 
   const { data: pr, isLoading: prLoading } = useQuery({
@@ -42,23 +44,35 @@ export default function TwgReviewDetail() {
     queryFn: () => api.get(`/pr/${id}/attachments`).then(r => r.data),
   })
 
+  // The canvass result the BAC approved, while the TWG certifies it.
+  const certifying = pr?.status === 'twg_certification'
+  const { data: lots = [] } = useQuery({
+    queryKey: ['lots', id],
+    queryFn: () => api.get(`/lots/pr/${id}`).then(r => r.data),
+    enabled: certifying,
+  })
+
   const openPRForm = async () => {
     try { await openPdf(`/pr/${id}/pdf`) }
     catch (err) { toast.error(await blobErrorMessage(err, 'Failed to open the PR Form')) }
   }
 
+  const certifyAction = action === 'certify' || action === 'return'
   const { mutate: submitReview, isPending: submitting } = useMutation({
-    mutationFn: () => api.post(`/twg/${id}/review`, { action, comment: comment.trim() || null }),
+    mutationFn: () => api.post(`/twg/${id}/${certifyAction ? 'certify' : 'review'}`, { action, comment: comment.trim() || null }),
     onSuccess: () => {
       const msg = action === 'approve' ? 'PR approved and forwarded to Procurement'
                 : action === 'revise'  ? 'Revision requested. The Fund Administrator has been notified.'
+                : action === 'certify' ? 'Canvass result certified. Procurement can issue the purchase orders.'
+                : action === 'return'  ? 'Returned to the BAC with your comment'
                                        : 'PR rejected. The Fund Administrator has been notified.'
       toast.success(msg)
       qc.invalidateQueries({ queryKey: ['twg'] })
       qc.invalidateQueries({ queryKey: ['pr', id] })
+      qc.invalidateQueries({ queryKey: ['lots', id] })
       setAction(null)
       setComment('')
-      nav('/twg/reviews')
+      nav(certifyAction ? '/twg/reviews?stage=certify' : '/twg/reviews')
     },
     onError: (err) => toast.error(err?.response?.data?.message || 'Failed to submit review'),
   })
@@ -77,7 +91,8 @@ export default function TwgReviewDetail() {
 
   // Only a reviewer of the PR's area (or an admin) decides it; the server says which.
   const isReviewable = pr.status === 'submitted' && !!pr.permissions?.twg_review
-  const outsideArea  = pr.status === 'submitted' && !pr.permissions?.twg_review
+  const outsideArea  = (pr.status === 'submitted' && !pr.permissions?.twg_review) || (certifying && !pr.permissions?.twg_certify)
+  const isCertifiable = certifying && !!pr.permissions?.twg_certify
   const grandTotal = items.reduce(
     (sum, it) => sum + (parseFloat(it.quantity || 0) * parseFloat(it.estimated_cost || 0)),
     0
@@ -106,6 +121,17 @@ export default function TwgReviewDetail() {
             <p className="text-ui-sm text-[--color-text-primary] mt-1">{pr.title}</p>
           )}
         </div>
+
+        {isCertifiable && (
+          <div className="flex gap-2 flex-wrap">
+            <Button variant="outline" className="gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50" onClick={() => openAction('return')}>
+              <Undo2 className="size-4" /> Return to the BAC
+            </Button>
+            <Button className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white border-0" onClick={() => openAction('certify')}>
+              <ShieldCheck className="size-4" /> Certify
+            </Button>
+          </div>
+        )}
 
         {isReviewable && (
           <div className="flex gap-2 flex-wrap">
@@ -163,13 +189,33 @@ export default function TwgReviewDetail() {
         </div>
       )}
 
+      {/* The canvass result to certify: the winners the BAC approved, its resolution, and the canvass documents below */}
+      {certifying && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="size-4 text-[--color-text-muted]" />
+              <CardTitle>Canvass Result to Certify</CardTitle>
+            </div>
+            <p className="text-ui-xs text-[--color-text-secondary] mt-1">
+              The BAC approved these winners. Check them against the requested items and the canvass documents in the attachments,
+              then certify them, or return them to the BAC with your comment.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <AwardList lots={lots} canManage={false} prStatus={pr.status} />
+            <BacPanel prId={String(pr.id)} part="resolutions" />
+          </CardContent>
+        </Card>
+      )}
+
       {/* Notice if already reviewed */}
-      {pr.status !== 'submitted' && (
+      {!['submitted', 'twg_certification'].includes(pr.status) && (
         <div className="rounded-xl border border-[--color-border] bg-[--color-canvas] px-5 py-3.5">
           <div className="flex items-start gap-2">
             <Info className="size-4 text-[--color-text-muted] mt-0.5 shrink-0" />
             <div className="text-ui-xs text-[--color-text-secondary]">
-              This PR is in status <span className="font-semibold">{pr.status}</span> and is no longer in the TWG review queue.
+              This PR is now <span className="font-semibold">{PR_STATUS_LABELS[pr.status] || pr.status}</span> and is no longer in the TWG's queue.
               {pr.twg_comment && (
                 <div className="mt-2 rounded-lg border border-[--color-border] bg-[--color-surface] px-3 py-2">
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-[--color-text-muted] mb-1">Latest TWG comment</p>
@@ -290,6 +336,8 @@ export default function TwgReviewDetail() {
           title={
             action === 'approve' ? 'Approve & Forward to Procurement'
             : action === 'revise' ? 'Request Revision from Fund Administrator'
+            : action === 'certify' ? 'Certify the Canvass Result'
+            : action === 'return' ? 'Return to the BAC'
             : 'Reject Purchase Request'
           }
         >
@@ -300,6 +348,12 @@ export default function TwgReviewDetail() {
               )}
               {action === 'revise' && (
                 <>Tell <span className="font-medium text-[--color-text-primary]">{pr.created_by_name}</span> what needs to change. This comment will appear on the PR and in their notification.</>
+              )}
+              {action === 'certify' && (
+                <>You're certifying the canvass result of <span className="font-mono font-bold text-[--color-brand]">{pr.pr_number}</span>. Procurement then issues the purchase orders. You can leave an optional note.</>
+              )}
+              {action === 'return' && (
+                <>Tell the BAC what is wrong with the canvass result of <span className="font-mono font-bold text-[--color-brand]">{pr.pr_number}</span>. It reviews it again.</>
               )}
               {action === 'reject' && (
                 <>Reject <span className="font-mono font-bold text-[--color-brand]">{pr.pr_number}</span> outright. The PR won't move forward to Procurement. A reason is required so <span className="font-medium text-[--color-text-primary]">{pr.created_by_name}</span> understands why.</>
@@ -371,6 +425,8 @@ export default function TwgReviewDetail() {
               rows={5}
               placeholder={
                 action === 'approve' ? 'Optional note for procurement…'
+                : action === 'certify' ? 'Optional note…'
+                : action === 'return' ? 'What does not match the request, and why…'
                 : action === 'revise' ? 'Be specific: which items, what to fix, why…'
                 : 'Reason for rejection (required)…'
               }
@@ -383,21 +439,26 @@ export default function TwgReviewDetail() {
             {action === 'reject' && !comment.trim() && (
               <p className="text-[10px] text-red-700">A reason is required when rejecting.</p>
             )}
+            {action === 'return' && !comment.trim() && (
+              <p className="text-[10px] text-amber-700">A comment is required when returning it to the BAC.</p>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAction(null)} disabled={submitting}>Cancel</Button>
             <Button
               onClick={() => submitReview()}
-              disabled={submitting || ((action === 'revise' || action === 'reject') && !comment.trim())}
+              disabled={submitting || (['revise', 'reject', 'return'].includes(action) && !comment.trim())}
               className={
-                action === 'approve' ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-0 gap-1.5'
-                : action === 'revise' ? 'bg-amber-600 hover:bg-amber-700 text-white border-0 gap-1.5'
+                action === 'approve' || action === 'certify' ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-0 gap-1.5'
+                : action === 'revise' || action === 'return' ? 'bg-amber-600 hover:bg-amber-700 text-white border-0 gap-1.5'
                 : 'bg-red-600 hover:bg-red-700 text-white border-0 gap-1.5'
               }
             >
               {submitting
                 ? 'Submitting…'
                 : action === 'approve' ? <><CheckCircle2 className="size-4" /> Approve & Forward</>
+                : action === 'certify' ? <><ShieldCheck className="size-4" /> Certify</>
+                : action === 'return' ? <><Undo2 className="size-4" /> Return to the BAC</>
                 : action === 'revise' ? <><RotateCcw className="size-4" /> Send for Revision</>
                 : <><XCircle className="size-4" /> Reject PR</>
               }

@@ -3,9 +3,9 @@
 // Competitive bidding is the default method in law; everything else is an
 // alternative mode used when its conditions are met. What this campus actually
 // runs for most purchases is Small Value Procurement or Shopping: canvass at
-// least three suppliers, compare their quotations, award the lowest. That is
-// what the system's canvass and award screens do, despite the internal status
-// being called "bidding".
+// least three suppliers, compare their quotations, award the lowest. The
+// canvass is done outside the system; the system records its winners while the
+// request is in canvass (the internal status "bidding").
 //
 // Recording the mode matters because it decides which path a purchase must
 // follow, and because it is what an auditor looks for on the record.

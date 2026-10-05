@@ -23,7 +23,8 @@ function fmtSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-export default function AttachmentsPanel({ endpoint, queryKey, canDelete, canUpload }) {
+// onChange(): after a file is added or removed, for views that depend on the files.
+export default function AttachmentsPanel({ endpoint, queryKey, canDelete, canUpload, onChange }) {
   const confirm = useConfirm()
   const qc      = useQueryClient()
   const fileRef = useRef()
@@ -36,7 +37,7 @@ export default function AttachmentsPanel({ endpoint, queryKey, canDelete, canUpl
 
   const { mutate: deleteFile } = useMutation({
     mutationFn: (id) => api.delete(`${endpoint}/attachments/${id}`),
-    onSuccess: () => { toast.success('Attachment removed'); qc.invalidateQueries({ queryKey: [queryKey] }) },
+    onSuccess: () => { toast.success('Attachment removed'); qc.invalidateQueries({ queryKey: [queryKey] }); onChange?.() },
     onError: () => toast.error('Failed to remove attachment'),
   })
 
@@ -57,6 +58,7 @@ export default function AttachmentsPanel({ endpoint, queryKey, canDelete, canUpl
       })
       toast.success(`${file.name} uploaded`)
       qc.invalidateQueries({ queryKey: [queryKey] })
+      onChange?.()
     } catch (err) {
       toast.error(err.response?.data?.message || 'Upload failed')
     } finally {

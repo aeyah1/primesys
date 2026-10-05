@@ -71,7 +71,7 @@ const KEYS = [
   ...[...FIELDS, ...LETTERHEAD, ...FUND_CODES].map(f => f.key),
   'approver_threshold',
   ...SIGNATORIES.flatMap(s => [`${s.key}_name`, `${s.key}_designation`]),
-  'bac_approval_required', 'bac_members',
+  'bac_members',
 ]
 const EMPTY = Object.fromEntries(KEYS.map(k => [k, '']))
 
@@ -204,23 +204,11 @@ export default function OrganizationTab() {
             <CardTitle>Bids and Awards Committee</CardTitle>
           </div>
           <CardDescription>
-            Give BAC members the BAC role in User Management; they evaluate the quotations Procurement submits
-            and make the award.
+            Give BAC members the BAC role in User Management; they review the canvass result Procurement submits
+            and approve it in a BAC Resolution, before the TWG certifies it.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <label className="flex items-start gap-3 cursor-pointer">
-            <input type="checkbox" className="mt-0.5 size-4 accent-[--color-brand]" disabled={isLoading}
-              checked={form.bac_approval_required === '1'}
-              onChange={e => setF('bac_approval_required', e.target.checked ? '1' : '0')} />
-            <span>
-              <span className="block text-ui-sm font-semibold text-[--color-text-primary]">The BAC evaluates and awards</span>
-              <span className="block text-[11px] text-[--color-text-muted] mt-0.5">
-                Procurement records the quotations and submits them to the BAC, which evaluates them and awards in a
-                BAC Resolution. Turned off, Procurement awards directly.
-              </span>
-            </span>
-          </label>
           <div className="space-y-1.5">
             <Label htmlFor="org-bac_members">Members</Label>
             <textarea id="org-bac_members" rows={4} value={form.bac_members} disabled={isLoading}

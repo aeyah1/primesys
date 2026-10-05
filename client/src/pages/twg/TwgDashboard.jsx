@@ -77,7 +77,7 @@ export default function TwgDashboard() {
           value={statsLoading ? '—' : (stats?.pending ?? 0)}
           icon={Clock}
           color="amber"
-          sub="in your review areas"
+          sub={`in your areas, plus ${stats?.certify_pending ?? 0} to certify`}
         />
         <StatsCard
           title="Approved (7 days)"
@@ -165,7 +165,7 @@ export default function TwgDashboard() {
                 ? <Empty
                     icon={ClipboardCheck}
                     title="No reviews yet"
-                    sub="Your approvals and revision requests will appear here."
+                    sub="Your approvals, revision requests and certifications will appear here."
                   />
                 : recent.map(log => (
                   <Link key={log.id} to={`/twg/reviews/${log.pr_id}`}
@@ -179,6 +179,12 @@ export default function TwgDashboard() {
                           )}
                           {log.to_status === 'revision_requested' && (
                             <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] text-amber-700 font-semibold"><RotateCcw className="size-2.5" /> Revision</span>
+                          )}
+                          {log.from_status === 'twg_certification' && log.to_status === 'for_po' && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-teal-50 border border-teal-200 px-2 py-0.5 text-[10px] text-teal-700 font-semibold"><CheckCircle2 className="size-2.5" /> Certified</span>
+                          )}
+                          {log.from_status === 'twg_certification' && log.to_status === 'bac_review' && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] text-amber-700 font-semibold"><RotateCcw className="size-2.5" /> Returned to the BAC</span>
                           )}
                           {log.to_status === 'rejected' && (
                             <span className="inline-flex items-center gap-1 rounded-full bg-red-50 border border-red-200 px-2 py-0.5 text-[10px] text-red-700 font-semibold"><XCircle className="size-2.5" /> Rejected</span>
