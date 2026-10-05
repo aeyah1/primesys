@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, CheckCircle2, RotateCcw, XCircle, Paperclip, FileDown,
-  Package, Info, Calendar, User, ShieldCheck, Undo2,
+  Package, Info, Calendar, User, ShieldCheck, Undo2, ListChecks,
 } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -15,6 +15,7 @@ import { fmtCurrency, fmtDatetime, CATEGORY_LABELS, PR_STATUS_LABELS, groupItems
 import RequestContextDisplay from '@/components/shared/RequestContextDisplay'
 import AttachmentsPanel from '@/components/shared/AttachmentsPanel'
 import AwardList from '@/components/awards/AwardList'
+import PpmpComparison, { usePrPpmp, ViewPpmpButton } from '@/components/ppmp/PpmpComparison'
 import BacPanel from '@/components/awards/BacPanel'
 import { openPdf, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
@@ -43,6 +44,10 @@ export default function TwgReviewDetail() {
     queryKey: [attachmentsKey],
     queryFn: () => api.get(`/pr/${id}/attachments`).then(r => r.data),
   })
+
+  // The office's PPMP the items are drawn from, to compare with.
+  const { data: review } = usePrPpmp(id)
+  const planName = review?.plan ? `${review.plan.office_code} PPMP, FY ${review.plan.fiscal_year}` : null
 
   // The canvass result the BAC approved, while the TWG certifies it.
   const certifying = pr?.status === 'twg_certification'
@@ -312,6 +317,21 @@ export default function TwgReviewDetail() {
         </CardContent>
       </Card>
 
+      {/* The PPMP lines the items come from, beside them */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <ListChecks className="size-4 text-[--color-text-muted]" />
+            <CardTitle>Compared with the PPMP</CardTitle>
+            {planName && <span className="text-xs text-[--color-text-muted] font-normal truncate">{planName}</span>}
+          </div>
+          <ViewPpmpButton plan={review?.plan} />
+        </CardHeader>
+        <CardContent className="p-0">
+          <PpmpComparison prId={id} items={items} />
+        </CardContent>
+      </Card>
+
       {/* Attachments */}
       {attachments.length > 0 && (
         <Card>
@@ -332,7 +352,7 @@ export default function TwgReviewDetail() {
       {/* Action Dialog */}
       <Dialog open={!!action} onOpenChange={(open) => { if (!open) { setAction(null); setComment('') } }}>
         <DialogContent
-          className="max-w-2xl"
+          className={certifyAction ? 'max-w-2xl' : 'max-w-4xl'}
           title={
             action === 'approve' ? 'Approve & Forward to Procurement'
             : action === 'revise' ? 'Request Revision from Fund Administrator'
@@ -360,9 +380,23 @@ export default function TwgReviewDetail() {
               )}
             </p>
 
+            {/* Reviewing: each requested item beside its PPMP line, and the whole PPMP a click away (in a new tab, so the comment stays). */}
+            {!certifyAction && items.length > 0 && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-[--color-text-muted]">
+                    Requested items and the PPMP{planName ? `: ${planName}` : ''} · Total {fmtCurrency(grandTotal)}
+                  </p>
+                  <ViewPpmpButton plan={review?.plan} newTab />
+                </div>
+                <div className="max-h-[42vh] overflow-y-auto">
+                  <PpmpComparison prId={id} items={items} compact />
+                </div>
+              </div>
+            )}
             {/* Requested items reference — TWG can see what they're commenting on
                 without closing the dialog. Scrolls if many items. */}
-            {items.length > 0 && (
+            {certifyAction && items.length > 0 && (
               <div className="rounded-lg border border-[--color-border] bg-[--color-canvas]">
                 <div className="px-3.5 py-2 border-b border-[--color-border] flex items-center justify-between">
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-[--color-text-muted]">

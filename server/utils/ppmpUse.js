@@ -155,7 +155,7 @@ async function reviewPr(db, prId, { link = false } = {}) {
   const thisYear = new Date().getFullYear()
   const plans = await usablePlans(db, pr.department_id, { anyYear: !link })
   if (!plans.length) {
-    out.problems.push(`${pr.office_code} has no Final PPMP in effect yet, so this request can't go to the TWG. Upload the office's signed, complete PPMP first.`)
+    out.problems.push(`${pr.office_code} has no Final PPMP in effect yet, so this request can't go to the TWG. Upload the office's complete PPMP first.`)
     return out
   }
   if (items.some(i => i.ppmp_item_id && i.line_office !== pr.department_id)) {
