@@ -251,12 +251,12 @@ export default function Register() {
                 <SelectContent>
                   {offices.map(o => (
                     <SelectItem key={o.id} value={String(o.id)} disabled={o.taken} className={o.taken ? 'opacity-50 cursor-not-allowed' : ''}>
-                      {o.code} - {o.name}{o.taken ? ' (has a Fund Administrator)' : ''}
+                      {o.code} - {o.name}{o.taken ? ' (has an End User)' : ''}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-[--color-text-muted]">Each office has one Fund Administrator. If yours is taken and you are taking over, ask the administrator.</p>
+              <p className="text-xs text-[--color-text-muted]">Each office has one End User. If yours is taken and you are taking over, ask the administrator.</p>
             </div>
 
             <div className="space-y-1.5">
@@ -342,7 +342,7 @@ export default function Register() {
             <div className="flex items-start gap-2 rounded-lg border border-[--color-border] bg-[--color-surface] px-3 py-2.5 text-xs text-[--color-text-secondary] leading-snug">
               <Info className="size-3.5 shrink-0 mt-0.5 text-[--color-text-muted]" />
               <div className="space-y-1">
-                <p>New accounts are Fund Administrators, one per office. An administrator reviews each sign-up before it can sign in; other roles are assigned by the administrator.</p>
+                <p>New accounts are End Users, one per office. An administrator reviews each sign-up before it can sign in; other roles are assigned by the administrator.</p>
                 <p>Accounts are for NEMSU faculty and staff. Students and outside partners can ask their adviser or the office concerned to file a request for them.</p>
               </div>
             </div>

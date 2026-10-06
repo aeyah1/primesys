@@ -83,7 +83,7 @@ export default function PpmpEdit() {
   if (!p.permissions.edit) {
     return (
       <p className="text-ui-sm text-[--color-text-secondary]">
-        Only the office's Fund Administrator can edit its PPMP in effect. <Link to={`/ppmp/${id}`} className="text-[--color-brand] hover:underline">Back to the PPMP</Link>
+        Only the office's End User can edit its PPMP in effect. <Link to={`/ppmp/${id}`} className="text-[--color-brand] hover:underline">Back to the PPMP</Link>
       </p>
     )
   }

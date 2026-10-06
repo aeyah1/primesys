@@ -91,7 +91,7 @@ export default function DeliveryList() {
   })
   const { mutate: sendNote, isPending: isSendingNote } = useMutation({
     mutationFn: ({ id, notes }) => api.patch(`/delivery/${id}/supply-update`, { notes }),
-    onSuccess: () => { toast.success('Note sent to procurement and the requestor'); refresh(); setNoting(null) },
+    onSuccess: () => { toast.success('Note sent to procurement and the End User'); refresh(); setNoting(null) },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to send the note'),
   })
 
@@ -391,7 +391,7 @@ export default function DeliveryList() {
                 onChange={e => setNote(e.target.value)} />
             </div>
             <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2.5 text-xs text-sky-800">
-              Procurement and the Fund Administrator are notified. A note doesn't change what was delivered; when more goods arrive, record them as a delivery.
+              Procurement and the End User are notified. A note doesn't change what was delivered; when more goods arrive, record them as a delivery.
             </p>
           </div>
           <DialogFooter>

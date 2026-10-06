@@ -14,7 +14,7 @@ import api from '@/lib/axios'
 const ROLE_LABELS = {
   admin:       'Administrator',
   procurement: 'Procurement Officer',
-  requestor:   'Fund Administrator',
+  requestor:   'End User',
   supply:      'Supply Officer',
   twg:         'Technical Working Group',
   bac:         'Bids and Awards Committee',
