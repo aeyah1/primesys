@@ -12,13 +12,13 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { fmtCurrency, CATEGORY_FORM, buildItemNotes, groupItemsBySection, FUND_SOURCES, fundCodeFor, CATEGORY_LABELS } from '@/lib/utils'
+import { fmtCurrency, CATEGORY_FORM, buildItemNotes, groupItemsBySection, FUND_SOURCES, CATEGORY_LABELS } from '@/lib/utils'
 import { SectionNameInput, SectionHeaderRow } from '@/components/shared/ItemSections'
 import CategorySpecFields from '@/components/shared/CategorySpecFields'
 import { useAuth } from '@/context/AuthContext'
 import api from '@/lib/axios'
 import ReviewSubmitDialog from '@/components/shared/ReviewSubmitDialog'
-import { usePpmpPlans, takenByKey, lineChecks, PpmpLineNote, PpmpItemField, NoPpmpNotice } from '@/components/ppmp/PpmpLinePicker'
+import { usePpmpPlans, takenByKey, lineChecks, PpmpLineNote, PpmpItemField, NoPpmpNotice, quarterOf } from '@/components/ppmp/PpmpLinePicker'
 
 const EMPTY_DRAFT = { group_label: '', stock_property_no: '', category: '', ppmp_item_id: null, line: null, quantity: '1', estimated_cost: '', specs: {} }
 
@@ -116,7 +116,7 @@ export default function PREdit() {
 
   useEffect(() => {
     if (existingItems.length > 0 && initialized && items.length === 0) {
-      setItems(existingItems.map(i => ({ ...i, _existing: true })))
+      setItems(existingItems.map(i => ({ ...i, _existing: true, _quantity: i.quantity })))
     }
   }, [existingItems, initialized])
 
@@ -133,10 +133,12 @@ export default function PREdit() {
   // Items come from the office's Final PPMP in effect; this request's own holds are left out while it is edited.
   const { plans, isLoading: plansLoading, lineById } = usePpmpPlans({ departmentId: isRequestor ? null : form.department_id, prId: id })
   const taken = takenByKey(items, lineById)
-  const planYear = items.map(i => lineById.get(Number(i.ppmp_item_id))?.fiscal_year).find(Boolean)
+  // The quarter of the PPMP's year the request draws on (1 to 4), or null: the year's total applies.
+  const quarter = quarterOf(plans, pr && { label: pr.quarter_label, year: pr.quarter_year })
+  const planYear = items.map(i => lineById.get(Number(i.ppmp_item_id))?.fiscal_year).find(Boolean) ?? (quarter ? Number(pr.quarter_year) : undefined)
   const checkItem = (item, exceptIndex) => {
     const line = item.line || lineById.get(Number(item.ppmp_item_id))
-    return line ? { line, ...lineChecks(line, { quantity: item.quantity, price: item.estimated_cost, dateNeeded: form.date_needed, taken: takenByKey(items, lineById, exceptIndex).get(line.key) || 0 }) } : null
+    return line ? { line, ...lineChecks(line, { quantity: item.quantity, price: item.estimated_cost, dateNeeded: form.date_needed, quarter, taken: takenByKey(items, lineById, exceptIndex).get(line.key) || 0 }) } : null
   }
   const draftCheck = draft.line ? checkItem(draft, -1) : null
   // A picked line brings its price; typing over it clears the pick.
@@ -180,11 +182,12 @@ export default function PREdit() {
     e?.preventDefault()
     if (!form.title.trim()) { toast.error('Give your request a purpose'); return }
     if (submit && items.length === 0) { toast.error('Add at least one item before submitting'); return }
+    if (items.some(i => !(parseFloat(i.quantity) > 0))) { toast.error('Give every item a quantity above 0, or remove it'); return }
     if (submit && processed.some(i => !i.ppmp_item_id || i.check?.block)) { toast.error('Pick every item from the PPMP, and lower the ones marked in red to what is left'); return }
     if (submit && !confirmed) { setReviewing(true); return }
     setSaving(true)
     try {
-      const { signature, signature_changed, requested_by_touched, ...details } = form
+      const { signature, signature_changed, requested_by_touched, department_touched, ...details } = form
       await updatePR({ ...details, ...requesterPayload(form) })
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to update PR')
@@ -208,7 +211,11 @@ export default function PREdit() {
         })
       } catch { failed++ }
     }
-    if (failed) toast.error(`${failed} new item${failed === 1 ? '' : 's'} could not be saved, so the PR was not submitted`)
+    // Saved items whose quantity was changed in the list.
+    for (const item of items.filter(i => i._existing && parseFloat(i.quantity) !== parseFloat(i._quantity))) {
+      try { await api.patch(`/pr/${id}/items/${item.id}`, { quantity: parseFloat(item.quantity) }) } catch { failed++ }
+    }
+    if (failed) toast.error(`${failed} item${failed === 1 ? '' : 's'} could not be saved, so the PR was not submitted`)
 
     let sent = false
     if (submit && !failed) {
@@ -380,7 +387,7 @@ export default function PREdit() {
                     <TH className="text-center w-24">Stock/Property</TH>
                     <TH className="text-center w-20">Unit</TH>
                     <TH className="text-left">{categoryForm.itemLabel}</TH>
-                    <TH className="text-center w-16">Qty</TH>
+                    <TH className="text-center w-24">Qty</TH>
                     <TH className="text-right w-32">Estimated Cost</TH>
                     <TH className="text-right w-32">Total Cost</TH>
                     <th className="w-10 bg-[--color-canvas]" />
@@ -417,7 +424,11 @@ export default function PREdit() {
                                   : item.ppmp_item_id ? <p className="mt-2 text-[11px] text-[--color-text-muted]">From an earlier version of the PPMP; checked against the current one when submitted.</p>
                                   : <p className="mt-2 text-[11px] font-semibold text-red-700">Not from the PPMP. Remove it and pick it from the PPMP.</p>}
                               </TD>
-                              <TD className="text-center tabular-nums font-medium">{item.quantity}</TD>
+                              <TD className="text-center">
+                                <Input type="number" min="0.01" step="any" aria-label={`Quantity of ${item.item_name}`} value={item.quantity}
+                                  onChange={e => setItems(p => p.map((x, i) => (i === item.globalIdx ? { ...x, quantity: e.target.value } : x)))}
+                                  className={`h-9 w-20 px-2 text-center tabular-nums ${item.check?.block ? 'border-red-400 text-red-700' : ''}`} />
+                              </TD>
                               <TD className="text-right tabular-nums text-[--color-text-secondary]">
                                 {item.estimated_cost ? fmtCurrency(parseFloat(item.estimated_cost)) : '—'}
                               </TD>
@@ -514,7 +525,7 @@ export default function PREdit() {
                 </div>
                 {/* The item, picked from the PPMP: its description and unit are the line's */}
                 <div className="col-span-4">
-                  <PpmpItemField id="pr-ppmp-item" plans={plans} isLoading={plansLoading} value={draft.line} onPick={pickLine} taken={taken} year={planYear} />
+                  <PpmpItemField id="pr-ppmp-item" plans={plans} isLoading={plansLoading} value={draft.line} onPick={pickLine} taken={taken} year={planYear} quarter={quarter} />
                 </div>
                 <div className="col-span-2 space-y-1">
                   <Label className="text-xs">Unit</Label>

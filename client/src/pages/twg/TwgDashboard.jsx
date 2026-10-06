@@ -8,19 +8,10 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { StatsCard } from '@/components/shared/StatsCard'
 import { PRStatusBadge, CategoryBadge } from '@/components/shared/StatusBadge'
+import { EmptyState } from '@/components/shared/ListParts'
 import { fmtDatetime, CATEGORY_LABELS } from '@/lib/utils'
 import { useTwgAreas, areasText } from './TwgReviewList'
 import api from '@/lib/axios'
-
-function Empty({ icon: Icon, title, sub }) {
-  return (
-    <div className="px-6 py-12 text-center">
-      <Icon className="size-8 text-[--color-text-muted] mx-auto mb-3" />
-      <p className="text-ui-sm font-semibold text-[--color-text-primary]">{title}</p>
-      {sub && <p className="text-ui-xs text-[--color-text-muted] mt-1">{sub}</p>}
-    </div>
-  )
-}
 
 export default function TwgDashboard() {
   const { data: stats, isLoading: statsLoading } = useQuery({
@@ -124,7 +115,7 @@ export default function TwgDashboard() {
             {pendingLoading
               ? <div className="p-6 space-y-3">{Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-14" />)}</div>
               : !pending.length
-                ? <Empty
+                ? <EmptyState
                     icon={CheckCircle2}
                     title="Queue is clear"
                     sub="No purchase requests awaiting TWG review right now."
@@ -162,7 +153,7 @@ export default function TwgDashboard() {
             {recentLoading
               ? <div className="p-4 space-y-2">{Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-12" />)}</div>
               : !recent.length
-                ? <Empty
+                ? <EmptyState
                     icon={ClipboardCheck}
                     title="No reviews yet"
                     sub="Your approvals, revision requests and certifications will appear here."
@@ -180,10 +171,10 @@ export default function TwgDashboard() {
                           {log.to_status === 'revision_requested' && (
                             <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] text-amber-700 font-semibold"><RotateCcw className="size-2.5" /> Revision</span>
                           )}
-                          {log.from_status === 'twg_certification' && log.to_status === 'for_po' && (
+                          {log.from_status === 'twg_certification' && ['bac_review', 'for_po'].includes(log.to_status) && (
                             <span className="inline-flex items-center gap-1 rounded-full bg-teal-50 border border-teal-200 px-2 py-0.5 text-[10px] text-teal-700 font-semibold"><CheckCircle2 className="size-2.5" /> Certified</span>
                           )}
-                          {log.from_status === 'twg_certification' && ['bidding', 'bac_review'].includes(log.to_status) && (
+                          {log.from_status === 'twg_certification' && log.to_status === 'bidding' && (
                             <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] text-amber-700 font-semibold"><RotateCcw className="size-2.5" /> Returned to the BAC</span>
                           )}
                           {log.to_status === 'rejected' && (

@@ -1,6 +1,6 @@
 // A supplier who can't deliver the rest of an order: closing a partly
 // delivered PO, the balance going back to canvass (split, whole, an older
-// award without unit prices) and through the BAC's award and the TWG again, the failed
+// award without unit prices) and through the BAC, the TWG and the BAC's award again, the failed
 // supplier kept out, the late-delivery penalty, and the money that is paid.
 // Real HTTP against a throwaway database.
 const path = require('path')
@@ -38,8 +38,9 @@ function fixtures() {
 
 async function http(who, method, p, body) {
   const headers = who ? { Authorization: `Bearer ${tok(who)}` } : {}
-  if (body !== undefined) headers['Content-Type'] = 'application/json'
-  const res  = await fetch(BASE + p, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })
+  const form = body instanceof FormData
+  if (body !== undefined && !form) headers['Content-Type'] = 'application/json'
+  const res  = await fetch(BASE + p, { method, headers, body: body === undefined ? undefined : form ? body : JSON.stringify(body) })
   const type = res.headers.get('content-type') || ''
   return { status: res.status, data: type.includes('json') ? await res.json() : null }
 }
@@ -67,13 +68,25 @@ async function run() {
     await must(2, 'POST', `/canvass/${id}/start`, { mode_of_procurement: 'Small Value Procurement' })
     return { id, items: (await must(2, 'GET', `/canvass/${id}`)).items }
   }
-  // The BAC enters one supplier's bids ({ itemId: price }), each item to it, and awards; the TWG then certifies.
+  // The BAC enters one supplier's bids ({ itemId: price }) with the returned RFQ and sends them to
+  // the TWG, which certifies them compliant; the BAC then awards every open lot to that supplier.
+  // A canvass left waiting by a refused award is taken back first.
   const bidAndAward = async (pr, supplier, prices) => {
+    const [{ status }] = await q('SELECT status FROM purchase_requests WHERE id = ?', [pr])
+    if (status === 'bac_review') await must(5, 'POST', `/canvass/${pr}/reopen`, { reason: 'Another bidder' })
     await must(5, 'PUT', `/canvass/${pr}/bids`, {
       bidders: [{ name: supplier, prices: Object.entries(prices).map(([i, unit_price]) => ({ pr_item_id: Number(i), unit_price })) }],
-      winners: Object.keys(prices).map(i => ({ pr_item_id: Number(i), bidder: 0 })),
     })
-    return http(5, 'POST', `/canvass/${pr}/award`, {})
+    await must(5, 'POST', `/pr/${pr}/attachments`, H.canvassScan())
+    await must(5, 'POST', `/canvass/${pr}/send`)
+    const sent = await must(4, 'GET', `/canvass/${pr}`)
+    const open = sent.items.filter(i => i.state === 'pending')
+    const key = (name) => name.trim().replace(/\s+/g, ' ').toLowerCase()
+    const bidder = sent.bidders.find(b => key(b.name) === key(supplier))
+    const bids = sent.bidders.flatMap(b => open.filter(i => b.prices[i.id] != null).map(i => ({ bidder_id: b.id, pr_item_id: i.id, compliant: true })))
+    await must(4, 'PUT', `/twg/${pr}/evaluation`, { bids })
+    await must(4, 'POST', `/twg/${pr}/certify`, { action: 'certify' })
+    return http(5, 'POST', `/canvass/${pr}/award`, H.lotWinners(await must(5, 'GET', `/canvass/${pr}`), () => bidder.id))
   }
   const win = async (pr, supplier, prices) => {
     const r = await bidAndAward(pr, supplier, prices)
@@ -85,7 +98,6 @@ async function run() {
     t.check(g, label, ok(r), `${show(r)}${want ? ` (want ${want})` : ''}`)
     return r
   }
-  const certify = (pr) => must(4, 'POST', `/twg/${pr}/certify`, { action: 'certify' })
   const poOf = async (pr, supplierName) => (await q("SELECT * FROM purchase_orders WHERE purchase_request_id = ? AND supplier_name = ? AND po_status = 'active'", [pr, supplierName]))[0]
   const lines = async (po) => (await must(2, 'GET', `/po/${po}`)).items
   const deliver = async (po, byName, who = 6) => {
@@ -99,7 +111,6 @@ async function run() {
   const p1 = await canvassed('Chairs and tables', [{ item_name: 'Chair', quantity: 50, estimated_cost: 1500 }, { item_name: 'Table', quantity: 5, estimated_cost: 5000 }])
   const [chair, table] = p1.items.map(i => i.id)
   await win(p1.id, 'Alpha Computers', { [chair]: 1400, [table]: 4800 })
-  await certify(p1.id)
   await must(2, 'POST', '/po', { purchase_request_id: p1.id, issued_date: day(0) })
   const po1 = await poOf(p1.id, 'Alpha Computers')
   t.check(G, 'Alpha\'s PO: 50 chairs and 5 tables, P94,000', Number(po1.total_amount) === 94000, po1.total_amount)
@@ -143,8 +154,6 @@ async function run() {
   await awardIs(G, '…nor typed differently', p1.id, '  alpha   COMPUTERS ', { [balance1.id]: 1400 },
     r => r.status === 409 && /failed to deliver/.test(r.data.message), '409')
   await awardIs(G, 'the next offer (Beta, P1,450) wins the balance', p1.id, 'Beta Tech', { [balance1.id]: 1450 }, r => r.status === 200)
-  t.check(G, '…which waits for the TWG', (await statusOf(p1.id)) === 'twg_certification')
-  await certify(p1.id)
   t.check(G, 'the PR is Ready for PO again', (await statusOf(p1.id)) === 'for_po')
   await must(2, 'POST', '/po', { purchase_request_id: p1.id, issued_date: day(0) })
   const po1beta = await poOf(p1.id, 'Beta Tech')
@@ -161,10 +170,8 @@ async function run() {
   // Two awards to Alpha, in two rounds: the mice dropped from the first and brought back for the second.
   await must(5, 'POST', `/canvass/${p2.id}/items/${mouse}/drop`, { reason: 'A later round' })
   await win(p2.id, 'Alpha Computers', { [laptop]: 49000 })
-  await certify(p2.id)
   await must(2, 'POST', `/canvass/${p2.id}/items/${mouse}/restore`)
   await win(p2.id, 'Alpha Computers', { [mouse]: 450 })
-  await certify(p2.id)
   // Awards recorded before winners had unit prices: lump sums.
   await q('UPDATE lot_items li JOIN lots l ON l.id = li.lot_id SET li.unit_price = NULL WHERE l.purchase_request_id = ?', [p2.id])
   await must(2, 'POST', '/po', { purchase_request_id: p2.id, issued_date: day(-10), expected_delivery_date: day(-5) })
@@ -192,7 +199,6 @@ async function run() {
   const L = 'Penalty'
   const p3 = await canvassed('Projector', [{ item_name: 'Projector', quantity: 1, estimated_cost: 30000 }])
   await win(p3.id, 'Alpha Computers', { [p3.items[0].id]: 30000 })
-  await certify(p3.id)
   await must(2, 'POST', '/po', { purchase_request_id: p3.id, issued_date: day(-150), expected_delivery_date: day(-120) })
   const po3 = await poOf(p3.id, 'Alpha Computers')
   const view3 = await must(2, 'GET', `/po/${po3.id}`)
@@ -200,13 +206,11 @@ async function run() {
   t.check(L, '…past 10% of the contract: may terminate', view3.late.may_terminate === true)
   const p3b = await canvassed('Speaker', [{ item_name: 'Speaker', quantity: 1, estimated_cost: 30000 }])
   await win(p3b.id, 'Alpha Computers', { [p3b.items[0].id]: 30000 })
-  await certify(p3b.id)
   await must(2, 'POST', '/po', { purchase_request_id: p3b.id, issued_date: day(-20), expected_delivery_date: day(-3) })
   const late3b = (await must(2, 'GET', `/po/${(await poOf(p3b.id, 'Alpha Computers')).id}`)).late
   t.check(L, '3 days late: P90, not near 10%', late3b?.amount === 90 && late3b.may_terminate === false, JSON.stringify(late3b))
   const p3c = await canvassed('Cable', [{ item_name: 'Cable', quantity: 1, estimated_cost: 500 }])
   await win(p3c.id, 'Alpha Computers', { [p3c.items[0].id]: 500 })
-  await certify(p3c.id)
   await must(2, 'POST', '/po', { purchase_request_id: p3c.id, issued_date: day(0), expected_delivery_date: day(5) })
   t.check(L, 'not yet due: no penalty shown', (await must(2, 'GET', `/po/${(await poOf(p3c.id, 'Alpha Computers')).id}`)).late === null)
 
@@ -214,7 +218,6 @@ async function run() {
   const K = 'Options'
   const p4 = await canvassed('Fans', [{ item_name: 'Fan', quantity: 10, estimated_cost: 2000 }])
   await win(p4.id, 'Alpha Computers', { [p4.items[0].id]: 1800 })
-  await certify(p4.id)
   await must(2, 'POST', '/po', { purchase_request_id: p4.id, issued_date: day(0) })
   const po4 = await poOf(p4.id, 'Alpha Computers')
   await deliver(po4.id, { Fan: 6 })
@@ -230,7 +233,6 @@ async function run() {
 
   const p5 = await canvassed('Bulbs', [{ item_name: 'Bulb', quantity: 20, estimated_cost: 100 }])
   await win(p5.id, 'Alpha Computers', { [p5.items[0].id]: 90 })
-  await certify(p5.id)
   await must(2, 'POST', '/po', { purchase_request_id: p5.id, issued_date: day(0) })
   const po5 = await poOf(p5.id, 'Alpha Computers')
   await must(2, 'PATCH', `/po/${po5.id}/cancel`, { reason: 'Supplier backed out' })
@@ -241,16 +243,14 @@ async function run() {
   const p6 = await canvassed('Monitors', [{ item_name: 'Monitor', quantity: 10, estimated_cost: 9000 }])
   const mon = p6.items[0].id
   await win(p6.id, 'Alpha Computers', { [mon]: 8000 })
-  await certify(p6.id)
   await must(2, 'POST', '/po', { purchase_request_id: p6.id, issued_date: day(0) })
   const po6 = await poOf(p6.id, 'Alpha Computers')
   await deliver(po6.id, { Monitor: 7 })
   await must(2, 'PATCH', `/po/${po6.id}/close`, { reason: 'Only 7 in stock' })
   const b1 = (await q('SELECT id FROM pr_items WHERE balance_of = ?', [mon]))[0].id
-  await is(B, 'the balance needs its winner before the award', 5, 'POST', `/canvass/${p6.id}/award`, {},
-    r => r.status === 409 && /Pick the winner/.test(r.data.message), '409')
+  await is(B, 'the balance needs its bids before the TWG', 5, 'POST', `/canvass/${p6.id}/send`, {},
+    r => r.status === 409 && /Enter the bids for/.test(r.data.message), '409')
   await awardIs(B, 'Beta wins the balance of 3', p6.id, 'Beta Tech', { [b1]: 8500 }, r => r.status === 200)
-  await certify(p6.id)
   await must(2, 'POST', '/po', { purchase_request_id: p6.id, issued_date: day(0) })
   const po6b = await poOf(p6.id, 'Beta Tech')
   await deliver(po6b.id, { Monitor: 1 })

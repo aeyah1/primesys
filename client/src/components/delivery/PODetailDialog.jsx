@@ -1,18 +1,18 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { FileDown, Truck, CalendarDays, XCircle, Paperclip, ChevronDown, ChevronRight, ExternalLink, Lock, AlertTriangle } from 'lucide-react'
+import { FileDown, Truck, CalendarDays, XCircle, ExternalLink, Lock, AlertTriangle } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DeliveryStatusBadge, POStatusBadge } from '@/components/shared/StatusBadge'
-import AttachmentsPanel from '@/components/shared/AttachmentsPanel'
 import { fmtDate, fmtCurrency } from '@/lib/utils'
 import { openPdf, blobErrorMessage } from '@/lib/download'
 import { useAuth } from '@/context/AuthContext'
 import api from '@/lib/axios'
 import { hundredths, qty } from './shared'
+import { DeliveryRow } from './DeliveryRow'
 import ReceiveDialog from './ReceiveDialog'
 import RescheduleDialog from './RescheduleDialog'
 import CancelPODialog from './CancelPODialog'
@@ -25,42 +25,6 @@ function Field({ label, children }) {
     <div>
       <p className="text-[11px] font-semibold text-[--color-text-muted] uppercase tracking-wide">{label}</p>
       <div className="text-sm font-medium text-[--color-text-primary] mt-0.5">{children}</div>
-    </div>
-  )
-}
-
-/* One delivery of the PO: what it brought, its inspection report, its files. */
-function DeliveryRow({ d, canUpload, canDelete }) {
-  const [files, setFiles] = useState(false)
-  return (
-    <div className="border-t border-[--color-border] first:border-t-0 px-4 py-3">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-sm font-semibold text-[--color-text-primary]">
-            {fmtDate(d.delivered_date)} <span className="font-normal text-[--color-text-muted]">· received by {d.received_by_name || 'someone'}</span>
-          </p>
-          <p className="text-xs text-[--color-text-secondary] mt-0.5">
-            {d.items.length ? d.items.map(i => `${i.item_name} × ${qty(i.quantity)}`).join(', ') : d.status === 'complete' ? 'Everything on the PO' : 'Part of the PO'}
-          </p>
-          {d.notes && <p className="text-xs text-[--color-text-muted] mt-1 whitespace-pre-line">{d.notes}</p>}
-        </div>
-        <div className="flex items-center gap-1 shrink-0">
-          <DeliveryStatusBadge status={d.status === 'complete' ? 'delivered' : 'partial'} />
-          <Button variant="ghost" size="icon" title="Inspection and Acceptance Report (PDF)" onClick={() => pdf(`/delivery/${d.id}/pdf`, 'inspection report')}>
-            <FileDown className="size-4 text-[--color-text-muted]" />
-          </Button>
-          <button onClick={() => setFiles(p => !p)} title="Invoices and proof of delivery"
-            className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-[--color-text-muted] hover:text-[--color-brand] hover:bg-[--color-overlay] transition-colors">
-            <Paperclip className="size-3.5" /> {d.attachments > 0 ? d.attachments : ''}
-            {files ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
-          </button>
-        </div>
-      </div>
-      {files && (
-        <div className="mt-3">
-          <AttachmentsPanel endpoint={`/delivery/${d.id}`} queryKey={`delivery-attachments-${d.id}`} canUpload={canUpload} canDelete={canDelete} />
-        </div>
-      )}
     </div>
   )
 }

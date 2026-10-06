@@ -52,9 +52,10 @@ async function run() {
     if (r.status >= 400) throw new Error(`${m} ${p} -> ${r.status} ${JSON.stringify(r.data)}`)
     return r.data
   }
-  // The requestor's PR: chairs from Alpha, markers from Beta.
+  // The requestor's PR in two lots: chairs from Alpha, markers from Beta.
   const pr = (await must(3, 'POST', '/pr', { title: 'Room 101', items: [
-    { item_name: 'Chair', quantity: 50, estimated_cost: 1500 }, { item_name: 'Whiteboard marker', quantity: 12, unit: 'pc', estimated_cost: 45 }] })).id
+    { group_label: 'LOT 1', item_name: 'Chair', quantity: 50, estimated_cost: 1500 },
+    { group_label: 'LOT 2', item_name: 'Whiteboard marker', quantity: 12, unit: 'pc', estimated_cost: 45 }] })).id
   await must(3, 'PATCH', `/pr/${pr}/status`, { status: 'submitted' })
   await must(4, 'POST', `/twg/${pr}/review`, { action: 'approve' })
   await must(2, 'POST', `/canvass/${pr}/start`, { mode_of_procurement: 'Shopping' })

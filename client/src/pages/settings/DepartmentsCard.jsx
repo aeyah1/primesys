@@ -62,9 +62,9 @@ export default function DepartmentsCard() {
               <CardTitle>Offices and their heads</CardTitle>
             </div>
             <CardDescription className="mt-1.5">
-              The offices that file purchase requests. The head of the office signs
-              "Requested by" on the printed form — not the person who encodes the request.
-              Leave a head blank to print an empty line for signing by hand.
+              The offices that file purchase requests. An office's head is suggested for "Requested by"
+              on its requests, and printed there when the Fund Administrator leaves it blank. Leave a head
+              blank to print an empty line for signing by hand.
             </CardDescription>
           </div>
           <Button size="sm" className="gap-1.5 shrink-0" onClick={() => setEditing({ ...EMPTY })}>
@@ -93,7 +93,7 @@ export default function DepartmentsCard() {
                   <p className="text-ui-xs text-[--color-text-muted] mt-1">
                     {d.head_name
                       ? <>Signs as <strong className="text-[--color-text-secondary]">{d.head_name}</strong>{d.head_designation ? `, ${d.head_designation}` : ''}</>
-                      : <span className="text-amber-600">No head recorded — the form prints a blank signature line</span>}
+                      : <span className="text-amber-600">No head recorded: "Requested by" prints blank unless the Fund Administrator types it</span>}
                   </p>
                   {(d.user_count > 0 || d.pr_count > 0) && (
                     <p className="text-[11px] text-[--color-text-muted] mt-1">
@@ -164,8 +164,8 @@ export default function DepartmentsCard() {
                 </div>
               </div>
               <p className="text-[11px] text-[--color-text-muted]">
-                Printed on the "Requested by" line. Changing it affects new requests only —
-                requests already filed keep the head they were filed under.
+                Suggested for the "Requested by" line. Changing it affects new requests only;
+                requests already filed keep the name they were filed with.
               </p>
             </div>
           )}
@@ -182,7 +182,7 @@ export default function DepartmentsCard() {
         <DialogContent title="Delete office" className="max-w-md">
           <p className="text-ui-sm text-[--color-text-secondary] pt-2">
             Delete <strong>{confirmDelete?.code}</strong>? Offices named on a purchase request
-            can't be deleted — mark them inactive instead, so the record keeps who asked for what.
+            can't be deleted; mark them inactive instead, so the record keeps who asked for what.
           </p>
           <DialogFooter>
             <Button variant="secondary" onClick={() => setConfirmDelete(null)}>Cancel</Button>

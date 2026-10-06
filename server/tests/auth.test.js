@@ -194,6 +194,12 @@ async function run() {
   const u1Token = r.data?.token
   check(G3, 'username + password → 200, requestor token', r.status === 200 && r.data.user.role === 'requestor' && !!u1Token, show(r))
   check(G3, '…no password hash in the reply', r.status === 200 && !('password_hash' in r.data.user), Object.keys(r.data?.user || {}).join())
+  // The New Request page reads the office from the signed-in user, so sign-in must carry it, as a reload does.
+  check(G3, '…with their office (code and name), right at sign-in', r.data?.user?.department_id === 4 && r.data.user.department_code === 'OFD' && r.data.user.department_name === 'Office D',
+    JSON.stringify(r.data?.user))
+  const reload = await http('GET', '/auth/me', undefined, u1Token)
+  check(G3, '…the same profile a reload returns', JSON.stringify(reload.data) === JSON.stringify(r.data?.user), `${JSON.stringify(reload.data)} vs ${JSON.stringify(r.data?.user)}`)
+  check(G3, '…and no token version or verification flag', !('token_version' in r.data.user) && !('is_verified' in r.data.user), Object.keys(r.data?.user || {}).join())
   check(G3, '…the token carries only the account id and version (SEC-8)', Object.keys(jwt.decode(u1Token) || {}).sort().join() === 'exp,iat,id,tv', JSON.stringify(jwt.decode(u1Token)))
   r = await http('POST', '/auth/login', { identifier: u1.email.toUpperCase(), password: PW })
   check(G3, 'email (any case) + password → 200', r.status === 200, show(r))

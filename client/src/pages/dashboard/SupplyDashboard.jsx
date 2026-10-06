@@ -9,20 +9,11 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { StatsCard } from '@/components/shared/StatsCard'
 import { DeliveryStatusBadge } from '@/components/shared/StatusBadge'
+import { EmptyState } from '@/components/shared/ListParts'
 import ReceiveDialog from '@/components/delivery/ReceiveDialog'
 import { qty, receivedText } from '@/components/delivery/shared'
 import { fmtDate, fmtCurrency } from '@/lib/utils'
 import api from '@/lib/axios'
-
-function Empty({ icon: Icon, title, sub }) {
-  return (
-    <div className="px-6 py-12 text-center">
-      <Icon className="size-8 text-[--color-text-muted] mx-auto mb-3" />
-      <p className="text-ui-sm font-semibold text-[--color-text-primary]">{title}</p>
-      {sub && <p className="text-ui-xs text-[--color-text-muted] mt-1">{sub}</p>}
-    </div>
-  )
-}
 
 export default function SupplyDashboard() {
   const navigate = useNavigate()
@@ -86,7 +77,7 @@ export default function SupplyDashboard() {
             {posLoading
               ? <div className="p-6 space-y-3">{Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-14" />)}</div>
               : !toReceive.length
-                ? <Empty icon={Truck} title="Nothing to receive" sub="Every purchase order is fully delivered." />
+                ? <EmptyState icon={Truck} title="Nothing to receive" sub="Every purchase order is fully delivered." />
                 : toReceive.map(po => (
                     <div key={po.id} role="link" tabIndex={0}
                       onClick={() => navigate(`/po?po=${po.id}`)}
@@ -132,7 +123,7 @@ export default function SupplyDashboard() {
             {recentLoading
               ? <div className="p-4 space-y-2">{Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-12" />)}</div>
               : !recent.length
-                ? <Empty icon={PackageCheck} title="No deliveries yet" sub="Goods you record as received appear here." />
+                ? <EmptyState icon={PackageCheck} title="No deliveries yet" sub="Goods you record as received appear here." />
                 : recent.map(d => (
                   <Link key={d.id} to={`/po?po=${d.po_id}`}
                     className="block px-5 py-3 border-b border-[--color-border] last:border-0 hover:bg-overlay/60 transition-colors">

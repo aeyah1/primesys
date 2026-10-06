@@ -6,7 +6,8 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PRStatusBadge, CategoryBadge } from '@/components/shared/StatusBadge'
-import { fmtDatetime, fmtCurrency, CATEGORY_LABELS } from '@/lib/utils'
+import { FilterChip, Tab } from '@/components/shared/ListParts'
+import { fmtDatetime, CATEGORY_LABELS } from '@/lib/utils'
 import api from '@/lib/axios'
 
 // The signed-in member's review areas (admins: all). A TWG member's queue
@@ -75,11 +76,9 @@ export default function TwgReviewList() {
 
       <div className="flex items-center gap-1 border-b border-[--color-border]">
         {STAGES.map(s => (
-          <button key={s.key} onClick={() => setParams(s.key === 'review' ? {} : { stage: s.key }, { replace: true })}
-            className={`px-3 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-colors mb-[-1px] ${
-              stage === s.key ? 'border-[--color-brand] text-[--color-brand]' : 'border-transparent text-[--color-text-muted] hover:text-[--color-text-primary]'}`}>
+          <Tab key={s.key} active={stage === s.key} onClick={() => setParams(s.key === 'review' ? {} : { stage: s.key }, { replace: true })}>
             {s.label}
-          </button>
+          </Tab>
         ))}
       </div>
 
@@ -87,14 +86,9 @@ export default function TwgReviewList() {
       {myAreas.length > 1 && (
         <div className="flex flex-wrap gap-2">
           {['', ...myAreas].map(a => (
-            <button key={a || 'all'} onClick={() => setArea(a)}
-              className={`rounded-full border px-3 py-1 text-ui-xs font-medium transition-colors ${
-                area === a
-                  ? 'border-[--color-brand] bg-[--color-brand] text-white'
-                  : 'border-[--color-border-strong] bg-white text-[--color-text-secondary] hover:border-[--color-brand] hover:text-[--color-brand]'
-              }`}>
+            <FilterChip key={a || 'all'} active={area === a} onClick={() => setArea(a)}>
               {a ? CATEGORY_LABELS[a] : 'All my areas'}
-            </button>
+            </FilterChip>
           ))}
         </div>
       )}
@@ -147,7 +141,7 @@ export default function TwgReviewList() {
                         <span>{pr.item_count} item{pr.item_count === 1 ? '' : 's'}</span>
                         {' · '}
                         {stage === 'certify'
-                          ? <>Awarded by the BAC {fmtDatetime(pr.submitted_at)}{Number(pr.awarded_total) > 0 && <> · awards {fmtCurrency(pr.awarded_total)}</>}</>
+                          ? <>Bids sent by the BAC {fmtDatetime(pr.submitted_at)}{Number(pr.bidders) > 0 && <> · {pr.bidders} bidder{Number(pr.bidders) === 1 ? '' : 's'}</>}</>
                           : <>Submitted {fmtDatetime(pr.submitted_at)}</>}
                       </p>
                       {stage === 'review' && pr.last_reviewer_name && (

@@ -38,9 +38,13 @@ export default function ReviewSubmitDialog({ request, items, requestedBy, open, 
   })
   if (!open) return null
   const r = request || {}
+  // A Fund Administrator's office is always their own; its Office/Section prints as they typed it, else the office code.
+  const own = user?.role === 'requestor'
   const chosen = r.department_id || r.department?.trim()
-  const dept = departments.find(d => d.id === Number(r.department_id || (!chosen && !requestedBy ? user?.department_id : null)))
-  const office = dept ? `${dept.code}: ${dept.name}` : r.department?.trim() || null
+  const dept = departments.find(d => d.id === Number(own ? user?.department_id : r.department_id || (!chosen && !requestedBy ? user?.department_id : null)))
+  const section = r.department?.trim()
+  const office = own && dept && section && section.toLowerCase() !== dept.code.toLowerCase() ? `${section} (${dept.code}: ${dept.name})`
+    : dept ? `${dept.code}: ${dept.name}` : section || null
   const filer = user?.name ? `${user.name}${user.designation ? `, ${user.designation}` : ''}` : null
   const typed = r.requested_by_name?.trim() ? `${r.requested_by_name.trim()}${r.requested_by_designation?.trim() ? `, ${r.requested_by_designation.trim()}` : ''}` : null
   const signed = !!(r.signature || r.requested_by_signed)

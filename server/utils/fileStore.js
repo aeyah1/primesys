@@ -40,6 +40,18 @@ async function send(res, dir, name, downloadName) {
   res.attachment(downloadName).send(Buffer.from(await stored.arrayBuffer()))
 }
 
+// A stored file's contents, or null when it is missing.
+async function read(dir, name) {
+  if (!remote) {
+    const filePath = path.join(LOCAL, dir, name)
+    return fs.existsSync(filePath) ? fs.promises.readFile(filePath) : null
+  }
+  const stored = await fetch(objectUrl(dir, name), { headers: auth, signal: AbortSignal.timeout(30_000) })
+  if (stored.status === 400 || stored.status === 404) return null
+  if (!stored.ok) throw new Error(`Storage download failed (${stored.status})`)
+  return Buffer.from(await stored.arrayBuffer())
+}
+
 // Deletes a stored file in the background; a failure is only logged, since its row is already gone.
 function remove(dir, name) {
   if (!remote) return fs.unlink(path.join(LOCAL, dir, name), () => {})
@@ -53,4 +65,4 @@ function remove(dir, name) {
     .catch(err => console.error(`[storage] delete of ${dir}/${name} failed: ${err.message}`))
 }
 
-module.exports = { keep, send, remove }
+module.exports = { keep, send, read, remove }

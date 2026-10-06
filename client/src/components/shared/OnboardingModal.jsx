@@ -22,7 +22,7 @@ const SLIDES = {
       Icon:  FileText,
       color: 'from-amber-400 to-yellow-400',
       title: 'Create a Purchase Request',
-      body:  'Go to Purchase Requests → New Purchase Request. Pick a purpose (personal, event, office, or project), set your department, and list the items you need.',
+      body:  'Click New Request in the menu. Pick a purpose (personal, event, office, or project), set your department, and list the items you need.',
     },
     {
       Icon:  Send,
@@ -34,13 +34,13 @@ const SLIDES = {
       Icon:  Eye,
       color: 'from-blue-400 to-indigo-400',
       title: 'Track Your PR',
-      body:  'Watch your PR move through: Submitted → Approved by TWG → Bidding → Ready for PO → Completed. You\'ll get a notification at every stage.',
+      body:  'Your Dashboard shows what needs you and where each request is: Submitted → Approved by TWG → Canvass → Ready for PO → Completed. My Requests lists them all, and you\'ll get a notification at every stage.',
     },
     {
       Icon:  CheckCircle,
       color: 'from-blue-600 to-indigo-500',
       title: 'You\'re all set!',
-      body:  'Head to Purchase Requests to create your first PR. If you ever get lost, check the User Guide in the sidebar — it has everything you need.',
+      body:  'Click New Request to create your first PR. If you ever get lost, check the User Guide in the sidebar: it has everything you need.',
     },
   ],
 
@@ -49,19 +49,19 @@ const SLIDES = {
       logo: true,
       color: 'from-blue-400 to-indigo-400',
       title: 'Welcome to PRimeSys!',
-      body:  'You\'re logged in as a Procurement Officer. You manage the full lifecycle of every purchase — from review to delivery. Here\'s a quick overview.',
+      body:  'You\'re logged in as a Procurement Officer. You manage the full lifecycle of every purchase, from review to delivery. Here\'s a quick overview.',
     },
     {
       Icon:  FileText,
       color: 'from-amber-400 to-orange-400',
       title: 'Canvass TWG-Approved PRs',
-      body:  'Your Work Queue is your home. Requests the TWG approved wait under To canvass; click Start canvass to give it its PR number and set the mode, then print the RFQ for the canvasser.',
+      body:  'Your Dashboard shows what waits and the next requests to canvass. In the Work Queue, requests the TWG approved wait under To canvass; click Start canvass to give it its PR number and set the mode, then print the RFQ for the canvasser.',
     },
     {
       Icon:  Gavel,
       color: 'from-purple-400 to-pink-400',
-      title: 'Sign the RFQ, Then the BAC Awards',
-      body:  'Sign the printed RFQ by hand and give it to the canvasser, who brings the bids to the BAC. The BAC enters them and awards; after the TWG certifies the award, each supplier gets its own purchase order.',
+      title: 'Sign the RFQ, Then the BAC Has It',
+      body:  'Sign the printed RFQ by hand and give it to the canvasser, who gives the returned RFQs to the BAC. The BAC enters the bids, the TWG checks every offer, and the BAC picks the winners; then each supplier gets its own purchase order.',
     },
     {
       Icon:  ShoppingCart,
@@ -127,7 +127,7 @@ const SLIDES = {
       Icon:  CheckCircle,
       color: 'from-emerald-400 to-teal-400',
       title: 'Approve & Forward',
-      body:  'If the specifications are correct, click Approve & Forward. The PR moves to Procurement\'s queue for the canvass. Later, you certify the winners the BAC awarded, under To certify.',
+      body:  'If the specifications are correct, click Approve & Forward. The PR moves to Procurement\'s queue for the canvass. Later, you check every supplier\'s offer in its canvass and certify them, under To certify.',
     },
     {
       Icon:  RotateCcw,
@@ -148,19 +148,19 @@ const SLIDES = {
       logo: true,
       color: 'from-indigo-400 to-blue-400',
       title: 'Welcome to PRimeSys!',
-      body:  "You're logged in as a member of the Bids and Awards Committee. The canvasser brings you the bids; you enter them, pick the winners, and award them in a BAC Resolution.",
+      body:  "You're logged in as a member of the Bids and Awards Committee. You enter the bids from the canvasser's returned RFQs for the TWG to check, then pick the winners and award them in a BAC Resolution.",
     },
     {
       Icon:  ClipboardCheck,
       color: 'from-amber-400 to-orange-400',
       title: 'For Evaluation',
-      body:  'Requests in canvass wait under For Evaluation, your home page. Open one and click Read the canvasser\'s file: the abstract (Excel, Word, CSV, a scanned PDF or a photo) fills the bid sheet for you to check.',
+      body:  'Requests in canvass wait under For Evaluation, right below your Dashboard. Open one and add each supplier\'s quotation: attach its returned RFQ, then type the supplier, the RFQ No. and its prices. Then send it to the TWG.',
     },
     {
       Icon:  CheckCircle,
       color: 'from-emerald-400 to-teal-400',
       title: 'Pick and Award',
-      body:  'Each item goes to its lowest bid unless you pick another, with the reason. Click Award: the winners are adopted in a numbered BAC Resolution and the request goes to the TWG for certification.',
+      body:  'Once the TWG certifies the bids, the request comes back to you. Each lot goes to one supplier: the system recommends the lowest compliant total; you may pick any compliant supplier. Click Award: the winners are adopted in a numbered BAC Resolution.',
     },
     {
       Icon:  Download,
@@ -175,7 +175,7 @@ const SLIDES = {
       logo: true,
       color: 'from-purple-400 to-pink-400',
       title: 'Welcome to PRimeSys!',
-      body:  'You\'re logged in as Administrator. You have full access to the system — users, quarters, PRs, POs, and reports. Here\'s a quick overview.',
+      body:  'You\'re logged in as Administrator. You have full access to the system: users, offices, PRs, POs, and reports. Here\'s a quick overview.',
     },
     {
       Icon:  Users,
@@ -186,8 +186,8 @@ const SLIDES = {
     {
       Icon:  Calendar,
       color: 'from-amber-400 to-orange-400',
-      title: 'Set Up Quarters',
-      body:  'Go to Quarters to create fiscal quarters (Q1–Q4) and set the active one. New PRs are filed under the active quarter automatically.',
+      title: 'Offices and their PPMPs',
+      body:  'Under Organization, list the campus offices and their heads. Each office\'s Fund Administrator uploads its PPMP; the quarters, and what each one is budgeted, follow from it on their own.',
     },
     {
       Icon:  Shield,
@@ -199,7 +199,7 @@ const SLIDES = {
       Icon:  CheckCircle,
       color: 'from-amber-500 to-yellow-400',
       title: 'You\'re all set!',
-      body:  'Start by creating user accounts and setting the active quarter. Everything else is in the User Guide — accessible from the sidebar anytime.',
+      body:  'Start by creating user accounts and giving each office its Fund Administrator. Everything else is in the User Guide, in the sidebar anytime.',
     },
   ],
 }

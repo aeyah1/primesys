@@ -1,6 +1,5 @@
 import { Fragment, useState } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { useSearchParams } from 'react-router-dom'
 import {
   Search, UserX, UserCheck, UserPlus, Pencil,
   Trash2, BadgeCheck, Ban, KeyRound, Eye, EyeOff, ClipboardCheck, AlertTriangle, ArrowUpDown,
@@ -16,8 +15,10 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableEmp
 import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
 import { RoleBadge } from '@/components/shared/StatusBadge'
+import { FilterChip, Tab, Pager } from '@/components/shared/ListParts'
 import { fmtDate, CATEGORY_LABELS } from '@/lib/utils'
 import { useAuth } from '@/context/AuthContext'
+import useUrlParams from '@/hooks/useUrlParams'
 import api from '@/lib/axios'
 
 const EMPTY_ADD = { name: '', username: '', email: '', password: '', role: 'requestor', areas: [], department_id: '', designation: '' }
@@ -51,22 +52,6 @@ const SORTS = [
   { key: 'newest', label: 'Newest first' },
   { key: 'oldest', label: 'Oldest first' },
 ]
-
-// A filter chip with its count (same look as the PR list's category chips).
-function Chip({ active, count, onClick, children }) {
-  return (
-    <button type="button" onClick={onClick}
-      className={`rounded-full border px-3 py-1 text-ui-xs font-medium transition-colors ${
-        active
-          ? 'border-[--color-brand] bg-[--color-brand] text-white'
-          : count
-            ? 'border-[--color-border-strong] bg-white text-[--color-text-secondary] hover:border-[--color-brand] hover:text-[--color-brand]'
-            : 'border-[--color-border] bg-white text-[--color-text-muted] hover:border-[--color-border-strong]'
-      }`}>
-      {children} <span className="opacity-80">({count})</span>
-    </button>
-  )
-}
 
 // Heading row for one role when the All tab is grouped by role.
 function GroupRow({ role, count, continued }) {
@@ -145,7 +130,7 @@ export default function UserList() {
 
   // Role tab, status, review area, sort, search, and page live in the URL, so
   // the back button, a refresh, and a shared link all keep the same view.
-  const [params, setParams] = useSearchParams()
+  const [params, update] = useUrlParams()
   const tab    = ROLE_TABS.some(t => t.key === params.get('role')) ? params.get('role') : 'all'
   const status = STATUSES.some(s => s.key && s.key === params.get('status')) ? params.get('status') : ''
   const area   = tab === 'twg' && [...AREA_KEYS, 'none'].includes(params.get('area')) ? params.get('area') : ''
@@ -153,11 +138,6 @@ export default function UserList() {
   const sort   = sorts.some(s => s.key === params.get('sort')) ? params.get('sort') : tab === 'all' ? 'role' : 'name'
   const page   = Math.max(parseInt(params.get('page')) || 1, 1)
   const [search, setSearch] = useState(params.get('q') || '')
-  const update = (changes) => setParams(prev => {
-    const next = new URLSearchParams(prev)
-    for (const [k, v] of Object.entries(changes)) (v === '' || v == null ? next.delete(k) : next.set(k, String(v)))
-    return next
-  }, { replace: true })
 
   // 20 per page; the server returns the total and the counts for every tab and chip.
   const { data, isLoading } = useQuery({
@@ -357,27 +337,12 @@ export default function UserList() {
 
       <Card>
         <div className="flex items-center gap-1 px-4 pt-3 border-b border-[--color-border] overflow-x-auto">
-          {ROLE_TABS.map(t => {
-            const n = counts?.roles?.[t.key] ?? 0
-            return (
-              <button
-                key={t.key}
-                onClick={() => update({ role: t.key === 'all' ? '' : t.key, area: '', sort: '', page: '' })}
-                className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-colors mb-[-1px] ${
-                  tab === t.key
-                    ? 'border-[--color-brand] text-[--color-brand]'
-                    : 'border-transparent text-[--color-text-muted] hover:text-[--color-text-primary]'
-                }`}
-              >
-                {t.label}
-                {n > 0 && (
-                  <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
-                    tab === t.key ? 'bg-[--color-brand-light] text-[--color-brand]' : 'bg-[--color-overlay] text-[--color-text-muted]'
-                  }`}>{n}</span>
-                )}
-              </button>
-            )
-          })}
+          {ROLE_TABS.map(t => (
+            <Tab key={t.key} active={tab === t.key} count={counts?.roles?.[t.key] ?? 0}
+              onClick={() => update({ role: t.key === 'all' ? '' : t.key, area: '', sort: '', page: '' })}>
+              {t.label}
+            </Tab>
+          ))}
         </div>
 
         {/* Status filter (and review areas on the TWG tab) with counts, and the sort order */}
@@ -385,10 +350,10 @@ export default function UserList() {
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex flex-wrap gap-1.5">
               {STATUSES.map(s => (
-                <Chip key={s.key || 'any'} active={status === s.key} count={counts?.status?.[s.key || 'all'] ?? 0}
+                <FilterChip key={s.key || 'any'} active={status === s.key} count={counts?.status?.[s.key || 'all'] ?? 0}
                   onClick={() => update({ status: s.key, page: '' })}>
                   {s.label}
-                </Chip>
+                </FilterChip>
               ))}
             </div>
             <div className="flex items-center gap-2 shrink-0">
@@ -404,13 +369,13 @@ export default function UserList() {
           {tab === 'twg' && (
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-ui-xs font-medium text-[--color-text-muted] mr-1">Review area</span>
-              <Chip active={!area} count={counts?.roles?.twg ?? 0} onClick={() => update({ area: '', page: '' })}>All areas</Chip>
+              <FilterChip active={!area} count={counts?.roles?.twg ?? 0} onClick={() => update({ area: '', page: '' })}>All areas</FilterChip>
               {AREA_KEYS.map(k => (
-                <Chip key={k} active={area === k} count={counts?.areas?.[k] ?? 0} onClick={() => update({ area: k, page: '' })}>
+                <FilterChip key={k} active={area === k} count={counts?.areas?.[k] ?? 0} onClick={() => update({ area: k, page: '' })}>
                   {CATEGORY_LABELS[k]}
-                </Chip>
+                </FilterChip>
               ))}
-              <Chip active={area === 'none'} count={counts?.areas?.none ?? 0} onClick={() => update({ area: 'none', page: '' })}>No areas</Chip>
+              <FilterChip active={area === 'none'} count={counts?.areas?.none ?? 0} onClick={() => update({ area: 'none', page: '' })}>No areas</FilterChip>
             </div>
           )}
         </div>
@@ -520,17 +485,8 @@ export default function UserList() {
               }
             </TableBody>
           </Table>
-          {data && data.totalPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t border-[--color-border]">
-              <span className="text-xs text-[--color-text-muted]">
-                Page {data.page} of {data.totalPages} · {data.total} users
-              </span>
-              <div className="flex gap-2">
-                <Button variant="secondary" size="sm" onClick={() => update({ page: page - 1 > 1 ? page - 1 : '' })} disabled={page <= 1}>Previous</Button>
-                <Button variant="secondary" size="sm" onClick={() => update({ page: page + 1 })} disabled={page >= data.totalPages}>Next</Button>
-              </div>
-            </div>
-          )}
+          <Pager page={page} totalPages={data?.totalPages} summary={`${data?.total} users`}
+            onPage={(n) => update({ page: n > 1 ? n : '' })} />
         </CardContent>
       </Card>
 

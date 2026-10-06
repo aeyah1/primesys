@@ -45,7 +45,7 @@ export default function StartCanvassDialog({ pr, onClose, onStarted }) {
   return (
     <Dialog open onOpenChange={v => { if (!v) onClose() }}>
       <DialogContent title="Start the Canvass"
-        description={`${pr.pr_number}${pr.title ? `: ${pr.title}` : ''}. The canvasser canvasses the suppliers with the printed RFQ; you then record each item's winner here.`}>
+        description={`${pr.pr_number}${pr.title ? `: ${pr.title}` : ''}. The canvasser canvasses the suppliers with the printed RFQ and gives the returned RFQs to the BAC.`}>
         {!canvass ? (
           <div className="space-y-3">{Array(2).fill(0).map((_, i) => <Skeleton key={i} className="h-10" />)}</div>
         ) : (

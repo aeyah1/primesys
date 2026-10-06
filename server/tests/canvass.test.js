@@ -1,14 +1,15 @@
-// One PR, several suppliers, canvassed outside the system: Procurement starts
-// the canvass; the BAC enters every bidder's price, picks each item's winner
-// (the lowest, or another with a reason, within the approved budget) and
-// awards (a BAC Resolution); the TWG returns it to the BAC or certifies it.
-// Then one purchase order per supplier, a PO cancelled on its own, items
-// dropped and brought back, the bids read from the canvasser's file, and
+// One PR in three lots, several suppliers, canvassed outside the system:
+// Procurement starts the canvass; the BAC enters each supplier's quotation
+// (its prices, RFQ No. and RFQ file) and sends them to the TWG; the TWG marks
+// each bid compliant or not, returns the canvass or certifies it (a numbered
+// certificate); the BAC picks each lot's winner freely, the system
+// recommending the lowest compliant total, within the lot's approved budget
+// (a BAC Resolution). Then one purchase order per award, a PO cancelled on its
+// own, items dropped and brought back, a certified canvass taken back, and
 // completion once every PO is delivered. Real HTTP against a throwaway
 // database (harness.js).
 const path = require('path')
 const H    = require('./harness')
-const { makeXlsx } = require('./office-files')
 
 const { db: TEST_DB, base: BASE } = H.configure({ db: 'primesys_canvass_test_tmp', port: 5090 })
 const serverReq = (m) => require(require.resolve(m, { paths: [H.SERVER] }))
@@ -28,13 +29,14 @@ function fixtures() {
       ${U(1, 'Admin One')}, ${U(2, 'Proc One')}, ${U(3, 'Req A')}, ${U(4, 'Sup One')}, ${U(5, 'Twg One')}, ${U(6, 'Bac One')};
     ${H.twgAreas([5])}
     INSERT INTO purchase_requests (id, pr_number, title, status, created_by, category, mode_of_procurement) VALUES
-      ${P(80, 'bidding')}, ${P(81, 'twg_review')}, ${P(82, 'bidding', "'Shopping'")}, ${P(83, 'bidding', "'Shopping'")};
-    INSERT INTO pr_items (id, pr_id, item_name, quantity, unit, estimated_cost) VALUES
-      (801, 80, 'Laptop', 2, 'unit', 45000), (802, 80, 'Mouse', 4, 'pc', 500),
-      (803, 80, 'Printer', 1, 'unit', 12000), (804, 80, 'Projector', 1, 'unit', 30000),
-      (811, 81, 'Router', 1, 'unit', 3000),
-      (821, 82, 'Chair', 10, 'pc', 2500), (822, 82, 'Table', 2, 'pc', 8000),
-      (831, 83, 'Cabinet', 1, 'unit', 9000);
+      ${P(80, 'bidding')}, ${P(81, 'twg_review')}, ${P(82, 'bidding', "'Shopping'")}, ${P(83, 'bidding', "'Shopping'")}, ${P(84, 'bidding', "'Shopping'")};
+    INSERT INTO pr_items (id, pr_id, group_label, item_name, quantity, unit, estimated_cost) VALUES
+      (801, 80, 'LOT 1', 'Laptop', 2, 'unit', 45000), (802, 80, 'Lot 1 ', 'Mouse', 4, 'pc', 500),
+      (803, 80, 'LOT 2', 'Printer', 1, 'unit', 12000), (804, 80, 'LOT 3', 'Projector', 1, 'unit', 30000),
+      (811, 81, NULL, 'Router', 1, 'unit', 3000),
+      (821, 82, NULL, 'Chair', 10, 'pc', 2500), (822, 82, NULL, 'Table', 2, 'pc', 8000),
+      (831, 83, NULL, 'Cabinet', 1, 'unit', 9000),
+      (841, 84, NULL, 'Speaker', 1, 'unit', 2000), (842, 84, NULL, 'Microphone', 1, 'unit', 1000);
     SET FOREIGN_KEY_CHECKS = 1;
   `
 }
@@ -61,10 +63,9 @@ async function run() {
   const t = H.suite('CANVASS')
   const is = async (g, label, who, m, p, body, ok) => { const r = await http(who, m, p, body); t.check(g, label, ok(r), show(r)); return r }
   const code = (c, re) => (r) => r.status === c && (!re || re.test(r.data?.message || ''))
-  // The BAC's bid sheet: [name, { item: price }] per bidder; winners { item: bidder index, or { bidder, reason } }.
-  const sheet = (bids, winners = {}) => ({
-    bidders: bids.map(([name, prices]) => ({ name, prices: Object.entries(prices).map(([item, unit_price]) => ({ pr_item_id: Number(item), unit_price })) })),
-    winners: Object.entries(winners).map(([item, w]) => ({ pr_item_id: Number(item), ...(typeof w === 'number' ? { bidder: w } : w) })),
+  // The BAC's bid sheet: [name, { item: price }, rfq_no] per bidder.
+  const sheet = (bids) => ({
+    bidders: bids.map(([name, prices, rfq_no]) => ({ name, rfq_no, prices: Object.entries(prices).map(([item, unit_price]) => ({ pr_item_id: Number(item), unit_price })) })),
   })
   const lotsOf = async (prId) => ((await http(2, 'GET', `/lots/pr/${prId}`)).data || []).filter(l => l.status === 'awarded')
 
@@ -87,93 +88,112 @@ async function run() {
   await is(G0, '…and the BAC, to enter the bids', 6, 'GET', '/notifications', undefined,
     (r) => r.status === 200 && r.data.some(n => /PR PR-C-81 is in canvass\. Enter the bids/.test(n.message)))
   await is(G0, 'starting it again → 409', 2, 'POST', '/canvass/81/start', { mode_of_procurement: 'Shopping' }, code(409))
-  await is(G0, 'the status can\'t be set to the TWG by hand → 409', 2, 'PATCH', '/pr/81/status', { status: 'twg_certification' }, code(409, /set by the BAC's award/))
+  await is(G0, 'the status can\'t be set to the TWG by hand → 409', 2, 'PATCH', '/pr/81/status', { status: 'twg_certification' }, code(409, /set by the BAC/))
 
-  // The BAC enters the bids and awards
+  // The BAC enters the bids and sends them to the TWG
   const G1 = 'The BAC\'s bids'
   const BIDS = [
-    ['Alpha Computers', { 801: 44000, 802: 450, 803: 12500, 804: 29000 }],
-    ['Beta Supplies',   { 801: 44500, 802: 400, 803: 11800, 804: 31000 }],
+    ['Alpha Computers', { 801: 44000, 802: 450, 803: 12500, 804: 29000 }, 'RFQ-101'],
+    ['Beta Supplies',   { 801: 44500, 802: 410, 803: 11800, 804: 31000 }, 'RFQ-102'],
     ['Gamma Trading',   { 803: 11900, 804: 27500 }],
   ]
-  const LOWEST = { 801: 0, 802: 1, 803: 1, 804: 2 }
   await is(G1, 'Procurement can\'t enter them (403)', 2, 'PUT', '/canvass/80/bids', sheet(BIDS), code(403))
   await is(G1, 'nor a requestor (403)', 3, 'PUT', '/canvass/80/bids', sheet(BIDS), code(403))
   await is(G1, 'nor supply (403)', 4, 'PUT', '/canvass/80/bids', sheet(BIDS), code(403))
   await is(G1, 'nor the TWG (403)', 5, 'PUT', '/canvass/80/bids', sheet(BIDS), code(403))
-  await is(G1, 'nor can Procurement award (403)', 2, 'POST', '/canvass/80/award', {}, code(403))
+  await is(G1, 'nor can Procurement send them to the TWG (403)', 2, 'POST', '/canvass/80/send', {}, code(403))
   await is(G1, 'a bidder with no name → 400', 6, 'PUT', '/canvass/80/bids', sheet([['  ', { 801: 1 }]]), code(400, /Bidder name/))
   await is(G1, 'a zero price → 400', 6, 'PUT', '/canvass/80/bids', sheet([['X', { 801: 0 }]]), code(400))
   await is(G1, 'a bidder entered twice → 400', 6, 'PUT', '/canvass/80/bids',
     sheet([['Alpha Computers', { 801: 1 }], ['alpha  computers', { 802: 1 }]]), code(400, /entered twice/))
   await is(G1, 'a price for an item of another PR → 400', 6, 'PUT', '/canvass/80/bids', sheet([['X', { 811: 100 }]]), code(400, /not on this PR/))
-  await is(G1, 'a winner with no price for the item → 400', 6, 'PUT', '/canvass/80/bids', sheet(BIDS, { 801: 2 }), code(400, /has no price/))
-  await is(G1, 'awarding before any bid → 409', 6, 'POST', '/canvass/80/award', {}, code(409, /Pick the winner/))
-  await is(G1, 'save the bids, the projector picked from Alpha', 6, 'PUT', '/canvass/80/bids', sheet(BIDS, { ...LOWEST, 804: 0 }),
-    (r) => r.status === 200 && r.data.bidders.length === 3)
-  await is(G1, '…the canvass shows every bid and pick', 2, 'GET', '/canvass/80', undefined,
-    (r) => r.status === 200 && r.data.bidders.map(b => b.name).join() === 'Alpha Computers,Beta Supplies,Gamma Trading'
-           && num(r.data.bidders[2].prices[804]) === 27500 && r.data.items.find(i => i.id === 804).winner_bidder_id === r.data.bidders[0].id
-           && r.data.permissions.bid === false)
-  await is(G1, '…the BAC may enter them', 6, 'GET', '/canvass/80', undefined, (r) => r.status === 200 && r.data.permissions.bid === true)
+  await is(G1, 'nothing goes to the TWG before the bids → 409', 6, 'POST', '/canvass/80/send', {}, code(409, /Enter the bids for "Laptop"/))
+  await is(G1, 'the first quotation, on its own', 6, 'PUT', '/canvass/80/bids', sheet([BIDS[0]]), (r) => r.status === 200 && r.data.bidders.length === 1)
+  await is(G1, 'the other two; the first stays', 6, 'PUT', '/canvass/80/bids', sheet(BIDS.slice(1)), (r) => r.status === 200 && r.data.bidders.length === 3)
+  await is(G1, '…shown with every price, an RFQ No. for each (the third numbered by its place)', 2, 'GET', '/canvass/80', undefined,
+    (r) => r.status === 200 && r.data.bidders.map(b => `${b.name}:${b.rfq_no}`).join() === 'Alpha Computers:RFQ-101,Beta Supplies:RFQ-102,Gamma Trading:3'
+           && num(r.data.bidders[2].prices[804]) === 27500 && r.data.permissions.bid === false)
+  await is(G1, '…the items in three lots, "Lot 1 " the same lot as "LOT 1"', 2, 'GET', '/canvass/80', undefined,
+    (r) => r.status === 200 && r.data.lots.map(l => `${l.label}:${l.item_ids.join('+')}`).join() === 'LOT 1:801+802,LOT 2:803,LOT 3:804'
+           && r.data.lots.every(l => l.recommended_bidder_id === null))
+  await is(G1, '…the BAC may enter them, but not send them before the files are attached', 6, 'GET', '/canvass/80', undefined,
+    (r) => r.status === 200 && r.data.permissions.bid === true && r.data.permissions.send === false && /Attach the canvasser's files/.test(r.data.send_blocked))
+  await is(G1, 'sending without the files → 409', 6, 'POST', '/canvass/80/send', {}, code(409, /Attach the canvasser's files/))
+  await is(G1, 'a requestor\'s file doesn\'t count', 3, 'POST', '/pr/80/attachments', H.canvassScan(), code(201))
+  await is(G1, '…still blocked', 6, 'GET', '/canvass/80', undefined, (r) => r.status === 200 && r.data.permissions.send === false)
+  const rfq = await is(G1, 'the BAC attaches Alpha\'s returned RFQ', 6, 'POST', '/pr/80/attachments', H.canvassScan(), code(201))
+  const ids = Object.fromEntries(((await http(6, 'GET', '/canvass/80')).data?.bidders || []).map(b => [b.name.split(' ')[0], b.id]))
+  const alphaWith = (extra) => ({ bidders: [{ ...sheet([BIDS[0]]).bidders[0], ...extra }] })
+  await is(G1, '…and links it to Alpha\'s quotation', 6, 'PUT', '/canvass/80/bids', alphaWith({ id: ids.Alpha, attachment_id: rfq.data?.id }),
+    (r) => r.status === 200 && r.data.bidders[0].attachment_id === rfq.data?.id && r.data.bidders[0].attachment_name === 'canvass.pdf')
+  await is(G1, 'a file not attached to this PR → 400', 6, 'PUT', '/canvass/80/bids', alphaWith({ id: ids.Alpha, attachment_id: 99999 }), code(400, /not attached to this PR/))
+  await is(G1, 'a quotation of another PR → 404', 6, 'PUT', '/canvass/80/bids', alphaWith({ id: 99999 }), code(404, /Quotation not found/))
+  const zulu = await is(G1, 'a fourth quotation, numbered by its place', 6, 'PUT', '/canvass/80/bids', sheet([['Zulu Temp', { 801: 43000 }]]),
+    (r) => r.status === 200 && r.data.bidders.length === 4 && r.data.bidders[3].rfq_no === '4')
+  const zid = zulu.data?.bidders?.[3]?.id
+  const zuluAs = (name) => ({ bidders: [{ id: zid, name, prices: [{ pr_item_id: 801, unit_price: 43000 }] }] })
+  await is(G1, '…renamed to another bidder\'s name → 400', 6, 'PUT', '/canvass/80/bids', zuluAs('beta  supplies'), code(400, /Beta Supplies is already entered/))
+  await is(G1, '…renamed', 6, 'PUT', '/canvass/80/bids', zuluAs('Zulu Traders'),
+    (r) => r.status === 200 && r.data.bidders.length === 4 && r.data.bidders[3].name === 'Zulu Traders' && r.data.bidders[3].rfq_no === '4')
+  await is(G1, 'Procurement can\'t remove a quotation (403)', 2, 'DELETE', `/canvass/80/bidders/${zid}`, undefined, code(403))
+  await is(G1, 'the BAC removes it', 6, 'DELETE', `/canvass/80/bidders/${zid}`, undefined,
+    (r) => r.status === 200 && r.data.bidders.map(b => b.name).join() === 'Alpha Computers,Beta Supplies,Gamma Trading')
+  await is(G1, '…removing it again → 404', 6, 'DELETE', `/canvass/80/bidders/${zid}`, undefined, code(404))
+  await is(G1, '…the canvass is complete: it may go to the TWG', 6, 'GET', '/canvass/80', undefined,
+    (r) => r.status === 200 && r.data.permissions.send === true && r.data.send_blocked === null)
   await is(G1, 'supply doesn\'t see a PR with no award yet (404, C2)', 4, 'GET', '/canvass/82', undefined, code(404))
   await is(G1, 'a requestor may not look (403)', 3, 'GET', '/canvass/80', undefined, code(403))
   await is(G1, 'the BAC\'s queue has it, with its bidders', 6, 'GET', '/bac/queue', undefined,
-    (r) => r.status === 200 && r.data.data.some(p => p.id === 80 && num(p.bidders) === 3))
-  await is(G1, 'Procurement\'s queue: with the BAC', 2, 'GET', '/lots/queue?stage=needs_award', undefined,
+    (r) => r.status === 200 && r.data.data.some(p => p.id === 80 && p.status === 'bidding' && num(p.bidders) === 3))
+  await is(G1, 'the TWG doesn\'t evaluate before it is sent (404: not yet its stage)', 5, 'PUT', '/twg/80/evaluation',
+    { bids: [{ bidder_id: 1, pr_item_id: 801, compliant: true }] }, code(404))
+  await is(G1, 'the BAC sends it to the TWG', 6, 'POST', '/canvass/80/send', {}, code(200))
+  await is(G1, '…with the TWG, logged', 2, 'GET', '/pr/80/logs', undefined,
+    (r) => r.status === 200 && r.data.some(l => l.from_status === 'bidding' && l.to_status === 'twg_certification' && /sent to the TWG/.test(l.note)))
+  await is(G1, '…the TWG is told', 5, 'GET', '/notifications', undefined,
+    (r) => r.status === 200 && r.data.some(n => /The BAC sent the bids of PR PR-C-80/.test(n.message)))
+  await is(G1, '…Procurement\'s queue: with the TWG', 2, 'GET', '/lots/queue?stage=with_twg', undefined,
     (r) => r.status === 200 && r.data.data.some(p => p.id === 80))
-  await is(G1, 'a winner that isn\'t the lowest needs a reason → 409', 6, 'POST', '/canvass/80/award', {}, code(409, /not the lowest bid/))
-  await is(G1, 'pick Beta\'s projector, above its budget, with a reason', 6, 'PUT', '/canvass/80/bids',
-    sheet(BIDS, { ...LOWEST, 804: { bidder: 1, reason: 'Faster delivery' } }), code(200))
-  await is(G1, '…Beta\'s award would be above its items\' budget → 409', 6, 'POST', '/canvass/80/award', {}, code(409, /Beta Supplies .* above the approved budget/))
-  await is(G1, '…and nothing was awarded', 2, 'GET', '/lots/pr/80', undefined, (r) => r.status === 200 && r.data.length === 0)
-  await is(G1, 'each item to its lowest bid', 6, 'PUT', '/canvass/80/bids', sheet(BIDS, LOWEST), code(200))
-  const awarded = await is(G1, 'the BAC awards', 6, 'POST', '/canvass/80/award', { notes: 'Lowest calculated and responsive' },
-    (r) => r.status === 200 && /^\d{4}-001$/.test(r.data.resolution?.resolution_number || '') && r.data.awards === 3)
-  let rid = awarded.data?.resolution?.id
-  await is(G1, '…one award per supplier, at the winning prices', 2, 'GET', '/lots/pr/80', undefined,
-    (r) => r.status === 200 && r.data.map(l => `${l.awarded_to}:${num(l.awarded_amount)}`).join() === 'Alpha Computers:88000,Beta Supplies:13400,Gamma Trading:27500'
-           && r.data.every(l => l.resolution_id === rid && l.certified_at === null))
-  await is(G1, '…for TWG certification', 2, 'GET', '/pr/80', undefined, (r) => r.status === 200 && r.data.status === 'twg_certification')
-  await is(G1, '…logged', 2, 'GET', '/pr/80/logs', undefined,
-    (r) => r.status === 200 && r.data.some(l => l.from_status === 'bidding' && l.to_status === 'twg_certification' && /Awarded by the BAC in Resolution No\. \d{4}-001/.test(l.note)))
-  await is(G1, '…its awards in the resolution, a notice per supplier', 6, 'GET', '/bac/80', undefined,
-    (r) => r.status === 200 && r.data.resolutions.length === 1 && r.data.resolutions[0].lots.length === 3 && r.data.resolutions[0].notices.length === 3)
-  await is(G1, 'the BAC Resolution', 6, 'GET', `/bac/80/resolutions/${rid}/pdf`, undefined, isPDF)
-  await is(G1, 'a Notice of Award', 2, 'GET', `/bac/80/resolutions/${rid}/notice/${(await lotsOf(80))[0]?.id}`, undefined, isPDF)
-  await is(G1, 'the TWG is told', 5, 'GET', '/notifications', undefined,
-    (r) => r.status === 200 && r.data.some(n => /PR-C-80 .* awaiting the TWG's certification/.test(n.message)))
-  await is(G1, '…and Procurement', 2, 'GET', '/notifications', undefined,
-    (r) => r.status === 200 && r.data.some(n => /PR PR-C-80 was awarded by the BAC in Resolution No\./.test(n.message)))
-  await is(G1, 'the bids can\'t change meanwhile → 409', 6, 'PUT', '/canvass/80/bids', sheet(BIDS, LOWEST), code(409, /in canvass/))
-  await is(G1, '…nor the awards → 409', 2, 'PATCH', `/lots/${(await lotsOf(80))[0]?.id}`, { title: 'x' }, code(409, /with the TWG/))
+  await is(G1, 'the bids can\'t change meanwhile → 409', 6, 'PUT', '/canvass/80/bids', sheet(BIDS), code(409, /in canvass/))
+  await is(G1, '…nor a quotation be removed → 409', 6, 'DELETE', `/canvass/80/bidders/${ids.Gamma}`, undefined, code(409, /in canvass/))
   await is(G1, '…nor an item be dropped → 409', 6, 'POST', '/canvass/80/items/804/drop', { reason: 'x' }, code(409))
-  await is(G1, 'no purchase order before the TWG → 409', 2, 'POST', '/po',
-    { purchase_request_id: 80, supplier: 'Alpha Computers', issued_date: '2026-09-09' }, code(409, /TWG's certification/))
+  await is(G1, '…nor anything awarded → 409', 6, 'POST', '/canvass/80/award', { winners: [] }, code(409, /once the TWG has certified/))
 
-  // TWG certification
-  const G3 = 'TWG certification'
-  await is(G3, 'the TWG\'s certification queue', 5, 'GET', '/twg/pending?stage=certify', undefined,
-    (r) => r.status === 200 && r.data.data.map(p => p.id).join() === '80' && num(r.data.data[0].awarded_total) === 128900)
+  // The TWG evaluates every bid and certifies
+  const G3 = 'TWG evaluation'
+  const cv = (await http(6, 'GET', '/canvass/80')).data
+  const B = Object.fromEntries((cv?.bidders || []).map(b => [b.name.split(' ')[0], b.id]))
+  const mark = (who, item, compliant, extra = {}) => ({ bidder_id: B[who], pr_item_id: item, compliant, ...extra })
+  await is(G3, 'the TWG\'s certification queue, with the bidders', 5, 'GET', '/twg/pending?stage=certify', undefined,
+    (r) => r.status === 200 && r.data.data.map(p => p.id).join() === '80' && num(r.data.data[0].bidders) === 3)
   await is(G3, '…its review queue doesn\'t have it', 5, 'GET', '/twg/pending', undefined, (r) => r.status === 200 && !r.data.data.some(p => p.id === 80))
-  await is(G3, 'the TWG may read the resolution', 5, 'GET', `/bac/80/resolutions/${rid}/pdf`, undefined, isPDF)
-  await is(G3, 'Procurement can\'t certify (403)', 2, 'POST', '/twg/80/certify', { action: 'certify' }, code(403))
-  await is(G3, 'nor the BAC (403)', 6, 'POST', '/twg/80/certify', { action: 'certify' }, code(403))
-  await is(G3, 'an unknown action → 400', 5, 'POST', '/twg/80/certify', { action: 'approve' }, code(400))
+  await is(G3, 'Procurement can\'t evaluate (403)', 2, 'PUT', '/twg/80/evaluation', { bids: [mark('Alpha', 801, true)] }, code(403))
+  await is(G3, 'nor the BAC (403)', 6, 'PUT', '/twg/80/evaluation', { bids: [mark('Alpha', 801, true)] }, code(403))
+  await is(G3, 'nor certify (403)', 6, 'POST', '/twg/80/certify', { action: 'certify' }, code(403))
+  await is(G3, 'certifying before every bid is marked → 409', 5, 'POST', '/twg/80/certify', { action: 'certify' }, code(409, /Mark every bid/))
+  await is(G3, 'a bid not in this canvass → 400', 5, 'PUT', '/twg/80/evaluation', { bids: [mark('Gamma', 801, true)] }, code(400, /not in this canvass/))
+  await is(G3, 'a mark that isn\'t yes or no → 400', 5, 'PUT', '/twg/80/evaluation', { bids: [mark('Alpha', 801, 'maybe')] }, code(400))
+  const EVAL = [
+    mark('Alpha', 801, true, { offered_spec: 'Brand A laptop, 16 GB' }), mark('Alpha', 802, true), mark('Alpha', 803, true), mark('Alpha', 804, true),
+    mark('Beta', 801, true), mark('Beta', 802, true, { offered_spec: 'Brand B mouse' }), mark('Beta', 803, true), mark('Beta', 804, true),
+    mark('Gamma', 803, false), mark('Gamma', 804, true, { offered_spec: 'Brand G projector, 3200 lumens' }),
+  ]
+  await is(G3, 'the TWG marks every bid, one non-compliant without a reason', 5, 'PUT', '/twg/80/evaluation', { bids: EVAL }, code(200))
+  await is(G3, '…a non-compliant bid needs its reason → 409', 5, 'POST', '/twg/80/certify', { action: 'certify' }, code(409, /State why Gamma Trading's bid is non-compliant/))
   await is(G3, 'returning needs a comment → 400', 5, 'POST', '/twg/80/certify', { action: 'return' }, code(400, /comment/))
-  await is(G3, 'the TWG returns it to the BAC', 5, 'POST', '/twg/80/certify', { action: 'return', comment: 'The printer is not the model requested' }, code(200))
-  await is(G3, '…back in canvass with the BAC, with the reason', 6, 'GET', '/bac/80', undefined,
-    (r) => r.status === 200 && r.data.status === 'bidding' && r.data.certification_return_reason === 'The printer is not the model requested')
-  await is(G3, '…that round\'s awards are cancelled', 2, 'GET', '/lots/pr/80', undefined,
-    (r) => r.status === 200 && r.data.length === 3 && r.data.every(l => l.status === 'cancelled' && /Returned by the TWG: The printer/.test(l.notes)))
-  await is(G3, '…the bids and picks are kept for the BAC to award again', 6, 'GET', '/canvass/80', undefined,
-    (r) => r.status === 200 && r.data.bidders.length === 3 && r.data.items.every(i => i.state === 'pending')
-           && r.data.items.find(i => i.id === 803).winner_bidder_id === r.data.bidders[1].id && r.data.permissions.bid === true)
+  await is(G3, 'the TWG returns it: a price was misread', 5, 'POST', '/twg/80/certify', { action: 'return', comment: 'Beta\'s mouse is 400.00 on its RFQ' }, code(200))
+  await is(G3, '…back with the BAC in canvass, with the reason', 6, 'GET', '/bac/80', undefined,
+    (r) => r.status === 200 && r.data.status === 'bidding' && r.data.certification_return_reason === 'Beta\'s mouse is 400.00 on its RFQ')
   await is(G3, '…the BAC is told', 6, 'GET', '/notifications', undefined,
-    (r) => r.status === 200 && r.data.some(n => /returned by the TWG: The printer is not the model requested/.test(n.message)))
-  const again = await is(G3, 'the BAC awards again, in a new resolution', 6, 'POST', '/canvass/80/award', {},
-    (r) => r.status === 200 && /^\d{4}-002$/.test(r.data.resolution?.resolution_number || ''))
-  rid = again.data?.resolution?.id
+    (r) => r.status === 200 && r.data.some(n => /returned by the TWG: Beta's mouse is 400.00/.test(n.message)))
+  await is(G3, 'the BAC corrects the price', 6, 'PUT', '/canvass/80/bids',
+    sheet([BIDS[0], ['Beta Supplies', { ...BIDS[1][1], 802: 400 }, 'RFQ-102'], BIDS[2]]), code(200))
+  await is(G3, '…the corrected bid is evaluated again; the others keep the TWG\'s marks', 6, 'GET', '/canvass/80', undefined,
+    (r) => r.status === 200 && r.data.bidders[1].evaluation[802].compliant === null && r.data.bidders[0].evaluation[801].offered_spec === 'Brand A laptop, 16 GB'
+           && r.data.bidders[2].evaluation[804].offered_spec === 'Brand G projector, 3200 lumens')
+  await is(G3, '…and sends it again', 6, 'POST', '/canvass/80/send', {}, code(200))
+  await is(G3, 'the TWG marks the corrected bid and states the other reason', 5, 'PUT', '/twg/80/evaluation',
+    { bids: [mark('Beta', 802, true), mark('Gamma', 803, false, { remarks: 'Not the model requested' })] }, code(200))
   const Y = new Date().getFullYear()
   await is(G3, 'a Cert. No. is suggested, the first of the year', 5, 'GET', '/bac/80', undefined,
     (r) => r.status === 200 && new RegExp(`^${Y}-\\d{2}-001$`).test(r.data.suggested_cert_no) && r.data.certificates.length === 0)
@@ -182,46 +202,85 @@ async function run() {
   await H.sql(TEST_DB, "INSERT INTO twg_certificates (cert_no, pr_id, certified_by) VALUES ('2025-12-900', 83, 5)")
   await is(G3, 'a Cert. No. already given → 409', 5, 'POST', '/twg/80/certify', { action: 'certify', cert_no: '2025-12-900' }, code(409, /already on another certificate/))
   await is(G3, '…and nothing was certified', 5, 'GET', '/pr/80', undefined, (r) => r.status === 200 && r.data.status === 'twg_certification')
-  await is(G3, 'the TWG certifies it, numbered after the paper ones and signed', 5, 'POST', '/twg/80/certify',
-    { action: 'certify', comment: 'Matches the request', cert_no: `${Y}-09-851`, signature: PNG, sign_method: 'uploaded' },
+  await is(G3, 'the TWG certifies, numbered after the paper ones and signed', 5, 'POST', '/twg/80/certify',
+    { action: 'certify', comment: 'Checked against the RFQs', cert_no: `${Y}-09-851`, signature: PNG, sign_method: 'uploaded' },
     (r) => r.status === 200 && r.data.certificate?.cert_no === `${Y}-09-851` && /Cert. No. \d{4}-09-851/.test(r.data.message))
   const cert = await is(G3, '…its certificate, signed', 2, 'GET', '/bac/80', undefined,
     (r) => r.status === 200 && r.data.certificates.length === 1 && same(r.data.certificates[0], { cert_no: `${Y}-09-851`, signed: true, certified_by_name: 'Twg One' })
-           && r.data.suggested_cert_no === null)
+           && r.data.suggested_cert_no === null && r.data.status === 'bac_review')
+  await is(G3, '…logged, and the BAC is told to pick the winners', 6, 'GET', '/notifications', undefined,
+    (r) => r.status === 200 && r.data.some(n => /The TWG certified the bids of PR PR-C-80 .*Pick the winners/.test(n.message)))
+  await is(G3, '…an offer left blank prints "As specified"', 6, 'GET', '/canvass/80', undefined,
+    (r) => r.status === 200 && r.data.bidders[0].evaluation[802].offered_spec === 'As specified' && r.data.bidders[0].evaluation[801].offered_spec === 'Brand A laptop, 16 GB')
   const certPdf = `/bac/80/certificates/${cert.data?.certificates?.[0]?.id}/pdf`
   await H.sql(TEST_DB, "INSERT INTO org_settings (setting_key, setting_value) VALUES ('entity_address', 'Cantilan, Surigao del Sur'), ('entity_website', 'www.example.edu.ph')")
   await is(G3, '…printed for the TWG', 5, 'GET', certPdf, undefined, isPDF)
   await is(G3, '…and for Procurement', 2, 'GET', certPdf, undefined, isPDF)
   await is(G3, '…not for a requestor (403)', 3, 'GET', certPdf, undefined, code(403))
   await is(G3, 'an unknown certificate → 404', 2, 'GET', '/bac/80/certificates/9999/pdf', undefined, code(404))
-  await is(G3, '…Ready for PO, every award certified', 2, 'GET', '/lots/pr/80', undefined,
-    (r) => r.status === 200 && r.data.filter(l => l.status === 'awarded').length === 3
-           && r.data.filter(l => l.status === 'awarded').every(l => l.certified_at && l.certified_by === 5 && l.resolution_id === rid && l.certificate_id === cert.data?.certificates?.[0]?.id))
   await is(G3, 'certifying again → 409', 5, 'POST', '/twg/80/certify', { action: 'certify' }, code(409))
-  await is(G3, '…logged', 2, 'GET', '/pr/80/logs', undefined,
-    (r) => r.status === 200 && r.data.some(l => l.from_status === 'twg_certification' && l.to_status === 'for_po' && l.note === 'Matches the request'))
-  await is(G3, '…Procurement is told', 2, 'GET', '/notifications', undefined,
-    (r) => r.status === 200 && r.data.some(n => /PR-C-80 .* the TWG certified the canvass result/.test(n.message)))
-  await is(G3, '…and supply hears of each award', 4, 'GET', '/notifications', undefined,
+
+  // The BAC picks each lot's winner, the system recommending the lowest compliant total
+  const G2 = 'The BAC\'s award'
+  await is(G2, 'each lot\'s recommendation: the lowest total of the bidders compliant on all of it', 6, 'GET', '/canvass/80', undefined,
+    (r) => r.status === 200 && r.data.lots.map(l => l.recommended_bidder_id).join() === [B.Alpha, B.Beta, B.Gamma].join()
+           && r.data.permissions.award === true && r.data.permissions.bid === false)
+  const WIN = { 'LOT 1': 'Alpha', 'LOT 2': 'Beta', 'LOT 3': 'Gamma' }
+  const winners = (pick, reasons = {}) => Object.entries(pick).map(([lot, who]) => ({ lot, bidder_id: B[who], ...(reasons[lot] ? { reason: reasons[lot] } : {}) }))
+  await is(G2, 'Procurement can\'t award (403)', 2, 'POST', '/canvass/80/award', { winners: winners(WIN) }, code(403))
+  await is(G2, 'nor an admin (403)', 1, 'POST', '/canvass/80/award', { winners: winners(WIN) }, code(403))
+  await is(G2, 'a lot left without a winner → 409', 6, 'POST', '/canvass/80/award', { winners: winners({ 'LOT 1': 'Alpha', 'LOT 2': 'Beta' }) },
+    code(409, /Pick the supplier of LOT 3/))
+  await is(G2, 'a lot to a bidder that didn\'t bid on all of it → 409', 6, 'POST', '/canvass/80/award', { winners: winners({ ...WIN, 'LOT 1': 'Gamma' }) },
+    code(409, /Gamma Trading did not bid on "Laptop", so it can't be awarded LOT 1/))
+  await is(G2, 'a lot\'s total above its budget → 409', 6, 'POST', '/canvass/80/award', { winners: winners({ ...WIN, 'LOT 3': 'Beta' }) },
+    code(409, /The award of LOT 3 to Beta Supplies .* above the approved budget/))
+  await is(G2, 'a lot to a bidder the TWG found non-compliant on it → 409, even cheaper and with a reason', 6, 'POST', '/canvass/80/award',
+    { winners: winners({ ...WIN, 'LOT 2': 'Gamma' }, { 'LOT 2': 'Cheapest printer' }) },
+    code(409, /The TWG found Gamma Trading's offer for "Printer" non-compliant \(Not the model requested\), so it can't be awarded LOT 2\. Pick a compliant supplier, drop the item, or take it back to the canvass\./))
+  await is(G2, '…nothing was awarded', 2, 'GET', '/lots/pr/80', undefined, (r) => r.status === 200 && r.data.length === 0)
+  const awarded = await is(G2, 'the BAC awards each lot to its recommended bid (the lot matched as typed)', 6, 'POST', '/canvass/80/award',
+    { winners: [...winners(WIN, { 'LOT 3': 'Delivers within the week' }), { lot: ' lot  9 ', bidder_id: B.Beta }].map(w => (w.lot === 'LOT 2' ? { ...w, lot: ' lot  2' } : w)),
+      notes: 'Lowest calculated and responsive' },
+    (r) => r.status === 200 && /^\d{4}-001$/.test(r.data.resolution?.resolution_number || '') && r.data.awards === 3)
+  const rid = awarded.data?.resolution?.id
+  await is(G2, '…one award per lot, named for it, at the winning prices, certified by the TWG\'s certificate', 2, 'GET', '/lots/pr/80', undefined,
+    (r) => r.status === 200 && r.data.map(l => `${l.title}:${l.awarded_to}:${num(l.awarded_amount)}`).join() === 'LOT 1:Alpha Computers:89800,LOT 2:Beta Supplies:11800,LOT 3:Gamma Trading:27500'
+           && r.data.every(l => l.resolution_id === rid && l.certified_at && l.certified_by === 5 && l.certificate_id === cert.data?.certificates?.[0]?.id))
+  await is(G2, '…the recommended picks carry no note', 2, 'GET', '/lots/pr/80', undefined,
+    (r) => r.status === 200 && r.data.length === 3 && r.data.every(l => !l.notes))
+  await is(G2, '…each item keeps its lot\'s winner', 6, 'GET', '/canvass/80', undefined,
+    (r) => r.status === 200 && r.data.items.map(i => i.winner_bidder_id).join() === [B.Alpha, B.Alpha, B.Beta, B.Gamma].join()
+           && /^Delivers within the week/.test(r.data.items[3].winner_reason))
+  await is(G2, '…Ready for PO, logged', 2, 'GET', '/pr/80/logs', undefined,
+    (r) => r.status === 200 && r.data.some(l => l.from_status === 'bac_review' && l.to_status === 'for_po' && /Awarded by the BAC in Resolution No\. \d{4}-001/.test(l.note)))
+  await is(G2, '…its awards in the resolution, a notice per supplier', 6, 'GET', '/bac/80', undefined,
+    (r) => r.status === 200 && r.data.resolutions.length === 1 && r.data.resolutions[0].lots.length === 3 && r.data.resolutions[0].notices.length === 3)
+  await is(G2, 'the BAC Resolution', 6, 'GET', `/bac/80/resolutions/${rid}/pdf`, undefined, isPDF)
+  await is(G2, 'a Notice of Award', 2, 'GET', `/bac/80/resolutions/${rid}/notice/${(await lotsOf(80))[0]?.id}`, undefined, isPDF)
+  await is(G2, 'Procurement is told the POs can be issued', 2, 'GET', '/notifications', undefined,
+    (r) => r.status === 200 && r.data.some(n => /PR PR-C-80 was awarded by the BAC in Resolution No\. .*purchase orders can be issued/.test(n.message)))
+  await is(G2, '…and supply hears of each award', 4, 'GET', '/notifications', undefined,
     (r) => r.status === 200 && r.data.filter(n => /^LOT-00\d awarded to .* for PR PR-C-80\.$/.test(n.message)).length === 3)
+  await is(G2, 'not awarded twice → 409', 6, 'POST', '/canvass/80/award', { winners: winners(WIN) }, code(409))
   const [alpha, beta] = await lotsOf(80)
-  await is(G3, 'a supplier the BAC awarded can\'t be renamed → 409', 2, 'PATCH', `/lots/${beta?.id}`, { awarded_to: 'Beta Corp' }, code(409, /name is fixed/))
-  await is(G3, '…but its notes can be corrected', 2, 'PATCH', `/lots/${beta?.id}`, { notes: 'Delivers to the faculty room' }, code(200))
+  await is(G2, 'a supplier the BAC awarded can\'t be renamed → 409', 2, 'PATCH', `/lots/${beta?.id}`, { awarded_to: 'Beta Corp' }, code(409, /name is fixed/))
+  await is(G2, '…but its notes can be corrected', 2, 'PATCH', `/lots/${beta?.id}`, { notes: 'Delivers to the faculty room' }, code(200))
 
   // One PO per supplier
-  const G4 = 'A PO per supplier'
+  const G4 = 'A PO per award'
   await is(G4, 'three suppliers waiting: the PO must name one → 409', 2, 'POST', '/po', { purchase_request_id: 80, issued_date: '2026-09-09' }, code(409, /more than one supplier/))
   const poA = await is(G4, 'Alpha\'s PO', 2, 'POST', '/po', { purchase_request_id: 80, supplier: 'Alpha Computers', issued_date: '2026-09-09' },
-    (r) => r.status === 201 && r.data.supplier_name === 'Alpha Computers' && num(r.data.total_amount) === 88000)
+    (r) => r.status === 201 && r.data.supplier_name === 'Alpha Computers' && num(r.data.total_amount) === 89800)
   await is(G4, '…its PDF lists its items at the winning prices', 2, 'GET', `/po/${poA.data?.id}/pdf`, undefined, isPDF)
   await is(G4, '…Alpha\'s award is now fixed → 409', 2, 'PATCH', `/lots/${alpha?.id}`, { title: 'x' }, code(409, /purchase order/))
   const poB = await is(G4, 'Beta\'s PO', 2, 'POST', '/po', { purchase_request_id: 80, supplier: 'beta supplies', issued_date: '2026-09-09' },
-    (r) => r.status === 201 && num(r.data.total_amount) === 13400)
+    (r) => r.status === 201 && num(r.data.total_amount) === 11800)
   const poC = await is(G4, 'Gamma\'s PO', 2, 'POST', '/po', { purchase_request_id: 80, supplier: 'Gamma Trading', issued_date: '2026-09-09' },
     (r) => r.status === 201 && num(r.data.total_amount) === 27500)
   await is(G4, 'no award left without a PO → 409', 2, 'POST', '/po', { purchase_request_id: 80, issued_date: '2026-09-09' }, code(409, /waiting for a purchase order/))
   await is(G4, 'the PR list shows its three POs and their total', 2, 'GET', '/pr?limit=100', undefined,
-    (r) => r.status === 200 && r.data.data.find(p => p.id === 80)?.po_count === 3 && num(r.data.data.find(p => p.id === 80).total_amount) === 128900)
+    (r) => r.status === 200 && r.data.data.find(p => p.id === 80)?.po_count === 3 && num(r.data.data.find(p => p.id === 80).total_amount) === 129100)
   await is(G4, 'the requestor is told of each PO', 3, 'GET', '/notifications', undefined,
     (r) => r.status === 200 && r.data.filter(n => /was issued for PR PR-C-80/.test(n.message)).length === 3)
 
@@ -241,13 +300,13 @@ async function run() {
   await is(G5, 'Beta delivers in full', 4, 'POST', '/delivery', { po_id: poB.data?.id, delivered_date: '2026-09-10', items: await rest(poB.data?.id) }, code(201))
   await is(G5, '…every PO delivered: the PR is completed', 2, 'GET', '/pr/80', undefined, (r) => r.status === 200 && r.data.status === 'completed')
 
-  // A second canvass round goes through the BAC and the TWG again
+  // A second canvass round goes through the BAC, the TWG and the BAC again
   const G6 = 'A second round'
   let through = 'ok'
   try { await H.award(BASE, tok, 81, { bac: 6, twg: 5 }, [{ name: 'Delta Net', prices: { 811: 2900 } }]) } catch (e) { through = e.message }
-  t.check(G6, 'the BAC\'s bids and award, and the TWG\'s certification', through === 'ok', through)
+  t.check(G6, 'the BAC\'s bids, the TWG\'s certificate, the BAC\'s award', through === 'ok', through)
   await is(G6, '…Ready for PO, in its own resolution', 6, 'GET', '/bac/81', undefined,
-    (r) => r.status === 200 && r.data.resolutions.length === 1 && /-003$/.test(r.data.resolutions[0].resolution_number))
+    (r) => r.status === 200 && r.data.status === 'for_po' && r.data.resolutions.length === 1 && /-002$/.test(r.data.resolutions[0].resolution_number))
   await is(G6, '…and its own certificate, the next number, unsigned', 2, 'GET', '/bac/81', undefined,
     (r) => r.status === 200 && r.data.certificates.length === 1 && /^\d{4}-\d{2}-852$/.test(r.data.certificates[0].cert_no) && r.data.certificates[0].signed === false)
   await is(G6, '…its certificate prints', 5, 'GET', `/bac/81/certificates/${(await http(2, 'GET', '/bac/81')).data?.certificates?.[0]?.id}/pdf`, undefined, isPDF)
@@ -261,68 +320,81 @@ async function run() {
   await is(G7, 'the BAC drops the chairs', 6, 'POST', '/canvass/82/items/821/drop', { reason: 'Out of stock everywhere' }, code(200))
   await is(G7, '…shown as dropped, with who and why', 6, 'GET', '/canvass/82', undefined,
     (r) => r.status === 200 && same(r.data.items.find(i => i.id === 821), { state: 'dropped', drop_reason: 'Out of stock everywhere', dropped_by_name: 'Bac One' }))
-  await is(G7, 'a dropped item takes no bid', 6, 'PUT', '/canvass/82/bids', sheet([['Echo Furniture', { 821: 100 }]], { 821: 0 }), code(200))
+  await is(G7, 'a dropped item takes no bid', 6, 'PUT', '/canvass/82/bids', sheet([['Echo Furniture', { 821: 100 }]]), code(200))
   await is(G7, '…so its only bidder isn\'t kept', 6, 'GET', '/canvass/82', undefined, (r) => r.status === 200 && r.data.bidders.length === 0)
   await is(G7, 'the last item can\'t be dropped (cancel the PR instead) → 409', 6, 'POST', '/canvass/82/items/822/drop', { reason: 'x' }, code(409, /Cancel the PR/))
   await is(G7, 'Procurement can\'t bring it back while the BAC has it → 409', 2, 'POST', '/canvass/82/items/821/restore', undefined, code(409, /ready for PO/))
   await is(G7, 'the BAC brings the chairs back', 6, 'POST', '/canvass/82/items/821/restore', undefined, code(200))
   await is(G7, '…needs a winner again', 6, 'GET', '/canvass/82', undefined, (r) => r.status === 200 && r.data.items.find(i => i.id === 821).state === 'pending')
 
-  // A winner that is not the lowest bid, with the BAC's reason
-  const G9 = 'Not the lowest bid'
+  // The BAC takes a certified canvass back, and picks other than the recommendation
+  const G9 = 'Taken back, a free pick'
   const CHAIRS = [['Echo Furniture', { 821: 2400, 822: 7900 }], ['Foxtrot Wood', { 821: 2300, 822: 8100 }]]
-  await is(G9, 'the chairs to Echo, with the reason', 6, 'PUT', '/canvass/82/bids',
-    sheet(CHAIRS, { 821: { bidder: 0, reason: 'Foxtrot\'s chairs failed the specifications' }, 822: 0 }), code(200))
-  await is(G9, 'the BAC awards', 6, 'POST', '/canvass/82/award', {}, (r) => r.status === 200 && r.data.awards === 1)
-  await is(G9, '…one award to Echo, the reason on it', 2, 'GET', '/lots/pr/82', undefined,
-    (r) => r.status === 200 && r.data.length === 1 && r.data[0].awarded_to === 'Echo Furniture' && num(r.data[0].awarded_amount) === 39800
-           && /Not the lowest bid for "Chair": Foxtrot's chairs failed the specifications/.test(r.data[0].notes))
+  await is(G9, 'the chairs and tables bid', 6, 'PUT', '/canvass/82/bids', sheet(CHAIRS), code(200))
+  await is(G9, '…the returned RFQs attached', 6, 'POST', '/pr/82/attachments', H.canvassScan(), code(201))
+  await is(G9, '…sent to the TWG', 6, 'POST', '/canvass/82/send', {}, code(200))
+  const cv82 = (await http(5, 'GET', '/canvass/82')).data
+  const all82 = cv82.bidders.flatMap(b => Object.keys(b.prices).map(item => ({ bidder_id: b.id, pr_item_id: Number(item), compliant: true })))
+  await is(G9, 'the TWG finds every bid compliant', 5, 'PUT', '/twg/82/evaluation', { bids: all82 }, code(200))
+  await is(G9, '…and certifies', 5, 'POST', '/twg/82/certify', { action: 'certify' }, code(200))
+  await is(G9, 'taking it back needs a reason → 400', 6, 'POST', '/canvass/82/reopen', {}, code(400, /reason/))
+  await is(G9, 'Procurement can\'t take it back (403)', 2, 'POST', '/canvass/82/reopen', { reason: 'x' }, code(403))
+  await is(G9, 'the BAC takes it back to check a price', 6, 'POST', '/canvass/82/reopen', { reason: 'Checking Foxtrot\'s table price' }, code(200))
+  await is(G9, '…in canvass again, logged', 6, 'GET', '/pr/82/logs', undefined,
+    (r) => r.status === 200 && r.data.some(l => l.from_status === 'bac_review' && l.to_status === 'bidding' && /Checking Foxtrot's table price/.test(l.note)))
+  await is(G9, 'sent again unchanged', 6, 'POST', '/canvass/82/send', {}, code(200))
+  await is(G9, '…the TWG\'s marks stand, so it certifies again at once', 5, 'POST', '/twg/82/certify', { action: 'certify' }, code(200))
+  await is(G9, '…a second certificate', 2, 'GET', '/bac/82', undefined, (r) => r.status === 200 && r.data.certificates.length === 2)
+  const F = Object.fromEntries(cv82.bidders.map(b => [b.name.split(' ')[0], b.id]))
+  await is(G9, 'one lot, all items: Foxtrot\'s total is lower, though Echo\'s table is', 6, 'GET', '/canvass/82', undefined,
+    (r) => r.status === 200 && r.data.lots.length === 1 && r.data.lots[0].label === '' && r.data.lots[0].name === 'All items' && r.data.lots[0].recommended_bidder_id === F.Foxtrot)
+  await is(G9, 'the whole PR to Echo though Foxtrot\'s total is lower, with no reason given', 6, 'POST', '/canvass/82/award',
+    { winners: [{ lot: '', bidder_id: F.Echo }] }, (r) => r.status === 200 && r.data.awards === 1)
+  await is(G9, '…one award to Echo, the recommendation noted on it', 2, 'GET', '/lots/pr/82', undefined,
+    (r) => r.status === 200 && r.data.length === 1 && r.data[0].awarded_to === 'Echo Furniture' && num(r.data[0].awarded_amount) === 39800 && r.data[0].title === null
+           && /^All items: chosen over the recommended lowest compliant bid of Foxtrot Wood$/.test(r.data[0].notes))
   await is(G9, '…every bid kept on record', 5, 'GET', '/canvass/82', undefined,
     (r) => r.status === 200 && r.data.bidders.length === 2 && num(r.data.bidders[1].prices[821]) === 2300)
 
-  // Reading the bids from the canvasser's file
-  const G10 = 'Reading the canvasser\'s file'
-  const abstract = () => {
-    const form = new FormData()
-    const xlsx = makeXlsx([
-      ['ABSTRACT OF CANVASS'],
-      ['No.', 'Qty', 'Unit', 'Item Description', 'ABC', 'Golf Office Depot', '', 'Hotel Trading', ''],
-      ['', '', '', '', '', 'Unit Price', 'Total', 'Unit Price', 'Total'],
-      [1, 1, 'unit', 'Steel cabinet', 9000, 8750, 8750, 8600, 8600],
-      ['', '', '', 'TOTAL', 9000, '', 8750, '', 8600],
-    ])
-    form.append('file', new Blob([xlsx], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), 'abstract.xlsx')
-    return form
-  }
-  await is(G10, 'Procurement can\'t read it (403)', 2, 'POST', '/canvass/83/read', abstract(), code(403))
-  await is(G10, 'an Excel abstract: each bidder and price, nothing saved', 6, 'POST', '/canvass/83/read', abstract(),
-    (r) => r.status === 200 && r.data.bidders.map(b => `${b.name}:${b.prices[831]}`).join() === 'Golf Office Depot:8750,Hotel Trading:8600'
-           && r.data.matched.join() === '831' && /Read 2 bidders for 1 of 1 item/.test(r.data.message))
-  await is(G10, '…the bids are not saved by reading', 6, 'GET', '/canvass/83', undefined, (r) => r.status === 200 && r.data.bidders.length === 0)
-  const word = (text, x0) => ({ text, x0, x1: x0 + text.length * 6 })
-  const line = (y, ...ws) => ({ page: 1, y, h: 10, words: ws })
-  const scan = [
-    line(100, word('Golf', 300), word('Office', 330), word('Depot', 370), word('Hotel', 460), word('Trading', 495)),
-    line(120, word('No.', 40), word('Item', 80), word('Description', 110), word('ABC', 220)),
-    line(140, word('Unit', 300), word('Price', 330), word('Total', 380), word('Unit', 460), word('Price', 490), word('Total', 540)),
-    line(160, word('1', 40), word('Steel', 80), word('cabinet', 115), word('9,000.00', 220), word('8.750.00', 300), word('8,750.00', 380), word('8,600.00', 460), word('8,600.00', 540)),
-    line(180, word('TOTAL', 180), word('9,000.00', 220)),
-  ]
-  await is(G10, 'a scanned abstract, as the browser read it', 6, 'POST', '/canvass/83/read', { lines: scan },
-    (r) => r.status === 200 && r.data.bidders.map(b => `${b.name}:${b.prices[831]}`).join() === 'Golf Office Depot:8750,Hotel Trading:8600')
-  await is(G10, 'a page with nothing to read → 400', 6, 'POST', '/canvass/83/read', { lines: [] }, code(400))
-  await is(G10, 'a file that isn\'t an abstract: no bids, said plainly', 6, 'POST', '/canvass/83/read', { lines: [line(10, word('Hello', 10))] },
-    (r) => r.status === 200 && r.data.bidders.length === 0 && /No bids could be read/.test(r.data.message))
-  await is(G10, 'the BAC attaches the file it read', 6, 'POST', '/pr/83/attachments', abstract(), code(201))
+  // Every bid non-compliant: no recommendation, no award; the BAC canvasses again
+  const G10 = 'Every bid non-compliant'
+  await is(G10, 'two quotations, sent to the TWG', 6, 'PUT', '/canvass/84/bids',
+    sheet([['Golf Audio', { 841: 1800, 842: 900 }], ['Hotel Sound', { 841: 1700, 842: 950 }]]), code(200))
+  await is(G10, '…the returned RFQs attached', 6, 'POST', '/pr/84/attachments', H.canvassScan(), code(201))
+  await is(G10, '…sent', 6, 'POST', '/canvass/84/send', {}, code(200))
+  const cv84 = (await http(5, 'GET', '/canvass/84')).data
+  const G = Object.fromEntries((cv84?.bidders || []).map(b => [b.name.split(' ')[0], b.id]))
+  const no = (who, item, remarks) => ({ bidder_id: G[who], pr_item_id: item, compliant: false, remarks })
+  await is(G10, 'the TWG finds every bid non-compliant', 5, 'PUT', '/twg/84/evaluation',
+    { bids: [no('Golf', 841, 'Not 50 W'), no('Golf', 842, 'Wired, not wireless'), no('Hotel', 841, 'Not 50 W'), no('Hotel', 842, 'Wired, not wireless')] }, code(200))
+  await is(G10, '…and certifies them so', 5, 'POST', '/twg/84/certify', { action: 'certify' }, code(200))
+  await is(G10, 'no recommendation', 6, 'GET', '/canvass/84', undefined, (r) => r.status === 200 && r.data.lots[0].recommended_bidder_id === null)
+  await is(G10, 'no award, even the cheapest → 409', 6, 'POST', '/canvass/84/award', { winners: [{ lot: '', bidder_id: G.Hotel, reason: 'Cheapest' }] },
+    code(409, /The TWG found Hotel Sound's offer for "Speaker" non-compliant \(Not 50 W\)/))
+  await is(G10, 'the BAC takes it back for new quotations', 6, 'POST', '/canvass/84/reopen', { reason: 'Every offer failed; canvassing more suppliers' }, code(200))
+  await is(G10, '…adds a new supplier\'s quotation', 6, 'PUT', '/canvass/84/bids', sheet([['India Electronics', { 841: 1900, 842: 980 }]]), code(200))
+  await is(G10, '…the earlier quotations stay, with the TWG\'s marks', 6, 'GET', '/canvass/84', undefined,
+    (r) => r.status === 200 && r.data.bidders.length === 3 && r.data.bidders[0].evaluation[841].compliant === false && r.data.bidders[2].evaluation[841].compliant === null)
+  await is(G10, '…sent to the TWG again', 6, 'POST', '/canvass/84/send', {}, code(200))
+  await is(G10, 'the TWG must mark the new bids first → 409', 5, 'POST', '/twg/84/certify', { action: 'certify' }, code(409, /India Electronics's is not marked/))
+  const I = (await http(5, 'GET', '/canvass/84')).data?.bidders?.[2]?.id
+  await is(G10, '…marks only the new supplier\'s, compliant', 5, 'PUT', '/twg/84/evaluation',
+    { bids: [{ bidder_id: I, pr_item_id: 841, compliant: true }, { bidder_id: I, pr_item_id: 842, compliant: true }] }, code(200))
+  await is(G10, '…and certifies, a new certificate', 5, 'POST', '/twg/84/certify', { action: 'certify' }, code(200))
+  await is(G10, 'the new supplier is recommended', 6, 'GET', '/canvass/84', undefined, (r) => r.status === 200 && r.data.lots[0].recommended_bidder_id === I)
+  await is(G10, '…and awarded', 6, 'POST', '/canvass/84/award', { winners: [{ lot: '', bidder_id: I }] }, (r) => r.status === 200 && r.data.awards === 1)
+  await is(G10, '…at its prices, with two certificates on record', 2, 'GET', '/bac/84', undefined,
+    (r) => r.status === 200 && r.data.status === 'for_po' && r.data.certificates.length === 2 && num(r.data.resolutions[0].lots[0].awarded_amount) === 2880)
 
   // A cancelled PR
   const G8 = 'Cancelling'
-  await is(G8, 'the BAC awards the cabinet', 6, 'PUT', '/canvass/83/bids', sheet([['Delta Office', { 831: 9000 }]], { 831: 0 }), code(200))
-  await is(G8, '…and awards', 6, 'POST', '/canvass/83/award', {}, code(200))
+  await is(G8, 'the cabinet\'s bids', 6, 'PUT', '/canvass/83/bids', sheet([['Delta Office', { 831: 9000 }]]), code(200))
+  await is(G8, '…its RFQ attached', 6, 'POST', '/pr/83/attachments', H.canvassScan(), code(201))
+  await is(G8, '…sent to the TWG', 6, 'POST', '/canvass/83/send', {}, code(200))
   await is(G8, 'Procurement can\'t cancel it while the TWG has it (403)', 2, 'PATCH', '/pr/83/status', { status: 'cancelled' }, code(403))
-  await is(G8, 'an admin cancels it (no PO yet)', 1, 'PATCH', '/pr/83/status', { status: 'cancelled' }, code(200))
-  await is(G8, '…its award is cancelled with it', 2, 'GET', '/lots/pr/83', undefined,
-    (r) => r.status === 200 && r.data.length === 1 && r.data[0].status === 'cancelled' && /The PR was cancelled/.test(r.data[0].notes))
+  await is(G8, 'an admin cancels it', 1, 'PATCH', '/pr/83/status', { status: 'cancelled' }, code(200))
+  await is(G8, '…cancelled, its bids kept on record', 2, 'GET', '/canvass/83', undefined,
+    (r) => r.status === 200 && r.data.status === 'cancelled' && r.data.bidders.length === 1 && r.data.permissions.bid === false)
 
   return t.summary()
 }

@@ -5,8 +5,9 @@ const c         = require('../controllers/ppmp.controller')
 const auth      = require('../middleware/auth.middleware')
 const authorize = require('../middleware/authorize.middleware')
 const httpError = require('../utils/httpError')
-const { handle, oneOfRule, textRule } = require('../middleware/validate')
+const { handle, oneOfRule, textRule, moneyRule } = require('../middleware/validate')
 const { FUND_SOURCE_VALUES } = require('../utils/orgSettings')
+const { PROCUREMENT_MODES } = require('../utils/procurementModes')
 const makeUploader = require('../utils/upload')
 
 const upload = makeUploader('ppmp')
@@ -56,7 +57,28 @@ router.get('/:id/pdf',   id, c.pdf)
 router.get('/:id/files/:fileId', id, param('fileId').isInt({ min: 1 }).withMessage('File not found'), handle, c.downloadFile)
 router.put('/:id',       keeper, id, files, payload, choices, c.reupload)
 router.delete('/:id',    keeper, id, c.remove)
+// The Fund Administrator's on-screen edits to the PPMP in effect, saved as its next version (sized to the ppmp_items columns).
+const editLines = [
+  body('items').isArray({ min: 1, max: 500 }).withMessage('Keep at least one line (500 at most)'),
+  oneOfRule('items.*.part', 'Pick Part I or Part II for each line', ['ps', 'other'], { required: true }),
+  textRule('items.*.category', 'Category', 100),
+  textRule('items.*.code', 'Code', 50),
+  textRule('items.*.description', 'Each line\'s description', 500, { required: true }),
+  textRule('items.*.unit', 'Each line\'s unit', 50, { required: true }),
+  moneyRule('items.*.unit_cost', 'Each line\'s unit cost', { required: true, positive: true }),
+  oneOfRule('items.*.mode_of_procurement', 'Pick each line\'s mode of procurement', PROCUREMENT_MODES, { required: true }),
+  body('items.*.quarters').isArray({ min: 4, max: 4 }).withMessage('Give each line\'s quantity for every quarter'),
+  body('items.*.quarters.*').isFloat({ min: 0, max: 99999999 }).withMessage('A quarter\'s quantity must be 0 or more'),
+  textRule('items.*.remarks', 'Remarks', 500),
+  body('items.*.id').optional({ values: 'null' }).isInt({ min: 1 }).withMessage('Unknown line').toInt(),
+  handle,
+]
+router.post('/:id/edit', keeper, id, editLines, c.edit)
 // An admin takes back a PPMP put in effect by mistake, with the reason.
 router.post('/:id/withdraw', authorize('admin'), id, textRule('reason', 'Reason', 500, { required: true }), handle, c.withdraw)
+// Removing the PPMP in effect: its Fund Administrator asks (or takes it back); an admin withdraws it, or declines.
+router.post('/:id/removal',         keeper, id, textRule('reason', 'Reason', 500, { required: true }), handle, c.requestRemoval)
+router.delete('/:id/removal',       keeper, id, c.cancelRemoval)
+router.post('/:id/removal/decline', authorize('admin'), id, textRule('reason', 'Reason', 500, { required: true }), handle, c.declineRemoval)
 
 module.exports = router

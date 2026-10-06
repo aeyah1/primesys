@@ -1,11 +1,11 @@
 ﻿import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import {
-  FileText, Users, Settings, CalendarDays, CheckCircle2,
+  FileText, Users, Settings, CheckCircle2,
   TrendingUp, Wallet, ShieldCheck, AlertCircle, AlertTriangle,
 } from 'lucide-react'
 import {
-  AreaChart, Area, BarChart, Bar,
+  BarChart, Bar,
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -13,7 +13,8 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { StatsCard } from '@/components/shared/StatsCard'
 import { PRStatusBadge } from '@/components/shared/StatusBadge'
-import { fmtDate, fmtCurrency } from '@/lib/utils'
+import { SpendingTrendCard, WaitingCard, useDashboard } from '@/components/dashboard/DashboardParts'
+import { fmtDate, fmtCurrency, PR_STATUS_LABELS } from '@/lib/utils'
 import api from '@/lib/axios'
 
 const ROLE_META = [
@@ -79,6 +80,8 @@ export default function AdminDashboard() {
     queryFn: () => api.get('/pr?limit=8').then(r => r.data),
   })
 
+  const waiting = useDashboard()
+
   const { data: coverage = [] } = useQuery({
     queryKey: ['twg-coverage'],
     queryFn: () => api.get('/users/twg-coverage').then(r => r.data),
@@ -96,20 +99,8 @@ export default function AdminDashboard() {
   }))
   const maxRoleCount = Math.max(...roleCounts.map(r => r.count), 1)
 
-  const monthlyData = (report?.monthly ?? []).map(m => ({
-    month: m.month?.slice(5) ?? m.month,
-    spending: parseFloat(m.total_spending),
-    prs: m.pr_count,
-  }))
 
-  const statusChartData = [
-    { name: 'Draft',     value: stats?.draft     ?? 0 },
-    { name: 'Submitted', value: stats?.submitted  ?? 0 },
-    { name: 'Bidding',   value: stats?.bidding    ?? 0 },
-    { name: 'For PO',    value: stats?.for_po     ?? 0 },
-    { name: 'Completed', value: stats?.completed  ?? 0 },
-    { name: 'Cancelled', value: stats?.cancelled  ?? 0 },
-  ]
+  const statusChartData = Object.entries(PR_STATUS_LABELS).map(([key, name]) => ({ name, value: stats?.[key] ?? 0 }))
 
   const activeQuarters = (report?.byQuarter ?? []).filter(q => q.budget > 0).slice(0, 4)
   const totalSpending  = report?.totals?.total_spending ?? 0
@@ -133,9 +124,6 @@ export default function AdminDashboard() {
         <div className="flex items-center gap-2 flex-wrap">
           <Button asChild variant="secondary" size="sm" className="gap-1.5">
             <Link to="/users"><Users className="size-3.5" /> Manage Users</Link>
-          </Button>
-          <Button asChild variant="secondary" size="sm" className="gap-1.5">
-            <Link to="/quarters"><CalendarDays className="size-3.5" /> Quarters</Link>
           </Button>
           <Button asChild variant="secondary" size="sm" className="gap-1.5">
             <Link to="/reports"><TrendingUp className="size-3.5" /> Reports</Link>
@@ -205,55 +193,12 @@ export default function AdminDashboard() {
         />
       </div>
 
+      <WaitingCard data={waiting.data} isLoading={waiting.isLoading}
+        empty="Open requests appear here, the one waiting longest in its stage first." />
+
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <SectionHeader
-              title="Monthly Spending Trend"
-              action={
-                <Button variant="ghost" size="sm" asChild>
-                  <Link to="/reports">Full report</Link>
-                </Button>
-              }
-            />
-          </CardHeader>
-          <CardContent>
-            {!monthlyData.length
-              ? <div className="flex flex-col items-center justify-center h-[200px] text-center">
-                  <TrendingUp className="size-8 text-[--color-text-muted] mb-2" />
-                  <p className="text-ui-xs text-[--color-text-muted]">No spending data yet</p>
-                </div>
-              : <ResponsiveContainer width="100%" height={210}>
-                  <AreaChart data={monthlyData}>
-                    <defs>
-                      <linearGradient id="spendGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="10%" stopColor="hsl(222,62%,24%)" stopOpacity={0.18} />
-                        <stop offset="95%" stopColor="hsl(222,62%,24%)" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
-                    <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'var(--color-text-secondary)' }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fontSize: 11, fill: 'var(--color-text-secondary)' }} axisLine={false} tickLine={false} tickFormatter={v => `₱${v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}`} />
-                    <Tooltip
-                      formatter={(v) => [fmtCurrency(v), 'Spending']}
-                      contentStyle={{ borderRadius: 8, border: '1px solid var(--color-border)', fontSize: 13 }}
-                      cursor={{ stroke: 'var(--color-border)', strokeWidth: 1 }}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="spending"
-                      stroke="hsl(222,62%,24%)"
-                      strokeWidth={2}
-                      fill="url(#spendGrad)"
-                      dot={false}
-                      activeDot={{ r: 5, fill: 'hsl(222,62%,24%)' }}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-            }
-          </CardContent>
-        </Card>
+        <SpendingTrendCard monthly={report?.monthly} className="lg:col-span-2" />
 
         <Card>
           <CardHeader>
@@ -355,15 +300,15 @@ export default function AdminDashboard() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Budget Utilisation</CardTitle>
-            <Button variant="ghost" size="sm" asChild><Link to="/quarters">Manage</Link></Button>
+            <Button variant="ghost" size="sm" asChild><Link to="/ppmp">PPMPs</Link></Button>
           </CardHeader>
           <CardContent className="space-y-5">
             {!activeQuarters.length
               ? <div className="py-10 text-center">
                   <Wallet className="size-8 text-[--color-text-muted] mx-auto mb-2" />
-                  <p className="text-ui-xs text-[--color-text-muted]">No quarters with budgets set</p>
+                  <p className="text-ui-xs text-[--color-text-muted]">No PPMP in effect yet. Each quarter's budget is what the offices' PPMPs plan for it.</p>
                   <Button asChild variant="ghost" size="sm" className="mt-2">
-                    <Link to="/quarters">Set up quarters</Link>
+                    <Link to="/ppmp">Open PPMPs</Link>
                   </Button>
                 </div>
               : activeQuarters.map(q => (

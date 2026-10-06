@@ -42,11 +42,15 @@ export function requestProgress(pr) {
           next: `Some items are ordered from ${po.supplier_name}. A supplier is still being chosen for the rest.` }
       }
       if (pr.status === 'twg_certification') {
-        return { step: 2, title: 'Suppliers chosen, being checked', who: 'Technical Working Group (TWG)',
-          next: 'Once the TWG certifies it, Procurement prepares the purchase order.' }
+        return { step: 2, title: 'Offers being checked', who: 'Technical Working Group (TWG)',
+          next: 'The TWG checks every supplier\'s offer against your specifications; then the BAC chooses the winners.' }
+      }
+      if (pr.status === 'bac_review') {
+        return { step: 2, title: 'Choosing the suppliers', who: 'Bids and Awards Committee (BAC)',
+          next: 'The TWG has checked the offers. Once the BAC chooses the winners, Procurement prepares the purchase order.' }
       }
       return { step: 2, title: 'Finding a supplier', who: 'Bids and Awards Committee (BAC)',
-        next: 'The canvasser asks suppliers for prices, and the BAC chooses the winners. The TWG checks them before the purchase order.' }
+        next: 'The canvasser asks suppliers for prices and gives them to the BAC. The TWG checks the offers, then the BAC chooses the winners.' }
     }
     case 'for_po':
       if (!po) {

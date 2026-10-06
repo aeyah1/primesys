@@ -1,6 +1,7 @@
 // Lots & Awards: the work queue (PRs by stage, counts, search, category),
-// the BAC awarding some of a PR's items and the rest in a later round, at
-// their winning prices (copied on the server, within their approved budget),
+// the BAC awarding some of a PR's items (after the TWG certifies their bids)
+// and the rest in a later round, at their winning prices (copied on the
+// server, within their approved budget),
 // a supplier's details kept the same on each of their awards, awards fixed
 // while the TWG certifies them, and a reason for every cancelled award. Real HTTP against a
 // throwaway database (harness.js).
@@ -65,8 +66,9 @@ function fixtures() {
 
 async function http(who, method, p, body) {
   const headers = { Authorization: `Bearer ${tok(who)}` }
-  if (body !== undefined) headers['Content-Type'] = 'application/json'
-  const res  = await fetch(BASE + p, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })
+  const form = body instanceof FormData
+  if (body !== undefined && !form) headers['Content-Type'] = 'application/json'
+  const res  = await fetch(BASE + p, { method, headers, body: body === undefined ? undefined : form ? body : JSON.stringify(body) })
   const data = (res.headers.get('content-type') || '').includes('json') ? await res.json() : null
   return { status: res.status, data }
 }
@@ -114,27 +116,45 @@ async function run() {
   const G3 = 'The BAC\'s award'
   const acme = (prices, name = 'Acme Trading') => ({
     bidders: [{ name, prices: Object.entries(prices).map(([item, unit_price]) => ({ pr_item_id: Number(item), unit_price })) }],
-    winners: Object.keys(prices).map(item => ({ pr_item_id: Number(item), bidder: 0 })),
   })
-  await is(G3, 'bids for two of the three items', 6, 'PUT', '/canvass/70/bids', acme({ 701: 45000, 702: 500 }), code(200))
-  await is(G3, '…the third has no winner → 409', 6, 'POST', '/canvass/70/award', {}, code(409, /Pick the winner of "Desktop/))
+  // The TWG marks every bid still open compliant; the BAC's winners are the recommended ones.
+  const allCompliant = async (pr) => {
+    const { items = [], bidders = [] } = (await http(7, 'GET', `/canvass/${pr}`)).data || {}
+    const open = new Set(items.filter(i => i.state === 'pending').map(i => String(i.id)))
+    return { bids: bidders.flatMap(b => Object.keys(b.prices).filter(item => open.has(item)).map(item => ({ bidder_id: b.id, pr_item_id: Number(item), compliant: true }))) }
+  }
+  const recommended = async (pr) => H.lotWinners((await http(6, 'GET', `/canvass/${pr}`)).data)
+  await is(G3, 'bids for two of the three items, one above its budget', 6, 'PUT', '/canvass/70/bids', acme({ 701: '45000.01', 702: 500 }), code(200))
+  await is(G3, '…the BAC attaches the returned RFQ', 6, 'POST', '/pr/70/attachments', H.canvassScan(), code(201))
+  await is(G3, '…the third has no bid → 409', 6, 'POST', '/canvass/70/send', {}, code(409, /Enter the bids for "Desktop/))
   await is(G3, 'the BAC drops the third for now', 6, 'POST', '/canvass/70/items/703/drop', { reason: 'Not in this round' }, code(200))
-  await is(G3, 'a total above the approved budget of its items', 6, 'PUT', '/canvass/70/bids', acme({ 701: '45000.01', 702: 500 }), code(200))
-  await is(G3, '…can\'t be awarded → 409', 6, 'POST', '/canvass/70/award', {}, code(409, /above the approved budget/))
+  await is(G3, '…and sends the rest to the TWG', 6, 'POST', '/canvass/70/send', {}, code(200))
+  await is(G3, 'the TWG marks them compliant', 7, 'PUT', '/twg/70/evaluation', await allCompliant(70), code(200))
+  await is(G3, '…and certifies', 7, 'POST', '/twg/70/certify', { action: 'certify' }, code(200))
+  await is(G3, 'the award above the approved budget of its items → 409', 6, 'POST', '/canvass/70/award', await recommended(70), code(409, /above the approved budget/))
   await is(G3, '…nothing was awarded', 2, 'GET', '/lots/pr/70', undefined, (r) => r.status === 200 && r.data.length === 0)
-  await is(G3, 'within it', 6, 'PUT', '/canvass/70/bids', acme({ 701: 45000, 702: 500 }), code(200))
-  await is(G3, 'Acme wins two of the PR\'s three items', 6, 'POST', '/canvass/70/award', {}, (r) => r.status === 200 && r.data.awards === 1)
-  await is(G3, '…items copied from the PR at their winning prices, in its order', 2, 'GET', '/lots/pr/70', undefined,
-    (r) => r.status === 200 && r.data[0].lot_number === 'LOT-001' && Number(r.data[0].awarded_amount) === 91000
+  await is(G3, 'the BAC takes the canvass back to correct the price', 6, 'POST', '/canvass/70/reopen', { reason: 'The laptop is 45,000.00 on the RFQ' }, code(200))
+  await is(G3, '…corrects it', 6, 'PUT', '/canvass/70/bids', acme({ 701: 45000, 702: 500 }), code(200))
+  await is(G3, '…and sends it again (the files still count)', 6, 'POST', '/canvass/70/send', {}, code(200))
+  await is(G3, 'the TWG marks the corrected bid', 7, 'PUT', '/twg/70/evaluation', await allCompliant(70), code(200))
+  await is(G3, '…and certifies again', 7, 'POST', '/twg/70/certify', { action: 'certify' }, code(200))
+  await is(G3, 'Acme wins two of the PR\'s three items', 6, 'POST', '/canvass/70/award', await recommended(70), (r) => r.status === 200 && r.data.awards === 1)
+  await is(G3, '…items copied from the PR at their winning prices, in its order, certified', 2, 'GET', '/lots/pr/70', undefined,
+    (r) => r.status === 200 && r.data[0].lot_number === 'LOT-001' && Number(r.data[0].awarded_amount) === 91000 && !!r.data[0].certified_at
            && r.data[0].items.map(i => i.pr_item_id).join() === '701,702' && Number(r.data[0].items[0].quantity) === 2 && Number(r.data[0].items[1].unit_price) === 500)
-  await is(G3, 'the TWG certifies it', 7, 'POST', '/twg/70/certify', { action: 'certify' }, code(200))
   await is(G3, 'Procurement brings the third item back', 2, 'POST', '/canvass/70/items/703/restore', undefined, code(200))
   await is(G3, '…so the PR is in canvass with the BAC again', 2, 'GET', '/pr/70', undefined, (r) => r.status === 200 && r.data.status === 'bidding')
   await is(G3, 'the third to the same supplier, typed differently', 6, 'PUT', '/canvass/70/bids', acme({ 703: 1000 }, ' ACME   trading '), code(200))
-  await is(G3, '…awarded', 6, 'POST', '/canvass/70/award', {}, code(200))
+  // The first round's files are older than the item's return to canvass (timestamps have whole seconds).
+  await H.sql(TEST_DB, 'UPDATE pr_attachments SET created_at = NOW() - INTERVAL 1 HOUR WHERE pr_id = 70')
+  await is(G3, '…a new canvass needs its own files → 409', 6, 'POST', '/canvass/70/send', {}, code(409, /Attach the canvasser's files/))
+  await is(G3, '…attached', 6, 'POST', '/pr/70/attachments', H.canvassScan(), code(201))
+  await is(G3, '…sent', 6, 'POST', '/canvass/70/send', {}, code(200))
+  await is(G3, '…marked', 7, 'PUT', '/twg/70/evaluation', await allCompliant(70), code(200))
+  await is(G3, '…certified', 7, 'POST', '/twg/70/certify', { action: 'certify' }, code(200))
+  await is(G3, '…awarded', 6, 'POST', '/canvass/70/award', await recommended(70), code(200))
   await is(G3, '…named as first written, the full item name kept', 2, 'GET', '/lots/pr/70', undefined,
     (r) => r.status === 200 && r.data[1].awarded_to === 'Acme Trading' && r.data[1].items[0].pr_item_id === 703 && r.data[1].items[0].item_name.length === 400)
-  await is(G3, 'the TWG certifies it too', 7, 'POST', '/twg/70/certify', { action: 'certify' }, code(200))
   await is(G3, '…so both wait for their PO', 2, 'GET', Q('&stage=awaiting_po'), undefined, (r) => r.status === 200 && ids(r).join() === '72,70')
   await is(G3, 'a price for an item of another PR → 400', 6, 'PUT', '/canvass/71/bids',
     { bidders: [{ name: 'X', prices: [{ pr_item_id: 711, unit_price: 10 }, { pr_item_id: 701, unit_price: 10 }] }] }, code(400, /not on this PR/))
@@ -144,10 +164,8 @@ async function run() {
   await is(G3, 'a bidder name over 200 characters → 400', 6, 'PUT', '/canvass/71/bids',
     { bidders: [{ name: 'x'.repeat(201), prices: [{ pr_item_id: 711, unit_price: 10 }] }] }, code(400))
   await is(G3, 'supply can\'t enter bids (403)', 4, 'PUT', '/canvass/71/bids', { bidders: [] }, code(403))
-  await is(G3, 'a PR an older version submitted for review: the BAC awards it the same way', 6, 'PUT', '/canvass/79/bids',
-    { bidders: [{ name: 'Omega Desk', prices: [{ pr_item_id: 791, unit_price: 4800 }] }], winners: [{ pr_item_id: 791, bidder: 0 }] }, code(200))
-  await is(G3, '…awarded, to the TWG', 6, 'POST', '/canvass/79/award', {}, (r) => r.status === 200 && r.data.awards === 1)
-  await is(G3, '…now with the TWG', 2, 'GET', '/pr/79', undefined, (r) => r.status === 200 && r.data.status === 'twg_certification')
+  await is(G3, 'a request waiting for the BAC\'s award takes no new bids → 409', 6, 'PUT', '/canvass/79/bids',
+    { bidders: [{ name: 'Omega Desk', prices: [{ pr_item_id: 791, unit_price: 4800 }] }] }, code(409, /in canvass/))
 
   // A supplier's details: the same on each of their awards
   const G4 = 'Edit a supplier'

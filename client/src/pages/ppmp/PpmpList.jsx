@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableEmpty } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Tab } from '@/components/shared/ListParts'
 import { PpmpStatusBadge } from '@/components/ppmp/PpmpStatusBadge'
 import PpmpUploadDialog from '@/components/ppmp/PpmpUploadDialog'
 import Notice from '@/components/ppmp/PpmpNotice'
@@ -20,7 +21,6 @@ const STATUS_FILTERS = [
   { value: 'all', label: 'All statuses' },
   { value: 'approved', label: 'In effect' },
   { value: 'draft', label: 'Not in effect' },
-  { value: 'superseded', label: 'Replaced' },
   { value: 'withdrawn', label: 'Withdrawn' },
 ]
 // Where an office's PPMP for the year stands (GET /ppmp/coverage), and what that means for its requests.
@@ -70,11 +70,7 @@ export default function PpmpList() {
         {!keeper && (
           <div className="flex items-center gap-1 px-4 pt-3 border-b border-[--color-border] overflow-x-auto">
             {[['ppmps', 'PPMPs'], ['coverage', 'Office coverage']].map(([key, label]) => (
-              <button key={key} type="button" onClick={() => setTab(key)}
-                className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-colors mb-[-1px] ${
-                  tab === key ? 'border-[--color-brand] text-[--color-brand]' : 'border-transparent text-[--color-text-muted] hover:text-[--color-text-primary]'}`}>
-                {label}
-              </button>
+              <Tab key={key} active={tab === key} onClick={() => setTab(key)}>{label}</Tab>
             ))}
           </div>
         )}
@@ -128,7 +124,10 @@ export default function PpmpList() {
                         <TableRow key={r.id} className="cursor-pointer" onClick={() => navigate(`/ppmp/${r.id}`)}>
                           <TableCell className="font-semibold">FY {r.fiscal_year}</TableCell>
                           {!keeper && <TableCell>{r.office_code}</TableCell>}
-                          <TableCell>No. {r.version_no}</TableCell>
+                          <TableCell>
+                            No. {r.version_no}
+                            {r.versions > 1 && <span className="block text-[10px] text-[--color-text-muted]">{r.versions} versions</span>}
+                          </TableCell>
                           <TableCell>{r.kind === 'final' ? 'Final' : 'Indicative'}</TableCell>
                           <TableCell>{r.fund_source}</TableCell>
                           <TableCell className="text-right tabular-nums">{r.item_count}</TableCell>
@@ -136,6 +135,12 @@ export default function PpmpList() {
                           <TableCell>
                             <PpmpStatusBadge status={r.status} />
                             {r.status === 'draft' && r.problems[0] && <p className="mt-1 max-w-56 text-[10px] leading-snug text-amber-800">{r.problems[0]}</p>}
+                            {r.pending && (
+                              <p className="mt-1 max-w-56 text-[10px] leading-snug text-amber-800">
+                                No. {r.pending.version_no} not in effect yet{r.pending.problems[0] ? `: ${r.pending.problems[0]}` : ''}
+                              </p>
+                            )}
+                            {r.removal_requested && <p className="mt-1 text-[10px] font-semibold text-red-700">Removal asked for</p>}
                             {r.signed_kind && r.status !== 'draft' && <p className="mt-1 text-[10px] text-[--color-text-muted]">Signed {r.signed_kind === 'digital' ? 'digitally' : 'on paper'}</p>}
                           </TableCell>
                           <TableCell className="text-[--color-text-muted]">{fmtDate(r.updated_at)}</TableCell>
@@ -158,7 +163,8 @@ export default function PpmpList() {
 function OwnStanding({ rows }) {
   const open = rows.filter(r => r.fiscal_year >= THIS_YEAR)
   const inEffect = open.filter(r => r.status === 'approved' && r.kind === 'final')
-  const pending = open.find(r => r.status === 'draft')
+  // A later version not in effect yet, noted on its office's row, or a row that is itself not in effect.
+  const pending = open.find(r => r.pending)?.pending || open.find(r => r.status === 'draft')
   const indicative = open.find(r => r.status === 'approved' && r.kind === 'indicative')
   if (inEffect.length) {
     return (

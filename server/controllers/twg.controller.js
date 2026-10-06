@@ -1,16 +1,17 @@
 // TWG (Technical Working Group) controller - isolated from pr.controller.
 // Owns the review of a requestor's submission before the canvass, and the
-// certification of the BAC's award before any purchase order.
+// evaluation and certification of the canvass's bids before the BAC's award.
 
 const pool         = require('../db/pool')
 const notify       = require('../utils/notify')
 const asyncHandler = require('../utils/asyncHandler')
+const httpError    = require('../utils/httpError')
 const withTransaction    = require('../db/transaction')
-const { changePRStatus } = require('../utils/prWorkflow')
-const { announceAwards } = require('../utils/awardWorkflow')
+const { loadPR, changePRStatus } = require('../utils/prWorkflow')
 const { notifyBac }      = require('../utils/bacWorkflow')
-const { issueCertificate } = require('../utils/twgCertificate')
+const { saveEvaluation, certifyBids } = require('../utils/canvassBids')
 const { checkSignature, METHODS } = require('../utils/signature')
+const { issueCertificate } = require('../utils/twgCertificate')
 const { paging }         = require('../middleware/validate')
 const { CATEGORIES, categoryLabel } = require('../utils/categories')
 const { IN_AREA, areasOf, reviewsCategory } = require('../utils/twgAreas')
@@ -53,8 +54,7 @@ exports.listPending = asyncHandler(async (req, res) => {
            COALESCE((SELECT MAX(sl.created_at) FROM pr_status_logs sl WHERE sl.pr_id = pr.id AND sl.to_status = '${status}'),
                     pr.created_at) AS submitted_at,
            pr.mode_of_procurement,
-           (SELECT COALESCE(SUM(l.awarded_amount), 0) FROM lots l
-             WHERE l.purchase_request_id = pr.id AND l.status = 'awarded' AND l.certified_at IS NULL) AS awarded_total,
+           (SELECT COUNT(*) FROM canvass_bidders cb WHERE cb.pr_id = pr.id) AS bidders,
            (SELECT ru.name FROM pr_status_logs rl JOIN users ru ON ru.id = rl.changed_by
              WHERE rl.pr_id = pr.id AND rl.from_status = 'submitted'
                AND rl.to_status IN ('twg_review', 'revision_requested', 'rejected')
@@ -111,16 +111,23 @@ exports.reviewPR = asyncHandler(async (req, res) => {
     action === 'revise'  ? 'revision_requested' :
                            'rejected'
   const trimmedComment = comment?.trim() || null
+  // Approving issues the TWG's certification of the request; the reviewer may sign it (optional).
+  const signature = action === 'approve' && req.body.signature
+    ? { image: checkSignature(req.body.signature), method: METHODS.includes(req.body.sign_method) ? req.body.sign_method : 'drawn' }
+    : null
 
-  // Status + audit log + reviewer fields in one transaction. prWorkflow only
+  // Status + audit log + reviewer fields (+ the certificate) in one transaction. prWorkflow only
   // allows these outcomes from 'submitted', and only through a TWG review.
-  const { pr } = await withTransaction(async (conn) => {
+  const { pr, certificate } = await withTransaction(async (conn) => {
     const result = await changePRStatus(req.params.prId, toStatus, { user: req.user, via: 'twg', note: trimmedComment, conn })
     await conn.execute(
       'UPDATE purchase_requests SET twg_reviewed_by = ?, twg_reviewed_at = CURRENT_TIMESTAMP, twg_comment = ? WHERE id = ?',
       [req.user.id, trimmedComment, result.pr.id]
     )
-    return result
+    const certificate = action === 'approve'
+      ? await issueCertificate(conn, { prId: result.pr.id, user: req.user, certNo: req.body.cert_no, signature, kind: 'review' })
+      : null
+    return { ...result, certificate }
   })
 
   // Notify: the requestor always; procurement only when approved (their queue grows).
@@ -156,13 +163,25 @@ exports.reviewPR = asyncHandler(async (req, res) => {
   const resultLabel = action === 'approve' ? 'approved'
                     : action === 'revise'  ? 'sent back for revision'
                                            : 'rejected'
-  res.json({ message: `PR ${resultLabel}` })
+  res.json({ message: certificate ? `PR approved; certified in Cert. No. ${certificate.cert_no}` : `PR ${resultLabel}`, certificate })
 })
 
-// POST /twg/:prId/certify - body: { action: 'certify' | 'return', comment }
-// The TWG checks the BAC's award against the request. On certifying, its
-// awards are final and Procurement issues the purchase orders; on returning
-// (comment required), that award is cancelled and the BAC awards it again from its bids.
+// PUT /twg/:prId/evaluation - { bids: [{ bidder_id, pr_item_id, compliant, offered_spec, remarks }] }:
+// the TWG's evaluation of the canvass's bids so far (utils/canvassBids.js saveEvaluation).
+exports.saveEvaluation = asyncHandler(async (req, res) => {
+  const denied = await notReviewer(req.user, req.params.prId)
+  if (denied) return res.status(denied.status).json({ message: denied.message })
+  await withTransaction(async (conn) => {
+    const pr = await loadPR(conn, req.params.prId, { lock: true })
+    await saveEvaluation(conn, pr, req.body.bids)
+  })
+  res.json({ message: 'Evaluation saved' })
+})
+
+// POST /twg/:prId/certify - body: { action: 'certify' | 'return', comment, cert_no, signature, sign_method }
+// The TWG has marked every bid of the canvass compliant or not. Certifying
+// issues the certificate and the BAC picks the winners next; returning
+// (comment required) gives the canvass back to the BAC to correct.
 exports.certifyPR = asyncHandler(async (req, res) => {
   const { action } = req.body
   const comment = req.body.comment?.trim() || null
@@ -175,28 +194,15 @@ exports.certifyPR = asyncHandler(async (req, res) => {
     ? { image: checkSignature(req.body.signature), method: METHODS.includes(req.body.sign_method) ? req.body.sign_method : 'drawn' }
     : null
 
-  const { pr, lots, certificate } = await withTransaction(async (conn) => {
+  const { pr, certificate } = await withTransaction(async (conn) => {
     if (action === 'return') {
-      // The round's awards are cancelled and their items need an award again; the BAC keeps the bids to pick again.
       const result = await changePRStatus(req.params.prId, 'bidding', { user: req.user, via: 'twg', note: `Returned by the TWG: ${comment}`, conn })
-      await conn.execute(
-        "UPDATE lots SET status = 'cancelled', notes = CONCAT_WS('\\n', notes, ?) WHERE purchase_request_id = ? AND status = 'awarded' AND certified_at IS NULL",
-        [`Returned by the TWG: ${comment}`, result.pr.id])
       await conn.execute('UPDATE purchase_requests SET certification_return_reason = ? WHERE id = ?', [comment, result.pr.id])
-      return { pr: result.pr, lots: [] }
+      return { pr: result.pr }
     }
-    const result = await changePRStatus(req.params.prId, 'for_po', { user: req.user, via: 'twg', note: comment || 'Canvass result certified by the TWG', conn })
-    const [lots] = await conn.execute(
-      "SELECT id, lot_number, awarded_to FROM lots WHERE purchase_request_id = ? AND status = 'awarded' AND certified_at IS NULL FOR UPDATE", [result.pr.id])
-    if (lots.length) {
-      await conn.execute(`UPDATE lots SET certified_at = NOW(), certified_by = ? WHERE id IN (${lots.map(() => '?').join(', ')})`,
-        [req.user.id, ...lots.map(l => l.id)])
-    }
-    await conn.execute(
-      'UPDATE purchase_requests SET twg_certified_by = ?, twg_certified_at = NOW(), twg_certification_note = ?, certification_return_reason = NULL WHERE id = ?',
-      [req.user.id, comment, result.pr.id])
-    const certificate = await issueCertificate(conn, { prId: result.pr.id, lotIds: lots.map(l => l.id), user: req.user, certNo: req.body.cert_no, signature })
-    return { pr: result.pr, lots, certificate }
+    const pr = await loadPR(conn, req.params.prId, { lock: true })
+    if (!pr || pr.deleted_at) throw httpError(404, 'PR not found')
+    return { pr, certificate: await certifyBids(conn, pr, req.user, { certNo: req.body.cert_no, signature, comment }) }
   })
 
   const prLabel = pr.title ? `${pr.pr_number} — ${pr.title}` : pr.pr_number
@@ -204,11 +210,8 @@ exports.certifyPR = asyncHandler(async (req, res) => {
     await notifyBac(req.io, pr.id, pr.pr_number, `PR ${prLabel} was returned by the TWG: ${comment}`)
     return res.json({ message: 'Returned to the BAC' })
   }
-  await announceAwards(req.io, pr.pr_number, lots)
-  const [procs] = await pool.execute("SELECT id FROM users WHERE role = 'procurement' AND is_active = 1")
-  await Promise.all(procs.map(p => notify(req.io, p.id,
-    `PR ${prLabel}: the TWG certified the canvass result. The purchase orders can be issued.`, 'success', pr.id, 'pr')))
-  res.json({ message: `Certified in Cert. No. ${certificate.cert_no}. The purchase orders can be issued.`, certificate })
+  await notifyBac(req.io, pr.id, pr.pr_number, `The TWG certified the bids of PR ${prLabel} (Cert. No. ${certificate.cert_no}). Pick the winners and award.`)
+  res.json({ message: `Certified in Cert. No. ${certificate.cert_no}. The BAC picks the winners next.`, certificate })
 })
 
 // GET /twg/stats - dashboard tiles for the TWG dashboard, counted over this

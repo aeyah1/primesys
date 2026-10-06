@@ -6,14 +6,12 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
-import { fmtCurrency, fmtDate } from '@/lib/utils'
+import { fmtCurrency, fmtDate, plural } from '@/lib/utils'
 import { useAuth } from '@/context/AuthContext'
 import api from '@/lib/axios'
 import { lineCents, useRefreshAwards } from './supplier'
 import BidsTable from './BidsTable'
 import AwardList from './AwardList'
-
-const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 
 /* ── Drop an item that can't be procured, with the reason (the BAC's) ──── */
 export function DropItemDialog({ prId, item, onClose }) {
@@ -158,7 +156,7 @@ export default function CanvassPanel({ pr }) {
       {canvass.bidders.length > 0 && (
         <div className="space-y-2">
           <p className="text-xs font-bold uppercase tracking-wider text-[--color-text-secondary]">Every bid</p>
-          <BidsTable items={items} bidders={canvass.bidders} />
+          <BidsTable canvass={canvass} />
         </div>
       )}
 

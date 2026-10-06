@@ -55,6 +55,8 @@ async function run() {
   t.check(X, 'amounts written with commas read right', by('PAPER').unit_cost === 191.36 && by('PAPER').file_budget === 2296.32, JSON.stringify(by('PAPER')))
   t.check(X, 'the months with a quantity are the schedule', by('PAPER').months.join() === '1,6,9' && by('ALCOHOL').months.join() === '5,6')
   t.check(X, 'a blank quantity is the sum of its months', by('Bleach').quantity === 2, JSON.stringify(by('Bleach')))
+  t.check(X, 'each quarter\'s quantity is the sum of its months', JSON.stringify([by('PAPER').quarters, by('ALCOHOL').quarters, by('Bleach').quarters]) === '[[4,4,4,0],[0,6,0,0],[1,0,1,0]]',
+    JSON.stringify([by('PAPER').quarters, by('ALCOHOL').quarters, by('Bleach').quarters]))
   t.check(X, 'Part II items follow the Part II heading', by('Qualitative').part === 'other' && by('Qualitative').category === 'Statistical Tool' && by('Qualitative').remarks === 'For the research unit')
   t.check(X, 'a total that does not add up is flagged', /says 400\.00/.test(by('Ballpen').warnings?.join()), by('Ballpen').warnings?.join())
   t.check(X, 'a brand name is flagged', /brand \(Epson\)/.test(by('Ink').warnings?.join()), by('Ink').warnings?.join())
@@ -93,7 +95,10 @@ async function run() {
   const c = await is(W, 'a CSV in the PS-DBM catalogue layout is read', 3, Buffer.from(csv), 'app-cse.csv', r => r.status === 200 && r.data.items.length === 2)
   const folder = c.data.items?.[0] || {}
   t.check(W, '…quantity, price, months, total, and source of funds', folder.quantity === 100 && folder.unit_cost === 8.5 && folder.months.join() === '1,4'
-    && c.data.file_total === 1550 && c.data.header?.fund_source === 'GAA', JSON.stringify({ folder, header: c.data.header }))
+    && folder.quarters.join() === '50,50,0,0' && c.data.file_total === 1550 && c.data.header?.fund_source === 'GAA', JSON.stringify({ folder, header: c.data.header }))
+  const odd = [...csv.split('\r\n').slice(0, 3), '"Tape, masking",roll,3,,,,,,,,,,,,10,25,250'].join('\r\n')
+  await is(W, 'months that don\'t add up to the quantity leave the quarters unknown, with a note', 3, Buffer.from(odd), 'odd.csv',
+    r => r.status === 200 && r.data.items[0]?.quarters === null && /add up to 3, not the quantity 10/.test(r.data.items[0].warnings.join()))
 
   // ── The signature block ─────────────────────────────────────────────
   const G = 'Signatories'

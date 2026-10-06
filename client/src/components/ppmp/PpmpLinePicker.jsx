@@ -5,6 +5,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { fmtCurrency } from '@/lib/utils'
 import { MONTHS } from '@/components/ppmp/PpmpStatusBadge'
 import api from '@/lib/axios'
@@ -40,9 +41,20 @@ function checkedMonth(line, dateNeeded) {
   return line.fiscal_year === new Date().getFullYear() ? new Date().getMonth() + 1 : null
 }
 
+// The quarter (1 to 4) a request filed under `quarter` ({ label, year }) draws on, or null when it is not a quarter of
+// one of the plans' years (the year's total then applies, as on the server: utils/ppmpUse.js).
+export const quarterOf = (plans, quarter) => (quarter && /^Q[1-4]$/.test(quarter.label || '') && plans.some(p => p.fiscal_year === Number(quarter.year))
+  ? Number(quarter.label[1]) : null)
+
+// Whether a line is planned in a quarter: its quarter's quantity, else a month in it (every quarter when unscheduled).
+export const inQuarter = (line, q) => (line.quarters ? line.quarters[q - 1] > 0 : !line.months.length || line.months.some(m => Math.ceil(m / 3) === q))
+
+// What is left of a line for a request: of the quarter's quantity when it draws on one, else of the year's.
+export const leftFor = (line, quarter) => (quarter ? line.quarter_left[quarter - 1] : line.remaining)
+
 // An item against its line: what is left for it, a block when it asks for more, and warnings that don't block.
-export function lineChecks(line, { quantity, price, dateNeeded, taken = 0 }) {
-  const left = Math.round((line.remaining - taken) * 100) / 100
+export function lineChecks(line, { quantity, price, dateNeeded, taken = 0, quarter = null }) {
+  const left = Math.round((leftFor(line, quarter) - taken) * 100) / 100
   const qty = parseFloat(quantity) || 0
   const warnings = []
   if (parseFloat(price) > line.unit_cost) warnings.push(`Above the PPMP's ${fmtCurrency(line.unit_cost)} each. Adjust it, or be ready to explain the difference.`)
@@ -50,18 +62,20 @@ export function lineChecks(line, { quantity, price, dateNeeded, taken = 0 }) {
   if (month && line.months.length && !line.months.includes(month)) {
     warnings.push(`The PPMP doesn't schedule it for ${MONTHS[month - 1]} (planned: ${line.months.map(m => MONTHS[m - 1]).join(', ')}).`)
   }
-  const block = qty > left ? (left > 0 ? `Only ${left} ${line.unit} left in the PPMP.` : 'Nothing is left of this line in the PPMP.') : null
-  return { left, block, warnings }
+  const where = quarter ? ` for Q${quarter}` : ''
+  const block = qty > left ? (left > 0 ? `Only ${left} ${line.unit} left${where} in the PPMP.` : `Nothing is left of this line${where} in the PPMP.`) : null
+  return { left, block, warnings, quarter }
 }
 
 // The line's facts and what to fix, under an item.
-export function PpmpLineNote({ line, block, warnings = [], left, planned, className = '' }) {
+export function PpmpLineNote({ line, block, warnings = [], left, planned, quarter, className = '' }) {
   if (!line) return null
   return (
     <div className={`space-y-1 text-[11px] leading-relaxed ${className}`}>
       <p className="text-[--color-text-muted]">
         PPMP{line.code ? ` ${line.code}` : ''}: {fmtCurrency(line.unit_cost)} each
         {planned != null && <> · {planned} {line.unit} planned</>}
+        {quarter && line.quarters && <> · {line.quarters[quarter - 1]} for Q{quarter}</>}
         {left != null && <> · <span className="font-semibold text-[--color-text-secondary]">{left} {line.unit} left</span></>}
         {line.months.length > 0 && <> · {line.months.map(m => MONTHS[m - 1]).join(', ')}</>}
         {line.mode_of_procurement && <> · {line.mode_of_procurement}</>}
@@ -88,15 +102,17 @@ export function matchScore(query, line) {
 }
 
 // The item field of a PR form: type what is needed and the closest PPMP lines come up, the best one first; a close one
-// is ready to take with Enter, a weak one only by a click. Browse lists every line. `year` keeps the pick to one fiscal year once the request has an item from it.
-export function PpmpItemField({ plans, isLoading, value, onPick, taken, year, label = 'Item from the PPMP', id }) {
+// is ready to take with Enter, a weak one only by a click. Browse lists every line. `year` keeps the pick to one fiscal year once
+// the request has an item from it; `quarter` (1 to 4) to the lines planned in that quarter, with what is left of its quantity.
+export function PpmpItemField({ plans, isLoading, value, onPick, taken, year, quarter = null, label = 'Item from the PPMP', id }) {
   const [text, setText] = useState(null)   // what is being typed; null shows the picked line
   const [active, setActive] = useState(-2)   // -2: not moved with the arrow keys yet, so the list's own start applies
   const [focused, setFocused] = useState(false)
   const [browsing, setBrowsing] = useState(false)
-  const usable = year ? plans.filter(p => p.fiscal_year === year) : plans
+  const usable = (year ? plans.filter(p => p.fiscal_year === year) : plans)
+    .map(p => (quarter ? { ...p, lines: p.lines.filter(l => inQuarter(l, quarter)) } : p))
   const all = usable.flatMap(p => p.lines.map(l => ({ ...l, fiscal_year: p.fiscal_year })))
-  const leftOf = (l) => Math.round((l.remaining - (taken?.get(l.key) || 0)) * 100) / 100
+  const leftOf = (l) => Math.round((leftFor(l, quarter) - (taken?.get(l.key) || 0)) * 100) / 100
   const typed = text ?? ''
   const ranked = typed.trim() ? all.map(l => ({ l, s: matchScore(typed, l) })).filter(x => x.s >= 0.3).sort((a, b) => b.s - a.s).slice(0, 6) : []
   const suggestions = ranked.map(x => x.l)
@@ -128,7 +144,7 @@ export function PpmpItemField({ plans, isLoading, value, onPick, taken, year, la
             <span className="block text-[11px] text-[--color-text-muted]">{[l.code, l.category, fmtCurrency(l.unit_cost) + ' each'].filter(Boolean).join(' · ')}</span>
           </span>
           <span className={`shrink-0 text-[11px] font-semibold tabular-nums ${left > 0 ? 'text-[--color-text-secondary]' : 'text-red-700'}`}>
-            {left > 0 ? `${left} ${l.unit} left` : 'None left'}
+            {left > 0 ? `${left} ${l.unit} left${quarter ? ` for Q${quarter}` : ''}` : 'None left'}
           </span>
         </button>
       </li>
@@ -166,13 +182,13 @@ export function PpmpItemField({ plans, isLoading, value, onPick, taken, year, la
           <List className="size-4" />
         </Button>
       </div>
-      <BrowsePpmp open={browsing} onOpenChange={setBrowsing} plans={usable} leftOf={leftOf} onPick={choose} />
+      <BrowsePpmp open={browsing} onOpenChange={setBrowsing} plans={usable} leftOf={leftOf} onPick={choose} quarter={quarter} />
     </div>
   )
 }
 
-// Every line of the PPMP to pick from, with a search, one fiscal year at a time.
-function BrowsePpmp({ open, onOpenChange, plans, leftOf, onPick }) {
+// Every line of the PPMP to pick from (of the quarter, when the request draws on one), with a search, one fiscal year at a time.
+function BrowsePpmp({ open, onOpenChange, plans, leftOf, onPick, quarter }) {
   const [search, setSearch] = useState('')
   const [planId, setPlanId] = useState(null)
   const plan = plans.find(p => p.id === planId) || plans[0]
@@ -181,7 +197,7 @@ function BrowsePpmp({ open, onOpenChange, plans, leftOf, onPick }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent title="Pick from the PPMP" className="max-w-2xl"
-        description={plan ? `${plan.office_code}, FY ${plan.fiscal_year}, PPMP No. ${plan.version_no}. Only what is left of each line can be requested.` : undefined}>
+        description={plan ? `${plan.office_code}, FY ${plan.fiscal_year}, PPMP No. ${plan.version_no}${quarter ? `, Q${quarter} items` : ''}. Only what is left of each line can be requested.` : undefined}>
         <div className="space-y-3">
           {plans.length > 1 && (
             <div className="flex gap-2">
@@ -209,7 +225,7 @@ function BrowsePpmp({ open, onOpenChange, plans, leftOf, onPick }) {
                       </span>
                     </span>
                     <span className={`shrink-0 text-xs font-semibold tabular-nums ${left > 0 ? 'text-[--color-text-secondary]' : 'text-red-700'}`}>
-                      {left > 0 ? `${left} ${l.unit} left` : 'None left'}
+                      {left > 0 ? `${left} ${l.unit} left${quarter ? ` for Q${quarter}` : ''}` : 'None left'}
                     </span>
                   </button>
                 </li>
@@ -219,6 +235,33 @@ function BrowsePpmp({ open, onOpenChange, plans, leftOf, onPick }) {
         </div>
       </DialogContent>
     </Dialog>
+  )
+}
+
+const SPANS = { Q1: 'Jan to Mar', Q2: 'Apr to Jun', Q3: 'Jul to Sep', Q4: 'Oct to Dec' }
+
+// The lines a request for quarter q (1 to 4) starts with: each line planned in it with something left, once per key.
+export function quarterLines(plan, q) {
+  const seen = new Set()
+  return plan.lines.filter(l => inQuarter(l, q) && l.quarter_left[q - 1] > 0 && !seen.has(l.key) && seen.add(l.key))
+}
+
+// The quarter a Fund Administrator's request is for: one of their PPMP's year, each with how many of its items are left to request.
+export function QuarterSelect({ plans, value, onChange, id }) {
+  return (
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger id={id}><SelectValue placeholder="Pick the quarter" /></SelectTrigger>
+      <SelectContent>
+        {plans.flatMap(p => p.quarters.map(q => {
+          const n = quarterLines(p, Number(q.label[1])).length
+          return (
+            <SelectItem key={q.id} value={String(q.id)}>
+              {q.label} {q.year}, {SPANS[q.label]} · {n ? `${n} item${n === 1 ? '' : 's'} to request` : 'nothing left'}
+            </SelectItem>
+          )
+        }))}
+      </SelectContent>
+    </Select>
   )
 }
 

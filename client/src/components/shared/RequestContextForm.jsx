@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { User, Calendar, Briefcase, Building2 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { Input } from '@/components/ui/input'
@@ -37,6 +38,17 @@ export default function RequestContextForm({ value = {}, onChange }) {
     queryFn:  () => api.get('/departments').then(r => r.data),
     staleTime: 5 * 60_000,
   })
+  // A Fund Administrator's suggestions for Office / Section: their office's code and name, and what was printed before.
+  const { data: sections = [] } = useQuery({
+    queryKey: ['pr-sections', 'own'],
+    queryFn: () => api.get('/pr/sections').then(r => r.data),
+    enabled: ownOffice,
+    staleTime: 60_000,
+  })
+  // Until something is typed, a Fund Administrator's request prints their office's code (as Requested by names the head).
+  useEffect(() => {
+    if (ownOffice && user.department_code && !value.department && !value.department_touched) onChange({ department: user.department_code })
+  }, [ownOffice, user?.department_code])
 
   return (
     <div className="space-y-4">
@@ -44,13 +56,26 @@ export default function RequestContextForm({ value = {}, onChange }) {
         <Label htmlFor="ctx-department">
           Office / Section
           <span className="ml-1 font-normal text-[--color-text-muted] text-xs">
-            {ownOffice ? '(your office; its PPMP is what you request from)' : '(the office this request is for)'}
+            {ownOffice ? '(type it, or pick from the list)' : '(the office this request is for)'}
           </span>
         </Label>
         {ownOffice ? (
-          <div id="ctx-department" className="flex h-10 items-center rounded-lg border border-[--color-border] bg-[--color-canvas] px-3 text-sm text-[--color-text-secondary]">
-            {user.department_code ? `${user.department_code} — ${user.department_name}` : 'No office yet. Ask the administrator to set it.'}
-          </div>
+          user.department_code ? (
+            <>
+              <Input id="ctx-department" list="ctx-sections" maxLength={150} autoComplete="off" placeholder={user.department_code}
+                value={value.department || ''} onChange={e => onChange({ department: e.target.value, department_touched: true })} />
+              <datalist id="ctx-sections">
+                {sections.map(s => <option key={s.value} value={s.value}>{s.note}</option>)}
+              </datalist>
+              <p className="text-[11px] text-[--color-text-muted]">
+                Printed on the form's Office/Section line. Left blank, it prints {user.department_code}. Your items still come from {user.department_code}'s PPMP.
+              </p>
+            </>
+          ) : (
+            <div id="ctx-department" className="flex h-10 items-center rounded-lg border border-[--color-border] bg-[--color-canvas] px-3 text-sm text-[--color-text-secondary]">
+              No office yet. Ask the administrator to set it.
+            </div>
+          )
         ) : departments.length > 0 ? (
           <Select
             value={value.department_id ? String(value.department_id) : ''}

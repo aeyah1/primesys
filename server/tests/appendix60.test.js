@@ -94,6 +94,19 @@ async function run() {
     { pr_number_prefix: 'CSO' }, r => r.status === 200)
   await is('Settings', 'a requestor cannot change them', 3, 'PATCH', '/settings',
     { approved_by_name: 'Me' }, r => r.status === 403, '403')
+  // The RFQ's canvassers: a list, sized like the other signatories.
+  const crew = [{ name: 'PEDRO B. REYES', designation: 'Canvasser' }, { name: 'LUIS M. AQUINO', designation: 'Supply Aide' }]
+  await is('Settings', 'an admin saves several canvassers', 1, 'PATCH', '/settings', { canvassers: JSON.stringify(crew) }, r => r.status === 200)
+  await is('Settings', '…and they read back in order', 1, 'GET', '/settings', undefined,
+    r => JSON.stringify(JSON.parse(r.data.canvassers || '[]')) === JSON.stringify(crew))
+  await is('Settings', 'canvassers that are not a list are refused', 1, 'PATCH', '/settings', { canvassers: '{"name":"X"}' }, r => r.status === 400, '400')
+  await is('Settings', 'more than six canvassers are refused', 1, 'PATCH', '/settings',
+    { canvassers: JSON.stringify(Array(7).fill({ name: 'X', designation: 'Y' })) }, r => r.status === 400, '400')
+  await is('Settings', 'a canvasser name over 150 characters is refused', 1, 'PATCH', '/settings',
+    { canvassers: JSON.stringify([{ name: 'x'.repeat(151), designation: 'Canvasser' }]) }, r => r.status === 400, '400')
+  await is('Settings', 'a requestor reads only what the PR form shows', 3, 'GET', '/settings', undefined,
+    r => r.status === 200 && 'responsibility_center_code' in r.data
+      && Object.keys(r.data).every(k => ['fund_cluster', 'fund_code_stf', 'fund_code_gaa', 'fund_code_igp', 'responsibility_center_code'].includes(k)))
 
   // ── PR numbering ────────────────────────────────────────────────────
   const filed = []
@@ -108,6 +121,7 @@ async function run() {
     r => r.status === 200 && r.data.suggested_pr_number === want && r.data.pr_number_assigned === false, want)
   const start = (id, body) => http(2, 'POST', `/canvass/${id}/start`, { mode_of_procurement: 'Shopping', ...body })
   await is('Numbering', 'no RFQ before the number', 2, 'GET', `/pr/${first}/rfq`, undefined, r => r.status === 409, '409')
+  await is('Numbering', '…nor its Word copy', 2, 'GET', `/pr/${first}/rfq/docx`, undefined, r => r.status === 409, '409')
   await suggests(first, `${num('CSO', 1)}`, 'the next number is suggested in the form\'s format (the legacy one ignored)')
   let r = await start(first, { pr_number: `${num('CSO', 1)}` })
   t.check('Numbering', 'Procurement confirms it as the canvass starts', r.status === 200 && r.data.pr_number === `${num('CSO', 1)}`, show(r))
@@ -117,6 +131,9 @@ async function run() {
   await is('Numbering', '…the requestor is told both', 3, 'GET', '/notifications', undefined,
     r => r.data.some(n => n.message.startsWith(`PR ${num('CSO', 1)} (REQ-`) && n.message.endsWith('Window blinds is now in canvass.')))
   await is('Numbering', '…and the RFQ prints', 2, 'GET', `/pr/${first}/rfq`, undefined, r => r.status === 200 && r.type.includes('pdf'))
+  await is('Numbering', '…and downloads as a Word document', 2, 'GET', `/pr/${first}/rfq/docx`, undefined,
+    r => r.status === 200 && r.type.includes('wordprocessingml') && String(r.data).startsWith('PK'))
+  await is('Numbering', '…which the requestor may not download', 3, 'GET', `/pr/${first}/rfq/docx`, undefined, r => r.status === 403, '403')
   await suggests(second, `${num('CSO', 2)}`, 'the sequence keeps counting')
   r = await start(second, {})
   t.check('Numbering', 'with none given, the suggestion is used', r.status === 200 && r.data.pr_number === `${num('CSO', 2)}`, show(r))

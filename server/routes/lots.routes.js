@@ -3,7 +3,7 @@ const c         = require('../controllers/lots.controller')
 const auth      = require('../middleware/auth.middleware')
 const authorize = require('../middleware/authorize.middleware')
 const { requireAccess } = require('../middleware/scope.middleware')
-const { handle, textRule, emailRule, moneyRule, quantityRule, oneOfRule } = require('../middleware/validate')
+const { handle, textRule, emailRule, oneOfRule } = require('../middleware/validate')
 
 router.use(auth)
 
@@ -26,16 +26,7 @@ router.get('/',                  c.listAll)
 // The Work Queue (PRs by award stage).
 router.get('/queue',             authorize('procurement', 'admin', 'supply'), c.queue)
 router.get('/pr/:prId',          prAccess, c.listByPR)
-router.get('/:id/items', lotAccess, c.getItems)
 
-router.post('/:id/items', authorize('procurement', 'admin'), lotAccess,
-  textRule('item_name', 'Item name', 500, { required: true }),
-  quantityRule('quantity', 'Quantity'),
-  textRule('unit', 'Unit', 50),
-  moneyRule('estimated_cost', 'Estimated cost'),
-  handle,
-  c.addItem)
-router.delete('/:id/items/:itemId', authorize('procurement', 'admin'), lotAccess, c.deleteItem)
 router.patch('/:id', authorize('procurement', 'admin'), lotAccess,
   oneOfRule('status', 'A lot can only be awarded or cancelled', ['awarded', 'cancelled']),
   textRule('awarded_to', 'Supplier name', 200),

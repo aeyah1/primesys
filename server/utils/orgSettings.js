@@ -36,8 +36,9 @@ const SETTING_KEYS = [
   // Request for Quotation signatories
   'bac_vice_chairman_name',
   'bac_vice_chairman_designation',
-  'canvasser_name',
+  'canvasser_name',               // the one canvasser saved before the list below; read only when it is empty
   'canvasser_designation',
+  'canvassers',                   // every canvasser named on the RFQ: a JSON list of { name, designation }
 
   // The Bids and Awards Committee's chairman and members as they sign the BAC Resolution.
   'bac_chairman_name',
@@ -91,7 +92,19 @@ function approverFor(org, total) {
 // The BAC members, one per line, blanks dropped.
 const bacMembers = (org) => String(org.bac_members || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean)
 
+// How many canvassers the RFQ names at most (three to a row, two rows).
+const MAX_CANVASSERS = 6
+
+// The RFQ's canvassers: the saved list, else the single canvasser saved before lists existed; blank rows dropped.
+function canvassersOf(org) {
+  const clean = (c) => ({ name: String(c?.name || '').trim(), designation: String(c?.designation || '').trim() })
+  let list = null
+  try { list = JSON.parse(org.canvassers || 'null') } catch { /* not a list: fall back to the single canvasser */ }
+  if (!Array.isArray(list)) list = [{ name: org.canvasser_name, designation: org.canvasser_designation }]
+  return list.map(clean).filter(c => c.name || c.designation).slice(0, MAX_CANVASSERS)
+}
+
 module.exports = {
   SETTING_KEYS, FUND_SOURCES, FUND_SOURCE_VALUES, PR_PREFIX, DEFAULT_PR_PREFIX, DEFAULT_APPROVER_THRESHOLD,
-  loadOrgSettings, prNumberPrefix, fundCodeFor, approverFor, bacMembers,
+  loadOrgSettings, prNumberPrefix, fundCodeFor, approverFor, bacMembers, MAX_CANVASSERS, canvassersOf,
 }

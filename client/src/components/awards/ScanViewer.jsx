@@ -8,20 +8,21 @@ import api from '@/lib/axios'
 
 export const previewable = (type) => type === 'application/pdf' || type?.startsWith('image/')
 
-// One of a PR's attached files shown in the page (a PDF or a picture); other types download.
-export default function ScanViewer({ prId, file }) {
+// One attached file shown in the page (a PDF or a picture); other types download. base: the record's address,
+// a PR's by default (`/pr/:id`), or a delivery's (`/delivery/:id`).
+export default function ScanViewer({ prId, file, base = `/pr/${prId}` }) {
   const [url, setUrl] = useState(null)
   const [failed, setFailed] = useState(false)
   useEffect(() => {
     if (!file || !previewable(file.mimetype)) return undefined
     let made = null
     setUrl(null); setFailed(false)
-    api.get(`/pr/${prId}/attachments/${file.id}/download`, { responseType: 'blob' })
+    api.get(`${base}/attachments/${file.id}/download`, { responseType: 'blob' })
       .then(r => { made = URL.createObjectURL(new Blob([r.data], { type: file.mimetype })); setUrl(made) })
       .catch(() => setFailed(true))
     return () => { if (made) URL.revokeObjectURL(made) }
-  }, [prId, file])
-  const download = () => downloadFile(`/pr/${prId}/attachments/${file.id}/download`, file.original_name)
+  }, [base, file])
+  const download = () => downloadFile(`${base}/attachments/${file.id}/download`, file.original_name)
     .catch(async (err) => toast.error(await blobErrorMessage(err, 'Download failed')))
 
   if (!file) return <p className="px-4 py-16 text-center text-sm text-[--color-text-muted]">No canvass documents are attached yet.</p>

@@ -69,7 +69,7 @@ async function notifyAreaReviewers(io, pr, { resubmitted = false, certify = fals
   const reviewers = await areaReviewers(pool, pr.category)
   if (reviewers.length) {
     const message = certify
-      ? `PR ${prLabel} (${area}) was reviewed by the BAC and is awaiting the TWG's certification.`
+      ? `The BAC sent the bids of PR ${prLabel} (${area}). They are awaiting the TWG's evaluation and certification.`
       : resubmitted
       ? `PR ${prLabel} (${area}) was revised and is awaiting TWG review again.`
       : `PR ${prLabel} (${area}) is awaiting TWG review.`
@@ -84,4 +84,4 @@ async function notifyAreaReviewers(io, pr, { resubmitted = false, certify = fals
   }
 }
 
-module.exports = { IN_AREA, areasOf, reviewsCategory, setAreas, coverage, notifyAreaReviewers }
+module.exports = { IN_AREA, areasOf, reviewsCategory, setAreas, coverage, notifyAreaReviewers, areaReviewers }

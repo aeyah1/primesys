@@ -17,10 +17,12 @@ async function loadPpmp(db, user, id, { lock = false } = {}) {
   const [[p]] = await db.execute(
     `SELECT p.id, p.department_id, p.fiscal_year, p.version_no, p.kind, p.fund_source, p.status, p.problems, p.signed_kind, p.signatures,
             p.signatories, p.file_office, p.skipped_rows, p.uploaded_by, p.uploaded_at, p.effective_at, p.content_hash, p.created_at, p.updated_at,
-            p.withdrawn_at, p.withdraw_reason, wu.name AS withdrawn_by_name,
+            p.withdrawn_at, p.withdraw_reason, wu.name AS withdrawn_by_name, p.edited_from, ev.version_no AS edited_from_version,
+            p.removal_requested_by, p.removal_requested_at, p.removal_reason, ru.name AS removal_requested_by_name,
             d.code AS office_code, d.name AS office_name, d.head_name, d.head_designation, uu.name AS uploaded_by_name
        FROM ppmps p JOIN departments d ON d.id = p.department_id LEFT JOIN users uu ON uu.id = p.uploaded_by
-       LEFT JOIN users wu ON wu.id = p.withdrawn_by
+       LEFT JOIN users wu ON wu.id = p.withdrawn_by LEFT JOIN ppmps ev ON ev.id = p.edited_from
+       LEFT JOIN users ru ON ru.id = p.removal_requested_by
       WHERE p.id = ?${lock ? ' FOR UPDATE' : ''}`, [id ?? null])
   if (!p) throw httpError(404, 'PPMP not found')
   if (user.role === 'requestor') {
@@ -54,15 +56,30 @@ async function assertOwnOffice(db, userId, fileOffice) {
     : `The file is for "${fileOffice}", which is not your registered office, ${me.name} (${me.code}).`)
 }
 
-// Item lines in the order they print, with the months as numbers.
+// A line's quantity per quarter from its row ([Q1, Q2, Q3, Q4]), or null when the PPMP file doesn't split it.
+const QUARTER_COLUMNS = ['qty_q1', 'qty_q2', 'qty_q3', 'qty_q4']
+const splitOf = (row) => (row.qty_q1 == null ? null : QUARTER_COLUMNS.map(c => Number(row[c])))
+
+// What is left of a line for each quarter: its quarter's own quantity less what requests of that quarter hold, never
+// more than what is left of the year. A line the file doesn't split takes the year's in each quarter it is scheduled in
+// (every quarter when unscheduled). quarters: the split (summed over lines sharing a key) or null; held: [4].
+function quarterLeft({ quarters, months, remaining }, held = [0, 0, 0, 0]) {
+  const r2 = (n) => Math.round(n * 100) / 100
+  return [1, 2, 3, 4].map(q => (quarters
+    ? r2(Math.min(quarters[q - 1] - held[q - 1], remaining))
+    : !months.length || months.some(m => Math.ceil(m / 3) === q) ? remaining : 0))
+}
+
+// Item lines in the order they print, with the months as numbers and the quantity per quarter.
 async function loadItems(db, ppmpId) {
   const [rows] = await db.execute(
-    `SELECT id, part, category, code, description, unit, quantity, unit_cost, mode_of_procurement, months, remarks, file_row
+    `SELECT id, part, category, code, description, unit, quantity, unit_cost, mode_of_procurement, months, ${QUARTER_COLUMNS.join(', ')}, remarks, file_row
        FROM ppmp_items WHERE ppmp_id = ? ORDER BY sort_order, id`, [ppmpId])
-  return rows.map(r => ({
+  return rows.map(({ qty_q1, qty_q2, qty_q3, qty_q4, ...r }) => ({
     ...r, quantity: Number(r.quantity), unit_cost: Number(r.unit_cost),
     budget: Math.round(Number(r.quantity) * Number(r.unit_cost) * 100) / 100,
     months: r.months ? r.months.split(',').map(Number) : [],
+    quarters: splitOf({ qty_q1, qty_q2, qty_q3, qty_q4 }),
   }))
 }
 
@@ -113,13 +130,23 @@ function totals(items) {
 
 // What this user may do with this PPMP now: upload one not in effect again (or delete it), or upload an amendment of the one in effect.
 // `drawnOn`: how many requests draw on its items (requestsOn).
+// What a user may do with a PPMP. Its office's Fund Administrator: delete one not in effect or Change it (replaced in
+// place); for the one in effect, Change it (the corrected file becomes its next version), Edit it (its next version), or
+// ask an admin to remove it. An admin withdraws the one in effect while no open request draws on it (which grants a
+// removal request), or declines the request.
 function ppmpPermissions(user, p, { own, newer, drawnOn = 0 }) {
   const keeper = user.role === 'requestor' && own
+  const current = p.status === 'approved' && !newer
+  const asked = !!p.removal_requested_at
   return {
     reupload: keeper && p.status === 'draft',
     remove:   keeper && p.status === 'draft',
-    amend:    keeper && p.status === 'approved' && !newer,
+    amend:    keeper && current && !asked,
+    edit:     keeper && current && !asked,
+    request_removal: keeper && current && !asked && drawnOn === 0,
+    cancel_removal:  keeper && asked,
     withdraw: user.role === 'admin' && p.status === 'approved' && drawnOn === 0,
+    decline_removal: user.role === 'admin' && asked,
   }
 }
 
@@ -131,4 +158,7 @@ async function requestsOn(db, ppmpId) {
   return Number(n)
 }
 
-module.exports = { READERS, norm, lineKey, compareItems, officeOf, assertOwnOffice, loadPpmp, loadItems, loadFiles, contentHash, totals, ppmpPermissions, requestsOn }
+module.exports = {
+  READERS, QUARTER_COLUMNS, norm, lineKey, splitOf, quarterLeft, compareItems, officeOf, assertOwnOffice, loadPpmp, loadItems, loadFiles,
+  contentHash, totals, ppmpPermissions, requestsOn,
+}
