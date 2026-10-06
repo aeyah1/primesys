@@ -93,9 +93,9 @@ async function run() {
   await is('Canvass', '…the mode is on the record', 2, 'GET', `/pr/${id}`, undefined, r => r.data.mode_of_procurement === 'Shopping' && r.data.status === 'bidding')
   await is('Canvass', 'it may still change before a winner is recorded', 2, 'PATCH', `/pr/${id}/mode`, { mode_of_procurement: 'Small Value Procurement' }, r => r.status === 200)
   const item = (await http(2, 'GET', `/canvass/${id}`)).data.items[0].id
-  await is('Canvass', 'the BAC enters the winning bid', 5, 'PUT', `/canvass/${id}/bids`,
-    { bidders: [{ name: 'Supplier 1', prices: [{ pr_item_id: item, unit_price: 49000 }] }], winners: [{ pr_item_id: item, bidder: 0 }] }, r => r.status === 200)
-  await is('Canvass', '…and awards it', 5, 'POST', `/canvass/${id}/award`, {}, r => r.status === 200)
+  let through = 'ok'
+  try { await H.award(BASE, tok, id, { bac: 5, twg: 4 }, [{ name: 'Supplier 1', prices: { [item]: 49000 } }]) } catch (e) { through = e.message }
+  t.check('Canvass', 'the BAC\'s bids, the TWG\'s certificate, the BAC\'s award', through === 'ok', through)
   await is('Canvass', '…then the mode is fixed', 2, 'PATCH', `/pr/${id}/mode`, { mode_of_procurement: 'Shopping' }, r => r.status === 409 && /fixed/.test(r.data.message), '409')
 
   return t.summary()

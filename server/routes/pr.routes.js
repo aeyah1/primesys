@@ -21,7 +21,7 @@ const prFields = (titleRequired) => [
   // Which of the three campus funds this request is drawn on.
   oneOfRule('fund_source', 'Pick a valid source of fund', FUND_SOURCE_VALUES),
   textRule('responsibility_center_code', 'Responsibility center code', 50),
-  textRule('department', 'Department', 150),
+  textRule('department', 'Office / Section', 150),
   // The office this PR is filed for; its head signs "Requested by".
   idRule('department_id', 'Pick a valid office'),
   textRule('purpose', 'Purpose', 2000),
@@ -79,6 +79,8 @@ router.get('/stats',     c.stats)
 router.get('/reads',     c.listReads)
 // Suggestions for "Requested by": the office head and who requested for it before.
 router.get('/requesters', authorize('procurement', 'admin', 'requestor'), c.requesters)
+// Suggestions for "Office / Section": the office's code and name, and what was printed there before.
+router.get('/sections',   authorize('procurement', 'admin', 'requestor'), c.sections)
 // Every /:id route is scoped: 404 unless this user may see the PR (C2).
 // Read-only routes (prRead) also reach deleted PRs, so the archive can open them.
 const prAccess = requireAccess('pr')
@@ -87,6 +89,8 @@ const prRead   = requireAccess('pr', 'id', { includeDeleted: true })
 router.get('/:id/pdf',   prRead, c.generatePDF)
 // The Request for Quotation, for the staff who canvass suppliers.
 router.get('/:id/rfq',   authorize('procurement', 'admin'), prRead, c.generateRFQ)
+// The same RFQ as a Word document, to edit or print where the PDF can't be opened.
+router.get('/:id/rfq/docx', authorize('procurement', 'admin'), prRead, c.generateRFQDocx)
 router.get('/:id',       prRead, c.getById)
 router.get('/:id/requester-signature', prRead, c.requesterSignature)
 // Its items against the office's PPMP.
@@ -128,7 +132,8 @@ router.patch('/:id/mode',
   handle,
   c.setProcurementMode)
 
-router.delete('/:id', authorize('admin', 'procurement', 'requestor'), prAccess, c.remove)
+// Deleting someone else's request takes the reason (required in the controller), told to whoever filed it.
+router.delete('/:id', authorize('admin', 'procurement', 'requestor'), prAccess, textRule('reason', 'Reason', 500), handle, c.remove)
 
 // Remind procurement: requestor / procurement / admin, at most 1 reminder per PR per hour
 router.post('/:id/remind',

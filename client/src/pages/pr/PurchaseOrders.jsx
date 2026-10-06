@@ -14,11 +14,10 @@ import RescheduleDialog from '@/components/delivery/RescheduleDialog'
 import CancelPODialog from '@/components/delivery/CancelPODialog'
 import CloseBalanceDialog from '@/components/delivery/CloseBalanceDialog'
 import { receivedText } from '@/components/delivery/shared'
-import { fmtDate, fmtCurrency, localToday } from '@/lib/utils'
+import { PoDeliveries } from '@/components/delivery/DeliveryRow'
+import { fmtDate, fmtCurrency, localToday, plural } from '@/lib/utils'
 import { openPdf, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
-
-const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 
 // Issues one supplier's PO: it covers their awards with no PO yet. The
 // supplier's details and the total come from those awards on the server.
@@ -175,6 +174,7 @@ export default function PurchaseOrders({ pr, canManage }) {
               </p>
             )}
 
+            <PoDeliveries po={po} />
             {(po.can_record_delivery || po.can_reschedule || po.can_cancel || po.can_close) && (
               <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[--color-border] pt-4">
                 {po.can_cancel && (

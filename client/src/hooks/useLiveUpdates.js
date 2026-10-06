@@ -67,16 +67,17 @@ export function useLiveUpdates() {
 
       switch (notification.reference_type) {
         case 'pr':
-          refresh(['pr-list'], ['pr-stats'], ['po-list'], ['lot-queue'], ['archive'], ['twg-pending'])
+          refresh(['pr-list'], ['pr-stats'], ['po-list'], ['lot-queue'], ['archive'], ['twg'], ['bac'], ['dashboard'])
           if (id) refresh(['pr', id], ['pr-items', id], ['pr-logs', id], ['canvass', id])
+          refresh(['po-detail'])   // a delivery notice to the requestor points at their PR
           break
 
         case 'lot':
-          refresh(['pr-list'], ['pr-stats'], ['lots'], ['lot-queue'])
+          refresh(['pr-list'], ['pr-stats'], ['lots'], ['lot-queue'], ['bac'], ['dashboard'])
           break
 
         case 'delivery':
-          refresh(['pr-list'], ['pr-stats'], ['po-list'], ['delivery-list'], ['archive'])
+          refresh(['pr-list'], ['pr-stats'], ['po-list'], ['po-detail'], ['deliveries'], ['archive'], ['dashboard'])
           break
 
         case 'ppmp':

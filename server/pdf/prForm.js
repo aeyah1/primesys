@@ -98,7 +98,16 @@ module.exports = function drawPRForm(doc, { pr, orgSettings = {}, items = [] }) 
   y += ROW_H
 
   rect(M, y, OFFICE_W, ROW_H); rect(M + OFFICE_W, y, MID_W + DATE_W, ROW_H)
-  put(pr.department || '', M, y, OFFICE_W, ROW_H, { font: 'Times-Bold', align: 'center' })
+  // Office/Section as typed: shrunk to fit its cell (down to 6 pt), cut off past what the row holds.
+  const office = String(pr.department || '')
+  if (office) {
+    const inner = OFFICE_W - PAD * 2
+    let size = FS
+    doc.font('Times-Bold')
+    while (size > 6 && doc.fontSize(size).widthOfString(office) > inner) size -= 0.5
+    const th = Math.min(doc.fontSize(size).heightOfString(office, { width: inner }), ROW_H - 1)
+    doc.fillColor(BLACK).text(office, M + PAD, y + Math.max((ROW_H - th) / 2, 0.5), { width: inner, height: ROW_H - 1, align: 'center', ellipsis: true })
+  }
   put(`Responsibility Center Code : ${pr.responsibility_center_code || s('responsibility_center_code')}`,
       M + OFFICE_W, y, MID_W + DATE_W, ROW_H, { font: 'Times-Bold', size: 8.5 })
   y += ROW_H

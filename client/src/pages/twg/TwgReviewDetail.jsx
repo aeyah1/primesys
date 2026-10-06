@@ -16,11 +16,9 @@ import { PRStatusBadge, CategoryBadge } from '@/components/shared/StatusBadge'
 import { fmtCurrency, fmtDatetime, CATEGORY_LABELS, PR_STATUS_LABELS, groupItemsBySection } from '@/lib/utils'
 import RequestContextDisplay from '@/components/shared/RequestContextDisplay'
 import AttachmentsPanel from '@/components/shared/AttachmentsPanel'
-import AwardList from '@/components/awards/AwardList'
 import PpmpComparison, { usePrPpmp, ViewPpmpButton } from '@/components/ppmp/PpmpComparison'
-import BacPanel from '@/components/awards/BacPanel'
 import TwgCertificates from '@/components/awards/TwgCertificates'
-import BidsTable from '@/components/awards/BidsTable'
+import TwgEvaluation, { evaluationPayload, evaluationBlock } from '@/components/awards/TwgEvaluation'
 import SignatureDialog from '@/components/shared/SignatureDialog'
 import { useAuth } from '@/context/AuthContext'
 import { openPdf, blobErrorMessage } from '@/lib/download'
@@ -37,6 +35,7 @@ export default function TwgReviewDetail() {
   const [certNo, setCertNo] = useState('')           // the certificate's number, suggested by the server
   const [signature, setSignature] = useState(null)   // { image, method } on the certificate, or null
   const [signing, setSigning] = useState(false)
+  const [marks, setMarks] = useState({})             // the TWG's marks on the canvass's bids (TwgEvaluation)
 
   const { data: pr, isLoading: prLoading } = useQuery({
     queryKey: ['pr', id],
@@ -59,24 +58,19 @@ export default function TwgReviewDetail() {
   const { data: review } = usePrPpmp(id)
   const planName = review?.plan ? `${review.plan.office_code} PPMP, FY ${review.plan.fiscal_year}` : null
 
-  // The BAC's award, while the TWG certifies it.
+  // The canvass the BAC sent, while the TWG evaluates and certifies its bids.
   const certifying = pr?.status === 'twg_certification'
-  const { data: lots = [] } = useQuery({
-    queryKey: ['lots', id],
-    queryFn: () => api.get(`/lots/pr/${id}`).then(r => r.data),
-    enabled: certifying,
-  })
-  // Every bid the BAC entered, to compare with the winners.
+  // Every bid the BAC entered, with this member's marks so far.
   const { data: canvass } = useQuery({
     queryKey: ['canvass', id],
     queryFn: () => api.get(`/canvass/${id}`).then(r => r.data),
     enabled: certifying,
   })
-  // The suggested Cert. No. for the certificate (same query as the resolutions panel).
+  // The suggested Cert. No. for the certificate (same query as the resolutions panel): approving a request issues one too.
   const { data: bac } = useQuery({
     queryKey: ['bac', 'pr', id],
     queryFn: () => api.get(`/bac/${id}`).then(r => r.data),
-    enabled: certifying,
+    enabled: certifying || pr?.status === 'submitted',
   })
 
   const openPRForm = async () => {
@@ -85,24 +79,30 @@ export default function TwgReviewDetail() {
   }
 
   const certifyAction = action === 'certify' || action === 'return'
+  // Approving the request and certifying the bids each issue a TWG Certification.
+  const issuesCert = action === 'certify' || action === 'approve'
   const { mutate: submitReview, isPending: submitting } = useMutation({
-    mutationFn: () => api.post(`/twg/${id}/${certifyAction ? 'certify' : 'review'}`, {
-      action, comment: comment.trim() || null,
-      ...(action === 'certify' ? { cert_no: certNo.trim() || undefined, signature: signature?.image, sign_method: signature?.method } : {}),
-    }),
+    mutationFn: async () => {
+      // Certifying saves the marks first: the certificate lists every bid as marked.
+      if (action === 'certify') await api.put(`/twg/${id}/evaluation`, evaluationPayload(marks))
+      return api.post(`/twg/${id}/${certifyAction ? 'certify' : 'review'}`, {
+        action, comment: comment.trim() || null,
+        ...(issuesCert ? { cert_no: certNo.trim() || undefined, signature: signature?.image, sign_method: signature?.method } : {}),
+      })
+    },
     onSuccess: ({ data }) => {
-      const msg = action === 'approve' ? 'PR approved and forwarded to Procurement'
+      const msg = action === 'approve' ? `PR approved and forwarded to Procurement${data.certificate ? `, certified in Cert. No. ${data.certificate.cert_no}` : ''}`
                 : action === 'revise'  ? 'Revision requested. The Fund Administrator has been notified.'
                 : action === 'certify' ? data.message
                 : action === 'return'  ? 'Returned to the BAC with your comment'
                                        : 'PR rejected. The Fund Administrator has been notified.'
-      toast.success(msg, action === 'certify' && data.certificate ? {
+      toast.success(msg, issuesCert && data.certificate ? {
         action: { label: 'Print certificate', onClick: () => openPdf(`/bac/${id}/certificates/${data.certificate.id}/pdf`).catch(async (err) => toast.error(await blobErrorMessage(err, 'Could not open the TWG Certification'))) },
       } : undefined)
       qc.invalidateQueries({ queryKey: ['twg'] })
       qc.invalidateQueries({ queryKey: ['bac', 'pr', id] })
       qc.invalidateQueries({ queryKey: ['pr', id] })
-      qc.invalidateQueries({ queryKey: ['lots', id] })
+      qc.invalidateQueries({ queryKey: ['canvass', id] })
       setAction(null)
       setComment('')
       nav(certifyAction ? '/twg/reviews?stage=certify' : '/twg/reviews')
@@ -126,6 +126,7 @@ export default function TwgReviewDetail() {
   const isReviewable = pr.status === 'submitted' && !!pr.permissions?.twg_review
   const outsideArea  = (pr.status === 'submitted' && !pr.permissions?.twg_review) || (certifying && !pr.permissions?.twg_certify)
   const isCertifiable = certifying && !!pr.permissions?.twg_certify
+  const certifyBlock = isCertifiable ? evaluationBlock(marks) : null
   const grandTotal = items.reduce(
     (sum, it) => sum + (parseFloat(it.quantity || 0) * parseFloat(it.estimated_cost || 0)),
     0
@@ -162,7 +163,8 @@ export default function TwgReviewDetail() {
             <Button variant="outline" className="gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50" onClick={() => openAction('return')}>
               <Undo2 className="size-4" /> Return to the BAC
             </Button>
-            <Button className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white border-0" onClick={() => openAction('certify')}>
+            <Button className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white border-0" disabled={!!certifyBlock}
+              title={certifyBlock || undefined} onClick={() => openAction('certify')}>
               <ShieldCheck className="size-4" /> Certify
             </Button>
           </div>
@@ -224,23 +226,25 @@ export default function TwgReviewDetail() {
         </div>
       )}
 
-      {/* The award to certify: the BAC's winners, every bid, its resolution, and the canvass documents below */}
+      {/* The bids to evaluate: every offer the BAC entered, with the canvasser's files beside them */}
       {certifying && (
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
               <ShieldCheck className="size-4 text-[--color-text-muted]" />
-              <CardTitle>Canvass Result to Certify</CardTitle>
+              <CardTitle>Bids to Evaluate</CardTitle>
             </div>
             <p className="text-ui-xs text-[--color-text-secondary] mt-1">
-              The BAC awarded these winners. Check them against the requested items, every bid, and the canvass documents in the attachments,
-              then certify them, or return them to the BAC with your comment.
+              The BAC entered every supplier's bid from the returned RFQs. Check each offer against the item's required specification and
+              mark it Compliant or Non-Compliant (state the reason), then click Certify. The BAC picks the winners after your certification.
+              If a bid was entered wrong, return the canvass to the BAC with your comment.
             </p>
+            {certifyBlock && <p className="text-ui-xs font-medium text-amber-700 mt-1">{certifyBlock}</p>}
           </CardHeader>
-          <CardContent className="space-y-4">
-            <AwardList lots={lots} canManage={false} prStatus={pr.status} />
-            {canvass?.bidders?.length > 0 && <BidsTable items={canvass.items} bidders={canvass.bidders} />}
-            <BacPanel prId={String(pr.id)} part="resolutions" />
+          <CardContent>
+            {canvass
+              ? <TwgEvaluation key={pr.id} prId={id} canvass={canvass} canEdit={isCertifiable} onChange={setMarks} />
+              : <Skeleton className="h-40" />}
           </CardContent>
         </Card>
       )}
@@ -397,16 +401,16 @@ export default function TwgReviewDetail() {
           <div className="space-y-3 pt-2">
             <p className="text-ui-sm text-[--color-text-secondary]">
               {action === 'approve' && (
-                <>You're approving <span className="font-mono font-bold text-[--color-brand]">{pr.pr_number}</span>. It will move to Procurement's queue for canvass. You can leave an optional note.</>
+                <>You're approving <span className="font-mono font-bold text-[--color-brand]">{pr.pr_number}</span>. It will move to Procurement's queue for canvass, and you issue the TWG's Certification that you checked its market price and specifications. You can leave an optional note.</>
               )}
               {action === 'revise' && (
                 <>Tell <span className="font-medium text-[--color-text-primary]">{pr.created_by_name}</span> what needs to change. This comment will appear on the PR and in their notification.</>
               )}
               {action === 'certify' && (
-                <>You're certifying the canvass result of <span className="font-mono font-bold text-[--color-brand]">{pr.pr_number}</span>. Procurement then issues the purchase orders. You can leave an optional note.</>
+                <>You're certifying your evaluation of every bid on <span className="font-mono font-bold text-[--color-brand]">{pr.pr_number}</span>. The certificate lists each offer as you marked it, and the BAC picks the winners next. You can leave an optional note.</>
               )}
               {action === 'return' && (
-                <>Tell the BAC what is wrong with the canvass result of <span className="font-mono font-bold text-[--color-brand]">{pr.pr_number}</span>. It reviews it again.</>
+                <>Tell the BAC what is wrong with the bids of <span className="font-mono font-bold text-[--color-brand]">{pr.pr_number}</span>. It corrects them and sends the canvass again.</>
               )}
               {action === 'reject' && (
                 <>Reject <span className="font-mono font-bold text-[--color-brand]">{pr.pr_number}</span> outright. The PR won't move forward to Procurement. A reason is required so <span className="font-medium text-[--color-text-primary]">{pr.created_by_name}</span> understands why.</>
@@ -487,7 +491,7 @@ export default function TwgReviewDetail() {
             )}
 
             {/* The certificate: its number and, optionally, the certifier's signature. */}
-            {action === 'certify' && (
+            {issuesCert && (
               <div className="grid grid-cols-1 gap-4 rounded-lg border border-[--color-border] bg-[--color-canvas] p-3.5 sm:grid-cols-[200px_1fr]">
                 <div className="space-y-1.5">
                   <Label htmlFor="cert-no">Cert. No.</Label>
@@ -518,7 +522,7 @@ export default function TwgReviewDetail() {
               placeholder={
                 action === 'approve' ? 'Optional note for procurement…'
                 : action === 'certify' ? 'Optional note…'
-                : action === 'return' ? 'What does not match the request, and why…'
+                : action === 'return' ? 'Which bid was entered wrong, and what its RFQ says…'
                 : action === 'revise' ? 'Be specific: which items, what to fix, why…'
                 : 'Reason for rejection (required)…'
               }

@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { fmtCurrency, PR_STATUS_LABELS, CATEGORY_LABELS } from '@/lib/utils'
-import { openPdf } from '@/lib/download'
+import { openPdf, downloadCSV } from '@/lib/download'
 import api from '@/lib/axios'
 
 const CATEGORY_COLORS = [
@@ -34,16 +34,6 @@ const fmtK = (v) => {
   if (v >= 1_000_000) return `₱${(v / 1_000_000).toFixed(1)}M`
   if (v >= 1_000)     return `₱${(v / 1_000).toFixed(0)}K`
   return `₱${v}`
-}
-
-const toCSV = (rows) => rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n')
-
-const downloadCSV = (filename, rows) => {
-  const blob = new Blob([toCSV(rows)], { type: 'text/csv;charset=utf-8;' })
-  const url  = URL.createObjectURL(blob)
-  const a    = Object.assign(document.createElement('a'), { href: url, download: filename })
-  a.click()
-  URL.revokeObjectURL(url)
 }
 
 export default function ReportsPage() {
@@ -77,7 +67,7 @@ export default function ReportsPage() {
     const date = new Date().toISOString().slice(0, 10)
     // Quarterly summary sheet
     const quarterRows = [
-      ['Quarter', 'PRs', 'Total Spending (PHP)', 'Budget (PHP)', 'Utilization %'],
+      ['Quarter', 'PRs', 'Total Spending (PHP)', 'Planned in PPMPs (PHP)', 'Utilization %'],
       ...byQuarter.map(q => {
         const spending = parseFloat(q.total_spending)
         const budget   = q.budget ? parseFloat(q.budget) : ''
@@ -180,7 +170,7 @@ export default function ReportsPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />
                   <XAxis dataKey="name" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
                   <YAxis tickFormatter={fmtK} tick={{ fontSize: 11 }} width={60} axisLine={false} tickLine={false} />
-                  <Tooltip formatter={(v, name) => [fmtCurrency(v), name === 'spending' ? 'Spending' : 'Budget']} />
+                  <Tooltip formatter={(v, name) => [fmtCurrency(v), name === 'spending' ? 'Spending' : 'Planned in PPMPs']} />
                   <Bar dataKey="spending" fill="hsl(222,62%,24%)" radius={[4, 4, 0, 0]} name="spending" />
                   {quarterChartData.some(d => d.budget) && (
                     <Bar dataKey="budget" fill="hsl(222,55%,85%)" radius={[4, 4, 0, 0]} name="budget" />
@@ -279,7 +269,7 @@ export default function ReportsPage() {
                 <th className="px-6 py-3 text-xs font-bold text-[--color-brand] uppercase tracking-wide">Quarter</th>
                 <th className="px-6 py-3 text-xs font-bold text-[--color-brand] uppercase tracking-wide text-right">PRs</th>
                 <th className="px-6 py-3 text-xs font-bold text-[--color-brand] uppercase tracking-wide text-right">Total Spending</th>
-                <th className="px-6 py-3 text-xs font-bold text-[--color-brand] uppercase tracking-wide text-right">Budget</th>
+                <th className="px-6 py-3 text-xs font-bold text-[--color-brand] uppercase tracking-wide text-right">Planned in PPMPs</th>
                 <th className="px-6 py-3 text-xs font-bold text-[--color-brand] uppercase tracking-wide text-right">Utilization</th>
               </tr>
             </thead>

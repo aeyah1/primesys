@@ -95,6 +95,32 @@ async function run() {
   await is(G3, 'an admin moving it to another office names that office\'s head', 1, 'PATCH', `/pr/${plain.data?.id}`, { title: 'Bond paper', department_id: 2 }, code(200))
   await is(G3, '…DOE has no head: its filer', 1, 'GET', `/pr/${plain.data?.id}`, undefined, (r) => r.data.requested_by_name === 'Maria Santos')
 
+  // Office / Section: typed, or picked from the office's code, name, and what was printed before
+  const G4 = 'Office / Section'
+  await is(G4, 'suggested: the office code, then its name', 3, 'GET', '/pr/sections', undefined,
+    (r) => r.status === 200 && r.data.map(x => `${x.value}:${x.note}`).join() === 'DCS:office code,Department of Computer Studies:office name')
+  const lab = await is(G4, 'the Fund Administrator types a section', 3, 'POST', '/pr',
+    { title: 'Mouse pads', department: '  DCS - Computer Laboratory  ', department_id: 2 }, code(201))
+  await is(G4, '…printed as typed, the office (and its PPMP) still theirs', 3, 'GET', `/pr/${lab.data?.id}`, undefined,
+    (r) => r.data.department === 'DCS - Computer Laboratory' && r.data.department_id === 1)
+  await is(G4, '…and suggested next time, after the code and name', 3, 'GET', '/pr/sections', undefined,
+    (r) => r.data.length === 3 && r.data[2].value === 'DCS - Computer Laboratory' && r.data[2].note === 'used before')
+  await is(G4, 'retyped while a draft', 3, 'PATCH', `/pr/${lab.data?.id}`, { title: 'Mouse pads', department: 'DCS Faculty Room' }, code(200))
+  await is(G4, '…saved', 3, 'GET', `/pr/${lab.data?.id}`, undefined, (r) => r.data.department === 'DCS Faculty Room' && r.data.department_id === 1)
+  await is(G4, 'editing other details leaves it', 3, 'PATCH', `/pr/${lab.data?.id}`, { title: 'Mouse pads for the lab' }, code(200))
+  await is(G4, '…unchanged', 3, 'GET', `/pr/${lab.data?.id}`, undefined, (r) => r.data.department === 'DCS Faculty Room')
+  await is(G4, 'cleared: the office code prints', 3, 'PATCH', `/pr/${lab.data?.id}`, { title: 'Mouse pads for the lab', department: ' ' }, code(200))
+  await is(G4, '…DCS', 3, 'GET', `/pr/${lab.data?.id}`, undefined, (r) => r.data.department === 'DCS')
+  await is(G4, 'over 150 characters → 400', 3, 'POST', '/pr', { title: 'x', department: 'd'.repeat(151) }, code(400, /Office \/ Section/))
+  await is(G4, 'a long one still prints', 3, 'POST', '/pr', { title: 'Long section', department: 'Department of Computer Studies '.repeat(5).slice(0, 150) }, code(201))
+  await is(G4, 'another office\'s Fund Administrator gets their own office\'s, whatever they ask for', 4, 'GET', '/pr/sections?department_id=1', undefined,
+    (r) => r.status === 200 && r.data[0].value === 'DOE' && !r.data.some(x => x.value.startsWith('DCS')))
+  await is(G4, 'staff get the office they name', 1, 'GET', '/pr/sections?department_id=1', undefined, (r) => r.data[0].value === 'DCS' && r.data.length === 3)
+  await is(G4, '…and nothing without one', 1, 'GET', '/pr/sections', undefined, (r) => r.status === 200 && r.data.length === 0)
+  const staff = await is(G4, 'staff file one, picking the office from the list', 1, 'POST', '/pr', { title: 'Staff filed', department_id: 1, department: 'Anything' }, code(201))
+  await is(G4, '…which still prints the office code (their form has no typed section)', 1, 'GET', `/pr/${staff.data?.id}`, undefined,
+    (r) => r.data.department === 'DCS' && r.data.department_id === 1)
+
   return t.summary()
 }
 

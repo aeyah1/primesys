@@ -65,6 +65,10 @@ async function run() {
     r => r.data.length === 3 && r.data.some(d => d.code === 'OLD' && d.is_active === false))
   await is('The list', 'a non-admin cannot ask for retired ones', 3, 'GET', '/departments?all=true', undefined,
     r => r.data.length === 2, 'still only active')
+  await is('The list', 'only an admin sees how many people and requests each office has', 3, 'GET', '/departments', undefined,
+    r => r.data.every(d => !('user_count' in d) && !('pr_count' in d)))
+  await is('The list', '…the admin does', 1, 'GET', '/departments', undefined,
+    r => r.data.every(d => 'user_count' in d && 'pr_count' in d))
 
   // ── Managing them ───────────────────────────────────────────────────
   await is('Managing', 'an admin adds an office', 1, 'POST', '/departments',

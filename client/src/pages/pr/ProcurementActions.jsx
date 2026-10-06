@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Gavel, ShoppingCart, MoreHorizontal, Undo2, RotateCcw, XCircle, FileDown, Clock, Scale, ShieldCheck } from 'lucide-react'
+import { Gavel, ShoppingCart, MoreHorizontal, Undo2, RotateCcw, XCircle, FileDown, FileText, Clock, Scale, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
 import { isTemporaryPrNumber } from '@/lib/utils'
@@ -18,9 +18,9 @@ const chip = (Icon, text, cls = 'border-[--color-border] bg-[--color-canvas] tex
 /* Procurement's actions on a request: the one next step for where it stands,
    and the rest under More. pr: the request with its permissions;
    updateStatus({ status, notes }) / isPending: the page's status change;
-   onReturn(): opens "Return for revision"; downloadRFQ: the printed RFQ.
+   onReturn(): opens "Return for revision"; downloadRFQ: the printed RFQ; downloadRFQWord: the same RFQ as a Word file.
    compact: the next step and the PDF only (the status changes stay on the request page). */
-export default function ProcurementActions({ pr, updateStatus, isPending, onReturn, downloadRFQ, compact = false }) {
+export default function ProcurementActions({ pr, updateStatus, isPending, onReturn, downloadRFQ, downloadRFQWord, compact = false }) {
   const confirm = useConfirm()
   const [starting, setStarting] = useState(false)
   const changes = compact ? [] : (pr.permissions?.next_statuses || [])
@@ -42,10 +42,12 @@ export default function ProcurementActions({ pr, updateStatus, isPending, onRetu
         <Gavel className="size-4" /> Start canvass
       </Button>
     )
-  } else if (bidding || pr.status === 'bac_review') {
-    primary = chip(Scale, 'With the BAC for its award', 'border-indigo-300 bg-indigo-50 text-indigo-800')
+  } else if (bidding) {
+    primary = chip(Scale, 'With the BAC for the bids', 'border-indigo-300 bg-indigo-50 text-indigo-800')
+  } else if (pr.status === 'bac_review') {
+    primary = chip(Scale, 'With the BAC for the award', 'border-indigo-300 bg-indigo-50 text-indigo-800')
   } else if (pr.status === 'twg_certification') {
-    primary = chip(ShieldCheck, 'With the TWG for certification', 'border-teal-300 bg-teal-50 text-teal-800')
+    primary = chip(ShieldCheck, 'With the TWG for evaluation', 'border-teal-300 bg-teal-50 text-teal-800')
   } else if (pr.status === 'for_po' && !waitingPO) {
     primary = chip(Clock, 'Waiting for delivery')
   } else if (pr.status === 'for_po') {
@@ -88,6 +90,7 @@ export default function ProcurementActions({ pr, updateStatus, isPending, onRetu
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             {printable && <DropdownMenuItem onClick={downloadRFQ} className="gap-2"><FileDown className="size-3.5" /> Request for Quotation (PDF)</DropdownMenuItem>}
+            {printable && downloadRFQWord && <DropdownMenuItem onClick={downloadRFQWord} className="gap-2"><FileText className="size-3.5" /> Request for Quotation (Word)</DropdownMenuItem>}
             {(changes.includes('revision_requested') || (pr.status === 'for_po' && changes.includes('bidding')) || changes.includes('cancelled')) && printable && <DropdownMenuSeparator />}
             {changes.includes('revision_requested') && (
               <DropdownMenuItem onClick={onReturn} className="gap-2"><Undo2 className="size-3.5" /> Return for revision</DropdownMenuItem>

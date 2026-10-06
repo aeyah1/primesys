@@ -2,14 +2,13 @@ import { useQuery } from '@tanstack/react-query'
 import { FileText, AlertTriangle, ShieldCheck } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
-import { fmtCurrency, fmtDate } from '@/lib/utils'
+import { fmtCurrency, fmtDate, plural } from '@/lib/utils'
 import { openPdf, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
 
-const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
-
-/* Where a canvass stands after the BAC. part 'status': returned by the TWG
-   (the BAC awards it again on its bid sheet, BacBidSheet), or with the TWG.
+/* Where a canvass stands between the BAC and the TWG. part 'status': returned
+   by the TWG (the BAC corrects the bids, BacBidSheet), with the TWG for its
+   evaluation, or certified and waiting for the BAC's award (BacAwardSheet).
    part 'resolutions': each BAC Resolution with its Notices of Award. */
 export default function BacPanel({ prId, part = 'status' }) {
   const { data } = useQuery({
@@ -66,14 +65,21 @@ export default function BacPanel({ prId, part = 'status' }) {
       {data.certification_return_reason && (
         <p className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           <AlertTriangle className="size-4 shrink-0 mt-0.5" />
-          <span><span className="font-semibold">Returned by the TWG:</span> {data.certification_return_reason}. That award was cancelled; the BAC picks the winners again.</span>
+          <span><span className="font-semibold">Returned by the TWG:</span> {data.certification_return_reason}. The BAC corrects the bids and sends the canvass again.</span>
         </p>
       )}
 
       {data.status === 'twg_certification' && (
         <p className="flex items-center gap-2 rounded-xl border border-teal-300 bg-teal-50 px-4 py-3 text-sm text-teal-900">
           <ShieldCheck className="size-4 shrink-0" />
-          <span><span className="font-semibold">Awarded by the BAC.</span> The TWG checks the winners against the request and certifies them.</span>
+          <span><span className="font-semibold">With the TWG.</span> It checks every bid against the required specifications, marks each compliant or not, and certifies them.</span>
+        </p>
+      )}
+
+      {data.status === 'bac_review' && (
+        <p className="flex items-center gap-2 rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
+          <ShieldCheck className="size-4 shrink-0" />
+          <span><span className="font-semibold">Certified by the TWG.</span> The BAC picks each lot's winner; the system recommends the lowest compliant total.</span>
         </p>
       )}
     </div>

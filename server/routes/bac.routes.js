@@ -14,6 +14,8 @@ const prAccess = requireAccess('pr', 'prId')
 const readers  = authorize(...BAC_READERS)
 
 router.get('/queue', readers, c.queue)
+// Every TWG certificate on the PRs this user may see; before /:prId so it isn't read as a PR id.
+router.get('/certificates', authorize(...BAC_READERS, 'twg'), c.certificates)
 router.get('/:prId', authorize(...BAC_READERS, 'supply', 'twg'), prAccess, c.summary)
 router.get('/:prId/resolutions/:rid/pdf', authorize(...BAC_READERS, 'twg'), prAccess, c.resolutionPdf)
 router.get('/:prId/resolutions/:rid/notice/:lotId', authorize(...BAC_READERS, 'twg'), prAccess, c.noticePdf)

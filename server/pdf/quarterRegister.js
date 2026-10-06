@@ -2,7 +2,7 @@ const { M, BLACK, ROW_H, PAD, amount, fmtDate, forms } = require('./campusForm')
 
 // Quarter Register, in the campus's house style (Letter, landscape).
 //
-// Every purchase request filed under one quarter, one row each: when it was
+// Every purchase request filed under one quarter (or a whole year), one row each: when it was
 // filed, for which office and purpose, its estimated budget, where it stands,
 // and the purchase orders it led to with what was paid. Totals close the
 // list, and it is signed like the Procurement Summary Report, so it can be
@@ -38,7 +38,7 @@ module.exports = function drawQuarterRegister(doc, { quarter, rows = [], totals 
   const f = forms(doc)
   const s = (key, fallback = '') => (orgSettings[key] || '').trim() || fallback
 
-  let y = f.letterhead(orgSettings, 'QUARTER REGISTER OF PURCHASE REQUESTS')
+  let y = f.letterhead(orgSettings, quarter.whole_year ? 'ANNUAL REGISTER OF PURCHASE REQUESTS' : 'QUARTER REGISTER OF PURCHASE REQUESTS')
   doc.font('Times-Roman').fontSize(9.5).fillColor(BLACK)
     .text(`${quarter.label} ${quarter.year}: ${fmtDate(quarter.start_date)} to ${fmtDate(quarter.end_date)}`, M, y, { width: W, align: 'center' })
   y = doc.y + 10
@@ -70,7 +70,7 @@ module.exports = function drawQuarterRegister(doc, { quarter, rows = [], totals 
 
   if (!rows.length) {
     COLS.forEach((c, i) => f.rect(X[i], y, c.width, ROW_H))
-    f.put('No purchase request was filed under this quarter.', X[0], y, W, ROW_H, { size: FS })
+    f.put(`No purchase request was filed under this ${quarter.whole_year ? 'year' : 'quarter'}.`, X[0], y, W, ROW_H, { size: FS })
     y += ROW_H
   }
   rows.forEach((r, k) => {

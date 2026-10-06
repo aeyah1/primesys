@@ -23,12 +23,14 @@ import RequestProgress from '@/components/shared/RequestProgress'
 import CategorySpecFields from '@/components/shared/CategorySpecFields'
 import { RequestContextFields, PurposeTypeBadge, hasRequestContext } from '@/components/shared/RequestContextDisplay'
 import PurchaseOrders from './PurchaseOrders'
+import TwgCertificates from '@/components/awards/TwgCertificates'
 import ProcurementActions from './ProcurementActions'
 import { useAuth } from '@/context/AuthContext'
-import { openPdf, blobErrorMessage } from '@/lib/download'
+import { openPdf, downloadFile, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
 import ReviewSubmitDialog from '@/components/shared/ReviewSubmitDialog'
-import { usePpmpPlans, takenByKey, lineChecks, PpmpLineNote, PpmpItemField, NoPpmpNotice } from '@/components/ppmp/PpmpLinePicker'
+import DeletePRDialog from '@/components/shared/DeletePRDialog'
+import { usePpmpPlans, takenByKey, lineChecks, PpmpLineNote, PpmpItemField, NoPpmpNotice, quarterOf } from '@/components/ppmp/PpmpLinePicker'
 
 const ITH = ({ children, className = '' }) => (
   <th className={`px-4 py-3 text-xs font-bold text-[--color-text-secondary] uppercase tracking-wider bg-[--color-canvas] border-b border-[--color-border] ${className}`}>
@@ -139,8 +141,10 @@ function PRItemsSection({ prId, pr, canEdit, category }) {
 
   // What this request's saved items take of each line, and each new or edited item's check against what is left.
   const taken = takenByKey(items, lineById)
-  const planYear = items.map(i => lineById.get(Number(i.ppmp_item_id))?.fiscal_year).find(Boolean)
-  const checkAgainst = (line, item, exceptIndex) => line && lineChecks(line, { quantity: item.quantity, price: item.estimated_cost, dateNeeded: pr.date_needed, taken: takenByKey(items, lineById, exceptIndex).get(line.key) || 0 })
+  // The quarter of the PPMP's year the request draws on (1 to 4), or null: the year's total applies.
+  const quarter = quarterOf(plans, { label: pr.quarter_label, year: pr.quarter_year })
+  const planYear = items.map(i => lineById.get(Number(i.ppmp_item_id))?.fiscal_year).find(Boolean) ?? (quarter ? Number(pr.quarter_year) : undefined)
+  const checkAgainst = (line, item, exceptIndex) => line && lineChecks(line, { quantity: item.quantity, price: item.estimated_cost, dateNeeded: pr.date_needed, quarter, taken: takenByKey(items, lineById, exceptIndex).get(line.key) || 0 })
   const draftCheck = draft.line ? { line: draft.line, ...checkAgainst(draft.line, draft, -1) } : null
   const editCheck = editDraft?.line ? { line: editDraft.line, ...checkAgainst(editDraft.line, editDraft, items.findIndex(i => i.id === editingItem?.id)) } : null
   // A picked line brings its price; typing over it clears the pick.
@@ -346,7 +350,7 @@ function PRItemsSection({ prId, pr, canEdit, category }) {
                   </div>
                   {/* The item, picked from the PPMP: its description and unit are the line's */}
                   <div className="col-span-4">
-                    <PpmpItemField id="pr-detail-ppmp-item" plans={plans} isLoading={plansLoading} value={draft.line} onPick={pickLine} taken={taken} year={planYear} />
+                    <PpmpItemField id="pr-detail-ppmp-item" plans={plans} isLoading={plansLoading} value={draft.line} onPick={pickLine} taken={taken} year={planYear} quarter={quarter} />
                   </div>
                   <div className="col-span-2 space-y-1">
                     <Label className="text-xs">Unit</Label>
@@ -457,7 +461,7 @@ function PRItemsSection({ prId, pr, canEdit, category }) {
               <PpmpItemField id="pr-edit-ppmp-item" plans={plans} isLoading={plansLoading}
                 value={editDraft.line || (editDraft.ppmp_item_id ? { description: editDraft.item_name } : null)}
                 onPick={line => setEditDraft(p => (line ? { ...p, ppmp_item_id: line.id, line, item_name: line.description, unit: line.unit } : { ...p, ppmp_item_id: null, line: null }))}
-                taken={takenByKey(items, lineById, items.findIndex(i => i.id === editingItem?.id))} year={planYear} />
+                taken={takenByKey(items, lineById, items.findIndex(i => i.id === editingItem?.id))} year={planYear} quarter={quarter} />
 
               <div className="grid grid-cols-12 gap-2 items-end">
                 <div className="col-span-3 space-y-1">
@@ -549,6 +553,7 @@ export default function PRDetail() {
 
   const canManage   = ['admin', 'procurement'].includes(user?.role)
   const isRequestor = user?.role === 'requestor'
+  const listPath    = isRequestor ? '/my-requests' : '/pr'
   const isSupply    = user?.role === 'supply'
   const isBac       = user?.role === 'bac'
   // The canvass and awards: Procurement's work, and the BAC's to review (supply sees only the POs).
@@ -568,11 +573,6 @@ export default function PRDetail() {
   }, [pr?.id, location.hash])
 
   const [showDeletePR, setShowDeletePR] = useState(false)
-  const { mutate: deletePR, isPending: deletingPR } = useMutation({
-    mutationFn: () => api.delete(`/pr/${id}`),
-    onSuccess: () => { toast.success('Purchase request deleted'); navigate('/pr') },
-    onError: (err) => toast.error(err.response?.data?.message || 'Failed to delete PR'),
-  })
 
   const openPDF = async (endpoint, label) => {
     try { await openPdf(endpoint) }
@@ -581,6 +581,8 @@ export default function PRDetail() {
 
   const downloadPRForm   = () => openPDF(`/pr/${id}/pdf`,       'PR Form')
   const downloadRFQ      = () => openPDF(`/pr/${id}/rfq`,       'Request for Quotation')
+  const downloadRFQWord  = () => downloadFile(`/pr/${id}/rfq/docx`, `RFQ ${pr.pr_number}.docx`)
+    .catch(async (err) => toast.error(await blobErrorMessage(err, 'Could not download the Request for Quotation')))
 
   // How this purchase is procured; Procurement sets it once the canvass is set up.
   const { mutate: setMode, isPending: settingMode } = useMutation({
@@ -668,7 +670,7 @@ export default function PRDetail() {
     <div className="text-center py-20">
       <FileText className="size-10 text-[--color-text-muted] mx-auto mb-3" />
       <p className="text-ui-md font-semibold text-[--color-text-primary]">Purchase request not found</p>
-      <Button variant="outline" size="sm" className="mt-5" onClick={() => navigate('/pr')}>Back to list</Button>
+      <Button variant="outline" size="sm" className="mt-5" onClick={() => navigate(listPath)}>Back to list</Button>
     </div>
   )
 
@@ -683,6 +685,7 @@ export default function PRDetail() {
           <Archive className="size-4 text-slate-600 shrink-0" />
           <p className="text-sm text-slate-700">
             Deleted {fmtDate(pr.deleted_at)}{pr.deleted_by_name ? ` by ${pr.deleted_by_name}` : ''}. It is kept in the Archive and can no longer be changed.
+            {pr.delete_reason && <span className="block mt-0.5">Reason: {pr.delete_reason}</span>}
           </p>
         </div>
       )}
@@ -847,7 +850,7 @@ export default function PRDetail() {
         {/* Procurement: the one next step for this stage, the rest under More */}
         {canManage && !pr.deleted_at && (
           <ProcurementActions pr={pr} updateStatus={updateStatus} isPending={isPending}
-            onReturn={() => setReturnOpen(true)} downloadRFQ={downloadRFQ} />
+            onReturn={() => setReturnOpen(true)} downloadRFQ={downloadRFQ} downloadRFQWord={downloadRFQWord} />
         )}
       </div>
 
@@ -927,8 +930,9 @@ export default function PRDetail() {
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-[--color-text-primary]">Canvass &amp; Award</p>
                 <p className="text-xs text-[--color-text-secondary] mt-0.5">
-                  {['bidding', 'bac_review'].includes(pr.status) ? 'In canvass: the BAC enters the bids the canvasser brings and awards them.'
-                    : pr.status === 'twg_certification' ? 'Awarded by the BAC; with the TWG for certification.'
+                  {pr.status === 'bidding' ? 'In canvass: the BAC enters the bids from the canvasser\'s returned RFQs.'
+                    : pr.status === 'twg_certification' ? 'With the TWG, which checks every bid and certifies them.'
+                    : pr.status === 'bac_review' ? 'Certified by the TWG; the BAC picks the winners.'
                     : pr.status === 'cancelled' ? 'The canvass record is kept.'
                     : 'Certified. The winners and the BAC Resolution are on the canvass page.'}
                 </p>
@@ -943,6 +947,9 @@ export default function PRDetail() {
 
       {/* Purchase orders: one per supplier awarded */}
       {(canManage || isRequestor || isSupply) && <PurchaseOrders pr={pr} canManage={canManage} />}
+
+      {/* The TWG's certificates: of the request when it was approved, and of its canvass bids (staff, the BAC, the TWG). */}
+      {!isRequestor && <TwgCertificates prId={String(pr.id)} title="TWG Certificates" />}
 
       {/* Attachments */}
       <Card>
@@ -971,26 +978,7 @@ export default function PRDetail() {
         onConfirm={() => updateStatus({ status: 'submitted' }, { onSuccess: () => setReviewing(false) })}
         onClose={() => setReviewing(false)} />
 
-      {/* Delete PR confirmation */}
-      <Dialog open={showDeletePR} onOpenChange={o => { if (!o) setShowDeletePR(false) }}>
-        <DialogContent title="Delete Purchase Request">
-          <div className="pt-1 space-y-3">
-            <p className="text-sm text-[--color-text-secondary]">
-              Delete <strong>{pr?.pr_number}</strong>? It will be removed from active lists and kept, with its items, attachments, and history, in the Archive under Deleted.
-            </p>
-          </div>
-          <DialogFooter>
-            <Button variant="secondary" onClick={() => setShowDeletePR(false)} disabled={deletingPR}>Cancel</Button>
-            <Button
-              className="bg-red-600 hover:bg-red-700 text-white border-0"
-              onClick={() => deletePR()}
-              disabled={deletingPR}
-            >
-              {deletingPR ? 'Deleting…' : 'Delete PR'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DeletePRDialog pr={showDeletePR ? pr : null} onClose={() => setShowDeletePR(false)} onDeleted={() => navigate(listPath)} />
 
       {/* Return for revision: a reason is required; the requestor edits and resubmits to the TWG */}
       <Dialog open={returnOpen} onOpenChange={o => { if (!o) setReturnOpen(false) }}>
@@ -1065,7 +1053,7 @@ function ActivityLog({ prId }) {
                       </>
                     )}
                     <span className="text-xs font-semibold text-[--color-brand]">
-                      {PR_STATUS_LABELS[log.to_status] || log.to_status}
+                      {log.to_status === 'deleted' ? 'Deleted' : PR_STATUS_LABELS[log.to_status] || log.to_status}
                     </span>
                   </div>
                   <div className="flex items-center gap-2 mt-1 flex-wrap">

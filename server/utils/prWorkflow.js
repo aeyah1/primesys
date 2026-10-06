@@ -19,7 +19,7 @@ const { cancelAwards, awardProgress, statusFromAwards } = require('./awardWorkfl
 const STATUS_LABELS = {
   draft: 'Draft', submitted: 'Submitted', twg_review: 'Approved by TWG',
   revision_requested: 'Revision Requested', rejected: 'Rejected by TWG', bidding: 'Canvass',
-  bac_review: 'BAC review', twg_certification: 'TWG certification',
+  bac_review: 'BAC award', twg_certification: 'TWG certification',
   for_po: 'Ready for PO', completed: 'Completed', cancelled: 'Cancelled',
 }
 
@@ -28,6 +28,8 @@ const STAFF   = ['procurement', 'admin']
 // While the TWG has a PR only an admin may cancel or delete it (audit WF-6, WF-7).
 const ADMIN      = ['admin']
 const TWG_STAGES = ['submitted', 'revision_requested', 'twg_certification']
+// From the start of the canvass to the BAC's award: the request has its PR number and a paper trail.
+const CANVASS_STAGES = ['bidding', 'twg_certification', 'bac_review']
 
 // from -> to -> rule. A rule either lists the roles that may make the move through
 // the status endpoint (`roles`; `owner`: only the PR's creator or an admin;
@@ -41,11 +43,12 @@ const TWG_STAGES = ['submitted', 'revision_requested', 'twg_certification']
 // (editBlock), so the requestor fixes it and it goes back through the TWG.
 //
 // After the TWG approves, Procurement starts the canvass (Canvass, status
-// bidding), done outside the system by the canvasser, who brings the bids to
-// the BAC; the BAC enters them and awards (TWG certification); the TWG
-// certifies the awards (Ready for PO) or returns them to the BAC's canvass.
-// BAC review is left from an older flow, where Procurement submitted the
-// winners to the BAC; the BAC awards those the same way. From then on the awards decide
+// bidding), done outside the system by the canvasser, who gives the returned
+// RFQs to the BAC; the BAC enters every bid and sends them to the TWG (TWG
+// certification); the TWG marks each bid compliant or not and certifies them
+// (BAC award) or returns them to the BAC's canvass; the BAC picks the winners
+// and awards (Ready for PO), or takes the canvass back to correct it (utils/canvassBids.js).
+// From then on the awards decide
 // (syncPRProgress): an item needing an award again (an award or PO cancelled,
 // a PO closed short) puts the request back in canvass, to be reviewed again,
 // and Completed follows once every award's PO is delivered.
@@ -60,8 +63,8 @@ const TRANSITIONS = {
   bidding:            { twg_certification: { via: 'bac' }, for_po: { via: 'award' },
                         revision_requested: { roles: STAFF, reason: true, noAward: true },
                         cancelled: { roles: STAFF, noPO: true } },
-  bac_review:         { twg_certification: { via: 'bac' }, cancelled: { roles: STAFF, noPO: true } },
-  twg_certification:  { for_po: { via: 'twg' }, bidding: { via: 'twg' }, cancelled: { roles: ADMIN, noPO: true } },
+  twg_certification:  { bac_review: { via: 'twg' }, bidding: { via: 'twg' }, cancelled: { roles: ADMIN, noPO: true } },
+  bac_review:         { for_po: { via: 'bac' }, bidding: { via: 'bac' }, cancelled: { roles: STAFF, noPO: true } },
   for_po:             { bidding: { roles: STAFF, noPO: true, alsoVia: 'award' }, completed: { via: 'delivery' },
                         cancelled: { roles: STAFF, noPO: true } },
   rejected:  {},
@@ -69,7 +72,7 @@ const TRANSITIONS = {
   cancelled: {},
 }
 const PR_STATUSES = Object.keys(TRANSITIONS)
-const VIA_LABELS  = { twg: 'a TWG review', award: 'the awards', delivery: 'a completed delivery', canvass: 'starting the canvass', bac: 'the BAC\'s award' }
+const VIA_LABELS  = { twg: 'a TWG review', award: 'the awards', delivery: 'a completed delivery', canvass: 'starting the canvass', bac: 'the BAC' }
 
 // A PR's items and details change only before the TWG has it: while it is a
 // draft or returned for revision. From submission on it is locked for every
@@ -122,6 +125,12 @@ function deleteBlock(user, pr) {
   if (pr.deleted_at) return deny(409, 'This PR has already been deleted')
   if (FINAL.includes(pr.status)) {
     return deny(409, 'Completed, rejected, and cancelled PRs are kept in the archive and can\'t be deleted')
+  }
+  // Once the canvass has started (its PR number assigned, RFQs printed, bids entered) a request is cancelled, never deleted.
+  if (CANVASS_STAGES.includes(pr.status)) {
+    return deny(409, user.role === 'requestor'
+      ? 'The canvass has started on this request, so it can\'t be deleted. Ask the Procurement Office to cancel it.'
+      : 'The canvass has started on this request, so it can\'t be deleted. Cancel it instead, with the reason.')
   }
   if (user.role === 'requestor') {
     return REQUESTOR_DELETABLE.includes(pr.status) ? null
@@ -265,4 +274,4 @@ async function syncPRProgress(conn, prId, { user, note = null }) {
   return to
 }
 
-module.exports = { PR_STATUSES, loadPR, editBlock, editDenied, deleteBlock, fileDeleteBlock, modeBlock, poCancelBlock, prPermissions, changePRStatus, syncPRProgress }
+module.exports = { PR_STATUSES, STATUS_LABELS, loadPR, editBlock, editDenied, deleteBlock, fileDeleteBlock, modeBlock, poCancelBlock, prPermissions, changePRStatus, syncPRProgress }

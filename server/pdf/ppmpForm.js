@@ -118,15 +118,18 @@ module.exports = function drawPpmp(doc, { ppmp: p, items, totals, orgSettings = 
   })
   if (people.length) y += 58
   const signers = (p.signatures || []).filter(x => x.valid).map(x => `${x.signer}${x.issuer && !x.self_signed ? ` (certificate by ${x.issuer})` : ''}`)
-  const how = p.signed_kind === 'digital'
-    ? `Signed digitally by ${signers.join(' and ')}; the signatures were checked by PRimeSys when it was uploaded.`
-    : p.signed_kind === 'paper'
-      ? `Signed on paper: the scanned signed copy is kept with this PPMP (uploaded by ${p.uploaded_by_name || 'its Fund Administrator'}${p.uploaded_at ? `, ${fmtDate(p.uploaded_at)}` : ''}).`
-      : `Uploaded from the office's softcopy by ${p.uploaded_by_name || 'its Fund Administrator'}${p.uploaded_at ? `, ${fmtDate(p.uploaded_at)}` : ''}.`
+  const by = `${p.uploaded_by_name || 'its Fund Administrator'}${p.uploaded_at ? `, ${fmtDate(p.uploaded_at)}` : ''}`
+  const how = p.edited_from_version
+    ? `Edited in PRimeSys by ${by}, from PPMP No. ${p.edited_from_version}, whose uploaded file is kept with it.`
+    : p.signed_kind === 'digital'
+      ? `Signed digitally by ${signers.join(' and ')}; the signatures were checked by PRimeSys when it was uploaded.`
+      : p.signed_kind === 'paper'
+        ? `Signed on paper: the scanned signed copy is kept with this PPMP (uploaded by ${by}).`
+        : `Uploaded from the office's softcopy by ${by}.`
   doc.font('Times-Italic').fontSize(8).fillColor(BLACK).text(how, M, y, { width: W, align: 'center' })
   y += 14
   if (p.content_hash) {
-    doc.font('Courier').fontSize(7).fillColor(BLACK)
-      .text(`System copy of the office's PPMP, kept with its original file in PRimeSys. Fingerprint (SHA-256): ${p.content_hash}`, M, y, { width: W, align: 'center' })
+    const copy = p.edited_from_version ? 'System copy of the office\'s PPMP, as edited in PRimeSys.' : 'System copy of the office\'s PPMP, kept with its original file in PRimeSys.'
+    doc.font('Courier').fontSize(7).fillColor(BLACK).text(`${copy} Fingerprint (SHA-256): ${p.content_hash}`, M, y, { width: W, align: 'center' })
   }
 }

@@ -17,9 +17,9 @@ const { loadOrgSettings, fundCodeFor, FUND_SOURCE_VALUES } = require('../utils/o
 const { temporaryRef, isTemporary } = require('../utils/prNumber')
 const { requestedBy, requesterOf, resolveDepartment } = require('../utils/departments')
 const { requesterSignature } = require('../utils/signature')
-const { reviewsCategory, notifyAreaReviewers } = require('../utils/twgAreas')
+const { reviewsCategory, notifyAreaReviewers, areaReviewers } = require('../utils/twgAreas')
 const { assertNoBrands } = require('../utils/brandNames')
-const { linesForItems, lockOfficePlans, reviewPr } = require('../utils/ppmpUse')
+const { linesForItems, lockOfficePlans, reviewPr, usablePlans } = require('../utils/ppmpUse')
 const drawPRForm = require('../pdf/prForm')
 
 // Orders the PR list may use (?sort=); anything else falls back to newest.
@@ -27,6 +27,8 @@ const drawPRForm = require('../pdf/prForm')
 // Procurement's work order; rows without the value sort last.
 const LIST_SORTS = {
   newest:          'pr.created_at DESC, pr.id DESC',
+  oldest:          'pr.created_at ASC, pr.id ASC',
+  pr_number:       'pr.pr_number ASC, pr.id ASC',
   oldest_approval: 'pr.twg_reviewed_at IS NULL, pr.twg_reviewed_at ASC, pr.id ASC',
   date_needed:     'pr.date_needed IS NULL, pr.date_needed ASC, pr.id ASC',
   total:           'estimated_total DESC, pr.id DESC',
@@ -49,8 +51,10 @@ exports.list = asyncHandler(async (req, res) => {
   if (statuses.length) { where.push(`pr.status IN (${statuses.map(() => '?').join(', ')})`); params.push(...statuses) }
   else if (status) where.push('1 = 0')
   if (category) { where.push('pr.category = ?'); params.push(category) }
-  // The quarter a PR was filed under (the Archive).
+  // The quarter a PR was filed under, the year of its quarter, and its office (the Archive).
   if (/^\d+$/.test(String(req.query.quarter_id ?? ''))) { where.push('pr.quarter_id = ?'); params.push(Number(req.query.quarter_id)) }
+  if (/^\d{4}$/.test(String(req.query.year ?? ''))) { where.push('pr.quarter_id IN (SELECT id FROM quarters WHERE year = ?)'); params.push(Number(req.query.year)) }
+  if (/^\d+$/.test(String(req.query.department_id ?? ''))) { where.push('pr.department_id = ?'); params.push(Number(req.query.department_id)) }
   if (search) {
     where.push('(pr.pr_number LIKE ? OR pr.title LIKE ?)')
     params.push(`%${search}%`, `%${search}%`)
@@ -65,7 +69,7 @@ exports.list = asyncHandler(async (req, res) => {
   const [rows] = await pool.execute(`
     SELECT pr.id, pr.pr_number, pr.title, pr.status, pr.fund_cluster, pr.category,
            pr.department, pr.purpose_type, pr.date_needed, pr.created_at,
-           pr.created_by, pr.deleted_at,
+           pr.created_by, pr.deleted_at, pr.delete_reason,
            u.name AS created_by_name, du.name AS deleted_by_name,
            q.label AS quarter_label, q.year AS quarter_year,
            ${ACTIVE('MIN(px.id)')} AS po_id,
@@ -254,12 +258,10 @@ exports.create = asyncHandler(async (req, res) => {
   }
   assertNoBrands({ title, purpose }, itemList)
 
-  // Procurement terms are filled in here, not asked of the person filing:
-  // requestors' PRs always go under the current quarter (staff may pick one),
-  // and the fund cluster / responsibility center code come from Organization
-  // settings unless staff give them.
+  // Procurement terms are filled in here, not asked of the person filing: the
+  // fund cluster / responsibility center code come from Organization settings
+  // unless staff give them.
   const isStaff   = ['procurement', 'admin'].includes(req.user.role)
-  const quarterId = (isStaff && quarter_id) ? quarter_id : ((await currentQuarter(pool))?.id ?? null)
   const org = await loadOrgSettings(pool)
   // Which of the three funds this request is drawn on, and the code that goes
   // with it. The code is frozen onto the PR, so a later change to the campus's
@@ -276,12 +278,19 @@ exports.create = asyncHandler(async (req, res) => {
   const dept = await resolveDepartment(pool, { departmentId: req.user.role === 'requestor' ? null : department_id, userId: req.user.id })
   // Items picked from the office's PPMP take the line's description and unit.
   const lines = await linesForItems(pool, dept?.id, itemList)
+  // The quarter it is filed under: a Fund Administrator picks one of their PPMP's year, whose items it requests;
+  // staff may pick any. Without one, the current quarter.
+  if (quarter_id && !isStaff) {
+    const [[q]] = await pool.execute('SELECT year FROM quarters WHERE id = ?', [quarter_id])
+    const years = (await usablePlans(pool, dept?.id)).map(p => p.fiscal_year)
+    if (!q || !years.includes(Number(q.year))) return res.status(400).json({ message: 'Pick a quarter of your office\'s PPMP year' })
+  }
+  const quarterId = quarter_id || ((await currentQuarter(pool))?.id ?? null)
   // Who requested it: as the Fund Administrator typed it, else the office head.
   const requester = requesterOf(req.body, dept, filer)
   if (signature && !requester.name) return res.status(400).json({ message: 'Name who requested it before it is signed' })
-  // Office/Section prints the department's code; free text is still accepted
-  // for an office that is not on the list.
-  const departmentText = dept ? dept.code : (department?.trim() || null)
+  // Office/Section as printed: what the Fund Administrator typed, else the office's code (free text when no office is on the list).
+  const departmentText = (req.user.role === 'requestor' && department?.trim()) || (dept ? dept.code : (department?.trim() || null))
 
   const { prId, pr_number, category: createdCategory } = await withTransaction(async (conn) => {
     // Submitting straight away: queue on the office's PPMP before writing any rows (utils/ppmpUse.js).
@@ -402,7 +411,7 @@ exports.update = asyncHandler(async (req, res) => {
   // form must name the head of the office it is actually filed under. A PR is
   // only editable before the TWG sees it, so this never rewrites an approved one.
   const [[owner]] = await pool.execute(
-    `SELECT u.name, u.designation, pr.department, pr.department_id, pr.requested_by_name, d.head_name, d.head_designation
+    `SELECT u.name, u.designation, pr.department, pr.department_id, pr.requested_by_name, d.code AS office_code, d.head_name, d.head_designation
        FROM purchase_requests pr JOIN users u ON u.id = pr.created_by LEFT JOIN departments d ON d.id = pr.department_id
       WHERE pr.id = ?`,
     [req.params.id])
@@ -421,7 +430,8 @@ exports.update = asyncHandler(async (req, res) => {
   if (signature && !(requester ? requester.name : owner.requested_by_name)) {
     return res.status(400).json({ message: 'Name who requested it before it is signed' })
   }
-  const departmentText = officeLocked ? owner.department
+  // A Fund Administrator may retype Office/Section (blank prints the office's code); the office itself stays.
+  const departmentText = officeLocked ? ('department' in req.body ? (department?.trim() || owner.office_code || null) : owner.department)
     : dept === undefined ? (department?.trim() || null) : (dept ? dept.code : (department?.trim() || null))
   // The office and its signatory move together, and only when the request
   // actually names an office: sending it empty clears all three, so a PR can't
@@ -505,6 +515,26 @@ exports.requesters = asyncHandler(async (req, res) => {
 })
 
 // GET /pr/:id/requester-signature - the requester's signature image, how it was made, and when.
+// GET /pr/sections?department_id= - suggestions for "Office / Section": the
+// office's code and name, then what its requests printed there before, newest first.
+// A Fund Administrator always gets their own office's.
+exports.sections = asyncHandler(async (req, res) => {
+  const [[me]] = await pool.execute('SELECT department_id FROM users WHERE id = ?', [req.user.id])
+  const officeId = req.user.role === 'requestor' ? me?.department_id : (Number(req.query.department_id) || null)
+  if (!officeId) return res.json([])
+  const [[office]] = await pool.execute('SELECT code, name FROM departments WHERE id = ?', [officeId])
+  if (!office) return res.json([])
+  const [past] = await pool.execute(
+    `SELECT department AS value, MAX(id) AS latest FROM purchase_requests
+      WHERE department_id = ? AND department IS NOT NULL AND department <> '' AND deleted_at IS NULL
+      GROUP BY department ORDER BY latest DESC LIMIT 20`, [officeId])
+  const out = []
+  for (const [value, note] of [[office.code, 'office code'], [office.name, 'office name'], ...past.map(p => [p.value, 'used before'])]) {
+    if (value && !out.some(x => x.value.toLowerCase() === value.toLowerCase())) out.push({ value, note })
+  }
+  res.json(out)
+})
+
 exports.requesterSignature = asyncHandler(async (req, res) => {
   const [[row]] = await pool.execute(
     'SELECT requested_by_signature AS image, requested_by_sign_method AS method, requested_by_signed_at AS signed_at FROM purchase_requests WHERE id = ?',
@@ -531,19 +561,39 @@ exports.setProcurementMode = asyncHandler(async (req, res) => {
 exports.remove = asyncHandler(async (req, res) => {
   // Soft delete: the PR, with its items, attachments, and audit log, is kept and
   // listed under Archive > Deleted. The rule check and the mark run under a row
-  // lock, so a lot or PO can't appear in between.
-  const denied = await withTransaction(async (conn) => {
+  // lock, so a lot or PO can't appear in between. Someone else's request is
+  // deleted with the reason (its filer is told); the delete is logged.
+  const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : ''   // checked in the route
+  const result = await withTransaction(async (conn) => {
     const pr = await loadPR(conn, req.params.id, { lock: true })
     if (!pr) return { status: 404, message: 'PR not found' }
     const block = deleteBlock(req.user, pr)
     if (block) return block
+    if (pr.created_by !== req.user.id && !reason) return { status: 400, message: 'Say why it is deleted. Whoever filed it is told.' }
     await conn.execute(
-      'UPDATE purchase_requests SET deleted_at = CURRENT_TIMESTAMP, deleted_by = ? WHERE id = ?',
-      [req.user.id, pr.id]
+      'UPDATE purchase_requests SET deleted_at = CURRENT_TIMESTAMP, deleted_by = ?, delete_reason = ? WHERE id = ?',
+      [req.user.id, reason || null, pr.id]
     )
-    return null
+    await conn.execute('INSERT INTO pr_status_logs (pr_id, changed_by, from_status, to_status, note) VALUES (?, ?, ?, ?, ?)',
+      [pr.id, req.user.id, pr.status, 'deleted', reason || 'Deleted by whoever filed it'])
+    return { pr }
   })
-  if (denied) return res.status(denied.status).json({ message: denied.message })
+  if (!result.pr) return res.status(result.status).json({ message: result.message })
+
+  // Its filer (unless they deleted it), and whoever had it: the TWG reviewers of its area, or Procurement once approved.
+  const { pr } = result
+  const tell = new Set(pr.created_by !== req.user.id ? [pr.created_by] : [])
+  if (pr.status === 'submitted') (await areaReviewers(pool, pr.category)).forEach(u => tell.add(u.id))
+  if (pr.status === 'twg_review') {
+    const [procs] = await pool.execute("SELECT id FROM users WHERE role = 'procurement' AND is_active = 1")
+    procs.forEach(u => tell.add(u.id))
+  }
+  tell.delete(req.user.id)
+  const label = pr.title ? `${pr.pr_number} — ${pr.title}` : pr.pr_number
+  for (const id of tell) {
+    await notify(req.io, id, `PR ${label} was deleted by ${req.user.name}${reason ? `: ${reason}` : ''}. It is kept in the Archive.`, 'warning', pr.id, 'pr')
+      .catch(err => console.error('[notify] delete notice failed:', err.message))
+  }
   res.json({ message: 'PR deleted and moved to the archive' })
 })
 
@@ -657,32 +707,42 @@ exports.generatePDF = asyncHandler(async (req, res) => {
 // The Request for Quotation sent to suppliers once the PR is under canvass:
 // the items with their quantities, priced columns left blank for the supplier
 // to fill in. One page per lot, since the campus canvasses a lot at a time.
-exports.generateRFQ = asyncHandler(async (req, res) => {
-  const PDFDocument = require('pdfkit')
-  const { M } = require('../utils/pdfHelpers')
-  const drawRFQ = require('../pdf/requestForQuotation')
-
-  const [rows] = await pool.execute(
-    'SELECT pr_number, title, purpose FROM purchase_requests WHERE id = ?', [req.params.id])
-  if (!rows.length) return res.status(404).json({ message: 'PR not found' })
+// What the Request for Quotation shows (PDF and Word alike): the PR, the campus settings, and its items.
+async function rfqOf(id) {
+  const [rows] = await pool.execute('SELECT pr_number, title, purpose FROM purchase_requests WHERE id = ?', [id])
+  if (!rows.length) throw httpError(404, 'PR not found')
   const pr = rows[0]
   if (isTemporary(pr.pr_number)) {
-    return res.status(409).json({ message: 'The RFQ carries the PR number, which Procurement assigns when the canvass starts. Start the canvass first.' })
+    throw httpError(409, 'The RFQ carries the PR number, which Procurement assigns when the canvass starts. Start the canvass first.')
   }
-
   const orgSettings = await loadOrgSettings(pool)
   // Dropped items are not canvassed, so they are left off the form.
   const items = orderBySection((await pool.execute(
     `SELECT item_name, quantity, unit, estimated_cost, notes, group_label
-       FROM pr_items WHERE pr_id = ? AND dropped_at IS NULL ORDER BY id`,
-    [req.params.id]
-  ))[0])
+       FROM pr_items WHERE pr_id = ? AND dropped_at IS NULL ORDER BY id`, [id]))[0])
+  return { pr, orgSettings, items }
+}
+
+exports.generateRFQ = asyncHandler(async (req, res) => {
+  const PDFDocument = require('pdfkit')
+  const { M } = require('../utils/pdfHelpers')
+  const drawRFQ = require('../pdf/requestForQuotation')
+  const rfq = await rfqOf(req.params.id)
 
   const doc = new PDFDocument({ size: 'LETTER', margin: M })
   res.setHeader('Content-Type', 'application/pdf')
-  res.setHeader('Content-Disposition', `attachment; filename="RFQ ${pr.pr_number}.pdf"`)
+  res.setHeader('Content-Disposition', `attachment; filename="RFQ ${rfq.pr.pr_number}.pdf"`)
   doc.pipe(res)
 
-  drawRFQ(doc, { pr, orgSettings, items })
+  drawRFQ(doc, rfq)
   doc.end()
+})
+
+// GET /pr/:id/rfq/docx - the same RFQ as a Word document, to edit or print where the PDF can't be opened.
+exports.generateRFQDocx = asyncHandler(async (req, res) => {
+  const rfqDocx = require('../pdf/requestForQuotationDocx')
+  const rfq = await rfqOf(req.params.id)
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+  res.setHeader('Content-Disposition', `attachment; filename="RFQ ${rfq.pr.pr_number}.docx"`)
+  res.send(rfqDocx(rfq))
 })

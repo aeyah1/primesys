@@ -12,8 +12,9 @@ const { readTable }   = require('../utils/sheetImport')
 const { mapPpmp, completeness, rowBlockers } = require('../utils/ppmpImport')
 const { loadOrgSettings } = require('../utils/orgSettings')
 const { assertNoBrands, brandIn } = require('../utils/brandNames')
-const { usablePlans, linesLeft, withUsage } = require('../utils/ppmpUse')
-const { compareItems, officeOf, assertOwnOffice, loadPpmp, loadItems, loadFiles, contentHash, totals, ppmpPermissions, requestsOn } = require('../utils/ppmp')
+const { usablePlans, linesLeft, withUsage, heldOf } = require('../utils/ppmpUse')
+const { QUARTER_COLUMNS, compareItems, officeOf, assertOwnOffice, loadPpmp, loadItems, loadFiles, contentHash, totals, ppmpPermissions, requestsOn, lineKey } = require('../utils/ppmp')
+const { ensureQuarters, quartersOf } = require('../utils/quarters')
 const { M } = require('../pdf/campusForm')
 const drawPpmp = require('../pdf/ppmpForm')
 
@@ -33,10 +34,12 @@ async function newerOpen(db, p) {
   return Number(r.n) > 0
 }
 
-// Tells admins and Procurement, in the app, that an office's PPMP took effect.
+// Tells admins and Procurement, in the app, what happened to an office's PPMP (linked to it, when there is one to open).
 async function tellStaff(io, message, ppmpId) {
   const [staff] = await pool.execute("SELECT id FROM users WHERE role IN ('admin', 'procurement') AND is_active = 1")
-  for (const u of staff) await notify(io, u.id, message, 'info', ppmpId, 'ppmp').catch(err => console.error('[notify] PPMP notice failed:', err.message))
+  for (const u of staff) {
+    await notify(io, u.id, message, 'info', ppmpId, ppmpId ? 'ppmp' : null).catch(err => console.error('[notify] PPMP notice failed:', err.message))
+  }
 }
 
 // The uploaded softcopy the items are read from.
@@ -87,6 +90,7 @@ async function saveUpload(req, { ppmpId = null } = {}) {
       let p
       if (ppmpId) {
         p = await loadPpmp(conn, req.user, ppmpId, { lock: true })
+        // Only one not in effect is replaced in place; a corrected file for the one in effect becomes its next version.
         if (req.user.role !== 'requestor' || p.status !== 'draft') throw httpError(409, `This PPMP is ${p.status === 'approved' ? 'in effect' : p.status}, so it can't be uploaded again`)
         if (Number(year) !== p.fiscal_year) throw httpError(400, `This file is for FY ${year}, but PPMP No. ${p.version_no} is for FY ${p.fiscal_year}`)
         const [old] = await conn.execute('SELECT filename FROM ppmp_attachments WHERE ppmp_id = ?', [p.id])
@@ -100,6 +104,10 @@ async function saveUpload(req, { ppmpId = null } = {}) {
         await conn.execute('SELECT id FROM departments WHERE id = ? FOR UPDATE', [office])
         const [[open]] = await conn.execute(`SELECT version_no FROM ppmps WHERE department_id = ? AND fiscal_year = ? AND status = 'draft' LIMIT 1`, [office, year])
         if (open) throw httpError(409, `PPMP No. ${open.version_no} for ${year} is not in effect yet. Upload it again from its page, or delete it first.`)
+        // While its removal waits for an admin, the PPMP in effect gets no next version.
+        const [[asked]] = await conn.execute(
+          `SELECT version_no FROM ppmps WHERE department_id = ? AND fiscal_year = ? AND status = 'approved' AND removal_requested_at IS NOT NULL`, [office, year])
+        if (asked) throw httpError(409, `You asked an admin to remove PPMP No. ${asked.version_no}. Cancel that request before uploading another version.`)
         const [[{ next }]] = await conn.execute(
           'SELECT COALESCE(MAX(version_no), 0) + 1 AS next FROM ppmps WHERE department_id = ? AND fiscal_year = ?', [office, year])
         const [r] = await conn.execute(
@@ -110,10 +118,13 @@ async function saveUpload(req, { ppmpId = null } = {}) {
       for (const [k, i] of kept.entries()) {
         const months = [...new Set(i.months)].sort((a, b) => a - b).join(',') || null
         await conn.execute(
-          `INSERT INTO ppmp_items (ppmp_id, part, category, code, description, unit, quantity, unit_cost, mode_of_procurement, months, remarks, file_row, sort_order)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [p.id, i.part, i.category || null, i.code || null, i.description, i.unit, i.quantity, i.unit_cost, i.mode_of_procurement || null, months, i.remarks || null, i.row, k])
+          `INSERT INTO ppmp_items (ppmp_id, part, category, code, description, unit, quantity, unit_cost, mode_of_procurement, months,
+                                   ${QUARTER_COLUMNS.join(', ')}, remarks, file_row, sort_order)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [p.id, i.part, i.category || null, i.code || null, i.description, i.unit, i.quantity, i.unit_cost, i.mode_of_procurement || null, months,
+           ...(i.quarters || [null, null, null, null]), i.remarks || null, i.row, k])
       }
+      await ensureQuarters(conn, p.fiscal_year)
       // The files are stored before their rows, so a row never points at a missing file.
       await fileStore.keep('ppmp', data)
       data.kept = true
@@ -152,13 +163,28 @@ exports.list = asyncHandler(async (req, res) => {
   if (year) { where.push('p.fiscal_year = ?'); params.push(year) }
   const [rows] = await pool.execute(
     `SELECT p.id, p.department_id, p.fiscal_year, p.version_no, p.kind, p.fund_source, p.status, p.problems, p.signed_kind,
-            p.uploaded_at, p.effective_at, p.updated_at, d.code AS office_code, d.name AS office_name,
+            p.uploaded_at, p.effective_at, p.updated_at, p.removal_requested_at, d.code AS office_code, d.name AS office_name,
             (SELECT COUNT(*) FROM ppmp_items i WHERE i.ppmp_id = p.id) AS item_count,
             (SELECT COALESCE(SUM(i.quantity * i.unit_cost), 0) FROM ppmp_items i WHERE i.ppmp_id = p.id) AS total
        FROM ppmps p JOIN departments d ON d.id = p.department_id
       ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
       ORDER BY p.fiscal_year DESC, d.code, p.version_no DESC`, params)
-  res.json(rows.map(r => ({ ...r, problems: r.problems ? JSON.parse(r.problems) : [], item_count: Number(r.item_count), total: Number(r.total) })))
+  // One PPMP per office and year: the version in effect, else the latest. Older versions stay on its page;
+  // a later one not in effect yet is noted on the row.
+  const plans = new Map()
+  for (const r of rows.map(r => ({ ...r, problems: r.problems ? JSON.parse(r.problems) : [], item_count: Number(r.item_count), total: Number(r.total) }))) {
+    const key = `${r.department_id}-${r.fiscal_year}`
+    if (!plans.has(key)) plans.set(key, [])
+    plans.get(key).push(r)
+  }
+  res.json([...plans.values()].map(versions => {
+    const shown = versions.find(v => v.status === 'approved') || versions[0]
+    const waiting = versions.find(v => v.status === 'draft' && v.version_no > shown.version_no)
+    return {
+      ...shown, versions: versions.length, removal_requested: !!shown.removal_requested_at,
+      pending: waiting ? { id: waiting.id, version_no: waiting.version_no, problems: waiting.problems } : null,
+    }
+  }))
 })
 
 // GET /ppmp/coverage?year= - where each active office's PPMP for the year stands, and so whether its requests can be submitted.
@@ -187,7 +213,7 @@ exports.coverage = asyncHandler(async (req, res) => {
   })
 })
 
-// The Final PPMPs in effect that a request for an office may draw on, with what is left of each line.
+// The Final PPMPs in effect that a request for an office may draw on, with their year's quarters and what is left of each line (in all and per quarter).
 // A Fund Administrator gets their own office's; staff name the office. pr_id leaves out that request's own holds while it is edited.
 exports.lines = asyncHandler(async (req, res) => {
   const mine = req.user.role === 'requestor'
@@ -195,7 +221,10 @@ exports.lines = asyncHandler(async (req, res) => {
   const [[pr]] = await pool.execute('SELECT id FROM purchase_requests WHERE id = ? AND (created_by = ? OR ?)',
     [req.query.pr_id ?? 0, req.user.id, !mine])
   const plans = await usablePlans(pool, deptId)
-  res.json(await Promise.all(plans.map(async p => ({ ...p, lines: await linesLeft(pool, p, pr?.id) }))))
+  const quarters = await quartersOf(pool, plans.map(p => p.fiscal_year))
+  res.json(await Promise.all(plans.map(async p => ({
+    ...p, quarters: quarters.filter(q => q.year === p.fiscal_year), lines: await linesLeft(pool, p, pr?.id),
+  }))))
 })
 
 // GET /ppmp/:id - the PPMP, its items and files, its other versions, and what this user may do.
@@ -218,6 +247,8 @@ exports.get = asyncHandler(async (req, res) => {
     // Whether the items and files still match the fingerprint taken when it was uploaded.
     hash_ok: p.content_hash ? p.content_hash === contentHash(p, items, files) : null,
     requests_on: drawnOn,
+    // Its year's quarters, to request one quarter's items from.
+    quarters: await quartersOf(pool, [p.fiscal_year]),
     permissions: ppmpPermissions(req.user, p, { own: req.user.role === 'requestor', newer: await newerOpen(pool, p), drawnOn }),
   })
 })
@@ -253,16 +284,62 @@ exports.reupload = asyncHandler(async (req, res) => {
 })
 
 // DELETE /ppmp/:id - removes a PPMP that is not in effect, and its files.
+// DELETE /ppmp/:id - one not in effect, with its files. The one in effect is removed by an admin (withdraw), on request.
 exports.remove = asyncHandler(async (req, res) => {
   const files = await withTransaction(async (conn) => {
     const p = await loadPpmp(conn, req.user, req.params.id, { lock: true })
-    if (req.user.role !== 'requestor' || p.status !== 'draft') throw httpError(409, `This PPMP is ${p.status === 'approved' ? 'in effect' : p.status}, so it can't be deleted`)
+    if (req.user.role !== 'requestor' || p.status !== 'draft') {
+      throw httpError(409, `This PPMP is ${p.status === 'approved' ? 'in effect, so ask an admin to remove it' : p.status}; it can't be deleted`)
+    }
     const [files] = await conn.execute('SELECT filename FROM ppmp_attachments WHERE ppmp_id = ?', [p.id])
     await conn.execute('DELETE FROM ppmps WHERE id = ?', [p.id])
     return files
   })
   files.forEach(f => fileStore.remove('ppmp', f.filename))
   res.json({ message: 'PPMP deleted' })
+})
+
+// Tells the active admins, in the app, about a PPMP removal request.
+async function tellAdmins(io, message, ppmpId) {
+  const [admins] = await pool.execute("SELECT id FROM users WHERE role = 'admin' AND is_active = 1")
+  for (const u of admins) await notify(io, u.id, message, 'warning', ppmpId, 'ppmp').catch(err => console.error('[notify] PPMP notice failed:', err.message))
+}
+
+// POST /ppmp/:id/removal - the Fund Administrator asks an admin to remove the PPMP in effect, with the reason.
+exports.requestRemoval = asyncHandler(async (req, res) => {
+  const reason = req.body.reason.trim()   // checked in the route
+  const p = await withTransaction(async (conn) => {
+    const p = await loadPpmp(conn, req.user, req.params.id, { lock: true })
+    if (p.status !== 'approved') throw httpError(409, 'Only the PPMP in effect is removed this way; one not in effect can be deleted')
+    if (p.removal_requested_at) throw httpError(409, 'Its removal was already asked for; an admin will decide')
+    const drawnOn = await requestsOn(conn, p.id)
+    if (drawnOn) throw httpError(409, `${drawnOn} request${drawnOn === 1 ? ' draws' : 's draw'} on this PPMP, so it can't be removed. Use Change to upload a corrected version.`)
+    await conn.execute('UPDATE ppmps SET removal_requested_by = ?, removal_requested_at = NOW(), removal_reason = ? WHERE id = ?', [req.user.id, reason, p.id])
+    return p
+  })
+  await tellAdmins(req.io, `${p.office_code}'s Fund Administrator asks to remove ${label(p)}: ${reason}`, p.id)
+  res.json({ message: 'Your request was sent. An admin will remove the PPMP or tell you why not.' })
+})
+
+// DELETE /ppmp/:id/removal - the Fund Administrator takes back their request.
+exports.cancelRemoval = asyncHandler(async (req, res) => {
+  const p = await loadPpmp(pool, req.user, req.params.id)
+  if (!p.removal_requested_at) throw httpError(409, 'No removal was asked for')
+  await pool.execute('UPDATE ppmps SET removal_requested_by = NULL, removal_requested_at = NULL, removal_reason = NULL WHERE id = ?', [p.id])
+  res.json({ message: 'Your removal request was cancelled' })
+})
+
+// POST /ppmp/:id/removal/decline - an admin keeps the PPMP, saying why; the Fund Administrator who asked is told.
+exports.declineRemoval = asyncHandler(async (req, res) => {
+  const reason = req.body.reason.trim()   // checked in the route
+  const p = await loadPpmp(pool, req.user, req.params.id)
+  if (!p.removal_requested_at) throw httpError(409, 'No removal was asked for')
+  await pool.execute('UPDATE ppmps SET removal_requested_by = NULL, removal_requested_at = NULL, removal_reason = NULL WHERE id = ?', [p.id])
+  if (p.removal_requested_by) {
+    await notify(req.io, p.removal_requested_by, `Your request to remove ${label(p)} was declined: ${reason}`, 'warning', p.id, 'ppmp')
+      .catch(err => console.error('[notify] PPMP notice failed:', err.message))
+  }
+  res.json({ message: `The request was declined; ${label(p)} stays in effect.` })
 })
 
 // POST /ppmp/:id/withdraw - { reason }: an admin takes back a PPMP put in effect by mistake, while no request draws on
@@ -281,7 +358,8 @@ exports.withdraw = asyncHandler(async (req, res) => {
       throw httpError(409, `${drawnOn} request${drawnOn === 1 ? ' draws' : 's draw'} on this PPMP, so it can't be withdrawn. Its office can upload a corrected version instead.`)
     }
     await conn.execute(
-      "UPDATE ppmps SET status = 'withdrawn', withdrawn_at = NOW(), withdrawn_by = ?, withdraw_reason = ? WHERE id = ?",
+      `UPDATE ppmps SET status = 'withdrawn', withdrawn_at = NOW(), withdrawn_by = ?, withdraw_reason = ?,
+              removal_requested_by = NULL, removal_requested_at = NULL, removal_reason = NULL WHERE id = ?`,
       [req.user.id, reason, p.id])
     const [[prev]] = await conn.execute(
       `SELECT id, version_no FROM ppmps WHERE department_id = ? AND fiscal_year = ? AND status = 'superseded'
@@ -290,8 +368,8 @@ exports.withdraw = asyncHandler(async (req, res) => {
     return { p, restored: prev || null }
   })
   const after = restored ? `PPMP No. ${restored.version_no} is in effect again.` : `${p.office_code}'s requests can't be submitted until a PPMP is in effect.`
-  if (p.uploaded_by) {
-    await notify(req.io, p.uploaded_by, `${label(p)} was withdrawn by an admin: ${reason}. ${after} Upload the right one.`, 'warning', p.id, 'ppmp')
+  for (const who of new Set([p.uploaded_by, p.removal_requested_by].filter(Boolean))) {
+    await notify(req.io, who, `${label(p)} was withdrawn by an admin: ${reason}. ${after} Upload the right one.`, 'warning', p.id, 'ppmp')
       .catch(err => console.error('[notify] PPMP notice failed:', err.message))
   }
   await tellStaff(req.io, `${label(p)} was withdrawn: ${reason}. ${after}`, p.id)
@@ -299,6 +377,76 @@ exports.withdraw = asyncHandler(async (req, res) => {
 })
 
 // GET /ppmp/:id/files/:fileId - one of the original files, for anyone who may see the PPMP.
+// POST /ppmp/:id/edit - the Fund Administrator's edits to the PPMP in effect, saved as its next version, in effect at once;
+// the one edited is kept as superseded, with its file. Lines requests already hold keep their description and unit, and at
+// least what is held of them, in all and in each quarter. Each line's months follow its quarters (kept where a quarter still has some).
+exports.edit = asyncHandler(async (req, res) => {
+  const lines = req.body.items.map((i, k) => ({   // checked in the route
+    source: i.id || null, part: i.part, category: i.category?.trim() || null, code: i.code?.trim() || null,
+    description: i.description.trim(), unit: i.unit.trim(), unit_cost: Number(i.unit_cost),
+    mode_of_procurement: i.mode_of_procurement, remarks: i.remarks?.trim() || null,
+    quarters: i.quarters.map(n => Math.round(Number(n) * 100) / 100), row: k + 1,
+  }))
+  const empty = lines.find(l => !l.quarters.some(n => n > 0))
+  if (empty) throw httpError(400, `Line ${empty.row} ("${empty.description}") has no quantity in any quarter`)
+  assertNoBrands({}, lines.map(l => ({ item_name: l.description, notes: [l.category, l.remarks].filter(Boolean).join('\n') })))
+  const sum = (list) => Math.round(list.reduce((s, n) => s + n, 0) * 100) / 100
+
+  const { p, next } = await withTransaction(async (conn) => {
+    // The office's plans in effect are locked first, the way a submission locks them (utils/ppmpUse.js lockOfficePlans).
+    const [[target]] = await conn.execute('SELECT department_id FROM ppmps WHERE id = ?', [req.params.id])
+    if (target) await conn.execute("SELECT id FROM ppmps WHERE department_id = ? AND status = 'approved' FOR UPDATE", [target.department_id])
+    const p = await loadPpmp(conn, req.user, req.params.id, { lock: true })
+    if (req.user.role !== 'requestor' || p.status !== 'approved') throw httpError(409, 'Only the PPMP in effect can be edited')
+    if (p.removal_requested_at) throw httpError(409, 'You asked an admin to remove this PPMP. Cancel that request before editing it.')
+    if (await newerOpen(conn, p)) throw httpError(409, 'A later version is uploaded but not in effect. Finish or delete that one first.')
+
+    const before = await loadItems(conn, p.id)
+    const held = await heldOf(conn, p, { lock: true })
+    for (const line of before) {
+      const h = held.get(lineKey(line))
+      if (!h || !(h.total > 0)) continue
+      const same = lines.filter(l => lineKey(l) === lineKey(line))
+      const name = `"${line.description}"`
+      if (!same.length) throw httpError(409, `${name} is already requested (${h.total} ${line.unit}), so it stays in the PPMP with the same description and unit.`)
+      if (sum(same.flatMap(l => l.quarters)) < h.total) throw httpError(409, `${name} can't go below the ${h.total} ${line.unit} already requested.`)
+      const short = [0, 1, 2, 3].find(q => sum(same.map(l => l.quarters[q])) < h.quarters[q])
+      if (short !== undefined) throw httpError(409, `${name} can't go below the ${h.quarters[short]} ${line.unit} already requested for Q${short + 1}.`)
+    }
+
+    const [[{ last }]] = await conn.execute(
+      'SELECT COALESCE(MAX(version_no), 0) AS last FROM ppmps WHERE department_id = ? AND fiscal_year = ?', [p.department_id, p.fiscal_year])
+    const version = Number(last) + 1   // a number, as the fingerprint is later checked against the stored row
+    const [r] = await conn.execute(
+      'INSERT INTO ppmps (department_id, fiscal_year, version_no, edited_from, kind, fund_source, uploaded_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [p.department_id, p.fiscal_year, version, p.id, p.kind, p.fund_source, req.user.id])
+    const monthsOf = new Map(before.map(i => [i.id, i.months]))
+    for (const [k, l] of lines.entries()) {
+      const was = monthsOf.get(l.source) || []
+      const months = [1, 2, 3, 4].flatMap(q => {
+        if (!(l.quarters[q - 1] > 0)) return []
+        const kept = was.filter(m => Math.ceil(m / 3) === q)
+        return kept.length ? kept : [q * 3 - 2]
+      })
+      await conn.execute(
+        `INSERT INTO ppmp_items (ppmp_id, part, category, code, description, unit, quantity, unit_cost, mode_of_procurement, months,
+                                 ${QUARTER_COLUMNS.join(', ')}, remarks, sort_order)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [r.insertId, l.part, l.category, l.code, l.description, l.unit, sum(l.quarters), l.unit_cost, l.mode_of_procurement,
+         months.join(','), ...l.quarters, l.remarks, k])
+    }
+    await conn.execute("UPDATE ppmps SET status = 'superseded' WHERE id = ?", [p.id])
+    const hash = contentHash({ department_id: p.department_id, fiscal_year: p.fiscal_year, version_no: version, kind: p.kind, fund_source: p.fund_source },
+      await loadItems(conn, r.insertId), [])
+    await conn.execute(
+      `UPDATE ppmps SET status = 'approved', signatories = ?, file_office = ?, uploaded_at = NOW(), effective_at = NOW(), content_hash = ? WHERE id = ?`,
+      [p.signatories.length ? JSON.stringify(p.signatories) : null, p.file_office, hash, r.insertId])
+    return { p, next: { id: r.insertId, version_no: version } }
+  })
+  await tellStaff(req.io, `PPMP No. ${next.version_no} (${p.office_code}, FY ${p.fiscal_year}) was edited in PRimeSys from PPMP No. ${p.version_no} and is in effect.`, next.id)
+  res.status(201).json({ id: next.id, message: `Saved as PPMP No. ${next.version_no}, in effect now. PPMP No. ${p.version_no} is kept as superseded.` })
+})
+
 exports.downloadFile = asyncHandler(async (req, res) => {
   const p = await loadPpmp(pool, req.user, req.params.id)
   const [[f]] = await pool.execute('SELECT filename, original_name FROM ppmp_attachments WHERE id = ? AND ppmp_id = ?', [req.params.fileId, p.id])

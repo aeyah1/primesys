@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
-import Sidebar, { HOME_LABELS } from './Sidebar'
-import { useAuth } from '@/context/AuthContext'
+import Sidebar from './Sidebar'
 import Header from './Header'
 import { useLiveUpdates } from '@/hooks/useLiveUpdates'
 import { AnimatedPage } from '@/animations'
@@ -9,6 +8,7 @@ import OnboardingModal from '@/components/shared/OnboardingModal'
 
 const TITLES = {
   '/dashboard':       'Dashboard',
+  '/my-requests':     'My Requests',
   '/pr/create':       'New Purchase Request',
   '/pr':              'Purchase Requests',
   '/bidding':         'Work Queue',
@@ -20,7 +20,6 @@ const TITLES = {
   '/notifications':   'Notifications',
   '/reports':         'Reports & Analytics',
   '/users':           'User Management',
-  '/quarters':        'Quarters',
   '/settings':        'Settings',
 }
 
@@ -43,9 +42,7 @@ export default function AppLayout() {
     return () => { document.body.style.overflow = '' }
   }, [mobileOpen])
 
-  const { user } = useAuth()
-  // The home page is each role's own list, titled as the menu names it.
-  const title = pathname === '/dashboard' ? (HOME_LABELS[user?.role] || 'Home') : Object.entries(TITLES)
+  const title = Object.entries(TITLES)
     .sort((a, b) => b[0].length - a[0].length)
     .find(([path]) => pathname.startsWith(path))?.[1] ?? 'PRimeSys'
 

@@ -2,9 +2,10 @@ const pool   = require('../db/pool')
 const notify = require('./notify')
 
 // Bids and Awards Committee rules
-// The canvass is done outside the system. The canvasser brings the bids to the
-// BAC, which enters them and awards (utils/canvassBids.js): each award round
-// adopts a BAC Resolution and goes to the TWG for certification.
+// The canvass is done outside the system. The canvasser gives the returned
+// RFQs to the BAC, which enters the bids and sends them to the TWG; once the
+// TWG certifies them the BAC awards (utils/canvassBids.js), each award round
+// adopting a BAC Resolution.
 
 // Who may read the BAC's queue and print its documents (only the BAC awards; admins supervise).
 const BAC_READERS = ['bac', 'admin', 'procurement']

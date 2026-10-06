@@ -1,6 +1,6 @@
 const httpError = require('./httpError')
 const { loadOrgSettings, fundCodeFor } = require('./orgSettings')
-const { norm, lineKey } = require('./ppmp')
+const { norm, lineKey, QUARTER_COLUMNS, splitOf, quarterLeft } = require('./ppmp')
 
 // How purchase requests draw on their office's Final PPMP in effect (signed and complete).
 // A PR holds the quantities of its items from submission until it is rejected,
@@ -25,52 +25,74 @@ async function usablePlans(db, deptId, { anyYear = false } = {}) {
   return rows
 }
 
-// The request items holding lines of the office's PPMP for that year, with their requests.
+// The quarter of the plan's year a request is filed under (1 to 4), or null when it is filed under another year's.
+const quarterIn = (plan, label, year) => (Number(year) === plan.fiscal_year && /^Q[1-4]$/.test(label || '') ? Number(label[1]) : null)
+
+// The request items holding lines of the office's PPMP for that year, with their requests and the quarter each is filed under.
 // With `lock` it is a locking read, so a submission sees holds committed after its transaction began.
 async function holdRows(db, plan, { exceptPrId, lock = false } = {}) {
   const [rows] = await db.execute(
-    `SELECT STRAIGHT_JOIN li.description, li.unit, i.quantity, i.estimated_cost, pr.id AS pr_id, pr.pr_number, pr.title, pr.status
+    `SELECT STRAIGHT_JOIN li.description, li.unit, i.quantity, i.estimated_cost, pr.id AS pr_id, pr.pr_number, pr.title, pr.status,
+            q.label AS quarter_label, q.year AS quarter_year
        FROM ppmps p
        JOIN ppmp_items li ON li.ppmp_id = p.id
        JOIN pr_items i ON i.ppmp_item_id = li.id
        JOIN purchase_requests pr ON pr.id = i.pr_id
+       LEFT JOIN quarters q ON q.id = pr.quarter_id
       WHERE p.department_id = ? AND p.fiscal_year = ? AND pr.id <> ? AND pr.deleted_at IS NULL AND i.dropped_at IS NULL
         AND pr.status IN (${HOLDING.map(() => '?').join(', ')})
       ORDER BY pr.id${lock ? ' FOR UPDATE' : ''}`,
     [plan.department_id, plan.fiscal_year, exceptPrId ?? 0, ...HOLDING])
-  return rows
+  return rows.map(r => ({ ...r, quarter: quarterIn(plan, r.quarter_label, r.quarter_year) }))
 }
 
-// What other requests hold of each line of the office's PPMP for that year, by line key.
-async function heldByOthers(db, plan, exceptPrId, { lock = false } = {}) {
+// What the given holds take of each line, by line key: in all, and of each quarter's quantity.
+function heldByKey(rows) {
   const held = new Map()
-  for (const r of await holdRows(db, plan, { exceptPrId, lock })) held.set(lineKey(r), (held.get(lineKey(r)) || 0) + Number(r.quantity))
+  for (const r of rows) {
+    if (!held.has(lineKey(r))) held.set(lineKey(r), { total: 0, quarters: [0, 0, 0, 0], amount: 0, requests: [] })
+    const h = held.get(lineKey(r))
+    h.total += Number(r.quantity)
+    h.amount += Number(r.quantity) * Number(r.estimated_cost || 0)
+    if (r.quarter) h.quarters[r.quarter - 1] += Number(r.quantity)
+    let pr = h.requests.find(x => x.id === r.pr_id)
+    if (!pr) h.requests.push(pr = { id: r.pr_id, pr_number: r.pr_number, title: r.title, status: r.status, quantity: 0 })
+    pr.quantity = round2(pr.quantity + Number(r.quantity))
+  }
   return held
 }
 
-// A PPMP's items with what requests hold of each (requested, left, and which requests), and the estimated amount they request.
-// Holds are matched by line key, so any version of the office's PPMP for the year shows them.
-async function withUsage(db, plan, items) {
-  const usage = new Map()
-  for (const r of await holdRows(db, plan)) {
-    const key = lineKey(r)
-    if (!usage.has(key)) usage.set(key, { quantity: 0, amount: 0, requests: [] })
-    const u = usage.get(key)
-    u.quantity += Number(r.quantity)
-    u.amount += Number(r.quantity) * Number(r.estimated_cost || 0)
-    let pr = u.requests.find(x => x.id === r.pr_id)
-    if (!pr) u.requests.push(pr = { id: r.pr_id, pr_number: r.pr_number, title: r.title, status: r.status, quantity: 0 })
-    pr.quantity = round2(pr.quantity + Number(r.quantity))
-  }
+// A plan's lines summed by key: the year's quantity, and each quarter's when every line of the key is split.
+function plannedByKey(lines) {
   const planned = new Map()
-  for (const i of items) planned.set(lineKey(i), (planned.get(lineKey(i)) || 0) + Number(i.quantity))
+  for (const l of lines) {
+    const p = planned.get(l.key)
+    planned.set(l.key, p
+      ? { quantity: p.quantity + l.quantity, quarters: p.quarters && l.quarters ? p.quarters.map((n, k) => n + l.quarters[k]) : null }
+      : { quantity: l.quantity, quarters: l.quarters })
+  }
+  return planned
+}
+
+// A PPMP's items with what requests hold of each (requested, left, and which requests), what is requested and left of
+// each quarter's, and the estimated amount they request. Holds are matched by line key, so any version of the office's PPMP for the year shows them.
+async function withUsage(db, plan, items) {
+  const held = heldByKey(await holdRows(db, plan))
+  const planned = plannedByKey(items.map(i => ({ ...i, key: lineKey(i) })))
   return {
     items: items.map(i => {
-      const u = usage.get(lineKey(i))
-      const requested = round2(u?.quantity || 0)
-      return { ...i, key: lineKey(i), requested, left: round2(planned.get(lineKey(i)) - requested), requests: u?.requests || [] }
+      const key = lineKey(i)
+      const h = held.get(key)
+      const p = planned.get(key)
+      const requested = round2(h?.total || 0)
+      const left = round2(p.quantity - requested)
+      return {
+        ...i, key, requested, left, requests: h?.requests || [],
+        quarter_requested: (h?.quarters || [0, 0, 0, 0]).map(round2),
+        quarter_left: quarterLeft({ quarters: p.quarters, months: i.months, remaining: left }, h?.quarters),
+      }
     }),
-    requested_amount: round2([...planned.keys()].reduce((s, k) => s + (usage.get(k)?.amount || 0), 0)),
+    requested_amount: round2([...planned.keys()].reduce((s, k) => s + (held.get(k)?.amount || 0), 0)),
   }
 }
 
@@ -81,21 +103,26 @@ async function lockOfficePlans(db, { deptId, prId }) {
   if (deptId) await db.execute(`SELECT id FROM ppmps WHERE department_id = ? AND status = 'approved' AND kind = 'final' FOR UPDATE`, [deptId])
 }
 
-// A plan's lines with what is left of each once other requests' holds are taken; lines sharing a key share one total.
+// A plan's lines with what is left of each once other requests' holds are taken, in all and of each quarter's
+// (quarter_left, by quarterLeft); lines sharing a key share one total. quarters: each quarter's planned quantity, or null.
 async function linesLeft(db, plan, exceptPrId, { lock = false } = {}) {
   const [rows] = await db.execute(
-    `SELECT id, part, category, code, description, unit, quantity, unit_cost, mode_of_procurement, months
+    `SELECT id, part, category, code, description, unit, quantity, unit_cost, mode_of_procurement, months, ${QUARTER_COLUMNS.join(', ')}
        FROM ppmp_items WHERE ppmp_id = ? ORDER BY sort_order, id`, [plan.id])
-  const held = await heldByOthers(db, plan, exceptPrId, { lock })
-  const planned = new Map()
-  for (const r of rows) planned.set(lineKey(r), (planned.get(lineKey(r)) || 0) + Number(r.quantity))
-  return rows.map(r => {
-    const key = lineKey(r)
-    const used = round2(held.get(key) || 0)
+  const held = heldByKey(await holdRows(db, plan, { exceptPrId, lock }))
+  const lines = rows.map(({ qty_q1, qty_q2, qty_q3, qty_q4, ...r }) => ({
+    ...r, key: lineKey(r), quantity: Number(r.quantity), unit_cost: Number(r.unit_cost),
+    months: r.months ? r.months.split(',').map(Number) : [], quarters: splitOf({ qty_q1, qty_q2, qty_q3, qty_q4 }),
+  }))
+  const planned = plannedByKey(lines)
+  return lines.map(l => {
+    const p = planned.get(l.key)
+    const h = held.get(l.key)
+    const used = round2(h?.total || 0)
+    const remaining = round2(p.quantity - used)
     return {
-      ...r, key, quantity: Number(r.quantity), unit_cost: Number(r.unit_cost),
-      months: r.months ? r.months.split(',').map(Number) : [],
-      planned: round2(planned.get(key)), used, remaining: round2(planned.get(key) - used),
+      ...l, planned: round2(p.quantity), used, remaining, quarters: p.quarters,
+      quarter_left: quarterLeft({ quarters: p.quarters, months: l.months, remaining }, h?.quarters),
     }
   })
 }
@@ -139,8 +166,9 @@ async function linesForItems(db, deptId, items, { prId, exceptItemId } = {}) {
 // without it (viewing), a past year's plan still shows.
 async function reviewPr(db, prId, { link = false } = {}) {
   const [[pr]] = await db.execute(
-    `SELECT pr.id, pr.department_id, pr.date_needed, d.code AS office_code
-       FROM purchase_requests pr LEFT JOIN departments d ON d.id = pr.department_id WHERE pr.id = ?`, [prId])
+    `SELECT pr.id, pr.department_id, pr.date_needed, d.code AS office_code, q.label AS quarter_label, q.year AS quarter_year
+       FROM purchase_requests pr LEFT JOIN departments d ON d.id = pr.department_id LEFT JOIN quarters q ON q.id = pr.quarter_id
+      WHERE pr.id = ?`, [prId])
   const [items] = await db.execute(
     `SELECT i.id, i.item_name, i.unit, i.quantity, i.estimated_cost, i.ppmp_item_id,
             li.description AS line_description, li.unit AS line_unit, p.department_id AS line_office, p.fiscal_year AS line_year
@@ -175,6 +203,8 @@ async function reviewPr(db, prId, { link = false } = {}) {
   // Submissions against one plan run one at a time, each seeing the holds of those before it.
   if (link) await db.execute('SELECT id FROM ppmps WHERE id = ? FOR UPDATE', [plan.id])
   out.plan = plan
+  // The quarter the request draws on, when it is filed under one of the plan's year; else only the year's total applies.
+  const quarter = quarterIn(plan, pr.quarter_label, pr.quarter_year)
   const lines = await linesLeft(db, plan, prId, { lock: link })
   const byKey = new Map()
   for (const l of lines) if (!byKey.has(l.key)) byKey.set(l.key, l)
@@ -220,6 +250,12 @@ async function reviewPr(db, prId, { link = false } = {}) {
       row.problem = line.remaining > 0
         ? `Only ${qty(line.remaining)} ${line.unit} of "${line.description}" is left in the PPMP (planned ${qty(line.planned)}, other requests hold ${qty(line.used)}). Lower this request to ${qty(line.remaining)} or less.`
         : `Nothing is left of "${line.description}" in the PPMP: other requests hold all ${qty(line.planned)} ${line.unit}.`
+    } else if (quarter && asked > line.quarter_left[quarter - 1]) {
+      const left = line.quarter_left[quarter - 1]
+      const plannedFor = line.quarters ? `planned ${qty(line.quarters[quarter - 1])} for Q${quarter}` : `scheduled ${line.months.map(m => MONTHS[m - 1].slice(0, 3)).join(', ')}`
+      row.problem = left > 0
+        ? `Only ${qty(left)} ${line.unit} of "${line.description}" is left for Q${quarter} in the PPMP (${plannedFor}). Lower this request to ${qty(left)} or less.`
+        : `Nothing of "${line.description}" is left for Q${quarter} in the PPMP (${plannedFor}). Remove it, or request it under its own quarter.`
     }
     if (it.estimated_cost != null && Number(it.estimated_cost) > line.unit_cost) {
       row.warnings.push(`${peso(it.estimated_cost)} each is above the PPMP's ${peso(line.unit_cost)}. Adjust it, or be ready to explain the difference.`)
@@ -244,4 +280,7 @@ async function assertFollowsPpmp(db, prId) {
   }
 }
 
-module.exports = { HOLDING, usablePlans, linesLeft, withUsage, linesForItems, lockOfficePlans, reviewPr, assertFollowsPpmp }
+// What requests hold of the office's PPMP for the plan's year, by line key: { total, quarters: [4], amount, requests }.
+const heldOf = async (db, plan, opts) => heldByKey(await holdRows(db, plan, opts))
+
+module.exports = { HOLDING, usablePlans, linesLeft, withUsage, linesForItems, lockOfficePlans, reviewPr, assertFollowsPpmp, heldOf }

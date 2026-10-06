@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { Trophy, ChevronRight, Search, ShoppingCart, Gavel, AlertTriangle } from 'lucide-react'
 import { Card } from '@/components/ui/card'
@@ -8,8 +8,10 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CategoryBadge, DeliveryStatusBadge, PRStatusBadge } from '@/components/shared/StatusBadge'
 import StartCanvassDialog from '@/components/awards/StartCanvassDialog'
-import { fmtCurrency, CATEGORY_LABELS } from '@/lib/utils'
+import { FilterChip, Tab, Pager } from '@/components/shared/ListParts'
+import { fmtCurrency, daysSince, plural, CATEGORY_LABELS } from '@/lib/utils'
 import { useAuth } from '@/context/AuthContext'
+import useUrlParams from '@/hooks/useUrlParams'
 import api from '@/lib/axios'
 
 const CATEGORY_KEYS = Object.keys(CATEGORY_LABELS)
@@ -20,30 +22,12 @@ const PAGE_SIZE = 20
 // canvass, the BAC's award and the TWG again while the certified suppliers wait for their POs.
 const STAGES = [
   { key: 'to_canvass',  label: 'To canvass',   empty: 'No request approved by the TWG is waiting to be canvassed.' },
-  { key: 'needs_award', label: 'With the BAC', empty: 'No request is in canvass with the BAC.' },
-  { key: 'with_twg',    label: 'With the TWG', empty: 'No request is waiting for the TWG\'s certification.' },
+  { key: 'needs_award', label: 'With the BAC', empty: 'No request is with the BAC for its bids or its award.' },
+  { key: 'with_twg',    label: 'With the TWG', empty: 'No request is waiting for the TWG\'s evaluation.' },
   { key: 'awaiting_po', label: 'Issue PO',     empty: 'No awards are waiting for a purchase order.' },
   { key: 'po_issued',   label: 'PO issued',    empty: 'No purchase orders have been issued yet.' },
   { key: 'cancelled',   label: 'Cancelled',   empty: 'No PRs were cancelled after an award.' },
 ]
-const daysSince = (d) => Math.max(0, Math.floor((Date.now() - new Date(d).getTime()) / 864e5))
-const plural    = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
-
-// A filter chip with its count (same look as the PR list's category chips).
-function Chip({ active, count, onClick, children }) {
-  return (
-    <button type="button" onClick={onClick}
-      className={`rounded-full border px-3 py-1 text-ui-xs font-medium transition-colors ${
-        active
-          ? 'border-[--color-brand] bg-[--color-brand] text-white'
-          : count
-            ? 'border-[--color-border-strong] bg-white text-[--color-text-secondary] hover:border-[--color-brand] hover:text-[--color-brand]'
-            : 'border-[--color-border] bg-white text-[--color-text-muted] hover:border-[--color-border-strong]'
-      }`}>
-      {children} <span className="opacity-80">({count})</span>
-    </button>
-  )
-}
 
 /* ── One PR in the queue, on one line; a click opens its canvass ──────── */
 function AwardRow({ row, stage, canManage, onOpen, onStart }) {
@@ -133,17 +117,12 @@ export default function Bidding() {
 
   // Stage, category, search, and page live in the URL, so the back button,
   // a refresh, and a shared link all keep the same view.
-  const [params, setParams] = useSearchParams()
+  const [params, update] = useUrlParams()
   const navigate = useNavigate()
   const stage    = STAGES.some(s => s.key === params.get('stage')) ? params.get('stage') : canManage ? 'to_canvass' : 'po_issued'
   const category = CATEGORY_KEYS.includes(params.get('category')) ? params.get('category') : ''
   const page     = Math.max(parseInt(params.get('page')) || 1, 1)
   const [search, setSearch] = useState(params.get('q') || '')
-  const update = (changes) => setParams(prev => {
-    const next = new URLSearchParams(prev)
-    for (const [k, v] of Object.entries(changes)) (v === '' || v == null ? next.delete(k) : next.set(k, String(v)))
-    return next
-  }, { replace: true })
 
   const { data, isLoading } = useQuery({
     queryKey: ['lot-queue', { stage, category, search, page }],
@@ -185,33 +164,19 @@ export default function Bidding() {
 
       <Card>
         <div className="flex items-center gap-1 px-4 pt-3 border-b border-[--color-border] overflow-x-auto">
-          {STAGES.map(s => {
-            const n = counts?.stages?.[s.key] ?? 0
-            return (
-              <button key={s.key}
-                onClick={() => update({ stage: s.key, page: '' })}
-                className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-colors mb-[-1px] ${
-                  stage === s.key
-                    ? 'border-[--color-brand] text-[--color-brand]'
-                    : 'border-transparent text-[--color-text-muted] hover:text-[--color-text-primary]'
-                }`}>
-                {s.label}
-                {n > 0 && (
-                  <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
-                    stage === s.key ? 'bg-[--color-brand-light] text-[--color-brand]' : 'bg-[--color-overlay] text-[--color-text-muted]'
-                  }`}>{n}</span>
-                )}
-              </button>
-            )
-          })}
+          {STAGES.map(s => (
+            <Tab key={s.key} active={stage === s.key} count={counts?.stages?.[s.key] ?? 0} onClick={() => update({ stage: s.key, page: '' })}>
+              {s.label}
+            </Tab>
+          ))}
         </div>
 
         <div className="flex flex-wrap gap-1.5 px-4 py-3 border-b border-[--color-border]">
-          <Chip active={!category} count={inStage} onClick={() => update({ category: '', page: '' })}>All categories</Chip>
+          <FilterChip active={!category} count={inStage} onClick={() => update({ category: '', page: '' })}>All categories</FilterChip>
           {CATEGORY_KEYS.map(c => (
-            <Chip key={c} active={category === c} count={counts?.categories?.[c] ?? 0} onClick={() => update({ category: c, page: '' })}>
+            <FilterChip key={c} active={category === c} count={counts?.categories?.[c] ?? 0} onClick={() => update({ category: c, page: '' })}>
               {CATEGORY_LABELS[c]}
-            </Chip>
+            </FilterChip>
           ))}
         </div>
 
@@ -234,15 +199,8 @@ export default function Bidding() {
           ))
         )}
 
-        {data && data.totalPages > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-[--color-border]">
-            <span className="text-xs text-[--color-text-muted]">Page {data.page} of {data.totalPages} · {plural(data.total, 'PR')}</span>
-            <div className="flex gap-2">
-              <Button variant="secondary" size="sm" onClick={() => update({ page: page - 1 > 1 ? page - 1 : '' })} disabled={page <= 1}>Previous</Button>
-              <Button variant="secondary" size="sm" onClick={() => update({ page: page + 1 })} disabled={page >= data.totalPages}>Next</Button>
-            </div>
-          </div>
-        )}
+        <Pager page={page} totalPages={data?.totalPages} summary={data && plural(data.total, 'PR')}
+          onPage={(n) => update({ page: n > 1 ? n : '' })} />
       </Card>
 
       {opening && (

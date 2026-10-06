@@ -1,142 +1,112 @@
 import { useQuery } from '@tanstack/react-query'
-import { Link, useSearchParams } from 'react-router-dom'
-import { FileText, Plus, ChevronRight } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Plus, ChevronRight, AlertCircle, Clock, CheckCircle2, Wallet } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Skeleton } from '@/components/ui/skeleton'
 import { PRStatusBadge } from '@/components/shared/StatusBadge'
+import { EmptyState } from '@/components/shared/ListParts'
+import { DashboardHeader, StatLink, ListSkeleton, WaitingCard, useDashboard } from '@/components/dashboard/DashboardParts'
 import { useAuth } from '@/context/AuthContext'
-import { REQUEST_STEPS, requestProgress } from '@/lib/requestProgress'
+import { fmtCurrency } from '@/lib/utils'
 import api from '@/lib/axios'
 
-// One line per step of REQUEST_STEPS, for the "How it works" panel.
-const STEP_HELP = [
-  'You describe what you need and submit it.',
-  'The Technical Working Group checks the details and may ask for changes.',
-  'The canvasser asks suppliers for prices; the BAC and the TWG review the chosen ones.',
-  'A purchase order is sent to the supplier.',
-  'The Supply Office receives the items, and your request is done.',
+const IN_PROGRESS = ['submitted', 'twg_review', 'bidding', 'twg_certification', 'bac_review', 'for_po']
+// Where the requests are, in the order they move; "sent back" waits on the Fund Administrator.
+const PIPELINE = [
+  { label: 'Not sent yet',       statuses: ['draft'] },
+  { label: 'Sent back to you',   statuses: ['revision_requested'], action: true },
+  { label: 'With the TWG',       statuses: ['submitted'] },
+  { label: 'Finding a supplier', statuses: ['twg_review', 'bidding', 'twg_certification', 'bac_review'] },
+  { label: 'Being ordered',      statuses: ['for_po'] },
+  { label: 'Delivered',          statuses: ['completed'] },
 ]
 
-// The requestor's three lists: what waits for them, what is moving, what is finished.
-const TABS = [
-  { key: 'needs_me',    label: 'Needs me',    statuses: ['draft', 'revision_requested'],
-    empty: 'Nothing waits for you. Drafts and requests sent back for changes appear here.' },
-  { key: 'in_progress', label: 'In progress', statuses: ['submitted', 'twg_review', 'bidding', 'bac_review', 'twg_certification', 'for_po'],
-    empty: 'No request is moving right now.' },
-  { key: 'done',        label: 'Done',        statuses: ['completed', 'rejected', 'cancelled'],
-    empty: 'Finished, rejected and cancelled requests appear here.' },
-]
-const PAGE_SIZE = 15
-
-// A requestor's home, and their only list: their requests by what they need next.
+// A Fund Administrator's home: what needs them, where their requests are, and what waits longest.
 export default function RequestorDashboard() {
   const { user } = useAuth()
-  const [params, setParams] = useSearchParams()
-  const tab  = TABS.find(t => t.key === params.get('tab')) || TABS[0]
-  const page = Math.max(parseInt(params.get('page'), 10) || 1, 1)
-  const go   = (next) => setParams(Object.fromEntries(Object.entries({ tab: tab.key, page, ...next }).filter(([, v]) => v && v !== 1)))
-
   const { data: stats } = useQuery({
     queryKey: ['pr-stats'],
     queryFn: () => api.get('/pr/stats').then(r => r.data),
   })
-  const { data, isLoading } = useQuery({
-    queryKey: ['pr-list', 'requestor-home', tab.key, page],
-    queryFn: () => api.get(`/pr?${new URLSearchParams({ status: tab.statuses.join(','), page, limit: PAGE_SIZE })}`).then(r => r.data),
+  const { data: attention, isLoading } = useQuery({
+    queryKey: ['pr-list', 'requestor-attention'],
+    queryFn: () => api.get('/pr?status=draft,revision_requested&limit=5&sort=oldest').then(r => r.data),
   })
-  const prs   = data?.data ?? []
-  const count = (t) => t.statuses.reduce((n, k) => n + (stats?.[k] ?? 0), 0)
+  const dash = useDashboard(IN_PROGRESS)
+
+  const sum = (statuses) => statuses.reduce((n, s) => n + (stats?.[s] ?? 0), 0)
+  const needsMe = sum(['draft', 'revision_requested'])
+  const most = Math.max(...PIPELINE.map(p => sum(p.statuses)), 1)
+  const rows = attention?.data ?? []
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h2 className="text-ui-2xl font-bold text-[--color-text-primary]">My Requests</h2>
-          <p className="text-ui-sm text-[--color-text-secondary] mt-0.5">Welcome, {user?.name}. Here is where each of your requests is.</p>
-        </div>
-        <Button asChild className="gap-2">
-          <Link to="/pr/create"><Plus className="size-4" /> New Request</Link>
-        </Button>
+    <div className="space-y-6">
+      <DashboardHeader sub={`Welcome, ${user?.name}. Here is how your requests are doing.`}>
+        <Button asChild className="gap-2"><Link to="/pr/create"><Plus className="size-4" /> New Request</Link></Button>
+      </DashboardHeader>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 card-grid">
+        <StatLink to="/my-requests" title="Needs You" value={needsMe} icon={AlertCircle} color="amber"
+          sub="drafts and requests sent back" className={needsMe > 0 ? 'border-amber-300' : ''} />
+        <StatLink to="/my-requests?tab=in_progress" title="In Progress" value={sum(IN_PROGRESS)} icon={Clock} color="blue" sub="with the TWG, Procurement or the BAC" />
+        <StatLink to="/my-requests?tab=done" title="Completed" value={stats?.completed ?? 0} icon={CheckCircle2} color="green" sub="delivered in full" />
+        <StatLink to="/archive" title={`Requested in ${dash.data?.year ?? ''}`} value={dash.data ? fmtCurrency(dash.data.amounts.requested) : '…'}
+          icon={Wallet} color="brand" sub="estimate of the requests you sent" />
       </div>
 
       <div className="grid gap-5 lg:grid-cols-5">
         <Card className="lg:col-span-3">
-          <CardHeader className="pb-0">
-            <div className="flex flex-wrap gap-2">
-              {TABS.map(t => (
-                <button key={t.key} onClick={() => go({ tab: t.key, page: 1 })}
-                  className={`rounded-full border px-3 py-1 text-ui-xs font-medium transition-colors ${
-                    tab.key === t.key
-                      ? 'border-[--color-brand] bg-[--color-brand] text-white'
-                      : t.key === 'needs_me' && count(t) > 0
-                        ? 'border-amber-400 bg-amber-50 text-amber-800 hover:border-amber-500'
-                        : 'border-[--color-border-strong] bg-white text-[--color-text-secondary] hover:border-[--color-brand] hover:text-[--color-brand]'
-                  }`}>
-                  {t.label} <span className="opacity-80">({count(t)})</span>
-                </button>
-              ))}
-            </div>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle>Needs your attention</CardTitle>
+            <Button variant="ghost" size="sm" asChild><Link to="/my-requests">View all</Link></Button>
           </CardHeader>
-          <CardContent className="p-0 pt-3">
-            {isLoading
-              ? <div className="p-6 space-y-3">{Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-12" />)}</div>
-              : !prs.length
-                ? (
-                  <div className="px-6 py-12 text-center">
-                    <FileText className="size-8 text-[--color-text-muted] mx-auto mb-3" />
-                    <p className="text-ui-xs text-[--color-text-muted]">{tab.empty}</p>
+          <CardContent className="p-0">
+            {isLoading ? <ListSkeleton />
+              : !rows.length ? <EmptyState icon={CheckCircle2} title="Nothing waits for you" sub="Drafts and requests sent back for changes appear here." />
+              : rows.map(pr => (
+                <Link key={pr.id} to={`/pr/${pr.id}`}
+                  className="flex items-center justify-between gap-3 px-6 py-3.5 border-b border-[--color-border] last:border-0 hover:bg-overlay/60 transition-colors">
+                  <div className="min-w-0">
+                    <p className="text-ui-sm font-semibold text-[--color-text-primary] truncate">{pr.title || pr.pr_number}</p>
+                    <p className="text-ui-xs text-amber-700 mt-0.5 truncate">
+                      <span className="font-mono text-[--color-text-muted]">{pr.pr_number}</span> · {pr.status === 'draft'
+                        ? 'Not sent yet. Finish it and submit it to the TWG.'
+                        : 'Changes were requested. Open it to read why.'}
+                    </p>
                   </div>
-                )
-                : prs.map(pr => (
-                  <Link key={pr.id} to={`/pr/${pr.id}`}
-                    className="flex items-center justify-between px-6 py-3.5 border-t border-[--color-border] hover:bg-overlay/60 transition-colors gap-3">
-                    <div className="min-w-0">
-                      <p className="text-ui-sm font-semibold text-[--color-text-primary] truncate">{pr.title || pr.pr_number}</p>
-                      <p className={`text-ui-xs mt-0.5 ${tab.key === 'needs_me' ? 'text-amber-700' : 'text-[--color-text-secondary]'}`}>
-                        <span className="font-mono text-[--color-text-muted]">{pr.pr_number}</span> · {
-                          pr.status === 'draft' ? 'Not sent yet. Finish it and submit it to the TWG.'
-                          : pr.status === 'revision_requested' ? 'Changes were requested. Open it to read why.'
-                          : requestProgress(pr).title}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <PRStatusBadge status={pr.status} />
-                      <ChevronRight className="size-4 text-[--color-text-muted]" />
-                    </div>
-                  </Link>
-                ))}
-            {data?.totalPages > 1 && (
-              <div className="flex items-center justify-end gap-2 px-6 py-3 border-t border-[--color-border]">
-                <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => go({ page: page - 1 })}>Previous</Button>
-                <span className="text-ui-xs text-[--color-text-muted]">Page {page} of {data.totalPages}</span>
-                <Button size="sm" variant="outline" disabled={page >= data.totalPages} onClick={() => go({ page: page + 1 })}>Next</Button>
-              </div>
-            )}
+                  <div className="flex items-center gap-2 shrink-0">
+                    <PRStatusBadge status={pr.status} />
+                    <ChevronRight className="size-4 text-[--color-text-muted]" />
+                  </div>
+                </Link>
+              ))}
           </CardContent>
         </Card>
 
-        <Card className="lg:col-span-2 self-start">
-          <CardHeader className="pb-2">
-            <CardTitle>How it works</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ol className="space-y-3">
-              {REQUEST_STEPS.map((step, i) => (
-                <li key={step} className="flex gap-3">
-                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-[--color-border] bg-[--color-canvas] text-[11px] font-bold text-[--color-text-secondary]">
-                    {i + 1}
-                  </span>
-                  <div>
-                    <p className="text-ui-sm font-semibold text-[--color-text-primary]">{step}</p>
-                    <p className="text-ui-xs text-[--color-text-muted] leading-snug">{STEP_HELP[i]}</p>
+        <Card className="lg:col-span-2">
+          <CardHeader><CardTitle>Where your requests are</CardTitle></CardHeader>
+          <CardContent className="space-y-4">
+            {PIPELINE.map(p => {
+              const n = sum(p.statuses)
+              return (
+                <div key={p.label}>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-ui-sm font-medium text-[--color-text-primary]">{p.label}</span>
+                    <span className="text-ui-sm font-bold tabular-nums text-[--color-text-primary]">{n}</span>
                   </div>
-                </li>
-              ))}
-            </ol>
+                  <div className="h-2 rounded-full bg-[--color-border] overflow-hidden">
+                    <div className={`h-full rounded-full transition-all ${p.action ? 'bg-amber-500' : 'bg-[--color-brand]'}`}
+                      style={{ width: `${(n / most) * 100}%` }} />
+                  </div>
+                </div>
+              )
+            })}
           </CardContent>
         </Card>
       </div>
+
+      <WaitingCard data={dash.data} isLoading={dash.isLoading} title="Waiting the longest"
+        empty="Requests you sent appear here while the TWG, Procurement or the BAC work on them." />
     </div>
   )
 }

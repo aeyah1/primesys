@@ -1,64 +1,57 @@
 import { NavLink, Link, useLocation } from 'react-router-dom'
 import {
-  LayoutDashboard, FileText, ShoppingCart, Truck,
-  Users, Calendar, ChevronRight, Bell, Archive,
+  LayoutDashboard, FileText, ShoppingCart,
+  Users, ChevronRight, Bell, Archive,
   LogOut, Settings as SettingsIcon, Gavel, AlarmClock, BookOpen,
-  ClipboardCheck, BarChart3, Scale, FilePlus, PackageCheck, Building2, ListChecks,
+  ClipboardCheck, BarChart3, Scale, FilePlus, PackageCheck, Building2, ListChecks, FileBadge,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 
-// One menu per role, holding only that role's own work. The home page (/dashboard)
-// is each role's to-do list, so its label names that list.
-const HOME_LABELS = {
-  requestor: 'My Requests', twg: 'Home', procurement: 'Work Queue', bac: 'For Evaluation', supply: 'To Receive', admin: 'Overview',
-}
-const HOME_ICONS = { requestor: FileText, twg: LayoutDashboard, procurement: Gavel, bac: Scale, supply: Truck, admin: LayoutDashboard }
-
+// One menu per role. Every role starts on its Dashboard; "My Work" holds what it
+// acts on (its to-do list right below the Dashboard), "Records" what it looks up.
+const HOME          = { to: '/dashboard',     label: 'Dashboard',       icon: LayoutDashboard, end: true }
 const NOTIFICATIONS = { to: '/notifications', label: 'Notifications',   icon: Bell }
 const REMINDERS     = { to: '/reminders',     label: 'Reminders',       icon: AlarmClock }
 const GUIDE         = { to: '/guide',         label: 'User Guide',      icon: BookOpen }
 const ALL_REQUESTS  = { to: '/pr',            label: 'All Requests',    icon: FileText }
+const ORDERS        = { to: '/po',            label: 'Purchase Orders', icon: ShoppingCart }
 const PPMP          = { to: '/ppmp',          label: 'PPMP',            icon: ListChecks }
+const REPORTS       = { to: '/reports',       label: 'Reports',         icon: BarChart3 }
+const ARCHIVE       = { to: '/archive',       label: 'Archive',         icon: Archive }
+const CERTIFICATES  = { to: '/certificates',  label: 'Certificates',    icon: FileBadge }
 const ACCOUNT       = { label: 'Account', items: [{ to: '/settings', label: 'Settings', icon: SettingsIcon }] }
-const RECORDS       = { label: 'Records', items: [
-  PPMP,
-  { to: '/reports', label: 'Reports', icon: BarChart3 },
-  { to: '/archive', label: 'Archive', icon: Archive },
-] }
+const records       = (...items) => ({ label: 'Records', items })
 
 function menuFor(role) {
-  const home = { to: '/dashboard', label: HOME_LABELS[role] || 'Home', icon: HOME_ICONS[role] || LayoutDashboard, end: true }
   switch (role) {
     case 'requestor':
-      return [{ label: 'My Work', items: [home, { to: '/pr/create', label: 'New Request', icon: FilePlus }, PPMP] },
-              { label: 'Help', items: [NOTIFICATIONS, GUIDE] }, ACCOUNT]
+      return [{ label: 'My Work', items: [HOME, { to: '/my-requests', label: 'My Requests', icon: FileText }, { to: '/pr/create', label: 'New Request', icon: FilePlus }] },
+              records(PPMP, ARCHIVE), { label: 'Help', items: [NOTIFICATIONS, GUIDE] }, ACCOUNT]
     case 'twg':
-      return [{ label: 'My Work', items: [home, { to: '/twg/reviews', label: 'To Review', icon: ClipboardCheck }, PPMP] },
-              { label: 'Help', items: [NOTIFICATIONS, GUIDE] }, ACCOUNT]
+      return [{ label: 'My Work', items: [HOME, { to: '/twg/reviews', label: 'To Review', icon: ClipboardCheck }] },
+              records(CERTIFICATES, PPMP, ARCHIVE), { label: 'Help', items: [NOTIFICATIONS, GUIDE] }, ACCOUNT]
     case 'procurement':
-      return [{ label: 'My Work', items: [home, ALL_REQUESTS, { to: '/po', label: 'Purchase Orders', icon: ShoppingCart }] },
-              RECORDS, { label: 'Help', items: [NOTIFICATIONS, REMINDERS, GUIDE] }, ACCOUNT]
+      return [{ label: 'My Work', items: [HOME, { to: '/bidding', label: 'Work Queue', icon: Gavel }, ALL_REQUESTS, ORDERS] },
+              records(CERTIFICATES, PPMP, REPORTS, ARCHIVE), { label: 'Help', items: [NOTIFICATIONS, REMINDERS, GUIDE] }, ACCOUNT]
     case 'bac':
-      return [{ label: 'My Work', items: [home, PPMP] }, { label: 'Help', items: [NOTIFICATIONS, GUIDE] }, ACCOUNT]
+      return [{ label: 'My Work', items: [HOME, { to: '/bac', label: 'For Evaluation', icon: Scale }] },
+              records(CERTIFICATES, PPMP, ARCHIVE), { label: 'Help', items: [NOTIFICATIONS, GUIDE] }, ACCOUNT]
     case 'supply':
-      return [{ label: 'My Work', items: [home, { to: '/po', label: 'Purchase Orders', icon: ShoppingCart }, { to: '/delivery', label: 'Received', icon: PackageCheck }] },
-              { label: 'Help', items: [NOTIFICATIONS, GUIDE] }, ACCOUNT]
+      return [{ label: 'My Work', items: [HOME, ORDERS, { to: '/delivery', label: 'Received', icon: PackageCheck }] },
+              records(ARCHIVE), { label: 'Help', items: [NOTIFICATIONS, GUIDE] }, ACCOUNT]
     case 'admin':
-      return [{ label: 'Overview', items: [home, ALL_REQUESTS] }, RECORDS,
+      return [{ label: 'Overview', items: [HOME, ALL_REQUESTS] }, records(CERTIFICATES, PPMP, REPORTS, ARCHIVE),
               { label: 'Administration', items: [
                 { to: '/users', label: 'User Management', icon: Users },
                 { to: '/settings?tab=organization', label: 'Organization', icon: Building2 },
-                { to: '/quarters', label: 'Quarters', icon: Calendar },
               ] },
               { label: 'Help', items: [NOTIFICATIONS, REMINDERS, GUIDE] }, ACCOUNT]
     default:
-      return [{ label: 'Help', items: [home, NOTIFICATIONS, GUIDE] }, ACCOUNT]
+      return [{ label: 'Help', items: [HOME, NOTIFICATIONS, GUIDE] }, ACCOUNT]
   }
 }
-
-export { HOME_LABELS }
 
 // Whether a menu link is the current page. A link with a query (the admin's
 // Organization, /settings?tab=organization) needs its query to match too, and

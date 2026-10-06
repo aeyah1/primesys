@@ -118,7 +118,7 @@ async function run() {
     r => r.status === 200 && !Object.values(r.data.permissions).some(Boolean))
   await is(A, '…but can\'t upload one', 4, 'POST', '/ppmp', form(base), code(403), '403')
   await is(A, 'Supply can\'t', 8, 'GET', '/ppmp', undefined, code(403), '403')
-  await is(A, 'a PPMP in effect can\'t be deleted', 3, 'DELETE', `/ppmp/${id}`, undefined, code(409), '409')
+  await is(A, "a PPMP in effect can't be deleted (an admin removes it, ppmp-change.test.js)", 3, 'DELETE', `/ppmp/${id}`, undefined, code(409), '409')
   await is(A, '…nor uploaded over', 3, 'PUT', `/ppmp/${id}`, form(base), code(409), '409')
 
   // ── Amending: not in effect until complete ──────────────────────────
@@ -152,8 +152,9 @@ async function run() {
   const O = 'Offices'
   await is(O, 'HR can\'t upload ICT\'s PPMP as its own', 6, 'POST', '/ppmp', form(base), r => r.status === 400 && /PPMP of ICT Office/.test(r.data.message), '400')
   await is(O, 'HR uploads its own', 6, 'POST', '/ppmp', form(base, { data: makeXlsx(rowsFor('Human Resources Office')) }), r => r.status === 201 && r.data.in_effect === true)
-  await is(O, 'Procurement sees every office\'s PPMPs, with why one is not in effect', 2, 'GET', '/ppmp?year=2027', undefined,
-    r => r.data.length === 4 && r.data.filter(x => x.status === 'draft').every(x => x.problems.length > 0), '4')
+  await is(O, 'Procurement sees one PPMP per office, with a later one not in effect noted and why', 2, 'GET', '/ppmp?year=2027', undefined,
+    r => r.data.length === 2 && r.data.every(x => x.status === 'approved')
+      && r.data.find(x => x.office_code === 'ICT')?.pending?.problems.length > 0 && r.data.find(x => x.office_code === 'ICT')?.versions === 3, '2 rows')
 
   // ── Withdrawing one put in effect by mistake ────────────────────────
   const W = 'Withdrawing'

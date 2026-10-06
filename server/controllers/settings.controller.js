@@ -2,10 +2,15 @@ const pool         = require('../db/pool')
 const asyncHandler = require('../utils/asyncHandler')
 const { SETTING_KEYS } = require('../utils/orgSettings')
 
+// What the PR form shows to everyone else; signatories and numbering are the admin's to see.
+const FORM_KEYS = ['fund_cluster', 'fund_code_stf', 'fund_code_gaa', 'fund_code_igp', 'responsibility_center_code']
+
 exports.get = asyncHandler(async (req, res) => {
   const [rows] = await pool.execute('SELECT setting_key, setting_value FROM org_settings')
   const out = {}
-  for (const row of rows) out[row.setting_key] = row.setting_value
+  for (const row of rows) {
+    if (req.user.role === 'admin' || FORM_KEYS.includes(row.setting_key)) out[row.setting_key] = row.setting_value
+  }
   res.json(out)
 })
 

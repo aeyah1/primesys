@@ -162,6 +162,10 @@ function mapPpmp(rows) {
     const monthNums = monthQty.map(([m]) => m)
     const monthSum = monthQty.reduce((s, [, v]) => s + (num(v) ?? 0), 0)
     const quantity = qtyCell ?? (monthSum || null)
+    // Each quarter's quantity (Jan to Mar is Q1), when the month cells hold quantities adding up to the line's; else null.
+    const counted = monthQty.length > 0 && monthQty.every(([, v]) => num(v) !== null)
+    const splits = counted && quantity && Math.abs(monthSum - quantity) < 0.005
+    const quarters = splits ? [1, 2, 3, 4].map(q => monthQty.filter(([m]) => Math.ceil(m / 3) === q).reduce((s, [, v]) => s + num(v), 0)) : null
     const unitCost = costCell ?? (budgetCell !== null && quantity ? Math.round(budgetCell / quantity * 100) / 100 : null)
     const item = {
       row: k + 1, part, category,
@@ -171,6 +175,7 @@ function mapPpmp(rows) {
       quantity, unit_cost: unitCost,
       mode_of_procurement: modeOf(cell(r, 'mode')) || (part === 'ps' ? 'Agency-to-Agency' : null),
       months: monthNums,
+      quarters,
       remarks: cell(r, 'remarks').slice(0, 500) || null,
       file_budget: budgetCell,
     }
@@ -186,6 +191,7 @@ function mapPpmp(rows) {
     if (cell(r, 'mode') && !modeOf(cell(r, 'mode'))) warnings.push(`Unknown mode "${cell(r, 'mode')}"`)
     else if (!item.mode_of_procurement) warnings.push('No mode of procurement')
     if (!monthNums.length) warnings.push('No month marked in the schedule')
+    else if (counted && quantity && !splits) warnings.push(`The months add up to ${monthSum}, not the quantity ${quantity}, so each quarter's share is not known`)
     const brand = brandIn(item.description)
     if (brand) warnings.push(`Names a brand (${brand}); describe it by its specifications`)
     items.push({ ...item, warnings })

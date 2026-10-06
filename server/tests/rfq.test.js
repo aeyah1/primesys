@@ -14,7 +14,7 @@ const H    = require('./harness')
 const PDFDocument = require(require.resolve('pdfkit', { paths: [H.SERVER] }))
 const drawRFQ     = require(path.join(H.SERVER, 'pdf', 'requestForQuotation'))
 const { M }       = require(path.join(H.SERVER, 'utils', 'pdfHelpers'))
-const { fundCodeFor, approverFor, FUND_SOURCES } = require(path.join(H.SERVER, 'utils', 'orgSettings'))
+const { fundCodeFor, approverFor, FUND_SOURCES, canvassersOf } = require(path.join(H.SERVER, 'utils', 'orgSettings'))
 
 const PAGE_H = 792
 
@@ -142,6 +142,9 @@ async function run() {
   t.check('The request', 'the covering sentence', has(p1, 'Please') && has(p1, 'in the'))
   t.check('The request', 'the BAC Vice Chairman signs it', has(p1, 'ANA C. GARCIA, Ph. D.') && has(p1, 'BAC Vice Chairman'))
   t.check('The request', 'the canvasser is named', has(p1, 'PEDRO B. REYES') && has(p1, 'Canvasser'))
+  t.check('The request', 'the supplier lines say what to write', has(p1, 'Name of Supplier / Company') && has(p1, 'Business Address'))
+  const sup = p1.texts.find(x => x.str.includes('Name of Supplier')), addr = p1.texts.find(x => x.str.includes('Business Address'))
+  t.check('The request', '…name above address, both above the request text', !!sup && !!addr && sup.y < addr.y && addr.y < (p1.texts.find(x => x.str.startsWith('Please'))?.y ?? 0), `${sup?.y} ${addr?.y}`)
   for (const n of ['1. All Entries must be typewritten', '2. Delivery period within', '3. Warranty shall be for a period of six (6) months',
                    '4. Price validity shall be for a period of', '5. G-EPS Registration Certificate']) {
     t.check('The request', `note "${n.slice(0, 26)}..."`, has(p1, n))
@@ -193,6 +196,33 @@ async function run() {
   t.check('Source of fund', 'an unknown source falls back too',
     fundCodeFor(ORG, 'NOPE') === 'FALLBACK', fundCodeFor(ORG, 'NOPE'))
 
+  // ── Several canvassers, side by side: three fit the one row the single canvasser had ──
+  const team = [
+    { name: 'PEDRO B. REYES', designation: 'Canvasser' }, { name: 'LUIS M. AQUINO', designation: 'Canvasser' },
+    { name: 'NENA R. CRUZ', designation: 'Supply Aide' }, { name: 'ROMY T. LIM', designation: 'Canvasser' },
+    { name: 'ELMA P. SY', designation: 'Canvasser' }, { name: 'JOEL D. TAN', designation: 'Canvasser' },
+  ]
+  const three = await render({ pr: PR, orgSettings: { ...ORG, canvassers: JSON.stringify(team.slice(0, 3)) }, items: [...BLINDS, ...SUPPLIES] })
+  const threePages = parse(three)
+  t.check('Canvassers', 'three canvassers still make two pages for two lots', pageCount(three) === 2, pageCount(three))
+  t.check('Canvassers', 'all three are named under each lot', threePages.every(p => team.slice(0, 3).every(c => has(p, c.name))))
+  t.check('Canvassers', '…on one row', (() => {
+    const ys = team.slice(0, 3).map(c => threePages[0].texts.find(x => x.str.includes(c.name))?.y)
+    return ys.every(y => y === ys[0])
+  })())
+  // Six take two rows; a full lot's footer then moves whole to the next page rather than run past the margin.
+  const six = await render({ pr: PR, orgSettings: { ...ORG, canvassers: JSON.stringify(team) }, items: [...BLINDS, ...SUPPLIES] })
+  const sixPages = parse(six)
+  const footers = sixPages.filter(p => has(p, 'PEDRO B. REYES'))
+  t.check('Canvassers', 'six are all named, once per lot', footers.length === 2 && footers.every(p => team.every(c => has(p, c.name))), footers.length)
+  t.check('Canvassers', 'the fourth starts a second row', (() => {
+    const y = (name) => footers[0].texts.find(x => x.str.includes(name))?.y
+    return y('NENA R. CRUZ') === y('PEDRO B. REYES') && y('ROMY T. LIM') > y('PEDRO B. REYES')
+  })())
+  t.check('Canvassers', 'nothing is drawn past the bottom margin', sixPages.every(p => p.texts.every(x => x.y <= PAGE_H - M + 1)))
+  t.check('Canvassers', 'a saved list replaces the single canvasser', canvassersOf({ canvassers: '[]', canvasser_name: 'OLD' }).length === 0)
+  t.check('Canvassers', 'without a list, the single canvasser carries over', canvassersOf({ canvasser_name: 'OLD', canvasser_designation: 'Canvasser' })[0]?.name === 'OLD')
+
   // ── The approver rule, on its own ───────────────────────────────────
   const org = { approver_threshold: '50000', approved_by_name: 'CD', approved_above_name: 'PRES' }
   t.check('Approver rule', 'below the threshold', approverFor(org, 49999).name === 'CD')
@@ -202,6 +232,45 @@ async function run() {
     approverFor({ ...org, approver_threshold: '' }, 50001).name === 'PRES')
   t.check('Approver rule', 'a nonsense threshold defaults too',
     approverFor({ ...org, approver_threshold: 'abc' }, 49999).name === 'CD')
+
+  // ── The Word copy ───────────────────────────────────────────────────
+  const D = 'Word copy'
+  const rfqDocx = require(path.join(H.SERVER, 'pdf', 'requestForQuotationDocx'))
+  const { unzip } = require(path.join(H.SERVER, 'utils', 'sheetImport'))
+  const docx = rfqDocx({ pr: PR, orgSettings: ORG, items: [...BLINDS, ...SUPPLIES, I('LOT B', 'pc', 'Folder & clip <long>', 1, 10)] })
+  const parts = unzip(docx)
+  const xml = parts.get('word/document.xml')?.toString('utf8') || ''
+  t.check(D, 'a Word package with its document, styles and the seal', ['[Content_Types].xml', '_rels/.rels', 'word/document.xml', 'word/styles.xml', 'word/_rels/document.xml.rels', 'word/media/seal.png'].every(n => parts.has(n)),
+    [...parts.keys()].join(', '))
+  // Every element opened is closed, in order (what Word needs to open the file at all).
+  const balance = (() => {
+    const stack = []
+    for (const m of xml.matchAll(/<(\/?)([\w:]+)[^>]*?(\/?)>/g)) {
+      if (m[3]) continue
+      if (!m[1]) stack.push(m[2])
+      else if (stack.pop() !== m[2]) return `</${m[2]}> out of place`
+    }
+    return stack.length ? `unclosed ${stack.join(',')}` : ''
+  })()
+  t.check(D, 'the document XML is well formed', !balance && xml.startsWith('<?xml'), balance)
+  const words = xml.replace(/<w:br\/>/g, '\n').replace(/<[^>]+>/g, '')
+  t.check(D, 'one page per lot', (xml.match(/<w:pageBreakBefore\/>/g) || []).length === 1)
+  t.check(D, 'each lot\'s quotation number', words.includes('CSO 2026-001 - LOT A') && words.includes('CSO 2026-001 - LOT B'))
+  t.check(D, 'the supplier lines say what to write', words.includes('Name of Supplier / Company') && words.includes('Business Address'))
+  t.check(D, 'the letterhead', ['NORTH EASTERN MINDANAO STATE UNIVERSITY', 'Cantilan Campus', 'Telefax No.: 086-212-5132', 'Website: www.nemsu.edu.ph'].every(x => words.includes(x)))
+  t.check(D, 'the seal on each page', (xml.match(/<a:blip r:embed="rIdImg1"\/>/g) || []).length === 2 && /Target="media\/seal\.png"/.test(parts.get('word/_rels/document.xml.rels').toString()))
+  t.check(D, 'the BAC Vice Chairman and the five notes', words.includes('ANA C. GARCIA, Ph. D.') && words.includes('5. G-EPS Registration Certificate'))
+  t.check(D, 'the items, with their specifications', words.includes('Window 1') && words.includes('Width = 401 cm x Height = 280 cm') && words.includes('Data File storage box with cover'))
+  t.check(D, 'special characters are kept, escaped', xml.includes('Folder &amp; clip &lt;long&gt;'), (xml.match(/Folder[^<]{0,30}/) || [])[0])
+  t.check(D, 'the ABC of each lot', words.includes('ABC : 70,000.00') && words.includes('ABC : 98,980.00'))
+  t.check(D, 'the prices are left for the supplier', !words.includes('17,500.00') && !words.includes('45,000.00'))
+  t.check(D, 'the purpose, terms, acceptance and signature lines', ['Purpose: Office Use of the Department of Computer Studies', 'Delivery Period:', 'Price Validity:', 'After having carefully read', 'Printed Name/Signature'].every(x => words.includes(x)))
+  t.check(D, 'the canvasser', words.includes('PEDRO B. REYES'))
+  const many = unzip(rfqDocx({ pr: PR, orgSettings: { ...ORG, canvassers: JSON.stringify(['A', 'B', 'C', 'D'].map(n => ({ name: `CANVASSER ${n}`, designation: 'Canvasser' }))) }, items: BLINDS }))
+    .get('word/document.xml').toString('utf8')
+  t.check(D, 'several canvassers, three to a row', ['A', 'B', 'C', 'D'].every(n => many.includes(`CANVASSER ${n}`)) && !many.includes('PEDRO B. REYES'))
+  const bare = unzip(rfqDocx({ pr: { pr_number: 'CSO 2026-002' }, orgSettings: {}, items: [] })).get('word/document.xml').toString('utf8')
+  t.check(D, 'a PR with no items or settings still makes a page', bare.includes('CSO 2026-002') && bare.includes('NORTH EASTERN MINDANAO STATE UNIVERSITY'))
 
   // ── Isolation ───────────────────────────────────────────────────────
   const src = fs.readFileSync(path.join(H.SERVER, 'pdf', 'requestForQuotation.js'), 'utf8')

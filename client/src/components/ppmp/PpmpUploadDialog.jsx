@@ -103,8 +103,10 @@ export default function PpmpUploadDialog({ open, ppmp = null, fiscalYear = null,
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
       <DialogContent className="max-w-6xl"
-        title={ppmp ? `Upload PPMP No. ${ppmp.version_no} Again` : fiscalYear ? `Upload Amended PPMP, FY ${fiscalYear}` : 'Upload PPMP'}
-        description="Upload your office's PPMP softcopy. Complete, it is in effect at once; your purchase requests draw on it.">
+        title={ppmp ? `Change PPMP No. ${ppmp.version_no}` : fiscalYear ? `Change the PPMP for FY ${fiscalYear}` : 'Upload PPMP'}
+        description={ppmp ? 'Upload the corrected file; it replaces this one, which is not in effect. Complete, it is in effect at once.'
+          : fiscalYear ? 'The corrected file becomes the PPMP\'s next version, in effect once complete; the one in effect now is kept as superseded, with its file.'
+          : 'Upload your office\'s PPMP softcopy. Complete, it is in effect at once; your purchase requests draw on it.'}>
         {!result ? (
           <div className="space-y-4 pt-2">
             <FilePick icon={FileSpreadsheet} title="PPMP softcopy" hint="Excel (.xlsx), CSV, or Word (.docx)" accept=".xlsx,.csv,.docx" file={data} onPick={setData} />

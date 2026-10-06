@@ -25,9 +25,4 @@ const PROCUREMENT_MODES = [
   'Agency-to-Agency',
 ]
 
-// What most campus purchases use, offered as the starting choice.
-const DEFAULT_MODE = 'Small Value Procurement'
-
-const isMode = (v) => PROCUREMENT_MODES.includes(v)
-
-module.exports = { PROCUREMENT_MODES, DEFAULT_MODE, isMode }
+module.exports = { PROCUREMENT_MODES }

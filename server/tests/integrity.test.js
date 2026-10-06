@@ -130,7 +130,6 @@ async function run() {
   const G4 = 'Award guards (WF-2)'
   await is(G4, 'edit an award whose PR has an active PO → 409', 2, 'PATCH', '/lots/10', { awarded_to: 'Someone else', awarded_amount: 1 }, code(409, /purchase order/))
   await is(G4, 'cancel an award whose PR has an active PO → 409', 2, 'PATCH', '/lots/10', { status: 'cancelled', reason: 'Supplier backed out' }, code(409))
-  await is(G4, 'add a lot item under an active PO → 409', 2, 'POST', '/lots/10/items', { item_name: 'x' }, code(409))
   await is(G4, 'edit an award on a completed PR → 409', 2, 'PATCH', '/lots/11', { awarded_to: 'X' }, code(409, /closed/))
   await is(G4, 'revive a cancelled award → 409', 2, 'PATCH', '/lots/12', { status: 'awarded', awarded_to: 'Old' }, code(409, /cancelled/))
   await is(G4, 'lot status other than awarded/cancelled → 400', 2, 'PATCH', '/lots/13', { status: 'open' }, code(400))
@@ -166,11 +165,10 @@ async function run() {
   await is(G5, 'recanvass (Ready for PO → Bidding)', 2, 'PATCH', '/pr/52/status', { status: 'bidding', notes: 'Supplier price expired' }, code(200))
   await is(G5, '…the old award is cancelled', 2, 'GET', '/lots/pr/52', undefined, (r) => r.status === 200 && r.data.length === 1 && r.data[0].status === 'cancelled')
   await is(G5, '…and the log says so', 2, 'GET', '/pr/52/logs', undefined, (r) => r.status === 200 && r.data.some(l => l.to_status === 'bidding' && /1 award cancelled/.test(l.note)))
-  await is(G5, 'the BAC enters the new supplier\'s bid', 7, 'PUT', '/canvass/52/bids',
-    { bidders: [{ name: 'S52 New', prices: [{ pr_item_id: 4, unit_price: 400 }] }], winners: [{ pr_item_id: 4, bidder: 0 }] }, code(200))
-  await is(G5, '…and awards it', 7, 'POST', '/canvass/52/award', {}, code(200))
-  await is(G5, '…no PO before the TWG → 409', 2, 'POST', '/po', { purchase_request_id: 52, issued_date: '2026-09-12' }, code(409, /certification/))
-  await is(G5, '…the TWG certifies it', 6, 'POST', '/twg/52/certify', { action: 'certify' }, code(200))
+  await is(G5, '…no PO before a new award → 409', 2, 'POST', '/po', { purchase_request_id: 52, issued_date: '2026-09-12' }, code(409, /certification/))
+  let through = 'ok'
+  try { await H.award(BASE, tok, 52, { bac: 7, twg: 6 }, [{ name: 'S52 New', prices: { 4: 400 } }]) } catch (e) { through = e.message }
+  t.check(G5, 'the new supplier\'s bid, certified by the TWG and awarded by the BAC', through === 'ok', through)
   const po52 = await is(G5, 'issue the PO', 2, 'POST', '/po', { purchase_request_id: 52, issued_date: '2026-09-12' }, code(201))
   await is(G5, '…from the new award only (not the old supplier or a combined total)', 2, 'GET', `/po/${po52.data?.id}`, undefined,
     (r) => r.status === 200 && r.data.supplier_name === 'S52 New' && Number(r.data.total_amount) === 400)
@@ -223,16 +221,10 @@ async function run() {
   await is(G7, 'bids: prices not a list → 400', 7, 'PUT', '/canvass/43/bids', { bidders: [{ name: 'X', prices: 5 }] }, code(400))
   await is(G7, 'bids: a winner that isn\'t a bidder\'s place → 400', 7, 'PUT', '/canvass/43/bids', { bidders: [{ name: 'X', prices: one }], winners: [{ pr_item_id: 1, bidder: 'x' }] }, code(400))
   await is(G7, 'bids: bidder name over 200 characters → 400', 7, 'PUT', '/canvass/43/bids', { bidders: [{ name: 'x'.repeat(201), prices: one }] }, code(400))
-  await is(G7, 'quarter: label Q5 → 400', 1, 'POST', '/quarters', { label: 'Q5', year: 2027 }, code(400))
-  await is(G7, 'quarter: year 1800 → 400', 1, 'POST', '/quarters', { label: 'Q1', year: 1800 }, code(400))
-  await is(G7, 'quarter: negative budget → 400', 1, 'POST', '/quarters', { label: 'Q1', year: 2027, budget: -5 }, code(400))
-  const q = await is(G7, 'quarter: Q1 2027 accepted', 1, 'POST', '/quarters', { label: 'Q1', year: 2027, budget: 500000 }, code(201))
-  await is(G7, 'quarter budget "abc" → 400', 1, 'PATCH', `/quarters/${q.data?.id}/budget`, { budget: 'abc' }, code(400))
-  await is(G7, 'quarter: created reply matches the saved row (API-12)', 1, 'GET', '/quarters', undefined,
-    (r) => r.status === 200 && q.data?.is_active === 0 && r.data.find(x => x.id === q.data.id)?.is_active === 0)
-  await is(G7, 'quarter: the same budget again → 200', 1, 'PATCH', `/quarters/${q.data?.id}/budget`, { budget: 500000 }, code(200))
-  await is(G7, 'quarter: toggle an unknown id → 404 (API-12)', 1, 'PATCH', '/quarters/9999/toggle', undefined, code(404))
-  await is(G7, 'quarter: budget of an unknown id → 404 (API-12)', 1, 'PATCH', '/quarters/9999/budget', { budget: 5 }, code(404))
+  await is(G7, 'quarters are automatic: none is added by hand', 1, 'POST', '/quarters', { label: 'Q1', year: 2027 }, code(404))
+  await is(G7, '…nor switched on or given a budget', 1, 'PATCH', '/quarters/1/toggle', undefined, code(404))
+  await is(G7, 'the list holds this year\'s four quarters, with their dates', 1, 'GET', '/quarters', undefined,
+    (r) => r.status === 200 && ['Q1', 'Q2', 'Q3', 'Q4'].every(l => r.data.some(x => x.label === l && x.year === new Date().getFullYear() && x.start_date && x.end_date)))
   await is(G7, 'settings: fund cluster over 50 characters → 400', 1, 'PATCH', '/settings', { fund_cluster: 'f'.repeat(51) }, code(400))
   await is(G7, 'user: name over 100 characters → 400', 1, 'POST', '/users', { name: 'n'.repeat(101), username: 'longname', email: 'l@int.invalid', password: 'Long-Enough-1', role: 'supply' }, code(400))
   await is(G7, 'user: 2-letter username → 400', 1, 'POST', '/users', { name: 'N', username: 'ab', email: 'ab@int.invalid', password: 'Long-Enough-1', role: 'supply' }, code(400))

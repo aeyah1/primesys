@@ -23,23 +23,29 @@ export const localToday = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+// "1 item", "3 items".
+export const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
+
+// Whole days since a date, never negative.
+export const daysSince = (d) => Math.max(0, Math.floor((Date.now() - new Date(d).getTime()) / 864e5))
+
 export const fmtDatetime = (d) => {
   if (!d) return '—'
   return new Date(d).toLocaleString('en-PH', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-// Keep these in sync with the server-side validation lists in pr.controller / lots.controller.
+// In workflow order, which charts and lists follow; keep in sync with server/utils/prWorkflow.js.
 export const PR_STATUS_LABELS = {
   draft:              'Draft',
   submitted:          'Submitted',
-  twg_review:         'Approved by TWG',
   revision_requested: 'Revision Requested',
-  rejected:           'Rejected by TWG',
+  twg_review:         'Approved by TWG',
   bidding:            'Canvass',
-  bac_review:         'BAC review',
   twg_certification:  'TWG certification',
+  bac_review:         'BAC award',
   for_po:             'Ready for PO',
   completed:          'Completed',
+  rejected:           'Rejected by TWG',
   cancelled:          'Cancelled',
 }
 
@@ -50,9 +56,9 @@ export const PR_STATUS_HELP = {
   twg_review:         'The TWG approved it. Waiting for the Procurement Office.',
   revision_requested: 'The TWG asked for changes before it can go on.',
   rejected:           'The TWG did not approve it. It will not go further.',
-  bidding:            'The canvasser is asking suppliers for prices; the BAC enters the bids and chooses the winners.',
-  bac_review:         'With the Bids and Awards Committee, which chooses the winners.',
-  twg_certification:  'The TWG is checking the canvass result against the request.',
+  bidding:            'The canvasser is asking suppliers for prices; the BAC enters the bids for the TWG to check.',
+  bac_review:         'The TWG checked the offers. The Bids and Awards Committee chooses the winners.',
+  twg_certification:  'The TWG is checking every offer against the specifications.',
   for_po:             'A supplier was chosen. The purchase order comes next, then delivery.',
   completed:          'Everything was delivered. Done.',
   cancelled:          'Stopped by the Procurement Office. It will not go further.',

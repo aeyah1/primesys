@@ -97,6 +97,18 @@ mysql -u root -p primesys < add_rfq_declined.sql
 mysql -u root -p primesys < add_fund_administrator.sql
 mysql -u root -p primesys < add_ppmp.sql
 mysql -u root -p primesys < add_item_category.sql
+mysql -u root -p primesys < add_pr_ppmp_link.sql
+mysql -u root -p primesys < canvass_outside.sql
+mysql -u root -p primesys < add_pr_requester_signature.sql
+mysql -u root -p primesys < add_ppmp_withdraw.sql
+mysql -u root -p primesys < add_twg_certificates.sql
+mysql -u root -p primesys < add_canvass_bids.sql
+mysql -u root -p primesys < add_bid_evaluation.sql
+mysql -u root -p primesys < add_ppmp_quarters.sql
+node fill_ppmp_quarters.js
+mysql -u root -p primesys < add_ppmp_changes.sql
+mysql -u root -p primesys < add_twg_review_certificate.sql
+mysql -u root -p primesys < add_pr_delete_reason.sql
 ```
 
 Apply only the ones your database is missing. The last ten need MariaDB (XAMPP); several of the earlier ones are one-shot `ALTER`s that fail if run twice. `add_user_columns.sql`, `add_missing_tables.sql`, and `add_twg_role.sql` would erase the `requestor` and `twg` roles on a newer database, so they stop with an error and change nothing when the database already has either role.
@@ -153,9 +165,10 @@ The tests need the local MariaDB running (XAMPP, `root` with no password, or set
 - TWG reviews every submitted PR: approve (`twg_review`), send back for changes (`revision_requested`), or reject (`rejected`).
 - Each TWG member reviews only the categories an admin assigns them (review areas, set in User Management). A PR goes to the reviewers of its category, and any one of them decides. If no active TWG member covers a category, admins are notified and the admin dashboard shows a warning. `add_twg_assignments.sql` gives every existing TWG member all areas.
 - A PR's items and details are locked for every role once it is submitted. To get an approved PR changed, Procurement returns it for revision (a reason is required) before any supplier is awarded; the requestor edits it and it goes through the TWG again.
-- Canvass: Procurement records each supplier's quotation (a unit price per PR item) and awards each item, by default to the lowest price; choosing another needs a reason. Different items can go to different suppliers, and each supplier's awards get their own purchase order, whose supplier and total come from the awards on the server. An award can't exceed the approved budget (the PR's estimate) of its items. An item no one can supply can be dropped, with a reason.
+- Canvass: the BAC types in each supplier's quotation (a unit price per PR item, from the canvasser's returned RFQs) and sends them to the TWG, which marks each bid compliant or non-compliant (with the reason) and certifies them. The BAC then awards each lot (a section of the PR's items; a PR without sections is one lot) to one supplier that bid on all of it, by default the lowest total of the bidders compliant on the whole lot; a supplier the TWG found non-compliant on any of the lot's items can't be awarded it. Each supplier's awards get their own purchase order, whose supplier and total come from the awards on the server. An award can't exceed the approved budget (the PR's estimate) of its items. An item no one can supply can be dropped, with a reason, and the BAC can take a certified canvass back to correct bids or add new quotations.
 - A PR stays in `bidding` while any item needs an award (a supplier's PO can already be out for the others), moves to `for_po` once every item is awarded or dropped, and to `completed` once every PO is fully delivered. Cancelling a supplier's PO (before delivery) cancels only its awards; their items go back to canvass.
 - Procurement or admin can cancel a PR while it has no active PO (`cancelled`); its awards are cancelled with it. While the TWG has it (`submitted`, `revision_requested`), only an admin can cancel or delete it.
+- A PR can be deleted only until its canvass starts (`bidding`, `twg_certification`, `bac_review` and later are cancelled instead). Deleting someone else's PR needs a reason; it is logged, kept on the PR, and whoever filed it is told, with the TWG reviewers of its area or Procurement when it was in their queue.
 - Completed, rejected, cancelled and deleted PRs stay in the Archive.
 
 Offices: each department carries the head who signs "Requested by" on the printed form, set in Settings > Organization. A person encodes for one office (User Management); the PR freezes that office's head when it is filed, so a later change of chair never rewrites PRs already on record.
@@ -190,6 +203,7 @@ primesys/
   database/
     schema.sql         Complete database for a fresh install (import this)
     reset_data.sql     Wipe all data and restore the default admin
+    clear_records.sql  Clear requests, PPMPs and notifications; keep users, offices, quarters, settings
 ```
 
 ## Security Notes

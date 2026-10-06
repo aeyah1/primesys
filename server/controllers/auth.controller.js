@@ -159,24 +159,29 @@ exports.login = async (req, res) => {
 
     securityLog('login', { userId: user.id, ip: req.ip })
     const { password_hash, token_version, ...safe } = user
-    res.json({ token: sign(safe, token_version), user: safe })
+    res.json({ token: sign(safe, token_version), user: await profileOf(user.id) })
   } catch (err) {
     console.error(err); res.status(500).json({ message: 'Internal server error' })
   }
 }
 
+// The signed-in user as the app shows them, with their office: the same at sign-in and on every reload.
+async function profileOf(userId) {
+  const [[row]] = await pool.execute(
+    `SELECT u.id, u.name, u.designation, u.username, u.email, u.role, u.is_active, u.created_at,
+            u.fund_cluster, u.responsibility_center_code,
+            u.department_id, d.code AS department_code, d.name AS department_name
+       FROM users u LEFT JOIN departments d ON d.id = u.department_id
+      WHERE u.id = ?`, [userId])
+  return row || null
+}
+
 exports.me = async (req, res) => {
   try {
-    const [rows] = await pool.execute(
-      `SELECT u.id, u.name, u.designation, u.username, u.email, u.role, u.is_active, u.created_at,
-              u.fund_cluster, u.responsibility_center_code,
-              u.department_id, d.code AS department_code, d.name AS department_name
-         FROM users u LEFT JOIN departments d ON d.id = u.department_id
-        WHERE u.id = ?`, [req.user.id]
-    )
-    if (!rows.length) return res.status(404).json({ message: 'User not found' })
-    if (!rows[0].is_active) return res.status(403).json({ message: 'Account deactivated' })
-    res.json(rows[0])
+    const profile = await profileOf(req.user.id)
+    if (!profile) return res.status(404).json({ message: 'User not found' })
+    if (!profile.is_active) return res.status(403).json({ message: 'Account deactivated' })
+    res.json(profile)
   } catch (err) {
     console.error(err); res.status(500).json({ message: 'Internal server error' })
   }

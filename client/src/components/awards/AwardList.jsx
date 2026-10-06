@@ -7,11 +7,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
 import { LotStatusBadge, DeliveryStatusBadge } from '@/components/shared/StatusBadge'
-import { fmtCurrency } from '@/lib/utils'
+import { fmtCurrency, plural } from '@/lib/utils'
 import api from '@/lib/axios'
 import { nameKey, cents, lineCents, useRefreshAwards } from './supplier'
 
-const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 const TEXTAREA = 'w-full rounded-md border border-[--color-border] bg-[--color-surface] px-3 py-2 text-sm text-[--color-text-primary] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent resize-y'
 
 /* ── Edit one award's title, and its supplier's name before the BAC's award ── */

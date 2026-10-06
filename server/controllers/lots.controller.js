@@ -72,44 +72,6 @@ exports.listByPR = asyncHandler(async (req, res) => {
   res.json(rows.map(l => withLocked({ ...l, items: byLot[l.id] || [] }, pr)))
 })
 
-exports.getItems = async (req, res) => {
-  try {
-    const [items] = await pool.execute(
-      'SELECT id, lot_id, pr_item_id, item_name, quantity, unit, estimated_cost, unit_price FROM lot_items WHERE lot_id = ? ORDER BY id',
-      [req.params.id]
-    )
-    res.json(items)
-  } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
-}
-
-// Extra lines on an award (not PR items); fixed once the award is (WF-2).
-exports.addItem = asyncHandler(async (req, res) => {
-  const { item_name, quantity, unit, estimated_cost } = req.body   // checked in the route
-  const { pr, lot } = await loadLot(pool, req.params.id)
-  const denied = awardLockedReason(pr, lot)
-  if (denied) return res.status(denied.status).json({ message: denied.message })
-  const [result] = await pool.execute(
-    'INSERT INTO lot_items (lot_id, item_name, quantity, unit, estimated_cost) VALUES (?, ?, ?, ?, ?)',
-    [lot.id, item_name, quantity || 1, unit || null, estimated_cost || null]
-  )
-  res.status(201).json({ id: result.insertId, item_name, quantity, unit, estimated_cost })
-})
-
-// The PR items an award covers stay with it; to change them, cancel the
-// award and award again. Extra lines can be removed.
-exports.deleteItem = asyncHandler(async (req, res) => {
-  const { pr, lot } = await loadLot(pool, req.params.id)
-  const denied = awardLockedReason(pr, lot)
-  if (denied) return res.status(denied.status).json({ message: denied.message })
-  const [[item]] = await pool.execute('SELECT pr_item_id FROM lot_items WHERE id = ? AND lot_id = ?', [req.params.itemId, lot.id])
-  if (!item) return res.status(404).json({ message: 'Item not found' })
-  if (item.pr_item_id) {
-    return res.status(409).json({ message: 'This item is one of the PR\'s items the award covers. Cancel the award to award it differently.' })
-  }
-  await pool.execute('DELETE FROM lot_items WHERE id = ? AND lot_id = ?', [req.params.itemId, lot.id])
-  res.json({ message: 'Item removed' })
-})
-
 // Edits an award, or cancels it (status 'cancelled', with a reason). The
 // title is this lot's; the supplier's name and details change on every award
 // to that supplier on the PR that has no PO yet. The amount comes from the
@@ -174,8 +136,8 @@ exports.update = asyncHandler(async (req, res) => {
 // Lots & Awards work queue
 // PRs by what they need next. A PR awarded in part can be in more than one:
 //   to_canvass   approved by the TWG, canvass not started yet
-//   needs_award  in canvass, with the BAC: the bids to enter and award
-//   with_twg     the TWG certifies the BAC's awards
+//   needs_award  with the BAC: the bids to enter (in canvass), or the winners to pick
+//   with_twg     the TWG evaluates and certifies the bids
 //   awaiting_po  certified awards with no purchase order yet
 //   po_issued    at least one active purchase order
 //   cancelled    cancelled after an award was recorded

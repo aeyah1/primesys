@@ -151,6 +151,7 @@ CREATE TABLE `purchase_requests` (
   `certification_return_reason` VARCHAR(500) NULL,
   `deleted_at`                 TIMESTAMP    NULL DEFAULT NULL,
   `deleted_by`                 INT UNSIGNED NULL,
+  `delete_reason`              VARCHAR(500) NULL,   -- why it was deleted (none when its filer deleted their own draft)
   `created_at`                 TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at`                 TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
@@ -325,20 +326,26 @@ CREATE TABLE `lot_items` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- BAC resolutions
--- The canvass bids the BAC enters: each bidder (a supplier, by name) and its
--- unit price for each PR item it offered. The BAC picks each item's winner
--- (pr_items.winner_bidder_id) and awards them.
+-- The canvass bids the BAC enters from the canvasser's returned RFQs, one
+-- quotation at a time: each bidder (a supplier, by name, with its RFQ No. and
+-- its RFQ file) and its unit price for each PR item it offered. The TWG marks
+-- each bid compliant or not, with the offered specification and the reason
+-- (its certificate lists them), and the BAC picks each lot's winner
+-- (pr_items.winner_bidder_id, on each item of the lot) and awards.
 CREATE TABLE `canvass_bidders` (
   `id`         INT UNSIGNED      NOT NULL AUTO_INCREMENT,
   `pr_id`      INT UNSIGNED      NOT NULL,
   `name`       VARCHAR(200)      NOT NULL,
+  `rfq_no`     VARCHAR(50)       NULL,       -- the number on the supplier's returned RFQ
+  `attachment_id` INT UNSIGNED   NULL,       -- the supplier's returned RFQ, attached to the PR
   `position`   SMALLINT UNSIGNED NOT NULL DEFAULT 0,
   `created_by` INT UNSIGNED      NULL,
   `created_at` TIMESTAMP         NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_canvass_bidders_pr` (`pr_id`),
   CONSTRAINT `fk_canvass_bidders_pr` FOREIGN KEY (`pr_id`)      REFERENCES `purchase_requests` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_canvass_bidders_by` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+  CONSTRAINT `fk_canvass_bidders_by` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_canvass_bidders_file` FOREIGN KEY (`attachment_id`) REFERENCES `pr_attachments` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE `canvass_bids` (
@@ -346,6 +353,11 @@ CREATE TABLE `canvass_bids` (
   `bidder_id`  INT UNSIGNED  NOT NULL,
   `pr_item_id` INT UNSIGNED  NOT NULL,
   `unit_price` DECIMAL(15,2) NOT NULL,
+  -- The TWG's evaluation: compliant (NULL until checked), what was offered, and why not compliant.
+  `compliant`      TINYINT(1)    NULL,
+  `offered_spec`   VARCHAR(1000) NULL,
+  `remarks`        VARCHAR(500)  NULL,
+  `certificate_id` INT UNSIGNED  NULL,   -- FK added after twg_certificates, below
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_canvass_bid` (`bidder_id`, `pr_item_id`),
   KEY `idx_canvass_bids_item` (`pr_item_id`),
@@ -376,12 +388,14 @@ CREATE TABLE `bac_resolutions` (
 ALTER TABLE `lots`
   ADD CONSTRAINT `fk_lots_resolution` FOREIGN KEY (`resolution_id`) REFERENCES `bac_resolutions` (`id`) ON DELETE SET NULL;
 
--- One per TWG certification of a PR's approved awards, numbered per year
--- (suggested 2026-10-001, editable). Printed as the Certification (Goods and services).
+-- One per TWG certification of a PR's bids (the compliance of every offer),
+-- numbered per year (suggested 2026-10-001, editable). Printed as the Certification (Goods and services).
 CREATE TABLE `twg_certificates` (
   `id`           INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `cert_no`      VARCHAR(30)  NOT NULL,
   `pr_id`        INT UNSIGNED NOT NULL,
+  -- review: the TWG checked the request's market price and specifications (issued on approval); bids: the canvass bids.
+  `kind`         ENUM('review','bids') NOT NULL DEFAULT 'bids',
   `certified_by` INT UNSIGNED NULL,
   `signature`    MEDIUMTEXT   NULL,       -- PNG data URL, signed on the screen or uploaded
   `sign_method`  ENUM('drawn','uploaded') NULL,
@@ -395,6 +409,8 @@ CREATE TABLE `twg_certificates` (
 
 ALTER TABLE `lots`
   ADD CONSTRAINT `fk_lots_certificate` FOREIGN KEY (`certificate_id`) REFERENCES `twg_certificates` (`id`) ON DELETE SET NULL;
+ALTER TABLE `canvass_bids`
+  ADD CONSTRAINT `fk_canvass_bids_certificate` FOREIGN KEY (`certificate_id`) REFERENCES `twg_certificates` (`id`) ON DELETE SET NULL;
 
 -- Purchase orders
 -- One PO per supplier's awards (lots.po_id), so a PR can have several active
@@ -543,6 +559,8 @@ CREATE TABLE `ppmps` (
   `department_id`      INT UNSIGNED NOT NULL,
   `fiscal_year`        SMALLINT UNSIGNED NOT NULL,
   `version_no`         INT UNSIGNED NOT NULL DEFAULT 1,
+  -- The version this one was edited from in PRimeSys (its uploaded file stays with that one); NULL for an uploaded file.
+  `edited_from`        INT UNSIGNED NULL,
   `kind`               ENUM('indicative','final') NOT NULL DEFAULT 'final',
   `fund_source`        ENUM('STF','GAA','IGP') NOT NULL DEFAULT 'STF',
   -- draft: kept but not in effect (see problems); approved: signed and complete, in effect; superseded: a later version took effect;
@@ -567,6 +585,10 @@ CREATE TABLE `ppmps` (
   `withdrawn_at`       DATETIME NULL,
   `withdrawn_by`       INT UNSIGNED NULL,
   `withdraw_reason`    VARCHAR(500) NULL,
+  -- The Fund Administrator's request that an admin remove it (withdraw it), while it waits.
+  `removal_requested_by` INT UNSIGNED NULL,
+  `removal_requested_at` DATETIME NULL,
+  `removal_reason`     VARCHAR(500) NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_ppmp_version` (`department_id`, `fiscal_year`, `version_no`),
   CONSTRAINT `fk_ppmp_department`  FOREIGN KEY (`department_id`) REFERENCES `departments` (`id`),
@@ -586,6 +608,11 @@ CREATE TABLE `ppmp_items` (
   `unit_cost`           DECIMAL(15,2) NOT NULL,
   `mode_of_procurement` VARCHAR(50)   NULL,
   `months`              VARCHAR(40)   NULL,
+  -- Each quarter's quantity from the file's month columns (Jan to Mar is Q1); null when they don't add up to the quantity.
+  `qty_q1`              DECIMAL(10,2) NULL,
+  `qty_q2`              DECIMAL(10,2) NULL,
+  `qty_q3`              DECIMAL(10,2) NULL,
+  `qty_q4`              DECIMAL(10,2) NULL,
   `remarks`             VARCHAR(500)  NULL,
   `file_row`            INT UNSIGNED  NULL,
   `sort_order`          INT UNSIGNED  NOT NULL DEFAULT 0,
