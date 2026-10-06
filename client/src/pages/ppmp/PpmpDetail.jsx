@@ -31,7 +31,7 @@ const NO_FIND = { text: '', part: 'all', category: 'all', mode: 'all', month: 'a
 const REASONS = {
   withdraw: {
     title: (n) => `Withdraw PPMP No. ${n}`, path: '/withdraw', label: 'Withdraw', busy: 'Withdrawing…', danger: true,
-    description: 'For a PPMP put in effect by mistake. It is kept on record as withdrawn; the version it replaced, if any, is in effect again, and the office uploads the right one. The Fund Administrator is told why.',
+    description: 'For a PPMP put in effect by mistake. It is kept on record as withdrawn; the version it replaced, if any, is in effect again, and the office uploads the right one. The End User is told why.',
     placeholder: "e.g. The file uploaded is last year's PPMP",
   },
   request: {
@@ -41,7 +41,7 @@ const REASONS = {
   },
   decline: {
     title: () => 'Decline the removal', path: '/removal/decline', label: 'Decline', busy: 'Declining…', danger: false,
-    description: 'The PPMP stays in effect. The Fund Administrator who asked is told why.',
+    description: 'The PPMP stays in effect. The End User who asked is told why.',
     placeholder: 'e.g. This is the right file; use Change to correct it instead',
   },
 }
@@ -237,7 +237,7 @@ export default function PpmpDetail() {
 
       {asked && (
         <Notice tone="amber" icon={AlertTriangle} title="Removal asked for: waiting for an admin">
-          {p.removal_requested_by_name || 'The Fund Administrator'} asked on {fmtDatetime(p.removal_requested_at)}: {p.removal_reason}
+          {p.removal_requested_by_name || 'The End User'} asked on {fmtDatetime(p.removal_requested_at)}: {p.removal_reason}
           <span className="mt-2 flex flex-wrap gap-2">
             {can.cancel_removal && <Button size="sm" variant="outline" disabled={acting} onClick={() => act({ path: '/removal', method: 'delete' })}>Cancel request</Button>}
             {can.withdraw && <Button size="sm" variant="danger" disabled={acting} onClick={() => setAsking({ kind: 'withdraw', reason: p.removal_reason || '' })}>Remove it (withdraw)</Button>}
@@ -441,7 +441,7 @@ export default function PpmpDetail() {
           </Table>
           {p.skipped_rows.length > 0 && (
             <div className="px-4 py-3 border-t border-[--color-border] text-ui-xs text-[--color-text-secondary]">
-              <p className="font-semibold text-[--color-text-primary]">Rows of the file left out by the Fund Administrator</p>
+              <p className="font-semibold text-[--color-text-primary]">Rows of the file left out by the End User</p>
               {p.skipped_rows.map(s => <p key={s.row}>Row {s.row}: {s.description}</p>)}
             </div>
           )}
@@ -450,7 +450,7 @@ export default function PpmpDetail() {
 
       {reason && (
         <Dialog open onOpenChange={v => { if (!v) setAsking(null) }}>
-          <DialogContent title={reason.title(p.version_no)} description={asking.kind === 'withdraw' && asked ? `${reason.description} This grants the Fund Administrator's request.` : reason.description}>
+          <DialogContent title={reason.title(p.version_no)} description={asking.kind === 'withdraw' && asked ? `${reason.description} This grants the End User's request.` : reason.description}>
             <div className="space-y-1.5">
               <Label htmlFor="ppmp-reason">Reason <span className="text-red-600 text-xs">*</span></Label>
               <textarea id="ppmp-reason" rows={3} maxLength={500} autoFocus value={asking.reason} onChange={e => setAsking(a => ({ ...a, reason: e.target.value }))}

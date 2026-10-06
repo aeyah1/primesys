@@ -1,4 +1,4 @@
-// Orders PR items by section for documents (PR form, PO, IAR), using the same
+// Orders PR items by section for documents (PR form, PO), using the same
 // rule as every screen (client/src/lib/utils.js, groupItemsBySection):
 // section names that differ only in upper/lower case or spacing are one
 // section, so all "Day 1" items share one heading. Items without a section come

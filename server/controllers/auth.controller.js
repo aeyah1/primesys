@@ -59,7 +59,7 @@ exports.register = async (req, res) => {
     const [[office]] = await pool.execute('SELECT id, code, name FROM departments WHERE id = ? AND is_active = 1', [department_id])
     if (!office) return res.status(400).json({ message: 'Pick your office' })
     if (await officeHolder(pool, office.id)) {
-      return res.status(409).json({ message: `${office.code} already has a Fund Administrator. If you are taking over, ask the administrator to reassign the office.` })
+      return res.status(409).json({ message: `${office.code} already has an End User. If you are taking over, ask the administrator to reassign the office.` })
     }
 
     const [usernameCheck] = await pool.execute('SELECT id FROM users WHERE LOWER(username) = LOWER(?)', [username])
@@ -93,7 +93,7 @@ exports.register = async (req, res) => {
     }
 
     securityLog('register', { userId, ip: req.ip })
-    await tellAdmins(req.io, `${name} signed up as Fund Administrator of ${office.code} and is waiting for your approval in User Management.`)
+    await tellAdmins(req.io, `${name} signed up as End User of ${office.code} and is waiting for your approval in User Management.`)
     res.status(201).json({ message: REGISTERED })
   } catch (err) {
     console.error(err); res.status(500).json({ message: 'Internal server error' })

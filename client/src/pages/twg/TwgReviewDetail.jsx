@@ -92,10 +92,10 @@ export default function TwgReviewDetail() {
     },
     onSuccess: ({ data }) => {
       const msg = action === 'approve' ? `PR approved and forwarded to Procurement${data.certificate ? `, certified in Cert. No. ${data.certificate.cert_no}` : ''}`
-                : action === 'revise'  ? 'Revision requested. The Fund Administrator has been notified.'
+                : action === 'revise'  ? 'Revision requested. The End User has been notified.'
                 : action === 'certify' ? data.message
                 : action === 'return'  ? 'Returned to the BAC with your comment'
-                                       : 'PR rejected. The Fund Administrator has been notified.'
+                                       : 'PR rejected. The End User has been notified.'
       toast.success(msg, issuesCert && data.certificate ? {
         action: { label: 'Print certificate', onClick: () => openPdf(`/bac/${id}/certificates/${data.certificate.id}/pdf`).catch(async (err) => toast.error(await blobErrorMessage(err, 'Could not open the TWG Certification'))) },
       } : undefined)
@@ -392,7 +392,7 @@ export default function TwgReviewDetail() {
           className={certifyAction ? 'max-w-2xl' : 'max-w-4xl'}
           title={
             action === 'approve' ? 'Approve & Forward to Procurement'
-            : action === 'revise' ? 'Request Revision from Fund Administrator'
+            : action === 'revise' ? 'Request Revision from End User'
             : action === 'certify' ? 'Certify the Canvass Result'
             : action === 'return' ? 'Return to the BAC'
             : 'Reject Purchase Request'

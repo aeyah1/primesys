@@ -34,7 +34,7 @@ async function reminderProblem(user, { assigned_to, pr_id, lot_id }) {
     const [[pr]] = await pool.execute('SELECT created_by FROM purchase_requests WHERE id = ?', [pr_id])
     if (pr?.created_by === target.id) return null
   }
-  return { status: 403, message: 'A Fund Administrator can be reminded only about a PR they filed: link that PR first' }
+  return { status: 403, message: 'An End User can be reminded only about a PR they filed: link that PR first' }
 }
 
 // The recipient picker: only the people this user may remind.

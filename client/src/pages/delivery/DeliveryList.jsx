@@ -3,7 +3,7 @@ import { useQuery, useMutation } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import {
   Plus, Pencil, Search, AlertTriangle, Trash2,
-  Package, CheckCircle, TruckIcon, Paperclip, Send, FileDown,
+  Package, CheckCircle, TruckIcon, Paperclip, Send,
 } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { useAuth } from '@/context/AuthContext'
@@ -20,7 +20,6 @@ import AttachmentsPanel from '@/components/shared/AttachmentsPanel'
 import ReceiveDialog from '@/components/delivery/ReceiveDialog'
 import { qty, TEXTAREA, useRefreshDeliveries } from '@/components/delivery/shared'
 import { fmtDate, localToday } from '@/lib/utils'
-import { openPdf, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
 
 const TABS = [
@@ -70,8 +69,6 @@ export default function DeliveryList() {
   const isSupply  = user?.role === 'supply'
   const canRecord = isStaff || isSupply
 
-  const iar = (d) => openPdf(`/delivery/${d.id}/pdf`).catch(async (err) => toast.error(await blobErrorMessage(err, 'Could not open the inspection report')))
-
   // Stats (from the full search result, before the tab filter)
   const stats = useMemo(() => ({
     total:    deliveries.length,
@@ -94,7 +91,7 @@ export default function DeliveryList() {
   })
   const { mutate: sendNote, isPending: isSendingNote } = useMutation({
     mutationFn: ({ id, notes }) => api.patch(`/delivery/${id}/supply-update`, { notes }),
-    onSuccess: () => { toast.success('Note sent to procurement and the requestor'); refresh(); setNoting(null) },
+    onSuccess: () => { toast.success('Note sent to procurement and the End User'); refresh(); setNoting(null) },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to send the note'),
   })
 
@@ -270,9 +267,6 @@ export default function DeliveryList() {
                         {/* Actions */}
                         <TableCell>
                           <div className="flex items-center gap-1">
-                            <button onClick={() => iar(d)} className={iconBtn} title="Inspection and Acceptance Report (PDF)">
-                              <FileDown className="size-3.5" />
-                            </button>
                             {canRecord && (
                               <button onClick={() => setAttachDelivery(d)} className={iconBtn} title="Invoices and proof of delivery">
                                 <Paperclip className="size-3.5" />
@@ -397,7 +391,7 @@ export default function DeliveryList() {
                 onChange={e => setNote(e.target.value)} />
             </div>
             <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2.5 text-xs text-sky-800">
-              Procurement and the Fund Administrator are notified. A note doesn't change what was delivered; when more goods arrive, record them as a delivery.
+              Procurement and the End User are notified. A note doesn't change what was delivered; when more goods arrive, record them as a delivery.
             </p>
           </div>
           <DialogFooter>

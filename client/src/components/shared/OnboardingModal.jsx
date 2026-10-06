@@ -16,7 +16,7 @@ const SLIDES = {
       logo: true,
       color: 'from-amber-400 to-orange-400',
       title: 'Welcome to PRimeSys!',
-      body:  'You\'re logged in as a Fund Administrator. This quick tour shows you how to file purchase requests for personal, event, office, or project needs.',
+      body:  'You\'re logged in as an End User. This quick tour shows you how to file purchase requests for personal, event, office, or project needs.',
     },
     {
       Icon:  FileText,
@@ -67,7 +67,7 @@ const SLIDES = {
       Icon:  ShoppingCart,
       color: 'from-blue-600 to-indigo-500',
       title: 'Issue a Purchase Order',
-      body:  'Open the PR (now Ready for PO) and issue the PO with supplier info and expected delivery date. The Supply Officer and the Fund Administrator are notified automatically.',
+      body:  'Open the PR (now Ready for PO) and issue the PO with supplier info and expected delivery date. The Supply Officer and the End User are notified automatically.',
     },
     {
       Icon:  CheckCircle,
@@ -100,7 +100,7 @@ const SLIDES = {
       Icon:  Truck,
       color: 'from-purple-400 to-pink-400',
       title: 'Record the Delivery',
-      body:  'Click Receive on the PO, enter how many of each item arrived, and set the date. Download the IAR PDF for filing.',
+      body:  'Click Receive on the PO, enter how many of each item arrived, and set the date. Attach the invoice or proof of delivery.',
     },
     {
       Icon:  CheckCircle,
@@ -121,7 +121,7 @@ const SLIDES = {
       Icon:  ClipboardCheck,
       color: 'from-amber-400 to-orange-400',
       title: 'Your Review Queue',
-      body:  'When a Fund Administrator submits a PR, it lands in your To Review list. Open it to see every item, quantity, unit cost, and attachment.',
+      body:  'When an End User submits a PR, it lands in your To Review list. Open it to see every item, quantity, unit cost, and attachment.',
     },
     {
       Icon:  CheckCircle,
@@ -133,7 +133,7 @@ const SLIDES = {
       Icon:  RotateCcw,
       color: 'from-amber-500 to-yellow-400',
       title: 'Request a Revision',
-      body:  'If something needs to change, click Request Revision and explain what the Fund Administrator should fix. They get notified and can resubmit after editing. If the request can\'t go ahead, click Reject and give the reason.',
+      body:  'If something needs to change, click Request Revision and explain what the End User should fix. They get notified and can resubmit after editing. If the request can\'t go ahead, click Reject and give the reason.',
     },
     {
       Icon:  CheckCircle,
@@ -181,13 +181,13 @@ const SLIDES = {
       Icon:  Users,
       color: 'from-blue-400 to-indigo-400',
       title: 'Manage Users',
-      body:  'Go to User Management to create accounts, assign roles (Admin, Procurement, Fund Administrator, Supply, TWG, BAC), and activate or deactivate users. Public sign-up always creates Fund Administrators.',
+      body:  'Go to User Management to create accounts, assign roles (Admin, Procurement, End User, Supply, TWG, BAC), and activate or deactivate users. Public sign-up always creates End Users.',
     },
     {
       Icon:  Calendar,
       color: 'from-amber-400 to-orange-400',
       title: 'Offices and their PPMPs',
-      body:  'Under Organization, list the campus offices and their heads. Each office\'s Fund Administrator uploads its PPMP; the quarters, and what each one is budgeted, follow from it on their own.',
+      body:  'Under Organization, list the campus offices and their heads. Each office\'s End User uploads its PPMP; the quarters, and what each one is budgeted, follow from it on their own.',
     },
     {
       Icon:  Shield,
@@ -199,7 +199,7 @@ const SLIDES = {
       Icon:  CheckCircle,
       color: 'from-amber-500 to-yellow-400',
       title: 'You\'re all set!',
-      body:  'Start by creating user accounts and giving each office its Fund Administrator. Everything else is in the User Guide, in the sidebar anytime.',
+      body:  'Start by creating user accounts and giving each office its End User. Everything else is in the User Guide, in the sidebar anytime.',
     },
   ],
 }
