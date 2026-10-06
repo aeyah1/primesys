@@ -1,20 +1,15 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { FileDown, Paperclip, ChevronDown, ChevronRight, Truck } from 'lucide-react'
-import { toast } from '@/lib/toast'
-import { Button } from '@/components/ui/button'
+import { Paperclip, ChevronDown, ChevronRight, Truck } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DeliveryStatusBadge } from '@/components/shared/StatusBadge'
 import AttachmentsPanel from '@/components/shared/AttachmentsPanel'
 import { fmtDate, plural } from '@/lib/utils'
-import { openPdf, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
 import { qty } from './shared'
 
-const pdf = (endpoint, what) => openPdf(endpoint).catch(async (err) => toast.error(await blobErrorMessage(err, `Could not open the ${what}`)))
-
-/* One delivery of a PO: what it brought, its inspection report, and its files (invoices and proof of delivery,
-   which open in the page). openFiles: show the files from the start. */
+/* One delivery of a PO: what it brought, and its files (invoices and proof of delivery, which open in the page).
+   openFiles: show the files from the start. */
 export function DeliveryRow({ d, canUpload = false, canDelete = false, openFiles = false }) {
   const [files, setFiles] = useState(openFiles)
   return (
@@ -31,9 +26,6 @@ export function DeliveryRow({ d, canUpload = false, canDelete = false, openFiles
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <DeliveryStatusBadge status={d.status === 'complete' ? 'delivered' : 'partial'} />
-          <Button variant="ghost" size="icon" title="Inspection and Acceptance Report (PDF)" onClick={() => pdf(`/delivery/${d.id}/pdf`, 'inspection report')}>
-            <FileDown className="size-4 text-[--color-text-muted]" />
-          </Button>
           <button onClick={() => setFiles(p => !p)} title="Invoices and proof of delivery"
             className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-[--color-text-muted] hover:text-[--color-brand] hover:bg-[--color-overlay] transition-colors">
             <Paperclip className="size-3.5" /> {d.attachments > 0 ? d.attachments : ''}
@@ -50,8 +42,7 @@ export function DeliveryRow({ d, canUpload = false, canDelete = false, openFiles
   )
 }
 
-/* A PO's deliveries on its request's page, to look at: each one with what arrived, its inspection report, and the
-   proof Supply attached (shown open when there is some). po: a PR page's purchase order (GET /pr/:id pos[]). */
+/* A PO's deliveries on its request's page, to look at: each one with what arrived, and the proof Supply attached (shown open when there is some). po: a PR page's purchase order (GET /pr/:id pos[]). */
 export function PoDeliveries({ po }) {
   const has = !!Number(po.has_deliveries)
   const { data, isLoading } = useQuery({

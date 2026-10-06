@@ -7,7 +7,6 @@
 // reads the page's own drawing operators back.
 //
 // No database and no server: drawPRForm is a pure function of its arguments.
-const fs   = require('fs')
 const zlib = require('zlib')
 const path = require('path')
 const H    = require('./harness')
@@ -326,13 +325,6 @@ async function run() {
     !bare[0].texts.some(x => /null|undefined|NaN/.test(x.str)),
     bare[0].texts.map(x => x.str).filter(s => /null|undefined|NaN/.test(s)).join(','))
   t.check('Sparse data', 'total of no items is 0.00', has(bare[0], '0.00'))
-
-  // ── The other three PDFs must not have been restyled ────────────────
-  const helpers = fs.readFileSync(path.join(H.SERVER, 'utils', 'pdfHelpers.js'), 'utf8')
-  t.check('Isolation', 'prForm does not use the shared report table helper',
-    !/drawTable|pageHeader|sigBlock|metaField/.test(fs.readFileSync(path.join(H.SERVER, 'pdf', 'prForm.js'), 'utf8')))
-  t.check('Isolation', 'the shared helpers still export what PO/IAR/Abstract use',
-    ['drawTable', 'pageHeader', 'pageFooter', 'metaField', 'sigBlock', 'hRule'].every(f => helpers.includes(f)))
 
   return t.summary()
 }

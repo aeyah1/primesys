@@ -98,7 +98,7 @@ async function run() {
     check(G1, `${label} → ${want}, no account`, r.status === want && (await q('SELECT COUNT(*) AS n FROM users WHERE username = ?', [body.username]))[0].n === 0, show(r))
   }
   r = await http('POST', '/auth/register', reg({ department_id: 3 }))
-  check(G1, 'an office that has a Fund Administrator → 409', r.status === 409 && /OFC already has a Fund Administrator/.test(r.data.message) && !/Req One/.test(r.data.message), show(r))
+  check(G1, 'an office that has a Fund Administrator → 409', r.status === 409 && /OFC already has an End User/.test(r.data.message) && !/Req One/.test(r.data.message), show(r))
 
   for (const [field, value] of [['role', 'admin'], ['role', 'procurement'], ['role', 'supply'], ['role', 'twg'],
                                 ['is_verified', true], ['is_active', true], ['is_approved', 1], ['permissions', ['*']], ['is_admin', true]]) {
@@ -172,7 +172,7 @@ async function run() {
   r = await http('PATCH', `/users/${u1Id}/approve`, undefined, adminTok)
   check(G2, 'approving it again → 409', r.status === 409, show(r))
   r = await http('PATCH', `/users/${u3Id}/approve`, undefined, adminTok)
-  check(G2, 'a second Fund Administrator for the same office → 409, still waiting', r.status === 409 && /OFD already has a Fund Administrator/.test(r.data.message)
+  check(G2, 'a second Fund Administrator for the same office → 409, still waiting', r.status === 409 && /OFD already has an End User/.test(r.data.message)
     && (await q('SELECT is_verified FROM users WHERE id = ?', [u3Id]))[0].is_verified === 0, show(r))
   r = await http('POST', '/auth/register', reg({ department_id: 4 }))
   check(G2, '…and the office now refuses new sign-ups', r.status === 409, show(r))

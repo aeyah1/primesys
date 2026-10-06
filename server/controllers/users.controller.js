@@ -154,7 +154,7 @@ exports.update = async (req, res) => {
 
     const officeId = 'department_id' in req.body ? (req.body.department_id || null) : current[0].department_id
     const areasSaved = await withTransaction(async (conn) => {
-      if (role === 'requestor' && !officeId) throw httpError(400, 'Pick the office this Fund Administrator handles')
+      if (role === 'requestor' && !officeId) throw httpError(400, 'Pick the office this End User handles')
       if (current[0].is_active && current[0].is_verified) await assertOfficeFree(conn, { id: current[0].id, role, department_id: officeId })
       await conn.execute(
         `UPDATE users SET name = ?, role = ?${username ? ', username = ?' : ''}${extra.length ? ', ' + extra.join(', ') : ''} WHERE id = ?`,

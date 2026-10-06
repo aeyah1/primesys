@@ -8,10 +8,6 @@ const { approverFor } = require('../utils/orgSettings')
 // the campus's own Excel sheet cell for cell, so a printed copy can be signed
 // and filed as-is.
 //
-// This file deliberately does not use the shared report helpers in
-// utils/pdfHelpers.js (beyond the page margin): those style the PO and the
-// Inspection Report, and this form must not drift when they are restyled.
-//
 // Three item tiers map onto columns the system already has:
 //   group_label  -> section heading   ("WINDOW BLINDS", bold)
 //   item_name    -> the entry         ("Window 1", bold italic)

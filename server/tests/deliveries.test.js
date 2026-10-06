@@ -120,7 +120,7 @@ async function run() {
   await is(G3, 'a zero quantity → 400', 4, 'POST', '/delivery', { po_id: 1, delivered_date: '2026-09-10', items: [{ line: 12, quantity: 0 }] }, code(400))
   await is(G3, 'the same item twice → 400', 4, 'POST', '/delivery', { po_id: 1, delivered_date: '2026-09-10', items: [{ line: 12, quantity: 1 }, { line: 12, quantity: 1 }] },
     code(400, /twice/))
-  await is(G3, 'its inspection report', 4, 'GET', `/delivery/${d1.data?.id}/pdf`, undefined, (r) => r.status === 200 && r.pdf)
+  await is(G3, 'no inspection report is made (IAR removed)', 4, 'GET', `/delivery/${d1.data?.id}/pdf`, undefined, (r) => r.status === 404)
   await is(G3, 'the deliveries list says what each brought', 2, 'GET', '/delivery?limit=50', undefined,
     (r) => r.status === 200 && r.data.data.find(d => d.id === d1.data?.id)?.items?.map(i => i.item_name).join() === 'Laptop'
            && r.data.data.find(d => d.id === d1.data?.id)?.line_count === 2)

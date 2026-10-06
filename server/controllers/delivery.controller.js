@@ -11,8 +11,6 @@ const { prScope } = require('../middleware/scope.middleware')
 const {
   hundredths, poLines, deliveryLocked, recordBlock, changeBlock, removeBlock, fileDeleteBlock, lockPO, lockDelivery, syncPODelivery,
 } = require('../utils/deliveryWorkflow')
-const { poItems } = require('../utils/awardWorkflow')
-const drawInspectionReport = require('../pdf/inspectionReport')
 
 const qty = (n) => String(Number(n))   // 2.00 -> "2"
 
@@ -55,12 +53,12 @@ async function notifyStaff(io, exceptId, message, deliveryId) {
 }
 
 // One email per distinct address; a failed send is logged, not fatal.
-async function emailEach(recipients, subject, html, attachments = []) {
+async function emailEach(recipients, subject, html) {
   const seen = new Set()
   for (const r of recipients) {
     if (!r.email || seen.has(r.email)) continue
     seen.add(r.email)
-    try { await sendMail({ to: r.email, subject, html: html(r), attachments }) }
+    try { await sendMail({ to: r.email, subject, html: html(r) }) }
     catch (err) { console.error('Delivery email failed:', err.message) }
   }
 }
@@ -201,12 +199,10 @@ exports.create = asyncHandler(async (req, res) => {
   const emailPayload = { poNumber: ctx.po_number, prNumber: ctx.pr_number, prTitle: ctx.pr_title,
                          supplierName: ctx.supplier_name, deliveredDate: delivered_date,
                          expectedDate: ctx.expected_delivery_date, notes, arrived, pending, poComplete, prComplete }
-  const iar = await iarBuffer(deliveryId).catch(err => { console.error('IAR for email failed:', err.message); return null })
   await emailEach(
     [{ name: ctx.requestor_name, email: ctx.requestor_email }, ...supplyUsers],
     `${prComplete ? 'Request completed' : poComplete ? 'Purchase order delivered' : 'Partial delivery'}: ${ctx.pr_number}`,
     (r) => deliveryStatusEmail({ recipientName: r.name, ...emailPayload }),
-    iar ? [iar] : [],
   )
 
   res.status(201).json({ id: deliveryId, status })
@@ -237,75 +233,6 @@ exports.supplyUpdate = asyncHandler(async (req, res) => {
   await notifyStaff(req.io, req.user.id, message, id)
   res.json({ message: 'Note sent' })
 })
-
-// An Inspection and Acceptance Report's content, or null when the delivery is gone.
-async function iarFor(deliveryId) {
-  const [rows] = await pool.execute(`
-    SELECT d.*,
-           po.po_number, po.supplier_name, po.expected_delivery_date,
-           po.purchase_request_id AS pr_id,
-           pr.pr_number, pr.title AS pr_title, pr.fund_cluster,
-           requestor.name AS requestor_name,
-           recv.name AS received_by_name
-    FROM deliveries d
-    JOIN purchase_orders po   ON d.po_id = po.id
-    JOIN purchase_requests pr ON po.purchase_request_id = pr.id
-    JOIN users requestor      ON pr.created_by = requestor.id
-    LEFT JOIN users recv      ON d.received_by = recv.id
-    WHERE d.id = ?
-  `, [deliveryId])
-  if (!rows.length) return null
-  const d = rows[0]
-
-  // What this delivery brought (a PO with lines), at the awarded prices when
-  // every line has one. An older PO without lines lists the PO's items.
-  const [brought] = await pool.execute(`
-    SELECT li.item_name, li.unit, li.unit_price, li.estimated_cost, di.quantity, pi.group_label
-      FROM delivery_items di
-      JOIN lot_items li ON li.id = di.lot_item_id
-      LEFT JOIN pr_items pi ON pi.id = li.pr_item_id
-     WHERE di.delivery_id = ?
-     ORDER BY li.pr_item_id IS NULL, li.pr_item_id, li.id`, [d.id])
-  const items  = brought.length ? brought : await poItems(pool, d.po_id, d.pr_id)
-  const priced = items.length > 0 && items.every(i => i.unit_price != null)
-
-  const iarNumber = `IAR-${String(d.id).padStart(5, '0')}`
-  const statusLabel = d.status === 'complete' ? 'Complete: every item of the PO is in' : 'Partial: some items are still to come'
-  return { d, items, priced, brought, iarNumber, statusLabel }
-}
-
-// The report as a PDF file in memory, for an email.
-async function iarBuffer(deliveryId) {
-  const iar = await iarFor(deliveryId)
-  if (!iar) return null
-  const PDFDocument = require('pdfkit')
-  const { M } = require('../utils/pdfHelpers')
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: 'LETTER', margin: M })
-    const chunks = []
-    doc.on('data', c => chunks.push(c))
-    doc.on('end', () => resolve({ filename: `${iar.iarNumber}.pdf`, content: Buffer.concat(chunks) }))
-    doc.on('error', reject)
-    drawInspectionReport(doc, iar)
-    doc.end()
-  })
-}
-
-exports.generateIAR = async (req, res) => {
-  try {
-    const PDFDocument = require('pdfkit')
-    const { M } = require('../utils/pdfHelpers')
-    const iar = await iarFor(req.params.id)
-    if (!iar) return res.status(404).json({ message: 'Delivery not found' })
-
-    const doc = new PDFDocument({ size: 'LETTER', margin: M })
-    res.setHeader('Content-Type', 'application/pdf')
-    res.setHeader('Content-Disposition', `attachment; filename="${iar.iarNumber}.pdf"`)
-    doc.pipe(res)
-    drawInspectionReport(doc, iar)
-    doc.end()
-  } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
-}
 
 // Removes a mistaken record while the PO is not yet fully delivered; the PO's
 // delivery status is recalculated from the records that remain.

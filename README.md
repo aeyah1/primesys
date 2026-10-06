@@ -177,7 +177,7 @@ Source of fund: every request is drawn on STF, GAA or IGP. Each source's code is
 
 Who approves: at or below the threshold in Settings > Organization (₱50,000 by default) the Campus Director signs the form; above it, the University President.
 
-Documents produced: Purchase Request (COA Appendix 60), Request for Quotation (one page per lot, the two price columns left blank for the supplier), Abstract of Quotations, Purchase Order, Inspection and Acceptance Report.
+Documents produced: Purchase Request (COA Appendix 60), Request for Quotation (one page per lot, the two price columns left blank for the supplier), Abstract of Quotations, Purchase Order.
 
 PR numbers: `{prefix} {year}-{sequence}`, e.g. `CSO 2026-001`, matching the campus's printed
 Purchase Request form (Appendix 60). The prefix is set in Settings > Organization and the

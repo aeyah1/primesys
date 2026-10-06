@@ -317,7 +317,7 @@ exports.requestRemoval = asyncHandler(async (req, res) => {
     await conn.execute('UPDATE ppmps SET removal_requested_by = ?, removal_requested_at = NOW(), removal_reason = ? WHERE id = ?', [req.user.id, reason, p.id])
     return p
   })
-  await tellAdmins(req.io, `${p.office_code}'s Fund Administrator asks to remove ${label(p)}: ${reason}`, p.id)
+  await tellAdmins(req.io, `${p.office_code}'s End User asks to remove ${label(p)}: ${reason}`, p.id)
   res.json({ message: 'Your request was sent. An admin will remove the PPMP or tell you why not.' })
 })
 

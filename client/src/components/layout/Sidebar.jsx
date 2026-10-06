@@ -66,7 +66,7 @@ function isCurrent(item, items, { pathname, search }) {
   return !items.some(o => o !== item && o.to.startsWith(path + '?') && matches(o.to.split('?')[1]))
 }
 
-const ROLE_LABELS = { admin: 'Administrator', procurement: 'Procurement', requestor: 'Fund Administrator', supply: 'Supply Officer', twg: 'Technical Working Group', bac: 'Bids and Awards Committee' }
+const ROLE_LABELS = { admin: 'Administrator', procurement: 'Procurement', requestor: 'End User', supply: 'Supply Officer', twg: 'Technical Working Group', bac: 'Bids and Awards Committee' }
 
 export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }) {
   const { user, logout } = useAuth()

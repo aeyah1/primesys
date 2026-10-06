@@ -168,7 +168,7 @@ async function run() {
     { name: 'Nomad Encoder', role: 'requestor', department_id: null }, r => r.status === 400, '400')
   await is('People', '…so it stays', 4, 'GET', '/auth/me', undefined, r => r.data.department_id === 11, '11')
   await is('People', 'a second Fund Administrator for HR is refused', 1, 'PATCH', '/users/3',
-    { name: 'Felix Atenin', role: 'requestor', department_id: 11 }, r => r.status === 409 && /HR already has a Fund Administrator \(Nomad Encoder\)/.test(r.data.message), '409')
+    { name: 'Felix Atenin', role: 'requestor', department_id: 11 }, r => r.status === 409 && /HR already has an End User \(Nomad Encoder\)/.test(r.data.message), '409')
   await is('People', 'making the HR one staff frees the office', 1, 'PATCH', '/users/4', { name: 'Nomad Encoder', role: 'procurement' }, r => r.status === 200)
   await is('People', '…for another account', 1, 'PATCH', '/users/3', { name: 'Felix Atenin', role: 'requestor', department_id: 11 }, r => r.status === 200)
 
