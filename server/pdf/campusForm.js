@@ -6,9 +6,6 @@ const { M } = require('../utils/pdfHelpers')
 // bordered grid, and the signature blocks. The Purchase Request (Appendix 60)
 // keeps its own drawing because it reproduces a COA form exactly; everything
 // else here shares this house style so the set looks like one office's paper.
-//
-// Deliberately separate from utils/pdfHelpers.js, which still styles the older
-// Inspection and Acceptance Report: these must not drift when that is touched.
 
 const W      = 612 - M * 2          // Letter width less both margins
 const BLACK  = '#000000'

@@ -1,6 +1,6 @@
 // What the requestor is told as deliveries arrive: what came, what is still
 // to come, a PO done (while others are not), and the whole request done, by
-// notice and by email with the Inspection and Acceptance Report attached.
+// notice and by email.
 // Real HTTP against a throwaway database, with emails captured.
 const path = require('path')
 const H    = require('./harness')
@@ -78,7 +78,7 @@ async function run() {
   const m1 = MAIL.find(m => m.to === 'u3@notice.invalid')
   t.check(P, 'the requestor\'s email: "Partial delivery"', /^Partial delivery: /.test(m1?.subject || ''), m1?.subject)
   t.check(P, '…lists what arrived and what is still to come', /Arrived this time/.test(m1?.html) && /Still to come on/.test(m1?.html) && /Chair/.test(m1?.html) && />40 </.test(m1?.html) && />10 </.test(m1?.html))
-  t.check(P, '…with the inspection report attached', /^IAR-\d{5}\.pdf$/.test(m1?.attachments?.[0]?.filename || '') && m1.attachments[0].content.subarray(0, 5).toString() === '%PDF-')
+  t.check(P, '…with no attachment, and no inspection report mentioned', m1 && !m1.attachments?.length && !/Inspection/.test(m1.html))
   t.check(P, '…and doesn\'t claim the request is complete', !/Completed/.test(m1?.html) && !/Everything on/.test(m1?.html))
   t.check(P, 'the supply officer who recorded it gets no email', !MAIL.some(m => m.to === 'u6@notice.invalid'))
 

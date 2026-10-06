@@ -100,7 +100,7 @@ const SLIDES = {
       Icon:  Truck,
       color: 'from-purple-400 to-pink-400',
       title: 'Record the Delivery',
-      body:  'Click Receive on the PO, enter how many of each item arrived, and set the date. Download the IAR PDF for filing.',
+      body:  'Click Receive on the PO, enter how many of each item arrived, and set the date. Attach the invoice or proof of delivery.',
     },
     {
       Icon:  CheckCircle,

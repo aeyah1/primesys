@@ -287,8 +287,7 @@ async function run() {
   // Deliveries, a PO cancelled, completion
   const G5 = 'Completion'
   const rest = async (poId) => ((await http(2, 'GET', `/po/${poId}`)).data?.items || []).map(l => ({ line: l.id, quantity: l.remaining }))
-  const dA = await is(G5, 'Alpha delivers in full', 4, 'POST', '/delivery', { po_id: poA.data?.id, delivered_date: '2026-09-10', items: await rest(poA.data?.id) }, code(201))
-  await is(G5, '…its inspection report (IAR)', 4, 'GET', `/delivery/${dA.data?.id}/pdf`, undefined, isPDF)
+  await is(G5, 'Alpha delivers in full', 4, 'POST', '/delivery', { po_id: poA.data?.id, delivered_date: '2026-09-10', items: await rest(poA.data?.id) }, code(201))
   await is(G5, '…not complete while other POs are open', 2, 'GET', '/pr/80', undefined, (r) => r.status === 200 && r.data.status === 'for_po')
   await is(G5, 'cancel Gamma\'s PO', 2, 'PATCH', `/po/${poC.data?.id}/cancel`, { reason: 'Supplier backed out' }, code(200))
   await is(G5, '…its item needs a winner again: back in canvass', 2, 'GET', '/canvass/80', undefined,

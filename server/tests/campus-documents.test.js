@@ -281,12 +281,9 @@ async function run() {
   t.check('Summary', 'a long report still reaches the signatures', anyPage(long, 'Noted by:'))
 
   // ── Isolation ───────────────────────────────────────────────────────
-  // These share campusForm.js and must not reach into the older helpers
-  // that still style the Inspection and Acceptance Report.
+  // These take every name from the campus settings.
   for (const f of ['purchaseOrder', 'procurementSummary']) {
     const src = fs.readFileSync(path.join(H.SERVER, 'pdf', `${f}.js`), 'utf8')
-    t.check('Isolation', `${f} uses only the campus form helpers`,
-      !/drawTable|pageHeader|sigBlock|metaField/.test(src))
     t.check('Isolation', `${f} takes its wording from org settings, not hard-coded names`,
       !/INTANO|SANTOS|DELA CRUZ|ANDRADE|GARCIA|REYES/.test(src))
   }
