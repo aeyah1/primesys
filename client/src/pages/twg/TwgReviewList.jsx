@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Search, ClipboardCheck, ChevronRight, CheckCircle2, AlertTriangle, History } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PRStatusBadge, CategoryBadge } from '@/components/shared/StatusBadge'
+import { FilterChip, Tab } from '@/components/shared/ListParts'
 import { fmtDatetime, CATEGORY_LABELS } from '@/lib/utils'
 import api from '@/lib/axios'
 
@@ -23,7 +24,15 @@ export const areasText = (areasInfo) => !areasInfo ? ''
   : areasInfo.all ? 'All areas (administrator)'
   : areasInfo.areas.map(a => CATEGORY_LABELS[a]).join(', ')
 
+// The two things the TWG decides: a request before the canvass, and the canvass result after the BAC.
+const STAGES = [
+  { key: 'review',  label: 'To review',  empty: 'No purchase requests in your areas are awaiting TWG review right now.' },
+  { key: 'certify', label: 'To certify', empty: 'No canvass result in your areas is waiting for the TWG\'s certification.' },
+]
+
 export default function TwgReviewList() {
+  const [params, setParams] = useSearchParams()
+  const stage = params.get('stage') === 'certify' ? 'certify' : 'review'
   const [search, setSearch] = useState('')
   const [area, setArea]     = useState('')
   const { data: areasInfo } = useTwgAreas()
@@ -31,12 +40,12 @@ export default function TwgReviewList() {
   const noAreas = areasInfo && !areasInfo.all && myAreas.length === 0
 
   const { data, isLoading } = useQuery({
-    queryKey: ['twg', 'pending', { search, area }],
+    queryKey: ['twg', 'pending', { search, area, stage }],
     queryFn: () => {
-      const params = new URLSearchParams()
-      if (search) params.set('search', search)
-      if (area)   params.set('category', area)
-      return api.get(`/twg/pending?${params}`).then(r => r.data)
+      const q = new URLSearchParams({ stage })
+      if (search) q.set('search', search)
+      if (area)   q.set('category', area)
+      return api.get(`/twg/pending?${q}`).then(r => r.data)
     },
     enabled: !noAreas,
   })
@@ -65,18 +74,21 @@ export default function TwgReviewList() {
         </div>
       </div>
 
+      <div className="flex items-center gap-1 border-b border-[--color-border]">
+        {STAGES.map(s => (
+          <Tab key={s.key} active={stage === s.key} onClick={() => setParams(s.key === 'review' ? {} : { stage: s.key }, { replace: true })}>
+            {s.label}
+          </Tab>
+        ))}
+      </div>
+
       {/* One chip per review area (only worth showing with more than one) */}
       {myAreas.length > 1 && (
         <div className="flex flex-wrap gap-2">
           {['', ...myAreas].map(a => (
-            <button key={a || 'all'} onClick={() => setArea(a)}
-              className={`rounded-full border px-3 py-1 text-ui-xs font-medium transition-colors ${
-                area === a
-                  ? 'border-[--color-brand] bg-[--color-brand] text-white'
-                  : 'border-[--color-border-strong] bg-white text-[--color-text-secondary] hover:border-[--color-brand] hover:text-[--color-brand]'
-              }`}>
+            <FilterChip key={a || 'all'} active={area === a} onClick={() => setArea(a)}>
               {a ? CATEGORY_LABELS[a] : 'All my areas'}
-            </button>
+            </FilterChip>
           ))}
         </div>
       )}
@@ -101,7 +113,7 @@ export default function TwgReviewList() {
                   <CheckCircle2 className="size-10 text-[--color-text-muted] mx-auto mb-3" />
                   <p className="text-ui-sm font-semibold text-[--color-text-primary]">All caught up</p>
                   <p className="text-ui-xs text-[--color-text-muted] mt-1">
-                    No purchase requests in your areas are awaiting TWG review right now.
+                    {STAGES.find(s => s.key === stage).empty}
                   </p>
                 </div>
               )
@@ -128,9 +140,11 @@ export default function TwgReviewList() {
                         {' · '}
                         <span>{pr.item_count} item{pr.item_count === 1 ? '' : 's'}</span>
                         {' · '}
-                        Submitted {fmtDatetime(pr.submitted_at)}
+                        {stage === 'certify'
+                          ? <>Bids sent by the BAC {fmtDatetime(pr.submitted_at)}{Number(pr.bidders) > 0 && <> · {pr.bidders} bidder{Number(pr.bidders) === 1 ? '' : 's'}</>}</>
+                          : <>Submitted {fmtDatetime(pr.submitted_at)}</>}
                       </p>
-                      {pr.last_reviewer_name && (
+                      {stage === 'review' && pr.last_reviewer_name && (
                         <p className="flex items-center gap-1 text-[10px] font-medium text-amber-700 mt-1">
                           <History className="size-3" /> Resubmitted after a review by {pr.last_reviewer_name}
                         </p>

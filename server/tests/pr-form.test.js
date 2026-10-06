@@ -154,6 +154,18 @@ async function run() {
   t.check('Form furniture', 'PR number in the PR No. cell', has(p1, 'PR No.: CSO 2026-001'))
   t.check('Form furniture', 'date in the Date cell', has(p1, 'Date: February 11, 2026'))
   t.check('Form furniture', 'office/section shows the department', has(p1, 'DCS'))
+  t.check('Form furniture', '…a short one at the body size', find(p1, 'DCS')?.size === 9.5, find(p1, 'DCS')?.size)
+  // A typed Office/Section shrinks to fit its cell and never reaches the column headers below.
+  for (const [label, office] of [['a long typed one', 'Department of Computer Studies, Computer Laboratory 2'],
+                                 ['the longest allowed (150 characters)', 'Department of Computer Studies '.repeat(5).slice(0, 150)]]) {
+    const page = parse(await render({ pr: { ...PR, department: office }, orgSettings: { entity_name: 'NEMSU - Cantilan Campus' }, items: BLINDS }))[0]
+    const parts = page.texts.filter(x => office.includes(x.str.trim().replace(/…$/, '')) && x.str.trim().length > 3 && x.font.includes('Bold') && x.y < find(page, 'Stock/').y)
+    const header = find(page, 'Stock/')
+    t.check('Form furniture', `${label}: printed smaller`, parts.length > 0 && parts.every(x => x.size < 9.5 && x.size >= 6), parts.map(x => `${x.size}:${x.str}`).join(' | '))
+    t.check('Form furniture', `${label}: stays in its row, above the column headers`,
+      parts.length > 0 && Math.max(...parts.map(x => x.y)) - Math.min(...parts.map(x => x.y)) < 15.5 && parts.every(x => x.y < header.y - 10),
+      parts.map(x => x.y.toFixed(1)).join(','))
+  }
   t.check('Form furniture', 'responsibility center code', has(p1, 'Responsibility Center Code : 08-106-000000'))
   for (const header of ['Stock/', 'Property', 'Unit', 'Item Description', 'Qty', 'Unit Cost', 'Total Cost']) {
     t.check('Form furniture', `column header "${header}"`, has(p1, header))

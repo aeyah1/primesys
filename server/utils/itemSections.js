@@ -7,16 +7,20 @@
 // group_label is its section's display name ('' when it has none).
 const normalise = (label) => (label || '').trim().replace(/\s+/g, ' ')
 
-function orderBySection(items) {
+// The items in their sections by that rule: [{ label, items }], a section with no item left out.
+function sectionsOf(items) {
   const sections = new Map([['', { label: '', items: [] }]])
   for (const item of items) {
     const label = normalise(item.group_label)
     const key = label.toLowerCase()
     if (!sections.has(key)) sections.set(key, { label, items: [] })
-    const section = sections.get(key)
-    section.items.push({ ...item, group_label: section.label })
+    sections.get(key).items.push(item)
   }
-  return [...sections.values()].flatMap(s => s.items)
+  return [...sections.values()].filter(s => s.items.length)
 }
 
-module.exports = { orderBySection }
+function orderBySection(items) {
+  return sectionsOf(items).flatMap(s => s.items.map(item => ({ ...item, group_label: s.label })))
+}
+
+module.exports = { normalise, sectionsOf, orderBySection }

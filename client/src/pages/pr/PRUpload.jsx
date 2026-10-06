@@ -1,10 +1,10 @@
-import { useState, useRef, Fragment } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useEffect, useRef, Fragment } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Package, Plus, Trash2, Info } from 'lucide-react'
+import { ArrowLeft, Package, Plus, Trash2, Info, ListPlus } from 'lucide-react'
 import ItemCategorySelector from '@/components/shared/ItemCategorySelector'
-import UnitInput from '@/components/shared/UnitInput'
 import RequestContextForm from '@/components/shared/RequestContextForm'
+import { requesterPayload } from '@/components/shared/RequesterFields'
 import { toast } from '@/lib/toast'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -17,8 +17,10 @@ import CategorySpecFields from '@/components/shared/CategorySpecFields'
 import { useAuth } from '@/context/AuthContext'
 import api from '@/lib/axios'
 import ReviewSubmitDialog from '@/components/shared/ReviewSubmitDialog'
+import { usePpmpPlans, takenByKey, lineChecks, PpmpLineNote, PpmpItemField, NoPpmpNotice, QuarterSelect, quarterOf, quarterLines } from '@/components/ppmp/PpmpLinePicker'
+import { useConfirm } from '@/components/shared/ConfirmDialog'
 
-const EMPTY_DRAFT = { group_label: '', stock_property_no: '', category: '', item_name: '', quantity: '1', unit: 'ream', estimated_cost: '', specs: {} }
+const EMPTY_DRAFT = { group_label: '', stock_property_no: '', category: '', ppmp_item_id: null, line: null, quantity: '1', estimated_cost: '', specs: {} }
 
 const TH = ({ children, className = '' }) => (
   <th className={`px-4 py-3 text-xs font-bold text-[--color-text-secondary] uppercase tracking-wider bg-[--color-canvas] ${className}`}>
@@ -50,8 +52,10 @@ function AutoField({ label, value }) {
 
 export default function PRCreate() {
   const navigate  = useNavigate()
+  // Lines ticked on a PPMP page ("Request selected"), and that PPMP's office.
+  const fromPpmp  = useLocation().state
   const qc        = useQueryClient()
-  const itemRef   = useRef(null)
+  const confirm   = useConfirm()
   const { user }  = useAuth()
 
   const isRequestor = user?.role === 'requestor'
@@ -63,12 +67,17 @@ export default function PRCreate() {
     fund_source: 'STF',
     // Request Context (the new end-user-centric fields)
     department: '',
-    department_id: '',
+    department_id: fromPpmp?.departmentId || '',
     purpose_type: 'personal',
     date_needed: '',
     event_name: '',
     event_date: '',
     project_name: '',
+    // Who requested it, and their signature (components/shared/RequesterFields.jsx).
+    requested_by_name: '',
+    requested_by_designation: '',
+    signature: null,
+    signature_changed: false,
   })
   const setF = (k, v) => setForm(p => ({ ...p, [k]: v }))
 
@@ -83,20 +92,14 @@ export default function PRCreate() {
 
   const categoryForm = CATEGORY_FORM[form.category] || CATEGORY_FORM.office_supplies
 
-  // Switch category — swap unit to category default if current unit is invalid,
-  // AND clear any structured spec values (those are category-scoped).
+  // Switch category, and clear any structured spec values (those are category-scoped).
   const setCategory = (next) => {
-    const nextForm = CATEGORY_FORM[next] || CATEGORY_FORM.office_supplies
     setF('category', next)
-    setDraft(p => ({
-      ...p,
-      unit:  nextForm.units.includes(p.unit) ? p.unit : nextForm.defaultUnit,
-      specs: {},
-    }))
+    setDraft(p => ({ ...p, specs: {} }))
   }
 
-  // Staff pick the quarter and see the fund codes; a requestor's PR goes under
-  // the current quarter and gets the fund codes on the server.
+  // Staff pick any quarter and see the fund codes; a requestor picks a quarter
+  // of their PPMP's year (below) and gets the fund codes on the server.
   const { data: quarters = [] } = useQuery({
     queryKey: ['quarters'],
     queryFn: () => api.get('/quarters').then(r => r.data),
@@ -128,9 +131,83 @@ export default function PRCreate() {
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to create PR'),
   })
 
+  // Items come from the office's Final PPMP in effect: a Fund Administrator's own, or the office staff file for.
+  const { plans, isLoading: plansLoading, lineById } = usePpmpPlans({ departmentId: isRequestor ? null : form.department_id })
+  // The quarter it is filed under, and the one of the PPMP's year it draws on (1 to 4, or null: the year's total applies).
+  const planQuarters = plans.flatMap(p => (p.quarters || []).map(q => ({ ...q, plan: p })))
+  const chosenQuarter = (isRequestor ? planQuarters : quarters).find(q => String(q.id) === String(form.quarter_id))
+  const quarter = quarterOf(plans, chosenQuarter)
+  const taken = takenByKey(items, lineById)
+  const planYear = items.map(i => lineById.get(Number(i.ppmp_item_id))?.fiscal_year).find(Boolean) ?? (quarter ? Number(chosenQuarter.year) : undefined)
+  const checkItem = (item, exceptIndex) => {
+    const line = item.line || lineById.get(Number(item.ppmp_item_id))
+    return line ? { line, ...lineChecks(line, { quantity: item.quantity, price: item.estimated_cost, dateNeeded: form.date_needed, quarter, taken: takenByKey(items, lineById, exceptIndex).get(line.key) || 0 }) } : null
+  }
+  const draftCheck = draft.line ? checkItem(draft, -1) : null
+  // A picked line brings its price; typing over it clears the pick.
+  const pickLine = (line) => setDraft(p => (line ? { ...p, ppmp_item_id: line.id, line, estimated_cost: String(line.unit_cost) } : { ...p, ppmp_item_id: null, line: null }))
+
+  const many = (n) => `${n} item${n === 1 ? '' : 's'}`
+
+  // A Fund Administrator's request is for one quarter, whose items they then add one by one; picking it fills nothing.
+  // Changing it removes the items picked for the other quarter, once confirmed.
+  const chooseQuarter = async (quarterId) => {
+    if (String(quarterId) === String(form.quarter_id)) return
+    const q = planQuarters.find(x => String(x.id) === String(quarterId))
+    if (!q) return
+    if (items.length && !(await confirm({
+      title: `Change to ${q.label} ${q.year}?`,
+      message: `The ${many(items.length)} picked for ${chosenQuarter?.label || 'the other quarter'} are removed. A request draws on one quarter's items only.`,
+      confirmLabel: 'Change quarter',
+    }))) return
+    setF('quarter_id', String(q.id))
+    setItems([])
+    setDraft(p => ({ ...EMPTY_DRAFT, group_label: p.group_label }))
+  }
+
+  // Add all: the quarter's items not listed yet, as many as are left of each (only the ticked ones when started from the PPMP page).
+  const fillQuarter = (quarterId, { only = null } = {}) => {
+    const q = planQuarters.find(x => String(x.id) === String(quarterId))
+    if (!q) return
+    const n = Number(q.label[1])
+    const listed = new Set(items.map(i => lineById.get(Number(i.ppmp_item_id))?.key).filter(Boolean))
+    const lines = quarterLines(q.plan, n).filter(l => !listed.has(l.key) && (!only || only.includes(l.id)))
+    setF('quarter_id', String(q.id))
+    setItems(p => [...p, ...lines.map(l => ({
+      group_label: '', stock_property_no: '', category: form.category, ppmp_item_id: l.id,
+      item_name: l.description, quantity: String(l.quarter_left[n - 1]), unit: l.unit, estimated_cost: String(l.unit_cost), notes: '',
+    }))])
+    if (lines.length) toast.success(`${many(lines.length)} for ${q.label} added from the PPMP, as many as are left of each. Remove or lower what you don't need.`)
+    else toast.error(listed.size ? `Every ${q.label} item left to request is already listed.` : `Nothing is left to request for ${q.label} ${q.year}.`)
+  }
+
+  // The ticked PPMP lines start the item list, one each at the PPMP's price, once the lines are loaded;
+  // started from a quarter on the PPMP page, they come in with that quarter's quantities.
+  const seeded = useRef(false)
+  useEffect(() => {
+    if (seeded.current || plansLoading) return
+    if (fromPpmp?.quarterId) {
+      seeded.current = true
+      fillQuarter(fromPpmp.quarterId, { only: fromPpmp.ppmpLines?.length ? fromPpmp.ppmpLines.map(Number) : null })
+      return
+    }
+    if (!fromPpmp?.ppmpLines?.length) return
+    seeded.current = true
+    const lines = fromPpmp.ppmpLines.map(id => lineById.get(Number(id))).filter(l => l && l.remaining > 0)
+    setItems(lines.map(l => ({
+      group_label: '', stock_property_no: '', category: form.category, ppmp_item_id: l.id,
+      item_name: l.description, quantity: '1', unit: l.unit, estimated_cost: String(l.unit_cost), notes: '',
+    })))
+    if (lines.length) toast.success(`${lines.length} item${lines.length === 1 ? '' : 's'} from the PPMP added. Set how many of each you need.`)
+  }, [fromPpmp, plansLoading, lineById, form.category])
+
   const handleAddItem = () => {
-    if (!draft.item_name.trim()) {
-      toast.error('Item description is required')
+    if (!draft.line) {
+      toast.error('Pick the item from the PPMP')
+      return
+    }
+    if (draftCheck?.block) {
+      toast.error(draftCheck.block)
       return
     }
     if (!draft.quantity || parseFloat(draft.quantity) <= 0) {
@@ -148,28 +225,26 @@ export default function PRCreate() {
       group_label:       draft.group_label,
       stock_property_no: draft.stock_property_no.trim(),
       category:          draft.category || form.category,
-      item_name:         draft.item_name.trim(),
+      ppmp_item_id:      draft.line.id,
+      item_name:         draft.line.description,
       quantity:          draft.quantity,
-      unit:              draft.unit,
+      unit:              draft.line.unit,
       estimated_cost:    draft.estimated_cost,
       notes,
     }
     setItems(p => [...p, newItem])
-    setDraft(p => ({ ...EMPTY_DRAFT, unit: p.unit, group_label: p.group_label }))   // the section stays for the next item
-    itemRef.current?.focus({ preventScroll: true })
+    setDraft(p => ({ ...EMPTY_DRAFT, group_label: p.group_label }))   // the section stays for the next item
   }
 
   // "Add item" on a section heading: point the add form at that section.
-  const addToSection = (label) => {
-    setD('group_label', label)
-    itemRef.current?.focus()
-  }
+  const addToSection = (label) => setD('group_label', label)
 
   const handleRemoveItem = (idx) => setItems(p => p.filter((_, i) => i !== idx))
 
   const processed = items.map((item, i) => ({
     ...item,
     globalIdx: i,
+    check: checkItem(item, i),
     totalCost: (parseFloat(item.estimated_cost) || 0) * (parseFloat(item.quantity) || 1),
   }))
   const grouped     = groupItemsBySection(processed)
@@ -188,14 +263,26 @@ export default function PRCreate() {
       return
     }
     const submitNow = !asDraft
+    if (isRequestor && plans.length && !form.quarter_id) {
+      toast.error('Pick the quarter this request is for')
+      return
+    }
     if (submitNow && items.length === 0) {
       toast.error('Add at least one item before submitting, or save it as a draft')
+      return
+    }
+    if (items.some(i => !(parseFloat(i.quantity) > 0))) {
+      toast.error('Give every item a quantity above 0, or remove it')
+      return
+    }
+    if (submitNow && processed.some(i => i.check?.block)) {
+      toast.error('Lower the items marked in red to what is left in the PPMP')
       return
     }
     if (submitNow && !confirmed) { setReviewing(true); return }
     create({
       title:                      form.title.trim(),
-      ...(!isRequestor && form.quarter_id ? { quarter_id: parseInt(form.quarter_id) } : {}),
+      ...(form.quarter_id ? { quarter_id: parseInt(form.quarter_id) } : {}),
       category:                   form.category,
       fund_source:                form.fund_source,
       // Request Context fields — only sent if the requestor filled them
@@ -206,10 +293,12 @@ export default function PRCreate() {
       event_name:                 form.purpose_type === 'event'   ? (form.event_name?.trim() || undefined) : undefined,
       event_date:                 form.purpose_type === 'event'   ? (form.event_date || undefined)        : undefined,
       project_name:               form.purpose_type === 'project' ? (form.project_name?.trim() || undefined) : undefined,
+      ...requesterPayload(form),
       ...(submitNow ? { status: 'submitted' } : {}),
       // Items go with the PR in the same request, so they're saved together.
       items: items.map(item => ({
         group_label:    item.group_label    || undefined,
+        ppmp_item_id:   item.ppmp_item_id   || undefined,
         item_name:      item.item_name,
         quantity:       parseFloat(item.quantity)       || 1,
         unit:           item.unit           || undefined,
@@ -237,9 +326,9 @@ export default function PRCreate() {
           <div className="flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
             <Info className="size-4 shrink-0 mt-0.5 text-blue-700" />
             <p className="text-ui-sm text-blue-900 leading-relaxed">
-              You don't need to know procurement terms. Describe what you need and why. The Technical Working Group
-              (TWG) checks your request, and the Procurement Office handles suppliers, orders, and delivery.
-              You can save it as a draft and finish later.
+              You don't need to know procurement terms. Pick each item from your office's PPMP and say why
+              you need it. The Technical Working Group (TWG) checks your request, and the Procurement Office handles
+              suppliers, orders, and delivery. You can save it as a draft and finish later.
             </p>
           </div>
         )}
@@ -289,11 +378,32 @@ export default function PRCreate() {
             </div>
 
             {isRequestor ? (
-              <p className="text-ui-xs text-[--color-text-muted]">
-                {currentQuarter
-                  ? <>Your request is filed under the current quarter, <span className="font-semibold text-[--color-text-secondary]">{currentQuarter.label} {currentQuarter.year}</span>.</>
-                  : 'Your request is filed under the current year.'}
-              </p>
+              plans.length > 0 ? (
+                <div className="space-y-1.5">
+                  <Label htmlFor="pr-quarter">Quarter <span className="text-red-500 text-xs">*</span></Label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="min-w-0 flex-1">
+                      <QuarterSelect id="pr-quarter" plans={plans} value={form.quarter_id} onChange={chooseQuarter} />
+                    </div>
+                    {chosenQuarter && quarter && quarterLines(chosenQuarter.plan, quarter).length > 0 && (
+                      <Button type="button" variant="secondary" className="gap-1.5 shrink-0" onClick={() => fillQuarter(form.quarter_id)}>
+                        <ListPlus className="size-4" /> Add all {chosenQuarter.label} items
+                      </Button>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-[--color-text-muted]">
+                    {chosenQuarter
+                      ? `Add the items you need below. Only ${chosenQuarter.label} items from your PPMP can be requested, up to what is left of each.`
+                      : 'A request is for one quarter: pick it, then add that quarter\'s items from your PPMP.'}
+                  </p>
+                </div>
+              ) : (
+                <p className="text-ui-xs text-[--color-text-muted]">
+                  {currentQuarter
+                    ? <>Your request is filed under the current quarter, <span className="font-semibold text-[--color-text-secondary]">{currentQuarter.label} {currentQuarter.year}</span>.</>
+                    : 'Your request is filed under the current year.'}
+                </p>
+              )
             ) : (
               <>
                 <div className="space-y-1.5">
@@ -362,7 +472,7 @@ export default function PRCreate() {
                     <TH className="text-center w-24">Stock/Property</TH>
                     <TH className="text-center w-20">Unit</TH>
                     <TH className="text-left">{categoryForm.itemLabel}</TH>
-                    <TH className="text-center w-16">Qty</TH>
+                    <TH className="text-center w-24">Qty</TH>
                     <TH className="text-right w-32">Estimated Cost</TH>
                     <TH className="text-right w-32">Total Cost</TH>
                     <th className="w-10 bg-[--color-canvas]" />
@@ -395,8 +505,13 @@ export default function PRCreate() {
                                     {item.notes}
                                   </div>
                                 )}
+                                {item.check && <PpmpLineNote {...item.check} left={null} planned={item.check.line.planned} className="mt-2 font-normal" />}
                               </TD>
-                              <TD className="text-center tabular-nums font-medium">{item.quantity}</TD>
+                              <TD className="text-center">
+                                <Input type="number" min="0.01" step="any" aria-label={`Quantity of ${item.item_name}`} value={item.quantity}
+                                  onChange={e => setItems(p => p.map((x, i) => (i === item.globalIdx ? { ...x, quantity: e.target.value } : x)))}
+                                  className={`h-9 w-20 px-2 text-center tabular-nums ${item.check?.block ? 'border-red-400 text-red-700' : ''}`} />
+                              </TD>
                               <TD className="text-right tabular-nums text-[--color-text-secondary]">
                                 {item.estimated_cost ? fmtCurrency(parseFloat(item.estimated_cost)) : '—'}
                               </TD>
@@ -445,6 +560,11 @@ export default function PRCreate() {
             </div>
 
             {/* Add Item Form */}
+            {!plansLoading && !plans.length ? (
+              <div className="px-4 py-4"><NoPpmpNotice requestor={isRequestor} /></div>
+            ) : isRequestor && !form.quarter_id ? (
+              <p className="bg-[--color-canvas] px-4 py-4 text-ui-sm text-[--color-text-secondary]">Pick the quarter above, then add its items from your PPMP here.</p>
+            ) : (
             <div className="bg-[--color-canvas] px-4 py-4 space-y-3">
               <p className="text-xs font-semibold text-[--color-text-muted] uppercase tracking-wide">Add Item</p>
 
@@ -490,28 +610,16 @@ export default function PRCreate() {
                   />
                 </div>
 
-                {/* Item Description */}
-                <div className="col-span-4 space-y-1">
-                  <Label className="text-xs">{categoryForm.itemLabel}</Label>
-                  <Input
-                    ref={itemRef}
-                    placeholder={categoryForm.itemPlaceholder}
-                    value={draft.item_name}
-                    onChange={e => setD('item_name', e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAddItem())}
-                  />
+                {/* The item, picked from the PPMP: its description and unit are the line's */}
+                <div className="col-span-4">
+                  <PpmpItemField id="pr-ppmp-item" plans={plans} isLoading={plansLoading} value={draft.line} onPick={pickLine} taken={taken} year={planYear} quarter={quarter} />
                 </div>
 
-                {/* Unit — typeable with suggested units in datalist dropdown */}
                 <div className="col-span-2 space-y-1">
                   <Label className="text-xs">Unit</Label>
-                  <UnitInput
-                    value={draft.unit}
-                    onChange={v => setD('unit', v)}
-                    options={categoryForm.units}
-                    placeholder={categoryForm.defaultUnit}
-                    className="text-sm"
-                  />
+                  <div className="flex h-10 items-center rounded-lg border border-[--color-border] bg-[--color-canvas] px-3 text-sm text-[--color-text-secondary]">
+                    {draft.line?.unit || '—'}
+                  </div>
                 </div>
 
                 {/* Quantity */}
@@ -545,13 +653,15 @@ export default function PRCreate() {
                 <div className="col-span-1 self-end">
                   <Button
                     type="button" className="w-full px-0"
-                    disabled={!draft.item_name.trim() || !draft.estimated_cost || parseFloat(draft.estimated_cost) <= 0}
+                    disabled={!draft.line || !!draftCheck?.block || !draft.estimated_cost || parseFloat(draft.estimated_cost) <= 0}
                     onClick={handleAddItem}
                   >
                     <Plus className="size-4" />
                   </Button>
                 </div>
               </div>
+
+              {draftCheck && <PpmpLineNote {...draftCheck} />}
 
               {/* Per-category structured spec fields (Brand/Model for Hardware,
                   Material/Dimensions/Color for Furniture, etc.) — replaces the
@@ -562,6 +672,7 @@ export default function PRCreate() {
                 onChange={(next) => setD('specs', next)}
               />
             </div>
+            )}
           </CardContent>
         </Card>
 
@@ -584,9 +695,8 @@ export default function PRCreate() {
       <ReviewSubmitDialog open={reviewing} items={items} pending={isPending}
         request={{
           ...form,
-          quarter_label: isRequestor
-            ? (currentQuarter ? `${currentQuarter.label} ${currentQuarter.year}` : null)
-            : (() => { const q = quarters.find(q => String(q.id) === String(form.quarter_id)); return q ? `${q.label} ${q.year}` : null })(),
+          quarter_label: chosenQuarter ? `${chosenQuarter.label} ${chosenQuarter.year}`
+            : isRequestor && currentQuarter ? `${currentQuarter.label} ${currentQuarter.year}` : null,
           fund_source: isRequestor ? null : form.fund_source,
         }}
         onConfirm={() => handleSubmit(null, { confirmed: true })}

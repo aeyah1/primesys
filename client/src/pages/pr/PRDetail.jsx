@@ -3,7 +3,7 @@ import { useParams, useNavigate, useLocation, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, FileText, Gavel, Paperclip, History, BellRing, CheckCircle2,
-  Package, Plus, Trash2, RotateCcw, Eye,
+  Package, Plus, Trash2, RotateCcw, Eye, ClipboardList, Ban,
   FileDown, XCircle, Pencil, Send, Undo2, Archive,
 } from 'lucide-react'
 
@@ -17,18 +17,20 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
 import { PRStatusBadge, DeliveryStatusBadge, CategoryBadge } from '@/components/shared/StatusBadge'
 import AttachmentsPanel from '@/components/shared/AttachmentsPanel'
-import { fmtDate, fmtCurrency, PR_STATUS_LABELS, CATEGORY_FORM, buildItemNotes, groupItemsBySection, PROCUREMENT_MODES } from '@/lib/utils'
+import { fmtDate, fmtCurrency, PR_STATUS_LABELS, CATEGORY_FORM, buildItemNotes, groupItemsBySection, PROCUREMENT_MODES, isTemporaryPrNumber } from '@/lib/utils'
 import { SectionNameInput, SectionHeaderRow } from '@/components/shared/ItemSections'
 import RequestProgress from '@/components/shared/RequestProgress'
 import CategorySpecFields from '@/components/shared/CategorySpecFields'
-import UnitInput from '@/components/shared/UnitInput'
 import { RequestContextFields, PurposeTypeBadge, hasRequestContext } from '@/components/shared/RequestContextDisplay'
 import PurchaseOrders from './PurchaseOrders'
+import TwgCertificates from '@/components/awards/TwgCertificates'
 import ProcurementActions from './ProcurementActions'
 import { useAuth } from '@/context/AuthContext'
-import { openPdf, blobErrorMessage } from '@/lib/download'
+import { openPdf, downloadFile, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
 import ReviewSubmitDialog from '@/components/shared/ReviewSubmitDialog'
+import DeletePRDialog from '@/components/shared/DeletePRDialog'
+import { usePpmpPlans, takenByKey, lineChecks, PpmpLineNote, PpmpItemField, NoPpmpNotice, quarterOf } from '@/components/ppmp/PpmpLinePicker'
 
 const ITH = ({ children, className = '' }) => (
   <th className={`px-4 py-3 text-xs font-bold text-[--color-text-secondary] uppercase tracking-wider bg-[--color-canvas] border-b border-[--color-border] ${className}`}>
@@ -41,16 +43,18 @@ const ITD = ({ children, className = '' }) => (
   </td>
 )
 
-const EMPTY_ITEM = { group_label: '', stock_property_no: '', category: '', item_name: '', quantity: '1', unit: 'pax', estimated_cost: '', specs: {} }
+const EMPTY_ITEM = { group_label: '', stock_property_no: '', category: '', ppmp_item_id: null, line: null, quantity: '1', estimated_cost: '', specs: {} }
+// Who may open the office's PPMP from a request (the PPMP pages' own roles).
+const PPMP_VIEWERS = ['requestor', 'admin', 'procurement', 'bac', 'twg']
 
-function PRItemsSection({ prId, canEdit, category }) {
+function PRItemsSection({ prId, pr, canEdit, category }) {
+  const { user } = useAuth()
   const [itemToDelete, setItemToDelete] = useState(null)
   const [editingItem, setEditingItem]   = useState(null)
   const [editDraft, setEditDraft]       = useState(null)
   const qc = useQueryClient()
   const categoryForm = CATEGORY_FORM[category] || CATEGORY_FORM.office_supplies
-  const [draft, setDraft] = useState({ ...EMPTY_ITEM, unit: categoryForm.defaultUnit })
-  const itemRef = useRef(null)
+  const [draft, setDraft] = useState(EMPTY_ITEM)
   const setD  = (k, v) => setDraft(p => ({ ...p, [k]: v }))
   const setED = (k, v) => setEditDraft(p => ({ ...p, [k]: v }))
 
@@ -58,12 +62,25 @@ function PRItemsSection({ prId, canEdit, category }) {
     queryKey: ['pr-items', prId],
     queryFn: () => api.get(`/pr/${prId}/items`).then(r => r.data),
   })
+  // Each item against the office's PPMP, as the server checks it on submission.
+  const { data: review } = useQuery({
+    queryKey: ['pr-ppmp', prId],
+    queryFn: () => api.get(`/pr/${prId}/ppmp`).then(r => r.data),
+  })
+  const reviewOf = new Map((review?.items || []).map(r => [r.id, r]))
+  // While it can be edited: the lines it may draw on, leaving out its own holds.
+  const { plans, isLoading: plansLoading, lineById } = usePpmpPlans({ departmentId: canEdit && user?.role !== 'requestor' ? pr.department_id : null, prId: canEdit ? prId : null })
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ['pr-items', prId] })
+    qc.invalidateQueries({ queryKey: ['pr-ppmp', prId] })
+    qc.invalidateQueries({ queryKey: ['ppmp-lines'] })
+  }
 
   const { mutate: addItem, isPending: adding } = useMutation({
     mutationFn: (body) => api.post(`/pr/${prId}/items`, body),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['pr-items', prId] })
-      setDraft(p => ({ ...EMPTY_ITEM, unit: p.unit, group_label: p.group_label }))   // the section stays for the next item
+      refresh()
+      setDraft(p => ({ ...EMPTY_ITEM, group_label: p.group_label }))   // the section stays for the next item
       toast.success('Item added')
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to add item'),
@@ -72,7 +89,7 @@ function PRItemsSection({ prId, canEdit, category }) {
   const { mutate: deleteItem } = useMutation({
     mutationFn: (itemId) => api.delete(`/pr/${prId}/items/${itemId}`),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['pr-items', prId] })
+      refresh()
       toast.success('Item removed')
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to remove item'),
@@ -81,7 +98,7 @@ function PRItemsSection({ prId, canEdit, category }) {
   const { mutate: updateItemReq, isPending: savingEdit } = useMutation({
     mutationFn: ({ itemId, body }) => api.patch(`/pr/${prId}/items/${itemId}`, body),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['pr-items', prId] })
+      refresh()
       setEditingItem(null)
       setEditDraft(null)
       toast.success('Item updated')
@@ -95,51 +112,61 @@ function PRItemsSection({ prId, canEdit, category }) {
       group_label:       item.group_label       || '',
       stock_property_no: item.stock_property_no || '',
       category:          item.category          || '',
+      ppmp_item_id:   item.ppmp_item_id,
+      line:           lineById.get(Number(item.ppmp_item_id)) || null,
       item_name:      item.item_name      || '',
       quantity:       String(item.quantity ?? '1'),
-      unit:           item.unit           || categoryForm.defaultUnit,
+      unit:           item.unit           || '',
       estimated_cost: item.estimated_cost != null ? String(item.estimated_cost) : '',
       notes:          item.notes          || '',
     })
   }
 
   const handleSaveEdit = () => {
-    if (!editDraft.item_name.trim()) return toast.error('Item description is required')
+    if (!editDraft.ppmp_item_id) return toast.error('Pick the item from the PPMP')
+    if (editCheck?.block) return toast.error(editCheck.block)
     updateItemReq({
       itemId: editingItem.id,
       body: {
         group_label:       editDraft.group_label?.trim() || null,
         stock_property_no: editDraft.stock_property_no?.trim() || null,
         category:          editDraft.category || undefined,
-        item_name:      editDraft.item_name.trim(),
+        ...(editDraft.ppmp_item_id !== editingItem.ppmp_item_id ? { ppmp_item_id: editDraft.ppmp_item_id } : {}),
         quantity:       editDraft.quantity,
-        unit:           editDraft.unit?.trim() || null,
         estimated_cost: editDraft.estimated_cost,
         notes:          editDraft.notes?.trim() || null,
       },
     })
   }
 
+  // What this request's saved items take of each line, and each new or edited item's check against what is left.
+  const taken = takenByKey(items, lineById)
+  // The quarter of the PPMP's year the request draws on (1 to 4), or null: the year's total applies.
+  const quarter = quarterOf(plans, { label: pr.quarter_label, year: pr.quarter_year })
+  const planYear = items.map(i => lineById.get(Number(i.ppmp_item_id))?.fiscal_year).find(Boolean) ?? (quarter ? Number(pr.quarter_year) : undefined)
+  const checkAgainst = (line, item, exceptIndex) => line && lineChecks(line, { quantity: item.quantity, price: item.estimated_cost, dateNeeded: pr.date_needed, quarter, taken: takenByKey(items, lineById, exceptIndex).get(line.key) || 0 })
+  const draftCheck = draft.line ? { line: draft.line, ...checkAgainst(draft.line, draft, -1) } : null
+  const editCheck = editDraft?.line ? { line: editDraft.line, ...checkAgainst(editDraft.line, editDraft, items.findIndex(i => i.id === editingItem?.id)) } : null
+  // A picked line brings its price; typing over it clears the pick.
+  const pickLine = (line) => setDraft(p => (line ? { ...p, ppmp_item_id: line.id, line, estimated_cost: String(line.unit_cost) } : { ...p, ppmp_item_id: null, line: null }))
+
   const handleAdd = () => {
-    if (!draft.item_name.trim()) return toast.error('Item description is required')
+    if (!draft.line) return toast.error('Pick the item from the PPMP')
+    if (draftCheck?.block) return toast.error(draftCheck.block)
     const notes = buildItemNotes(category, draft.specs)
     addItem({
       group_label:       draft.group_label       || undefined,
       stock_property_no: draft.stock_property_no?.trim() || undefined,
       category:          draft.category || category || undefined,
-      item_name:      draft.item_name.trim(),
+      ppmp_item_id:   draft.line.id,
       quantity:       parseFloat(draft.quantity)       || 1,
-      unit:           draft.unit           || undefined,
       estimated_cost: draft.estimated_cost ? parseFloat(draft.estimated_cost) : undefined,
       notes:          notes || undefined,
     })
   }
 
   // "Add item" on a section heading: point the add form at that section.
-  const addToSection = (label) => {
-    setD('group_label', label)
-    itemRef.current?.focus()
-  }
+  const addToSection = (label) => setD('group_label', label)
 
   const processed = items.map((item) => ({
     ...item,
@@ -163,12 +190,27 @@ function PRItemsSection({ prId, canEdit, category }) {
             <span className="text-xs text-[--color-text-muted] font-normal">({items.length})</span>
           )}
         </div>
-        {grandTotal > 0 && (
-          <span className="text-sm font-bold text-blue-700">Grand Total: {fmtCurrency(grandTotal)}</span>
-        )}
+        <div className="flex items-center gap-4">
+          {review?.plan && PPMP_VIEWERS.includes(user?.role) && (
+            <Link to={`/ppmp/${review.plan.id}`} className="inline-flex items-center gap-1.5 text-ui-sm font-semibold text-[--color-brand] hover:underline">
+              <ClipboardList className="size-4" /> View PPMP ({review.plan.office_code}, FY {review.plan.fiscal_year})
+            </Link>
+          )}
+          {grandTotal > 0 && (
+            <span className="text-sm font-bold text-blue-700">Grand Total: {fmtCurrency(grandTotal)}</span>
+          )}
+        </div>
       </CardHeader>
 
       <CardContent className="p-0">
+        {canEdit && review?.problems?.length > 0 && (
+          <div className="mx-4 mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+            <p className="flex items-center gap-1.5 text-ui-sm font-semibold text-red-800"><Ban className="size-4" /> Fix these before submitting</p>
+            <ul className="mt-1 list-disc pl-6 text-ui-sm text-red-800 leading-relaxed">
+              {review.problems.map(m => <li key={m}>{m}</li>)}
+            </ul>
+          </div>
+        )}
         {isLoading ? (
           <div className="p-4 space-y-2">{Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-9" />)}</div>
         ) : (
@@ -213,6 +255,10 @@ function PRItemsSection({ prId, canEdit, category }) {
                                   <div className="mt-2 text-sm text-[--color-text-secondary] whitespace-pre-wrap leading-relaxed">
                                     {item.notes}
                                   </div>
+                                )}
+                                {reviewOf.get(item.id)?.line && (
+                                  <PpmpLineNote line={reviewOf.get(item.id).line} planned={reviewOf.get(item.id).line.planned}
+                                    warnings={reviewOf.get(item.id).warnings} block={canEdit ? reviewOf.get(item.id).problem : null} className="mt-2 font-normal" />
                                 )}
                               </ITD>
                               <ITD className="text-center tabular-nums font-medium">{item.quantity}</ITD>
@@ -272,7 +318,10 @@ function PRItemsSection({ prId, canEdit, category }) {
               </table>
             </div>
 
-            {canEdit && (
+            {canEdit && !plansLoading && !plans.length && (
+              <div className="px-4 py-4"><NoPpmpNotice requestor={user?.role === 'requestor'} /></div>
+            )}
+            {canEdit && (plansLoading || plans.length > 0) && (
               <div className="bg-[--color-canvas] px-4 py-4 space-y-3">
                 <p className="text-xs font-semibold text-[--color-text-muted] uppercase tracking-wide">Add Item</p>
                 <div className="space-y-1.5">
@@ -299,25 +348,15 @@ function PRItemsSection({ prId, canEdit, category }) {
                       className="text-sm"
                     />
                   </div>
-                  <div className="col-span-4 space-y-1">
-                    <Label className="text-xs">{categoryForm.itemLabel} <span className="text-[--color-brand]">*</span></Label>
-                    <Input
-                      ref={itemRef}
-                      placeholder={categoryForm.itemPlaceholder}
-                      value={draft.item_name}
-                      onChange={e => setD('item_name', e.target.value)}
-                      onKeyDown={e => e.key === 'Enter' && handleAdd()}
-                    />
+                  {/* The item, picked from the PPMP: its description and unit are the line's */}
+                  <div className="col-span-4">
+                    <PpmpItemField id="pr-detail-ppmp-item" plans={plans} isLoading={plansLoading} value={draft.line} onPick={pickLine} taken={taken} year={planYear} quarter={quarter} />
                   </div>
                   <div className="col-span-2 space-y-1">
                     <Label className="text-xs">Unit</Label>
-                    <UnitInput
-                      value={draft.unit}
-                      onChange={v => setD('unit', v)}
-                      options={categoryForm.units}
-                      placeholder={categoryForm.defaultUnit}
-                      className="text-sm"
-                    />
+                    <div className="flex h-10 items-center rounded-lg border border-[--color-border] bg-[--color-surface] px-3 text-sm text-[--color-text-secondary]">
+                      {draft.line?.unit || '—'}
+                    </div>
                   </div>
                   <div className="col-span-1 space-y-1">
                     <Label className="text-xs">Qty</Label>
@@ -346,13 +385,15 @@ function PRItemsSection({ prId, canEdit, category }) {
                   <div className="col-span-1 self-end">
                     <Button
                       className="w-full px-0"
-                      disabled={adding || !draft.item_name.trim()}
+                      disabled={adding || !draft.line || !!draftCheck?.block}
                       onClick={handleAdd}
                     >
                       <Plus className="size-4" />
                     </Button>
                   </div>
                 </div>
+
+                {draftCheck && <PpmpLineNote {...draftCheck} />}
 
                 {/* Per-category structured spec fields */}
                 <CategorySpecFields
@@ -417,26 +458,17 @@ function PRItemsSection({ prId, canEdit, category }) {
                 />
               </div>
 
-              <div className="space-y-1">
-                <Label className="text-xs">{categoryForm.itemLabel} <span className="text-[--color-brand]">*</span></Label>
-                <Input
-                  placeholder={categoryForm.itemPlaceholder}
-                  value={editDraft.item_name}
-                  onChange={e => setED('item_name', e.target.value)}
-                  autoFocus
-                />
-              </div>
+              <PpmpItemField id="pr-edit-ppmp-item" plans={plans} isLoading={plansLoading}
+                value={editDraft.line || (editDraft.ppmp_item_id ? { description: editDraft.item_name } : null)}
+                onPick={line => setEditDraft(p => (line ? { ...p, ppmp_item_id: line.id, line, item_name: line.description, unit: line.unit } : { ...p, ppmp_item_id: null, line: null }))}
+                taken={takenByKey(items, lineById, items.findIndex(i => i.id === editingItem?.id))} year={planYear} quarter={quarter} />
 
               <div className="grid grid-cols-12 gap-2 items-end">
                 <div className="col-span-3 space-y-1">
                   <Label className="text-xs">Unit</Label>
-                  <UnitInput
-                    value={editDraft.unit}
-                    onChange={v => setED('unit', v)}
-                    options={categoryForm.units}
-                    placeholder={categoryForm.defaultUnit}
-                    className="text-sm"
-                  />
+                  <div className="flex h-10 items-center rounded-lg border border-[--color-border] bg-[--color-canvas] px-3 text-sm text-[--color-text-secondary]">
+                    {editDraft.line?.unit || editDraft.unit || '—'}
+                  </div>
                 </div>
                 <div className="col-span-3 space-y-1">
                   <Label className="text-xs">Qty</Label>
@@ -456,6 +488,7 @@ function PRItemsSection({ prId, canEdit, category }) {
                   />
                 </div>
               </div>
+              {editCheck && <PpmpLineNote {...editCheck} />}
 
               <div className="space-y-1">
                 <Label className="text-xs">
@@ -490,7 +523,7 @@ const MOVED = {
   submitted:          (pr) => [`${pr.pr_number} sent to the TWG`, 'You will be notified when they review it.'],
   draft:              (pr) => [`${pr.pr_number} is back to draft`, 'Edit it, then submit it again.'],
   revision_requested: (pr) => [`Returned to ${pr.created_by_name} for revision`, 'They are told what to change.'],
-  bidding:            (pr) => [`${pr.pr_number} is open for canvass`],
+  bidding:            (pr) => [`${pr.pr_number} is back in canvass`],
   cancelled:          (pr) => [`${pr.pr_number} cancelled`],
 }
 
@@ -520,10 +553,11 @@ export default function PRDetail() {
 
   const canManage   = ['admin', 'procurement'].includes(user?.role)
   const isRequestor = user?.role === 'requestor'
+  const listPath    = isRequestor ? '/my-requests' : '/pr'
   const isSupply    = user?.role === 'supply'
   const isBac       = user?.role === 'bac'
-  // The canvass and awards: Procurement's work, and the BAC's to approve (supply sees only the POs).
-  const showCanvass = (canManage || isBac) && !!pr && ['bidding', 'for_po', 'completed', 'cancelled'].includes(pr.status)
+  // The canvass and awards: Procurement's work, and the BAC's to review (supply sees only the POs).
+  const showCanvass = (canManage || isBac) && !!pr && ['bidding', 'bac_review', 'twg_certification', 'for_po', 'completed', 'cancelled'].includes(pr.status)
   // One delivery status over every PO: delivered once all are, partial once any delivery is in.
   const pos = pr?.pos || []
   const deliveryStatus = !pos.length ? null
@@ -539,11 +573,6 @@ export default function PRDetail() {
   }, [pr?.id, location.hash])
 
   const [showDeletePR, setShowDeletePR] = useState(false)
-  const { mutate: deletePR, isPending: deletingPR } = useMutation({
-    mutationFn: () => api.delete(`/pr/${id}`),
-    onSuccess: () => { toast.success('Purchase request deleted'); navigate('/pr') },
-    onError: (err) => toast.error(err.response?.data?.message || 'Failed to delete PR'),
-  })
 
   const openPDF = async (endpoint, label) => {
     try { await openPdf(endpoint) }
@@ -551,8 +580,9 @@ export default function PRDetail() {
   }
 
   const downloadPRForm   = () => openPDF(`/pr/${id}/pdf`,       'PR Form')
-  const downloadAbstract = () => openPDF(`/lots/pr/${id}/pdf`,  'Abstract of Quotations')
   const downloadRFQ      = () => openPDF(`/pr/${id}/rfq`,       'Request for Quotation')
+  const downloadRFQWord  = () => downloadFile(`/pr/${id}/rfq/docx`, `RFQ ${pr.pr_number}.docx`)
+    .catch(async (err) => toast.error(await blobErrorMessage(err, 'Could not download the Request for Quotation')))
 
   // How this purchase is procured; Procurement sets it once the canvass is set up.
   const { mutate: setMode, isPending: settingMode } = useMutation({
@@ -640,7 +670,7 @@ export default function PRDetail() {
     <div className="text-center py-20">
       <FileText className="size-10 text-[--color-text-muted] mx-auto mb-3" />
       <p className="text-ui-md font-semibold text-[--color-text-primary]">Purchase request not found</p>
-      <Button variant="outline" size="sm" className="mt-5" onClick={() => navigate('/pr')}>Back to list</Button>
+      <Button variant="outline" size="sm" className="mt-5" onClick={() => navigate(listPath)}>Back to list</Button>
     </div>
   )
 
@@ -655,6 +685,7 @@ export default function PRDetail() {
           <Archive className="size-4 text-slate-600 shrink-0" />
           <p className="text-sm text-slate-700">
             Deleted {fmtDate(pr.deleted_at)}{pr.deleted_by_name ? ` by ${pr.deleted_by_name}` : ''}. It is kept in the Archive and can no longer be changed.
+            {pr.delete_reason && <span className="block mt-0.5">Reason: {pr.delete_reason}</span>}
           </p>
         </div>
       )}
@@ -750,7 +781,10 @@ export default function PRDetail() {
         </Button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3 flex-wrap">
-            <h2 className="text-ui-xl font-bold text-[--color-text-primary] font-mono">{pr.pr_number}</h2>
+            <h2 className="text-ui-xl font-bold text-[--color-text-primary] font-mono"
+              title={isTemporaryPrNumber(pr.pr_number) ? 'A temporary reference: Procurement assigns the PR number when the canvass starts' : undefined}>
+              {pr.pr_number}
+            </h2>
             <PRStatusBadge status={pr.status} />
             <CategoryBadge category={pr.category} />
             {deliveryStatus && <DeliveryStatusBadge status={deliveryStatus} />}
@@ -813,20 +847,10 @@ export default function PRDetail() {
         >
           <FileDown className="size-3.5" /> PR Form
         </button>
-        {/* The BAC evaluates from the Abstract of Quotations */}
-        {isBac && pr.status !== 'draft' && pr.status !== 'submitted' && (
-          <button
-            onClick={downloadAbstract}
-            title="Download Abstract of Quotations"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[--color-border] text-xs font-medium text-[--color-text-secondary] hover:text-[--color-brand] hover:border-[--color-brand] transition-colors shrink-0"
-          >
-            <FileDown className="size-3.5" /> Abstract
-          </button>
-        )}
         {/* Procurement: the one next step for this stage, the rest under More */}
         {canManage && !pr.deleted_at && (
           <ProcurementActions pr={pr} updateStatus={updateStatus} isPending={isPending}
-            onReturn={() => setReturnOpen(true)} downloadRFQ={downloadRFQ} downloadAbstract={downloadAbstract} />
+            onReturn={() => setReturnOpen(true)} downloadRFQ={downloadRFQ} downloadRFQWord={downloadRFQWord} />
         )}
       </div>
 
@@ -895,9 +919,9 @@ export default function PRDetail() {
       )}
 
       {/* Items Requested */}
-      <PRItemsSection prId={id} canEdit={!!pr.permissions?.edit} category={pr.category} />
+      <PRItemsSection prId={id} pr={pr} canEdit={!!pr.permissions?.edit} category={pr.category} />
 
-      {/* Canvass & awards: quotations, awards by supplier, and the BAC's approval (procurement, admin, BAC) */}
+      {/* Canvass & awards: the BAC's award by supplier and the TWG's certification (procurement, admin, BAC) */}
       {showCanvass && (
         <Card>
           <CardContent className="flex flex-wrap items-center justify-between gap-3 py-4">
@@ -906,11 +930,11 @@ export default function PRDetail() {
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-[--color-text-primary]">Canvass &amp; Award</p>
                 <p className="text-xs text-[--color-text-secondary] mt-0.5">
-                  {pr.status === 'bidding' && pr.bac_submitted_at ? 'With the BAC for evaluation.'
-                    : pr.status === 'bidding' && pr.quotations_due && new Date(pr.quotations_due) > new Date() ? `Quotations close ${fmtDate(pr.quotations_due)}.`
-                    : pr.status === 'bidding' ? 'Quotations are in; the canvass is being decided.'
+                  {pr.status === 'bidding' ? 'In canvass: the BAC enters the bids from the canvasser\'s returned RFQs.'
+                    : pr.status === 'twg_certification' ? 'With the TWG, which checks every bid and certifies them.'
+                    : pr.status === 'bac_review' ? 'Certified by the TWG; the BAC picks the winners.'
                     : pr.status === 'cancelled' ? 'The canvass record is kept.'
-                    : 'Awarded. The quotations, the award and its resolution are on the canvass page.'}
+                    : 'Certified. The winners and the BAC Resolution are on the canvass page.'}
                 </p>
               </div>
             </div>
@@ -923,6 +947,9 @@ export default function PRDetail() {
 
       {/* Purchase orders: one per supplier awarded */}
       {(canManage || isRequestor || isSupply) && <PurchaseOrders pr={pr} canManage={canManage} />}
+
+      {/* The TWG's certificates: of the request when it was approved, and of its canvass bids (staff, the BAC, the TWG). */}
+      {!isRequestor && <TwgCertificates prId={String(pr.id)} title="TWG Certificates" />}
 
       {/* Attachments */}
       <Card>
@@ -951,26 +978,7 @@ export default function PRDetail() {
         onConfirm={() => updateStatus({ status: 'submitted' }, { onSuccess: () => setReviewing(false) })}
         onClose={() => setReviewing(false)} />
 
-      {/* Delete PR confirmation */}
-      <Dialog open={showDeletePR} onOpenChange={o => { if (!o) setShowDeletePR(false) }}>
-        <DialogContent title="Delete Purchase Request">
-          <div className="pt-1 space-y-3">
-            <p className="text-sm text-[--color-text-secondary]">
-              Delete <strong>{pr?.pr_number}</strong>? It will be removed from active lists and kept, with its items, attachments, and history, in the Archive under Deleted.
-            </p>
-          </div>
-          <DialogFooter>
-            <Button variant="secondary" onClick={() => setShowDeletePR(false)} disabled={deletingPR}>Cancel</Button>
-            <Button
-              className="bg-red-600 hover:bg-red-700 text-white border-0"
-              onClick={() => deletePR()}
-              disabled={deletingPR}
-            >
-              {deletingPR ? 'Deleting…' : 'Delete PR'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DeletePRDialog pr={showDeletePR ? pr : null} onClose={() => setShowDeletePR(false)} onDeleted={() => navigate(listPath)} />
 
       {/* Return for revision: a reason is required; the requestor edits and resubmits to the TWG */}
       <Dialog open={returnOpen} onOpenChange={o => { if (!o) setReturnOpen(false) }}>
@@ -1045,7 +1053,7 @@ function ActivityLog({ prId }) {
                       </>
                     )}
                     <span className="text-xs font-semibold text-[--color-brand]">
-                      {PR_STATUS_LABELS[log.to_status] || log.to_status}
+                      {log.to_status === 'deleted' ? 'Deleted' : PR_STATUS_LABELS[log.to_status] || log.to_status}
                     </span>
                   </div>
                   <div className="flex items-center gap-2 mt-1 flex-wrap">

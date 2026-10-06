@@ -42,7 +42,7 @@ CREATE TABLE `departments` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Users
--- Public sign-up always creates a requestor; admins assign every other role
+-- Public sign-up always creates a requestor (shown as Fund Administrator, one per office), waiting for an admin to approve it; admins assign every other role
 -- (bac: a member of the Bids and Awards Committee, who approves awards).
 CREATE TABLE `users` (
   `id`                         INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -56,12 +56,11 @@ CREATE TABLE `users` (
   `password_hash`              VARCHAR(255) NOT NULL,
   `role`                       ENUM('admin','procurement','requestor','supply','twg','bac') NOT NULL DEFAULT 'requestor',
   `is_active`                  TINYINT(1)   NOT NULL DEFAULT 1,
+  -- 1 once an admin approved the account; a waiting account can't sign in.
   `is_verified`                TINYINT(1)   NOT NULL DEFAULT 0,
   -- Sign-in tokens carry this number; changing or resetting the password
   -- raises it, so every token issued before stops working.
   `token_version`              INT UNSIGNED NOT NULL DEFAULT 0,
-  `verify_token`               VARCHAR(64)  NULL,
-  `verify_expires`             DATETIME     NULL,
   `fund_cluster`               VARCHAR(100) NULL,
   `responsibility_center_code` VARCHAR(100) NULL,
   `created_at`                 TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -99,6 +98,8 @@ CREATE TABLE `org_settings` (
 -- Purchase requests
 -- Status flow and who may change it: server/utils/prWorkflow.js.
 -- A deleted PR is kept (deleted_at / deleted_by) and listed under Archive.
+-- pr_number holds a temporary reference (REQ-000123) until Procurement assigns
+-- the PR number when the canvass starts (server/utils/prNumber.js).
 CREATE TABLE `purchase_requests` (
   `id`                         INT UNSIGNED NOT NULL AUTO_INCREMENT,
   `pr_number`                  VARCHAR(50)  NOT NULL,
@@ -111,10 +112,8 @@ CREATE TABLE `purchase_requests` (
   -- How this is procured (server/utils/procurementModes.js). Set by
   -- Procurement, not asked of the person filing the request.
   `mode_of_procurement`        VARCHAR(60)  NULL,
-  -- When quotations close, set by "Open for quotations" (emailed RFQs share it as their deadline).
-  `quotations_due`             DATETIME     NULL,
-  -- Submitted by Procurement (the BAC Secretariat) for the BAC to evaluate and
-  -- award; cleared when the BAC awards every item or returns it (with why).
+  -- Submitted by Procurement (the BAC Secretariat) for the BAC to review the
+  -- canvass result; why the BAC last returned it to Procurement.
   `bac_submitted_at`           DATETIME     NULL,
   `bac_submitted_by`           INT UNSIGNED NULL,
   `bac_return_reason`          VARCHAR(500) NULL,
@@ -129,20 +128,30 @@ CREATE TABLE `purchase_requests` (
   `event_date`                 DATE         NULL,
   `project_name`               VARCHAR(200) NULL,
   `category`                   ENUM('hardware','office_supplies','lab_educational','furniture','food_catering','event_supplies') NOT NULL DEFAULT 'office_supplies',
-  `status`                     ENUM('draft','submitted','twg_review','revision_requested','rejected','bidding','for_po','completed','cancelled') NOT NULL DEFAULT 'draft',
+  -- bidding is the canvass (done outside the system); bac_review and twg_certification follow it.
+  `status`                     ENUM('draft','submitted','twg_review','revision_requested','rejected','bidding','bac_review','twg_certification','for_po','completed','cancelled') NOT NULL DEFAULT 'draft',
   `notes`                      TEXT         NULL,
   `created_by`                 INT UNSIGNED NOT NULL,
-  -- The head of the requesting office and their designation, as they stood when
-  -- the PR was filed: the form's "Requested by" names the office's head, not
-  -- whoever encoded it, and a later change of head must not rewrite PRs already
-  -- on record. Falls back to the filer when the office has no head recorded.
+  -- Who requested it, as the form's "Requested by" prints them: typed by the
+  -- Fund Administrator who files it, the office head when none is typed (frozen,
+  -- so a later change of head leaves filed PRs alone). Their signature, drawn
+  -- on the screen or uploaded, prints on the signature line (PNG data URL).
   `requested_by_name`          VARCHAR(150) NULL,
   `requested_by_designation`   VARCHAR(150) NULL,
+  `requested_by_signature`     MEDIUMTEXT   NULL,
+  `requested_by_sign_method`   ENUM('drawn','uploaded') NULL,
+  `requested_by_signed_at`     DATETIME     NULL,
   `twg_reviewed_by`            INT UNSIGNED NULL,
   `twg_reviewed_at`            TIMESTAMP    NULL DEFAULT NULL,
   `twg_comment`                TEXT         NULL,
+  -- The TWG's second review, after the BAC's: its certification, or why it returned the request to the BAC.
+  `twg_certified_by`           INT UNSIGNED NULL,
+  `twg_certified_at`           DATETIME     NULL,
+  `twg_certification_note`     TEXT         NULL,
+  `certification_return_reason` VARCHAR(500) NULL,
   `deleted_at`                 TIMESTAMP    NULL DEFAULT NULL,
   `deleted_by`                 INT UNSIGNED NULL,
+  `delete_reason`              VARCHAR(500) NULL,   -- why it was deleted (none when its filer deleted their own draft)
   `created_at`                 TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at`                 TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
@@ -160,12 +169,15 @@ CREATE TABLE `purchase_requests` (
   CONSTRAINT `fk_pr_quarter`      FOREIGN KEY (`quarter_id`)      REFERENCES `quarters` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_pr_twg_reviewer` FOREIGN KEY (`twg_reviewed_by`) REFERENCES `users` (`id`)    ON DELETE SET NULL,
   CONSTRAINT `fk_pr_deleted_by`   FOREIGN KEY (`deleted_by`)      REFERENCES `users` (`id`)    ON DELETE SET NULL,
-  CONSTRAINT `fk_pr_bac_submitted_by` FOREIGN KEY (`bac_submitted_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+  CONSTRAINT `fk_pr_bac_submitted_by` FOREIGN KEY (`bac_submitted_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_pr_twg_certified_by` FOREIGN KEY (`twg_certified_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE `pr_items` (
   `id`             INT UNSIGNED  NOT NULL AUTO_INCREMENT,
   `pr_id`          INT UNSIGNED  NOT NULL,
+  -- The PPMP line this item is drawn from (server/utils/ppmpUse.js); its foreign key follows ppmp_items below.
+  `ppmp_item_id`   INT UNSIGNED  NULL,
   -- Stock/Property No. on the PR form; assigned by the Supply Office, often blank.
   `stock_property_no` VARCHAR(50) NULL,
   `group_label`    VARCHAR(255)  NULL,
@@ -183,10 +195,14 @@ CREATE TABLE `pr_items` (
   `drop_reason`    VARCHAR(500)  NULL,
   -- The item whose undelivered quantity this one is (a closed PO's balance, back to canvass).
   `balance_of`     INT UNSIGNED  NULL,
+  -- The bidder the BAC picks as this item's winner (FK added after canvass_bidders, below), and why when not the lowest.
+  `winner_bidder_id` INT UNSIGNED NULL,
+  `winner_reason`  VARCHAR(500)  NULL,
   `created_at`     TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_pr_items_pr_id` (`pr_id`),
   KEY `idx_pr_items_category` (`category`),
+  KEY `idx_pr_items_ppmp_item` (`ppmp_item_id`),
   CONSTRAINT `fk_pr_items_pr`         FOREIGN KEY (`pr_id`)      REFERENCES `purchase_requests` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_pr_items_dropped_by` FOREIGN KEY (`dropped_by`) REFERENCES `users` (`id`)             ON DELETE SET NULL,
   CONSTRAINT `fk_pr_items_balance_of` FOREIGN KEY (`balance_of`) REFERENCES `pr_items` (`id`)          ON DELETE SET NULL
@@ -249,118 +265,12 @@ CREATE TABLE `twg_assignments` (
   CONSTRAINT `fk_twg_assignments_by`   FOREIGN KEY (`assigned_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Suppliers
--- The master list Procurement keeps, one row per supplier (name_key: lower
--- case, single spaces), marked active or blacklisted. RFQs are emailed to them.
-CREATE TABLE `suppliers` (
-  `id`             INT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `name`           VARCHAR(200) NOT NULL,
-  `name_key`       VARCHAR(200) NOT NULL,
-  `tin`            VARCHAR(50)  NULL,
-  `address`        TEXT         NULL,
-  `contact_person` VARCHAR(100) NULL,
-  `email`          VARCHAR(150) NULL,
-  -- The address the supplier proved by quoting through its emailed link.
-  `email_confirmed`    VARCHAR(150) NULL,
-  `email_confirmed_at` DATETIME     NULL,
-  `phone`          VARCHAR(50)  NULL,
-  `philgeps_no`    VARCHAR(50)  NULL,
-  `status`         ENUM('active','blacklisted') NOT NULL DEFAULT 'active',
-  `status_note`    VARCHAR(500) NULL,
-  `created_by`     INT UNSIGNED NOT NULL,
-  `created_at`     TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at`     TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uq_supplier_name_key` (`name_key`),
-  CONSTRAINT `fk_suppliers_user` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- Canvass: quotations
--- Each supplier's quoted unit price per PR item, for the Abstract of
--- Quotations and the award. Items a supplier didn't quote have no row.
-CREATE TABLE `quotations` (
-  `id`                  INT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `purchase_request_id` INT UNSIGNED NOT NULL,
-  `supplier_id`         INT UNSIGNED NULL,   -- from the master list, when known
-  `source`              ENUM('manual','online') NOT NULL DEFAULT 'manual',   -- typed in, or sent by the supplier
-  `supplier_name`       VARCHAR(200) NOT NULL,
-  `supplier_contact`    VARCHAR(100) NULL,
-  `supplier_address`    TEXT         NULL,
-  `supplier_phone`      VARCHAR(50)  NULL,
-  `supplier_email`      VARCHAR(150) NULL,
-  `supplier_tin`        VARCHAR(50)  NULL,
-  `quoted_at`           DATE         NULL,
-  `notes`               TEXT         NULL,
-  -- The terms the RFQ asks the supplier to state.
-  `delivery_period`     VARCHAR(100) NULL,
-  `warranty`            VARCHAR(100) NULL,
-  `price_validity`      VARCHAR(100) NULL,
-  -- Set by the BAC when the offer fails the specifications; it can't be awarded.
-  `disqualified_reason` VARCHAR(500) NULL,
-  `disqualified_by`     INT UNSIGNED NULL,
-  `created_by`          INT UNSIGNED NOT NULL,
-  `created_at`          TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at`          TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  KEY `idx_quotations_pr_id` (`purchase_request_id`),
-  KEY `idx_quotations_supplier` (`supplier_id`),
-  CONSTRAINT `fk_quotations_supplier` FOREIGN KEY (`supplier_id`) REFERENCES `suppliers` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `fk_quotations_pr`   FOREIGN KEY (`purchase_request_id`) REFERENCES `purchase_requests` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_quotations_user` FOREIGN KEY (`created_by`)          REFERENCES `users` (`id`),
-  CONSTRAINT `fk_quotations_disqualified_by` FOREIGN KEY (`disqualified_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE `quotation_items` (
-  `quotation_id` INT UNSIGNED  NOT NULL,
-  `pr_item_id`   INT UNSIGNED  NOT NULL,
-  `unit_price`   DECIMAL(15,2) NOT NULL,
-  PRIMARY KEY (`quotation_id`, `pr_item_id`),
-  KEY `idx_quotation_items_pr_item` (`pr_item_id`),
-  CONSTRAINT `fk_quotation_items_quotation` FOREIGN KEY (`quotation_id`) REFERENCES `quotations` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_quotation_items_pr_item`   FOREIGN KEY (`pr_item_id`)   REFERENCES `pr_items` (`id`)   ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- RFQs emailed to suppliers
--- One per supplier per PR. The email carries a random token (only its SHA-256
--- is kept); the supplier answers through that link, without an account, and
--- may revise until the deadline. Online quotations stay sealed until then.
-CREATE TABLE `rfq_invitations` (
-  `id`                  INT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `purchase_request_id` INT UNSIGNED NOT NULL,
-  `supplier_id`         INT UNSIGNED NOT NULL,
-  `token_hash`          CHAR(64)     NOT NULL,
-  `deadline`            DATETIME     NOT NULL,
-  `sent_at`             DATETIME     NULL,
-  `sent_to`             VARCHAR(150) NULL,
-  `send_error`          VARCHAR(300) NULL,
-  `reminded_at`         DATETIME     NULL,
-  `opened_at`           DATETIME     NULL,
-  `submitted_at`        DATETIME     NULL,
-  `submit_count`        TINYINT UNSIGNED NOT NULL DEFAULT 0,
-  -- The supplier said it won't quote (recorded by Procurement, with why).
-  `declined_at`         DATETIME     NULL,
-  `declined_by`         INT UNSIGNED NULL,
-  `decline_reason`      VARCHAR(500) NULL,
-  `quotation_id`        INT UNSIGNED NULL,
-  `created_by`          INT UNSIGNED NOT NULL,
-  `created_at`          TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uq_rfq_token` (`token_hash`),
-  UNIQUE KEY `uq_rfq_pr_supplier` (`purchase_request_id`, `supplier_id`),
-  KEY `idx_rfq_due` (`submitted_at`, `reminded_at`, `deadline`),
-  CONSTRAINT `fk_rfq_pr`        FOREIGN KEY (`purchase_request_id`) REFERENCES `purchase_requests` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_rfq_supplier`  FOREIGN KEY (`supplier_id`)         REFERENCES `suppliers` (`id`),
-  CONSTRAINT `fk_rfq_quotation` FOREIGN KEY (`quotation_id`)        REFERENCES `quotations` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `fk_rfq_user`      FOREIGN KEY (`created_by`)          REFERENCES `users` (`id`),
-  CONSTRAINT `fk_rfq_declined_by` FOREIGN KEY (`declined_by`)       REFERENCES `users` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
 -- Lots & awards
 -- A lot records the supplier awarded some of a PR's items (lot_items with
--- pr_item_id; different items may go to different suppliers), maybe from a
--- quotation, and the purchase order issued for it (po_id, one supplier's POs).
--- While the BAC awards (org_settings.bac_approval_required) every award is made
--- by the BAC in a BAC Resolution (resolution_id).
+-- pr_item_id with the winning unit price; different items may go to different
+-- suppliers), as Procurement records it from the canvass done outside the
+-- system, the BAC Resolution that approved it (resolution_id), the TWG's
+-- certification, and the purchase order issued for it (po_id, one supplier's POs).
 CREATE TABLE `lots` (
   `id`                  INT UNSIGNED  NOT NULL AUTO_INCREMENT,
   `purchase_request_id` INT UNSIGNED  NOT NULL,
@@ -371,7 +281,6 @@ CREATE TABLE `lots` (
   `opening_date`        DATE          NULL,
   `closing_date`        DATE          NULL,
   `awarded_to`          VARCHAR(200)  NULL,
-  `supplier_id`         INT UNSIGNED  NULL,   -- the supplier on the list (awarded_to keeps its name that day)
   `awarded_amount`      DECIMAL(15,2) NULL,
   `supplier_contact`    VARCHAR(100)  NULL,
   `supplier_address`    TEXT          NULL,
@@ -379,14 +288,11 @@ CREATE TABLE `lots` (
   `supplier_email`      VARCHAR(150)  NULL,
   `supplier_tin`        VARCHAR(50)   NULL,
   `notes`               TEXT          NULL,
-  -- Why this was awarded on fewer quotations than the campus expects.
-  `few_quotations_reason` VARCHAR(500) NULL,
-  `quotation_id`        INT UNSIGNED  NULL,
   `resolution_id`       INT UNSIGNED  NULL,   -- FK added after bac_resolutions, below
-  -- The Notice of Award emailed to the supplier: when, where, or why it wasn't sent.
-  `notice_sent_at`      DATETIME      NULL,
-  `notice_sent_to`      VARCHAR(150)  NULL,
-  `notice_error`        VARCHAR(300)  NULL,
+  -- Certified by the TWG after the BAC's review; only a certified award gets a purchase order.
+  `certified_at`        DATETIME      NULL,
+  `certified_by`        INT UNSIGNED  NULL,
+  `certificate_id`      INT UNSIGNED  NULL,   -- the TWG certificate; FK added after twg_certificates, below
   `po_id`              INT UNSIGNED  NULL,   -- FK added after purchase_orders, below
   `created_by`          INT UNSIGNED  NOT NULL,
   `created_at`          TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -394,14 +300,11 @@ CREATE TABLE `lots` (
   PRIMARY KEY (`id`),
   KEY `idx_lots_pr_id`  (`purchase_request_id`),
   KEY `idx_lots_status` (`status`),
-  KEY `idx_lots_quotation_id` (`quotation_id`),
   KEY `idx_lots_po_id` (`po_id`),
   KEY `idx_lots_resolution_id` (`resolution_id`),
-  KEY `idx_lots_supplier_id` (`supplier_id`),
   CONSTRAINT `fk_lots_pr`        FOREIGN KEY (`purchase_request_id`) REFERENCES `purchase_requests` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_lots_user`      FOREIGN KEY (`created_by`)          REFERENCES `users` (`id`),
-  CONSTRAINT `fk_lots_quotation` FOREIGN KEY (`quotation_id`)        REFERENCES `quotations` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `fk_lots_supplier`  FOREIGN KEY (`supplier_id`)         REFERENCES `suppliers` (`id`)  ON DELETE SET NULL
+  CONSTRAINT `fk_lots_certified_by` FOREIGN KEY (`certified_by`)    REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE `lot_items` (
@@ -423,6 +326,48 @@ CREATE TABLE `lot_items` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- BAC resolutions
+-- The canvass bids the BAC enters from the canvasser's returned RFQs, one
+-- quotation at a time: each bidder (a supplier, by name, with its RFQ No. and
+-- its RFQ file) and its unit price for each PR item it offered. The TWG marks
+-- each bid compliant or not, with the offered specification and the reason
+-- (its certificate lists them), and the BAC picks each lot's winner
+-- (pr_items.winner_bidder_id, on each item of the lot) and awards.
+CREATE TABLE `canvass_bidders` (
+  `id`         INT UNSIGNED      NOT NULL AUTO_INCREMENT,
+  `pr_id`      INT UNSIGNED      NOT NULL,
+  `name`       VARCHAR(200)      NOT NULL,
+  `rfq_no`     VARCHAR(50)       NULL,       -- the number on the supplier's returned RFQ
+  `attachment_id` INT UNSIGNED   NULL,       -- the supplier's returned RFQ, attached to the PR
+  `position`   SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  `created_by` INT UNSIGNED      NULL,
+  `created_at` TIMESTAMP         NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_canvass_bidders_pr` (`pr_id`),
+  CONSTRAINT `fk_canvass_bidders_pr` FOREIGN KEY (`pr_id`)      REFERENCES `purchase_requests` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_canvass_bidders_by` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_canvass_bidders_file` FOREIGN KEY (`attachment_id`) REFERENCES `pr_attachments` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `canvass_bids` (
+  `id`         INT UNSIGNED  NOT NULL AUTO_INCREMENT,
+  `bidder_id`  INT UNSIGNED  NOT NULL,
+  `pr_item_id` INT UNSIGNED  NOT NULL,
+  `unit_price` DECIMAL(15,2) NOT NULL,
+  -- The TWG's evaluation: compliant (NULL until checked), what was offered, and why not compliant.
+  `compliant`      TINYINT(1)    NULL,
+  `offered_spec`   VARCHAR(1000) NULL,
+  `remarks`        VARCHAR(500)  NULL,
+  `certificate_id` INT UNSIGNED  NULL,   -- FK added after twg_certificates, below
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_canvass_bid` (`bidder_id`, `pr_item_id`),
+  KEY `idx_canvass_bids_item` (`pr_item_id`),
+  CONSTRAINT `fk_canvass_bids_bidder` FOREIGN KEY (`bidder_id`)  REFERENCES `canvass_bidders` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_canvass_bids_item`   FOREIGN KEY (`pr_item_id`) REFERENCES `pr_items` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE `pr_items`
+  ADD CONSTRAINT `fk_pr_items_winner` FOREIGN KEY (`winner_bidder_id`) REFERENCES `canvass_bidders` (`id`) ON DELETE SET NULL;
+
 -- One per approval of a PR's recommended awards, numbered per year (2026-001).
 -- Printed as the BAC Resolution; each supplier's awards in it as a Notice of Award.
 CREATE TABLE `bac_resolutions` (
@@ -443,6 +388,30 @@ CREATE TABLE `bac_resolutions` (
 ALTER TABLE `lots`
   ADD CONSTRAINT `fk_lots_resolution` FOREIGN KEY (`resolution_id`) REFERENCES `bac_resolutions` (`id`) ON DELETE SET NULL;
 
+-- One per TWG certification of a PR's bids (the compliance of every offer),
+-- numbered per year (suggested 2026-10-001, editable). Printed as the Certification (Goods and services).
+CREATE TABLE `twg_certificates` (
+  `id`           INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `cert_no`      VARCHAR(30)  NOT NULL,
+  `pr_id`        INT UNSIGNED NOT NULL,
+  -- review: the TWG checked the request's market price and specifications (issued on approval); bids: the canvass bids.
+  `kind`         ENUM('review','bids') NOT NULL DEFAULT 'bids',
+  `certified_by` INT UNSIGNED NULL,
+  `signature`    MEDIUMTEXT   NULL,       -- PNG data URL, signed on the screen or uploaded
+  `sign_method`  ENUM('drawn','uploaded') NULL,
+  `created_at`   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_twg_cert_no` (`cert_no`),
+  KEY `idx_twg_cert_pr` (`pr_id`),
+  CONSTRAINT `fk_twg_cert_pr` FOREIGN KEY (`pr_id`)        REFERENCES `purchase_requests` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_twg_cert_by` FOREIGN KEY (`certified_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE `lots`
+  ADD CONSTRAINT `fk_lots_certificate` FOREIGN KEY (`certificate_id`) REFERENCES `twg_certificates` (`id`) ON DELETE SET NULL;
+ALTER TABLE `canvass_bids`
+  ADD CONSTRAINT `fk_canvass_bids_certificate` FOREIGN KEY (`certificate_id`) REFERENCES `twg_certificates` (`id`) ON DELETE SET NULL;
+
 -- Purchase orders
 -- One PO per supplier's awards (lots.po_id), so a PR can have several active
 -- POs. A cancelled PO stays on record; its awards are cancelled with it and
@@ -452,7 +421,6 @@ CREATE TABLE `purchase_orders` (
   `po_number`              VARCHAR(50)   NOT NULL,
   `purchase_request_id`    INT UNSIGNED  NOT NULL,
   `supplier_name`          VARCHAR(200)  NOT NULL,
-  `supplier_id`            INT UNSIGNED  NULL,   -- the supplier on the list
   `supplier_contact`       VARCHAR(100)  NULL,
   `supplier_address`       TEXT          NULL,
   `issued_date`            DATE          NOT NULL,
@@ -483,12 +451,10 @@ CREATE TABLE `purchase_orders` (
   UNIQUE KEY `uq_po_number`               (`po_number`),
   KEY `idx_po_purchase_request_id`        (`purchase_request_id`),
   KEY `idx_delivery_status`               (`delivery_status`),
-  KEY `idx_po_supplier_id`                (`supplier_id`),
   CONSTRAINT `fk_po_pr`           FOREIGN KEY (`purchase_request_id`) REFERENCES `purchase_requests` (`id`),
   CONSTRAINT `fk_po_issued_by`    FOREIGN KEY (`issued_by`)           REFERENCES `users` (`id`),
   CONSTRAINT `fk_po_cancelled_by` FOREIGN KEY (`cancelled_by`)        REFERENCES `users` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `fk_po_closed_by`    FOREIGN KEY (`closed_by`)           REFERENCES `users` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `fk_po_supplier`     FOREIGN KEY (`supplier_id`)         REFERENCES `suppliers` (`id`) ON DELETE SET NULL
+  CONSTRAINT `fk_po_closed_by`    FOREIGN KEY (`closed_by`)           REFERENCES `users` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- An award's purchase order (lots come before purchase_orders in this file).
@@ -587,6 +553,94 @@ CREATE TABLE `password_reset_tokens` (
   CONSTRAINT `fk_prt_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- PPMP: each office's plan for a fiscal year, uploaded as its softcopy; in effect once complete (server/db/add_ppmp.sql).
+CREATE TABLE `ppmps` (
+  `id`                 INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `department_id`      INT UNSIGNED NOT NULL,
+  `fiscal_year`        SMALLINT UNSIGNED NOT NULL,
+  `version_no`         INT UNSIGNED NOT NULL DEFAULT 1,
+  -- The version this one was edited from in PRimeSys (its uploaded file stays with that one); NULL for an uploaded file.
+  `edited_from`        INT UNSIGNED NULL,
+  `kind`               ENUM('indicative','final') NOT NULL DEFAULT 'final',
+  `fund_source`        ENUM('STF','GAA','IGP') NOT NULL DEFAULT 'STF',
+  -- draft: kept but not in effect (see problems); approved: signed and complete, in effect; superseded: a later version took effect;
+  -- withdrawn: an admin took it back as a mistake (withdrawn_*), the version it replaced in effect again.
+  `status`             ENUM('draft','approved','superseded','withdrawn') NOT NULL DEFAULT 'draft',
+  -- Why it is not in effect: what is unsigned or missing (JSON list); null once it is.
+  `problems`           TEXT NULL,
+  -- PPMPs uploaded before 2026-10 only: how the signed copy was signed, digital (checked) or paper (declared by the uploader).
+  `signed_kind`        ENUM('digital','paper') NULL,
+  -- PPMPs uploaded before 2026-10 only: the digital signatures on the signed copy, with their checks (JSON).
+  `signatures`         TEXT NULL,
+  -- The file's signature block: who prepared, approved, or reviewed it (JSON).
+  `signatories`        TEXT NULL,
+  `file_office`        VARCHAR(200) NULL,
+  `skipped_rows`       TEXT NULL,
+  `uploaded_by`        INT UNSIGNED NULL,
+  `uploaded_at`        DATETIME NULL,
+  `effective_at`       DATETIME NULL,
+  `content_hash`       CHAR(64) NULL,
+  `created_at`         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`         TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `withdrawn_at`       DATETIME NULL,
+  `withdrawn_by`       INT UNSIGNED NULL,
+  `withdraw_reason`    VARCHAR(500) NULL,
+  -- The Fund Administrator's request that an admin remove it (withdraw it), while it waits.
+  `removal_requested_by` INT UNSIGNED NULL,
+  `removal_requested_at` DATETIME NULL,
+  `removal_reason`     VARCHAR(500) NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_ppmp_version` (`department_id`, `fiscal_year`, `version_no`),
+  CONSTRAINT `fk_ppmp_department`  FOREIGN KEY (`department_id`) REFERENCES `departments` (`id`),
+  CONSTRAINT `fk_ppmp_uploaded_by` FOREIGN KEY (`uploaded_by`)   REFERENCES `users` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_ppmp_withdrawn_by` FOREIGN KEY (`withdrawn_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `ppmp_items` (
+  `id`                  INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `ppmp_id`             INT UNSIGNED NOT NULL,
+  `part`                ENUM('ps','other') NOT NULL DEFAULT 'other',
+  `category`            VARCHAR(100)  NULL,
+  `code`                VARCHAR(50)   NULL,
+  `description`         VARCHAR(500)  NOT NULL,
+  `unit`                VARCHAR(50)   NOT NULL,
+  `quantity`            DECIMAL(10,2) NOT NULL,
+  `unit_cost`           DECIMAL(15,2) NOT NULL,
+  `mode_of_procurement` VARCHAR(50)   NULL,
+  `months`              VARCHAR(40)   NULL,
+  -- Each quarter's quantity from the file's month columns (Jan to Mar is Q1); null when they don't add up to the quantity.
+  `qty_q1`              DECIMAL(10,2) NULL,
+  `qty_q2`              DECIMAL(10,2) NULL,
+  `qty_q3`              DECIMAL(10,2) NULL,
+  `qty_q4`              DECIMAL(10,2) NULL,
+  `remarks`             VARCHAR(500)  NULL,
+  `file_row`            INT UNSIGNED  NULL,
+  `sort_order`          INT UNSIGNED  NOT NULL DEFAULT 0,
+  PRIMARY KEY (`id`),
+  KEY `idx_ppmp_items_ppmp` (`ppmp_id`),
+  CONSTRAINT `fk_ppmp_items_ppmp` FOREIGN KEY (`ppmp_id`) REFERENCES `ppmps` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+ALTER TABLE `pr_items` ADD CONSTRAINT `fk_pr_items_ppmp_item` FOREIGN KEY (`ppmp_item_id`) REFERENCES `ppmp_items` (`id`);
+
+-- The original files of a PPMP: the softcopy its items were read from (and, before 2026-10, the signed copy).
+CREATE TABLE `ppmp_attachments` (
+  `id`            INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `ppmp_id`       INT UNSIGNED NOT NULL,
+  `role`          ENUM('data','signed') NOT NULL,
+  `filename`      VARCHAR(255) NOT NULL,
+  `original_name` VARCHAR(255) NOT NULL,
+  `mimetype`      VARCHAR(100) NULL,
+  `size`          INT UNSIGNED NULL,
+  `sha256`        CHAR(64)     NOT NULL,
+  `uploaded_by`   INT UNSIGNED NULL,
+  `created_at`    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_ppmp_attachments_ppmp` (`ppmp_id`),
+  CONSTRAINT `fk_ppmp_attachments_ppmp` FOREIGN KEY (`ppmp_id`)     REFERENCES `ppmps` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_ppmp_attachments_user` FOREIGN KEY (`uploaded_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Starting data
 
 -- Admin account: username `admin`, password `Admin@1234`; put your own email here before importing.
@@ -642,11 +696,7 @@ INSERT INTO `org_settings` (`setting_key`, `setting_value`) VALUES
   ('bac_vice_chairman_designation', 'BAC Vice Chairman'),
   ('canvasser_name',                NULL),
   ('canvasser_designation',         'Canvasser'),
-  -- How many supplier quotations the campus expects before an award.
-  ('minimum_quotations',            '3'),
-  -- The BAC evaluates the quotations and awards ('1'), and the committee as it prints
-  -- on the BAC Resolution (bac_members: one name per line).
-  ('bac_approval_required',         '1'),
+  -- The committee as it prints on the BAC Resolution (bac_members: one name per line).
   ('bac_chairman_name',             NULL),
   ('bac_chairman_designation',      'BAC Chairman'),
   ('bac_members',                   NULL);

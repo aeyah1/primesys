@@ -1,26 +1,27 @@
 import { useState, useCallback, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  Eye, EyeOff, User, AtSign, Lock, Mail,
+  Eye, EyeOff, User, AtSign, Lock, Mail, Building2,
   FileText, Bell, ClipboardCheck,
-  CheckCircle, XCircle, MailCheck, Info,
+  CheckCircle, XCircle, Clock, Info,
 } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import CaptchaField, { captchaEnabled } from '@/components/shared/CaptchaField'
 import api from '@/lib/axios'
 
-// What a new (Requestor) account can do. Other roles are assigned by an admin.
-const REQUESTOR_CAN = [
-  { icon: FileText,       label: 'File purchase requests', desc: 'For personal, event, office, or project needs' },
+// What a new Fund Administrator account can do. Other roles are assigned by an admin.
+const FUND_ADMIN_CAN = [
+  { icon: FileText,       label: 'File purchase requests', desc: 'For your office, from the requests its heads bring you' },
   { icon: ClipboardCheck, label: 'Follow every step',      desc: 'From TWG review to delivery' },
   { icon: Bell,           label: 'Get notified',           desc: 'When your request moves or needs changes' },
 ]
 
-const EMPTY = { first_name: '', last_name: '', username: '', email: '', password: '', confirm: '', website: '', captcha: '' }
+const EMPTY = { first_name: '', last_name: '', username: '', email: '', office: '', password: '', confirm: '', website: '', captcha: '' }
 
 export default function Register() {
   const [form, setForm] = useState(EMPTY)
@@ -28,10 +29,14 @@ export default function Register() {
   const [loading, setLoading] = useState(false)
   const [done, setDone] = useState(null)
   const [captchaKey, setCaptchaKey] = useState(0)
-  // Email domains the server accepts for sign-up ([] = any).
+  // Email domains the server accepts for sign-up ([] = any), and the offices, each with or without a Fund Administrator.
   const [domains, setDomains] = useState([])
+  const [offices, setOffices] = useState([])
   useEffect(() => {
-    api.get('/auth/registration-info').then(r => setDomains(r.data?.email_domains || [])).catch(() => {})
+    api.get('/auth/registration-info').then(r => {
+      setDomains(r.data?.email_domains || [])
+      setOffices(r.data?.offices || [])
+    }).catch(() => {})
   }, [])
   const domainList = domains.map(d => '@' + d).join(' or ')
 
@@ -51,17 +56,19 @@ export default function Register() {
       toast.error(`Please sign up with an email address ending in ${domainList}`)
       return
     }
+    if (!form.office)                   { toast.error('Pick your office'); return }
     if (form.password.length < 8)       { toast.error('Password must be at least 8 characters'); return }
     if (form.password !== form.confirm) { toast.error('Passwords do not match'); return }
     if (captchaEnabled && !form.captcha) { toast.error('Please complete the verification challenge'); return }
     setLoading(true)
     try {
-      // No role is sent: every new account is a Requestor, decided by the server.
+      // No role is sent: every new account is its office's Fund Administrator, decided by the server.
       await api.post('/auth/register', {
         first_name:       form.first_name,
         last_name:        form.last_name,
         username:         form.username,
         email:            form.email,
+        department_id:    Number(form.office),
         password:         form.password,
         confirm_password: form.confirm,
         website:          form.website,
@@ -113,7 +120,7 @@ export default function Register() {
           </div>
 
           <div className="space-y-2">
-            {REQUESTOR_CAN.map(({ icon: Icon, label, desc }, i) => (
+            {FUND_ADMIN_CAN.map(({ icon: Icon, label, desc }, i) => (
               <div
                 key={label}
                 style={{ animation: `fade-in-left 0.35s ${0.3 + i * 0.07}s ease-out both` }}
@@ -229,9 +236,27 @@ export default function Register() {
               </div>
               <p className="text-xs text-[--color-text-muted]">
                 {domains.length
-                  ? `Use an email address ending in ${domainList}. A verification link will be sent there.`
-                  : 'A verification link will be sent here to activate your account'}
+                  ? `Use an email address ending in ${domainList}. You will be emailed there once your account is approved.`
+                  : 'You will be emailed here once your account is approved'}
               </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="office">Office</Label>
+              <Select value={form.office} onValueChange={v => set('office', v)}>
+                <SelectTrigger id="office" className="relative pl-9">
+                  <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-[--color-text-muted]" />
+                  <SelectValue placeholder="The office you handle" />
+                </SelectTrigger>
+                <SelectContent>
+                  {offices.map(o => (
+                    <SelectItem key={o.id} value={String(o.id)} disabled={o.taken} className={o.taken ? 'opacity-50 cursor-not-allowed' : ''}>
+                      {o.code} - {o.name}{o.taken ? ' (has a Fund Administrator)' : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-[--color-text-muted]">Each office has one Fund Administrator. If yours is taken and you are taking over, ask the administrator.</p>
             </div>
 
             <div className="space-y-1.5">
@@ -317,7 +342,7 @@ export default function Register() {
             <div className="flex items-start gap-2 rounded-lg border border-[--color-border] bg-[--color-surface] px-3 py-2.5 text-xs text-[--color-text-secondary] leading-snug">
               <Info className="size-3.5 shrink-0 mt-0.5 text-[--color-text-muted]" />
               <div className="space-y-1">
-                <p>New accounts are registered as Requestors. Other system roles are assigned by authorized administrators.</p>
+                <p>New accounts are Fund Administrators, one per office. An administrator reviews each sign-up before it can sign in; other roles are assigned by the administrator.</p>
                 <p>Accounts are for NEMSU faculty and staff. Students and outside partners can ask their adviser or the office concerned to file a request for them.</p>
               </div>
             </div>
@@ -340,39 +365,24 @@ export default function Register() {
         </div>
       </div>
 
-      {/* Verification pending dialog */}
+      {/* Waiting for approval dialog */}
       <Dialog open={!!done} onOpenChange={(open) => { if (!open) setDone(null) }}>
         <DialogContent className="max-w-sm text-center">
           <div className="flex size-14 items-center justify-center rounded-2xl bg-blue-50 border border-blue-200 mx-auto mb-1">
-            <MailCheck className="size-7 text-blue-600" />
+            <Clock className="size-7 text-blue-600" />
           </div>
-          <h2 className="text-lg font-bold text-[--color-text-primary]">Check your inbox</h2>
+          <h2 className="text-lg font-bold text-[--color-text-primary]">Waiting for approval</h2>
           {/* Same text for new and existing emails: the server reply is identical on purpose. */}
           <p className="text-sm text-[--color-text-secondary] leading-relaxed">
-            We sent an email to{' '}
-            <strong className="text-[--color-text-primary] break-all">{done}</strong>.
-            Follow it to finish signing up. Verification links expire in 24 hours.
+            An administrator will review your sign-up. We will email{' '}
+            <strong className="text-[--color-text-primary] break-all">{done}</strong>{' '}
+            once your account is approved, and then you can sign in.
           </p>
           <p className="text-xs text-[--color-text-secondary]">
             Already have an account?{' '}
             <Link to="/login" className="text-[--color-brand] font-medium hover:underline">Sign in</Link>
             , or{' '}
             <Link to="/forgot-password" className="text-[--color-brand] font-medium hover:underline">reset your password</Link>.
-          </p>
-          <p className="text-xs text-[--color-text-muted]">
-            Didn't receive it? Check your spam folder, or{' '}
-            <button
-              type="button"
-              onClick={async () => {
-                try {
-                  await api.post('/auth/resend-verification', { identifier: done })
-                  toast.success('If your account still needs verifying, a new link is on its way.')
-                } catch (err) { toast.error(err.response?.data?.message || 'Could not resend. Please try again.') }
-              }}
-              className="text-[--color-brand] font-medium hover:underline"
-            >
-              resend the email
-            </button>.
           </p>
           <Link
             to="/login"

@@ -23,7 +23,7 @@ function fixtures() {
     SET FOREIGN_KEY_CHECKS = 0;
     INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified) VALUES
       ${U(1, 'admin1', 'admin')}, ${U(2, 'proc1', 'procurement')}, ${U(3, 'reqA', 'requestor')},
-      ${U(4, 'reqB', 'requestor')}, ${U(5, 'sup1', 'supply')}, ${U(6, 'twg1', 'twg')};
+      ${U(4, 'reqB', 'requestor')}, ${U(5, 'sup1', 'supply')}, ${U(6, 'twg1', 'twg')}, ${U(7, 'bac1', 'bac')};
     INSERT INTO purchase_requests (id, pr_number, title, status, created_by, twg_reviewed_by) VALUES
       ${P(12, 'draft', 3)}, ${P(13, 'submitted', 3)}, ${P(14, 'revision_requested', 3, 6)},
       ${P(15, 'twg_review', 3, 6)}, ${P(16, 'completed', 3, 6)}, ${P(17, 'rejected', 3, 6)},
@@ -48,23 +48,32 @@ function fixtures() {
     INSERT INTO pr_attachments (id, pr_id, filename, original_name, uploaded_by) VALUES (2, 13, '${TEMP_FILE}', 'a13.pdf', 3);
     -- PRs that get submitted in the tests need items (a PR can't go to the TWG empty)
     INSERT INTO pr_items (pr_id, item_name, quantity, estimated_cost) VALUES (12, 'Fixture item', 1, 10), (14, 'Fixture item', 1, 10), (24, 'Fixture item', 1, 10);
+    -- PRs that get a canvass winner in the tests (an award names its items).
+    INSERT INTO pr_items (id, pr_id, item_name, quantity, estimated_cost) VALUES (180, 18, 'Item 18', 1, 1000), (220, 22, 'Item 22', 1, 1000), (280, 28, 'Item 28', 1, 1000);
     INSERT INTO quarters (id, label, year, start_date, end_date, is_active) VALUES
       (1, 'Q3', 2026, '2026-07-01', '2026-09-30', 1), (2, 'Q4', 2026, '2026-10-01', '2026-12-31', 0);
     INSERT INTO org_settings (setting_key, setting_value) VALUES ('fund_cluster', 'FC-01'), ('responsibility_center_code', 'RC-01');
     ${H.twgAreas([6])}
     ${H.LINK_POS}
+    ${H.CERTIFIED}
+    -- Requests are filed for an office and drawn from its verified PPMP (utils/ppmpUse.js).
+    INSERT INTO departments (id, code, name) VALUES (90, 'TST', 'Test Office');
+    UPDATE users SET department_id = 90 WHERE department_id IS NULL;
+    UPDATE purchase_requests SET department_id = 90 WHERE department_id IS NULL;
+    ${H.ppmpFor(90, ['Fixture item', 'late', 'spec', 'A', 'B', 'ok', 'AM snacks', 'Day 2 snacks', 'Lunch', 'Tarpaulin', 'Bond paper'])}
     SET FOREIGN_KEY_CHECKS = 1;
   `
 }
 
 const config = require(path.join(SERVER, 'config.js'))
 const jwt    = serverReq('jsonwebtoken')
-const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 4: 'requestor', 5: 'supply', 6: 'twg' }
+const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 4: 'requestor', 5: 'supply', 6: 'twg', 7: 'bac' }
 const tok  = (id) => jwt.sign({ id, name: `u${id}`, username: `u${id}`, email: `u${id}@p2.invalid`, role: ROLE[id], supplier_id: null }, config.jwt.secret, { expiresIn: '1h' })
 async function http(who, method, p, body) {
   const headers = { Authorization: `Bearer ${tok(who)}` }
-  if (body !== undefined) headers['Content-Type'] = 'application/json'
-  const res = await fetch(BASE + p, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })
+  const form = body instanceof FormData
+  if (body !== undefined && !form) headers['Content-Type'] = 'application/json'
+  const res = await fetch(BASE + p, { method, headers, body: body === undefined ? undefined : form ? body : JSON.stringify(body) })
   const type = res.headers.get('content-type') || ''
   const data = type.includes('json') ? await res.json() : null
   // A PDF counts only when it was written to the end (not cut off by an error).
@@ -82,8 +91,22 @@ const show = (r) => r.data?.permissions ? `${r.status} ${JSON.stringify(r.data.p
 
 const R = []
 const add = (g, label, who, m, p, body, fn, want) => R.push({ g, label, who, m, p, body, fn, want })
+// A step that isn't one request: `run` throws to fail it.
+const step = (g, label, run) => R.push({ g, label, run })
+// The bids the BAC entered on a PR go to the TWG with the returned RFQ, the TWG certifies them compliant, and the BAC awards the recommended ones.
+const review = (g, prId) => step(g, '…sent to the TWG, certified, and awarded by the BAC', async () => {
+  const must = async (who, m, path, body) => { const r = await http(who, m, path, body); if (r.status >= 400) throw new Error(`${m} ${path}: ${show(r)}`); return r.data }
+  await must(7, 'POST', `/pr/${prId}/attachments`, H.canvassScan())
+  await must(7, 'POST', `/canvass/${prId}/send`)
+  const { items, bidders } = await must(6, 'GET', `/canvass/${prId}`)
+  const open = items.filter(i => i.state === 'pending')
+  const bids = bidders.flatMap(b => open.filter(i => b.prices[i.id] != null).map(i => ({ bidder_id: b.id, pr_item_id: i.id, compliant: true })))
+  await must(6, 'PUT', `/twg/${prId}/evaluation`, { bids })
+  await must(6, 'POST', `/twg/${prId}/certify`, { action: 'certify' })
+  await must(7, 'POST', `/canvass/${prId}/award`, H.lotWinners(await must(7, 'GET', `/canvass/${prId}`)))
+})
 // set_mode: Procurement or an admin may still pick the mode of procurement (no award yet, PR not closed).
-const P_ = (edit, del, next, twg_review = false, set_mode = false) => ({ edit, delete: del, next_statuses: next, set_mode, twg_review })
+const P_ = (edit, del, next, twg_review = false, set_mode = false) => ({ edit, delete: del, next_statuses: next, set_mode, twg_review, twg_certify: false })
 // What this user may do with the PR's (first) active PO: a PR may have one per supplier.
 const firstPO = (fn) => (r) => r.status === 200 && Array.isArray(r.data.pos) && fn(r.data.pos[0] || {})
 const idsOf = (d) => (Array.isArray(d) ? d : d?.data || []).map(r => r.id).sort((a, b) => a - b)
@@ -100,7 +123,7 @@ add('Permissions', 'procurement, for_po with PO',   2, 'GET', '/pr/19', undefine
   (r) => perms(P_(false, false, [], false, true))(r) && r.data.pos.length === 1 && r.data.pos[0].can_cancel && r.data.pos[0].can_record_delivery, 'its PO: cancel, record delivery')
 // From submission on, items and details are locked for every role; Procurement
 // can return an approved PR for revision instead (audit WF-1).
-add('Permissions', 'procurement, TWG-approved',     2, 'GET', '/pr/20', undefined, perms(P_(false, true, ['bidding', 'revision_requested', 'cancelled'], false, true)), 'locked; canvass, return, cancel')
+add('Permissions', 'procurement, TWG-approved',     2, 'GET', '/pr/20', undefined, perms(P_(false, true, ['revision_requested', 'cancelled'], false, true)), 'locked; return, cancel (the canvass starts on its own)')
 add('Permissions', 'procurement, own draft',        2, 'GET', '/pr/24', undefined, perms(P_(true, true, ['submitted', 'cancelled'], false, true)), 'submit own')
 add('Permissions', "procurement, someone's submitted", 2, 'GET', '/pr/25', undefined, perms(P_(false, false, [], false, true)), 'locked; cancel and delete are admin-only at the TWG (WF-6, WF-7)')
 add('Permissions', "admin, someone's submitted",      1, 'GET', '/pr/25', undefined, perms(P_(false, true, ['draft', 'cancelled'], false, true)), 'admin may still cancel, delete, or review')
@@ -123,12 +146,13 @@ add('Status', 'same move again',                    3, 'PATCH', '/pr/12/status',
 add('Status', 'requestor retracts own submitted',   3, 'PATCH', '/pr/13/status', { status: 'draft' }, code(200), '200')
 add('Status', 'requestor resubmits after revision', 3, 'PATCH', '/pr/14/status', { status: 'submitted' }, code(200), '200')
 add('Status', 'requestor: TWG-approved → draft',    3, 'PATCH', '/pr/15/status', { status: 'draft' }, code(409), '409 no such move')
-add('Status', 'requestor: TWG-approved → bidding',  3, 'PATCH', '/pr/15/status', { status: 'bidding' }, code(403), '403 role')
+add('Status', 'requestor: TWG-approved → bidding',  3, 'PATCH', '/pr/15/status', { status: 'bidding' }, code(409), '409 started from the canvass')
 add('Status', 'admin: completed → draft',           1, 'PATCH', '/pr/16/status', { status: 'draft' }, code(409), '409 final')
 add('Status', 'admin: rejected → for_po',           1, 'PATCH', '/pr/17/status', { status: 'for_po' }, code(409), '409 final')
 add('Status', 'requestor: rejected → submitted',    3, 'PATCH', '/pr/17/status', { status: 'submitted' }, code(409), '409 final')
 add('Status', 'procurement: → for_po by hand',      2, 'PATCH', '/pr/15/status', { status: 'for_po' }, code(409), '409 award only')
-add('Status', 'procurement canvasses',              2, 'PATCH', '/pr/15/status', { status: 'bidding' }, code(200), '200')
+add('Status', 'procurement can\'t canvass by hand',  2, 'PATCH', '/pr/15/status', { status: 'bidding' }, code(409), '409 started from the canvass')
+add('Status', 'procurement starts the canvass',     2, 'POST', '/canvass/15/start', { mode_of_procurement: 'Shopping' }, code(200), '200')
 add('Status', "procurement retracts someone's PR",  2, 'PATCH', '/pr/25/status', { status: 'draft' }, code(403), '403 not owner')
 add('Status', 'admin sets a TWG outcome by hand',   1, 'PATCH', '/pr/25/status', { status: 'twg_review' }, code(409), '409 TWG review only')
 add('Status', 'procurement submits own draft',      2, 'PATCH', '/pr/24/status', { status: 'submitted' }, code(200), '200')
@@ -148,22 +172,26 @@ add('TWG', 'second review of same PR',              6, 'POST', '/twg/21/review',
 add('TWG', 'review a draft by ID (TWG never sees drafts)', 6, 'POST', '/twg/13/review', { action: 'approve' }, code(404), '404')
 add('TWG', 'request revision on resubmitted PR',    6, 'POST', '/twg/14/review', { action: 'revise', comment: 'fix specs' }, code(200), '200')
 
-// Awards (lots)
-add('Award', 'award lot while bidding',             2, 'POST', '/lots', { purchase_request_id: 18, awarded_to: 'S18', awarded_amount: 400 }, code(201), '201')
+// Awards: the BAC enters a bid and awards it
+const bid = (supplier, item, price) => ({ bidders: [{ name: supplier, prices: [{ pr_item_id: item, unit_price: price }] }], winners: [{ pr_item_id: item, bidder: 0 }] })
+add('Award', 'the BAC enters the bid while in canvass', 7, 'PUT', '/canvass/18/bids', bid('S18', 180, 400), code(200), '200')
+review('Award', 18)
 add('Award', '…PR moved to for_po',                 2, 'GET',  '/pr/18', undefined, statusIs('for_po'), 'for_po')
-add('Award', '…audit log written (was missing)',    2, 'GET',  '/pr/18/logs', undefined, logHas('bidding', 'for_po'), 'bidding→for_po')
-// Its award covered the whole PR, so nothing is left to award.
-add('Award', 'another lot, same supplier',          2, 'POST', '/lots', { purchase_request_id: 18, awarded_to: ' s18 ', awarded_amount: 250 }, code(409), '409 every item awarded')
-add('Award', '…nor another supplier',               2, 'POST', '/lots', { purchase_request_id: 18, awarded_to: 'S18b', awarded_amount: 250 }, code(409), '409 every item awarded')
-add('Award', 'award before canvass',                2, 'POST', '/lots', { purchase_request_id: 20, awarded_to: 'X', awarded_amount: 100 }, code(409), '409')
+add('Award', '…audit log written (was missing)',    2, 'GET',  '/pr/18/logs', undefined, logHas('bac_review', 'for_po'), 'bac_review→for_po')
+// Its award covered every item, so nothing is left to award.
+add('Award', 'no more bids, same supplier',         7, 'PUT', '/canvass/18/bids', bid(' s18 ', 180, 250), code(409), '409 every item awarded')
+add('Award', '…nor another supplier',               7, 'PUT', '/canvass/18/bids', bid('S18b', 180, 250), code(409), '409 every item awarded')
+add('Award', 'award before canvass',                7, 'POST', '/canvass/20/award', { winners: [] }, code(409), '409')
 add('Award', '…no lot left behind (rolled back)',   2, 'GET',  '/lots/pr/20', undefined, (r) => r.status === 200 && r.data.length === 0, '[]')
-add('Award', 'award after PO issued',               2, 'POST', '/lots', { purchase_request_id: 19, awarded_to: 'X', awarded_amount: 100 }, code(409), '409')
+add('Award', 'award after PO issued',               7, 'POST', '/canvass/19/award', { winners: [] }, code(409), '409')
 // Recanvass (for_po -> bidding, above) cancelled PR 22's award (WF-3); a
 // cancelled award can't be revived (WF-2), so the PR is awarded anew.
 add('Award', 'recanvass cancelled the old award',   2, 'GET',  '/lots/pr/22', undefined, (r) => r.status === 200 && r.data.every(l => l.status === 'cancelled'), 'all cancelled')
 add('Award', 'reviving the cancelled award refused', 2, 'PATCH', '/lots/6', { status: 'awarded', awarded_to: 'S22' }, code(409), '409')
-add('Award', 'a new award instead',                 2, 'POST', '/lots', { purchase_request_id: 22, awarded_to: 'S22-new', awarded_amount: 800 }, code(201), '201')
-add('Award', '…recanvassed PR back to for_po',      2, 'GET',  '/pr/22/logs', undefined, logHas('bidding', 'for_po'), 'bidding→for_po logged')
+add('Award', '…the recanvassed PR waits for the BAC', 2, 'GET',  '/pr/22', undefined, statusIs('bidding'), 'bidding')
+add('Award', 'a new bid',                           7, 'PUT', '/canvass/22/bids', bid('S22-new', 220, 800), code(200), '200')
+review('Award', 22)
+add('Award', '…Ready for PO again',                 2, 'GET',  '/pr/22', undefined, statusIs('for_po'), 'for_po')
 
 // Completion by delivery
 add('Delivery', 'complete delivery recorded',       2, 'POST', '/delivery', { po_id: 3, delivered_date: '2026-09-10', status: 'complete' }, code(201), '201')
@@ -185,7 +213,7 @@ add('Delete', 'requestor deletes own draft',        3, 'DELETE', '/pr/13', undef
 add('Delete', 'procurement deletes a returned PR (WF-7)', 2, 'DELETE', '/pr/26', undefined, code(403), '403 admin only')
 add('Delete', 'requestor deletes returned PR',      3, 'DELETE', '/pr/26', undefined, code(200), '200')
 add('Delete', 'requestor deletes PR under canvass', 3, 'DELETE', '/pr/15', undefined, code(409), '409')
-add('Delete', 'procurement deletes, no lot/PO',     2, 'DELETE', '/pr/20', undefined, code(200), '200')
+add('Delete', 'procurement deletes, no lot/PO',     2, 'DELETE', '/pr/20', { reason: 'Office withdrew it' }, code(200), '200')
 add('Delete', 'procurement deletes, has lot',       2, 'DELETE', '/pr/23', undefined, code(409), '409 cancel instead')
 add('Delete', 'admin deletes, has PO',              1, 'DELETE', '/pr/19', undefined, code(409), '409')
 add('Delete', 'deleted PR is gone',                 3, 'DELETE', '/pr/13', undefined, code(404), '404')
@@ -202,7 +230,7 @@ add('Archive', 'stats count deleted separately',         3, 'GET', '/pr/stats', 
 add('Archive', 'admin deletes a completed PR',           1, 'DELETE', '/pr/16', undefined, code(409), '409 kept')
 add('Archive', 'procurement deletes a rejected PR',      2, 'DELETE', '/pr/17', undefined, code(409), '409 kept')
 add('Archive', 'procurement deletes a submitted PR (WF-7)', 2, 'DELETE', '/pr/25', undefined, code(403), '403 admin only')
-add('Archive', 'admin deletes a submitted PR',           1, 'DELETE', '/pr/25', undefined, code(200), '200')
+add('Archive', 'admin deletes a submitted PR',           1, 'DELETE', '/pr/25', { reason: 'Filed twice' }, code(200), '200')
 add('Archive', '…drops out of the TWG queue',            6, 'GET', '/twg/pending', undefined, (r) => r.status === 200 && !idsOf(r.data).includes(25), 'no 25')
 add('Archive', 'procurement deleted view (no drafts)',   2, 'GET', '/pr?deleted=only&limit=100', undefined, idsEq([20, 25, 26]), 'ids=[20,25,26]')
 
@@ -240,7 +268,8 @@ add('PO cancel', 'no delivery on a cancelled PO',        2, 'POST', '/delivery',
 add('PO cancel', 'PO list hides cancelled by default',   2, 'GET', '/po?limit=100', undefined, (r) => r.status === 200 && !idsOf(r.data).includes(5), 'no 5')
 add('PO cancel', 'Cancelled tab lists it',               2, 'GET', '/po?po_status=cancelled&limit=100', undefined, idsEq([5]), 'ids=[5]')
 add('PO cancel', 'cancelled PO PDF still opens',         2, 'GET', '/po/5/pdf', undefined, code(200), '200')
-add('PO cancel', 're-award the next supplier',           2, 'POST', '/lots', { purchase_request_id: 28, awarded_to: 'S28b', awarded_amount: 950 }, code(201), '201')
+add('PO cancel', 'the BAC bids the next supplier',       7, 'PUT', '/canvass/28/bids', bid('S28b', 280, 950), code(200), '200')
+review('PO cancel', 28)
 add('PO cancel', 'issue a replacement PO',               2, 'POST', '/po', { purchase_request_id: 28, supplier_name: 'S28b', issued_date: '2026-09-11', total_amount: 950 }, code(201), '201')
 add('PO cancel', 'another PO with no award waiting refused', 2, 'POST', '/po', { purchase_request_id: 28, supplier_name: 'X', issued_date: '2026-09-11', total_amount: 1 }, code(409), '409')
 add('PO cancel', 'requestor notified',                   4, 'GET', '/notifications', undefined, (r) => r.status === 200 && r.data.some(n => /PO-P2-005/.test(n.message) && /cancelled/.test(n.message)), 'cancellation notice')
@@ -312,7 +341,11 @@ add('Reports', '"completed" total sent (was read as "delivered")', 1, 'GET', '/r
   (r) => r.status === 200 && Number(r.data.totals.completed) >= 3 && !('delivered' in r.data.totals), 'completed >= 3')
 add('Reports', 'requestor has no reports',               3, 'GET', '/reports/summary', undefined, code(403), '403')
 add('Reports', 'quarters newest first, also within a year', 1, 'GET', '/reports/summary', undefined,
-  (r) => { NEW.quarterId = r.data?.byQuarter?.[0]?.id; return r.status === 200 && r.data.byQuarter.map(q => `${q.year} ${q.label}`).join() === '2026 Q4,2026 Q3' }, 'Q4 before Q3')
+  (r) => {
+    NEW.quarterId = r.data?.byQuarter?.[0]?.id
+    const keys = (r.data?.byQuarter || []).map(q => `${q.year} ${q.label}`)
+    return r.status === 200 && keys.slice(0, 2).join() === '2026 Q4,2026 Q3' && keys.every((k, i) => i === 0 || keys[i - 1] > k)
+  }, 'Q4 before Q3, newest first')
 
 // The printed Procurement Summary Report, over the same figures.
 add('Summary report', 'procurement can print it',        2, 'GET', '/reports/summary/pdf', undefined,
@@ -352,15 +385,17 @@ add('Sections', '…PR form PDF renders',                3, 'GET', () => `/pr/${
 
 // Requestor form: no procurement terms, drafts
 const RQ = {}
-add('Requestor form', 'current quarter endpoint',          3, 'GET', '/quarters/current', undefined, (r) => r.status === 200 && r.data?.label === 'Q3' && r.data?.year === 2026, 'Q3 2026')
+add('Requestor form', 'current quarter: the one today falls in', 3, 'GET', '/quarters/current', undefined,
+  (r) => r.status === 200 && r.data?.label === `Q${Math.floor(new Date().getMonth() / 3) + 1}` && r.data?.year === new Date().getFullYear(), "today's quarter")
 add('Requestor form', 'save a draft with no items yet',    3, 'POST', '/pr', { title: 'Draft for later', quarter_id: 2, fund_cluster: 'HACK', responsibility_center_code: 'HACK' },
   (r) => { RQ.id = r.data?.id; return r.status === 201 }, '201')
-// The quarter is recorded on the PR but no longer spelled into its number:
-// the printed form (Appendix 60) numbers per year, e.g. "CSO 2026-001".
-add('Requestor form', '…filed under the current quarter (sent one ignored)', 3, 'GET', () => `/pr/${RQ.id}`, undefined,
-  (r) => r.status === 200 && r.data.status === 'draft' && r.data.quarter_label === 'Q3', 'draft, Q3')
-add('Requestor form', '…numbered in the form\'s own format', 3, 'GET', () => `/pr/${RQ.id}`, undefined,
-  (r) => r.status === 200 && new RegExp(`^CSO ${new Date().getFullYear()}-\\d{3}$`).test(r.data.pr_number), 'CSO <year>-nnn')
+// The quarter is recorded on the PR, not spelled into its number. The number
+// itself is Procurement's to assign when the canvass starts (appendix60.test.js);
+// until then the request carries a temporary reference.
+add('Requestor form', '…filed under the quarter picked, one of its PPMP\'s year', 3, 'GET', () => `/pr/${RQ.id}`, undefined,
+  (r) => r.status === 200 && r.data.status === 'draft' && r.data.quarter_label === 'Q4', 'draft, Q4')
+add('Requestor form', '…with a temporary reference until it is numbered', 3, 'GET', () => `/pr/${RQ.id}`, undefined,
+  (r) => r.status === 200 && /^REQ-\d{6}$/.test(r.data.pr_number), 'REQ-nnnnnn')
 add('Requestor form', '…fund codes from Organization settings', 3, 'GET', () => `/pr/${RQ.id}`, undefined,
   (r) => r.status === 200 && r.data.fund_cluster === 'FC-01' && r.data.responsibility_center_code === 'RC-01', 'FC-01 / RC-01')
 add('Requestor form', '…Submit is offered even while empty', 3, 'GET', () => `/pr/${RQ.id}`, undefined,
@@ -381,6 +416,12 @@ add('Requestor form', '…and the PR is filed under it', 2, 'GET', () => `/pr/${
 async function run() {
   const t = H.suite('WORKFLOW')
   for (const c of R) {
+    if (c.run) {
+      let failure = ''
+      try { await c.run() } catch (e) { failure = e.message }
+      t.check(c.g, c.label, !failure, failure)
+      continue
+    }
     const p = typeof c.p === 'function' ? c.p() : c.p
     const r = await http(c.who, c.m, p, c.body)
     let ok = c.fn(r)

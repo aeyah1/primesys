@@ -1,5 +1,7 @@
 const withTransaction = require('../db/transaction')
 const httpError       = require('./httpError')
+const { assertNoBrands } = require('./brandNames')
+const { assertFollowsPpmp, lockOfficePlans } = require('./ppmpUse')
 const { cancelAwards, awardProgress, statusFromAwards } = require('./awardWorkflow')
 
 // Purchase request workflow rules
@@ -16,7 +18,8 @@ const { cancelAwards, awardProgress, statusFromAwards } = require('./awardWorkfl
 
 const STATUS_LABELS = {
   draft: 'Draft', submitted: 'Submitted', twg_review: 'Approved by TWG',
-  revision_requested: 'Revision Requested', rejected: 'Rejected by TWG', bidding: 'Bidding',
+  revision_requested: 'Revision Requested', rejected: 'Rejected by TWG', bidding: 'Canvass',
+  bac_review: 'BAC award', twg_certification: 'TWG certification',
   for_po: 'Ready for PO', completed: 'Completed', cancelled: 'Cancelled',
 }
 
@@ -24,7 +27,9 @@ const EDITORS = ['requestor', 'procurement', 'admin']
 const STAFF   = ['procurement', 'admin']
 // While the TWG has a PR only an admin may cancel or delete it (audit WF-6, WF-7).
 const ADMIN      = ['admin']
-const TWG_STAGES = ['submitted', 'revision_requested']
+const TWG_STAGES = ['submitted', 'revision_requested', 'twg_certification']
+// From the start of the canvass to the BAC's award: the request has its PR number and a paper trail.
+const CANVASS_STAGES = ['bidding', 'twg_certification', 'bac_review']
 
 // from -> to -> rule. A rule either lists the roles that may make the move through
 // the status endpoint (`roles`; `owner`: only the PR's creator or an admin;
@@ -37,20 +42,29 @@ const TWG_STAGES = ['submitted', 'revision_requested']
 // Procurement gets an approved PR changed: items are locked from submission on
 // (editBlock), so the requestor fixes it and it goes back through the TWG.
 //
-// From canvass on, the awards decide (syncPRProgress): Bidding while an item
-// needs an award (a supplier's PO may already be out for the others), Ready
-// for PO once every item is awarded or dropped, Completed once every award's
-// PO is delivered. An award or PO cancelled moves Ready for PO back to Bidding.
+// After the TWG approves, Procurement starts the canvass (Canvass, status
+// bidding), done outside the system by the canvasser, who gives the returned
+// RFQs to the BAC; the BAC enters every bid and sends them to the TWG (TWG
+// certification); the TWG marks each bid compliant or not and certifies them
+// (BAC award) or returns them to the BAC's canvass; the BAC picks the winners
+// and awards (Ready for PO), or takes the canvass back to correct it (utils/canvassBids.js).
+// From then on the awards decide
+// (syncPRProgress): an item needing an award again (an award or PO cancelled,
+// a PO closed short) puts the request back in canvass, to be reviewed again,
+// and Completed follows once every award's PO is delivered.
 const TRANSITIONS = {
   draft:              { submitted: { roles: EDITORS, owner: true }, cancelled: { roles: STAFF } },
   submitted:          { draft: { roles: EDITORS, owner: true },
                         twg_review: { via: 'twg' }, revision_requested: { via: 'twg' }, rejected: { via: 'twg' },
                         cancelled: { roles: ADMIN } },
   revision_requested: { submitted: { roles: EDITORS, owner: true }, cancelled: { roles: ADMIN } },
-  twg_review:         { bidding: { roles: STAFF }, revision_requested: { roles: STAFF, reason: true },
+  twg_review:         { bidding: { via: 'canvass' }, revision_requested: { roles: STAFF, reason: true },
                         cancelled: { roles: STAFF } },
-  bidding:            { for_po: { via: 'award' }, revision_requested: { roles: STAFF, reason: true, noAward: true },
+  bidding:            { twg_certification: { via: 'bac' }, for_po: { via: 'award' },
+                        revision_requested: { roles: STAFF, reason: true, noAward: true },
                         cancelled: { roles: STAFF, noPO: true } },
+  twg_certification:  { bac_review: { via: 'twg' }, bidding: { via: 'twg' }, cancelled: { roles: ADMIN, noPO: true } },
+  bac_review:         { for_po: { via: 'bac' }, bidding: { via: 'bac' }, cancelled: { roles: STAFF, noPO: true } },
   for_po:             { bidding: { roles: STAFF, noPO: true, alsoVia: 'award' }, completed: { via: 'delivery' },
                         cancelled: { roles: STAFF, noPO: true } },
   rejected:  {},
@@ -58,7 +72,7 @@ const TRANSITIONS = {
   cancelled: {},
 }
 const PR_STATUSES = Object.keys(TRANSITIONS)
-const VIA_LABELS  = { twg: 'a TWG review', award: 'awarding a lot', delivery: 'a completed delivery' }
+const VIA_LABELS  = { twg: 'a TWG review', award: 'the awards', delivery: 'a completed delivery', canvass: 'starting the canvass', bac: 'the BAC' }
 
 // A PR's items and details change only before the TWG has it: while it is a
 // draft or returned for revision. From submission on it is locked for every
@@ -112,6 +126,12 @@ function deleteBlock(user, pr) {
   if (FINAL.includes(pr.status)) {
     return deny(409, 'Completed, rejected, and cancelled PRs are kept in the archive and can\'t be deleted')
   }
+  // Once the canvass has started (its PR number assigned, RFQs printed, bids entered) a request is cancelled, never deleted.
+  if (CANVASS_STAGES.includes(pr.status)) {
+    return deny(409, user.role === 'requestor'
+      ? 'The canvass has started on this request, so it can\'t be deleted. Ask the Procurement Office to cancel it.'
+      : 'The canvass has started on this request, so it can\'t be deleted. Cancel it instead, with the reason.')
+  }
   if (user.role === 'requestor') {
     return REQUESTOR_DELETABLE.includes(pr.status) ? null
       : deny(409, 'You can only delete a PR while it is a draft or returned for revision')
@@ -126,9 +146,9 @@ function deleteBlock(user, pr) {
 }
 
 // The mode of procurement: Procurement's or the BAC's call, fixed once a
-// supplier is awarded, because it prints on the Abstract, the
-// BAC Resolution and the PO. A mode never set can still be filled in, since
-// awards made before it was required would otherwise block the rest for good.
+// supplier is awarded, because it prints on the BAC Resolution and the PO. A
+// mode never set can still be filled in, since awards made before it was
+// required would otherwise block the rest for good.
 function modeBlock(user, pr) {
   if (pr.deleted_at) return DELETED
   if (![...STAFF, 'bac'].includes(user.role)) return deny(403, 'Only Procurement or the BAC can set the mode of procurement')
@@ -197,6 +217,8 @@ async function editDenied(db, user, prId) {
 // is active.) The award workflow reopening the canvass keeps the others.
 async function changePRStatus(prId, to, { user, via = 'manual', note = null, ifAllowed = false, conn } = {}) {
   const run = async (db) => {
+    // A submission queues on its office's PPMP before it locks the request (utils/ppmpUse.js).
+    if (to === 'submitted') await lockOfficePlans(db, { prId })
     const pr = await loadPR(db, prId, { lock: true })
     if (!pr) throw httpError(404, 'PR not found')
     const denied = pr.status === to
@@ -211,6 +233,13 @@ async function changePRStatus(prId, to, { user, via = 'manual', note = null, ifA
     }
     if (TRANSITIONS[pr.status][to].reason && !note?.trim()) {
       throw httpError(400, `Give a reason for moving this PR to "${label(to)}"`)
+    }
+    if (to === 'submitted') {
+      const [[details]] = await db.execute('SELECT title, purpose FROM purchase_requests WHERE id = ?', [pr.id])
+      const [items] = await db.execute('SELECT item_name, notes FROM pr_items WHERE pr_id = ? ORDER BY id', [pr.id])
+      assertNoBrands(details, items, { status: 409 })
+      // Every item from the office's verified Final PPMP, within what is left of its line.
+      await assertFollowsPpmp(db, pr.id)
     }
     await db.execute('UPDATE purchase_requests SET status = ? WHERE id = ?', [to, pr.id])
     let logNote = note
@@ -229,10 +258,10 @@ async function changePRStatus(prId, to, { user, via = 'manual', note = null, ifA
   return conn ? run(conn) : withTransaction(run)
 }
 
-// Moves a PR from canvass on to where its awards put it (statusFromAwards),
-// logging each step with `note`: Bidding <-> Ready for PO -> Completed. Call
-// inside the transaction that changed its awards, items, POs, or deliveries.
-// Other statuses are left alone. Resolves with the PR's status.
+// Moves a PR in canvass or Ready for PO to where its awards put it
+// (statusFromAwards), logging each step with `note`. Call inside the
+// transaction that changed its awards, items, POs, or deliveries. While the
+// BAC or the TWG reviews it, it is left alone. Resolves with the PR's status.
 async function syncPRProgress(conn, prId, { user, note = null }) {
   const pr = await loadPR(conn, prId, { lock: true })
   if (!pr || pr.deleted_at || !['bidding', 'for_po'].includes(pr.status)) return pr?.status
@@ -245,4 +274,4 @@ async function syncPRProgress(conn, prId, { user, note = null }) {
   return to
 }
 
-module.exports = { PR_STATUSES, loadPR, editBlock, editDenied, deleteBlock, fileDeleteBlock, modeBlock, poCancelBlock, prPermissions, changePRStatus, syncPRProgress }
+module.exports = { PR_STATUSES, STATUS_LABELS, loadPR, editBlock, editDenied, deleteBlock, fileDeleteBlock, modeBlock, poCancelBlock, prPermissions, changePRStatus, syncPRProgress }

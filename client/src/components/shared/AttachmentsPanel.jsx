@@ -1,9 +1,11 @@
 import { useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Paperclip, Upload, Trash2, FileText, FileImage, Download } from 'lucide-react'
+import { Paperclip, Upload, Trash2, FileText, FileImage, Download, Eye } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Dialog, DialogContent } from '@/components/ui/dialog'
+import ScanViewer, { previewable } from '@/components/awards/ScanViewer'
 import { fmtDate } from '@/lib/utils'
 import { downloadFile, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
@@ -23,11 +25,14 @@ function fmtSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-export default function AttachmentsPanel({ endpoint, queryKey, canDelete, canUpload }) {
+// onChange(): after a file is added or removed, for views that depend on the files.
+// preview: a View button opens a PDF or a picture in the page (a delivery's proof).
+export default function AttachmentsPanel({ endpoint, queryKey, canDelete, canUpload, onChange, preview = false }) {
   const confirm = useConfirm()
   const qc      = useQueryClient()
   const fileRef = useRef()
   const [uploading, setUploading] = useState(false)
+  const [viewing, setViewing] = useState(null)   // the file shown in the preview
 
   const { data: attachments = [], isLoading } = useQuery({
     queryKey: [queryKey],
@@ -36,7 +41,7 @@ export default function AttachmentsPanel({ endpoint, queryKey, canDelete, canUpl
 
   const { mutate: deleteFile } = useMutation({
     mutationFn: (id) => api.delete(`${endpoint}/attachments/${id}`),
-    onSuccess: () => { toast.success('Attachment removed'); qc.invalidateQueries({ queryKey: [queryKey] }) },
+    onSuccess: () => { toast.success('Attachment removed'); qc.invalidateQueries({ queryKey: [queryKey] }); onChange?.() },
     onError: () => toast.error('Failed to remove attachment'),
   })
 
@@ -57,6 +62,7 @@ export default function AttachmentsPanel({ endpoint, queryKey, canDelete, canUpl
       })
       toast.success(`${file.name} uploaded`)
       qc.invalidateQueries({ queryKey: [queryKey] })
+      onChange?.()
     } catch (err) {
       toast.error(err.response?.data?.message || 'Upload failed')
     } finally {
@@ -97,6 +103,12 @@ export default function AttachmentsPanel({ endpoint, queryKey, canDelete, canUpl
                 </p>
               </div>
               <div className="flex items-center gap-1 shrink-0">
+                {preview && previewable(att.mimetype) && (
+                  <button onClick={() => setViewing(att)} title="View" aria-label={`View ${att.original_name}`}
+                    className="p-1.5 rounded-lg text-[--color-text-muted] hover:text-[--color-brand] hover:bg-[--color-overlay] transition-colors">
+                    <Eye className="size-3.5" />
+                  </button>
+                )}
                 <button
                   onClick={() => download(att)}
                   title="Download"
@@ -119,6 +131,14 @@ export default function AttachmentsPanel({ endpoint, queryKey, canDelete, canUpl
             </div>
           ))}
         </div>
+      )}
+
+      {viewing && (
+        <Dialog open onOpenChange={v => { if (!v) setViewing(null) }}>
+          <DialogContent title={viewing.original_name} description={`${viewing.uploaded_by_name ? `Attached by ${viewing.uploaded_by_name}, ` : ''}${fmtDate(viewing.created_at)}`} className="max-w-4xl">
+            <div className="overflow-hidden rounded-lg border border-[--color-border] bg-white"><ScanViewer base={endpoint} file={viewing} /></div>
+          </DialogContent>
+        </Dialog>
       )}
 
       {/* Upload button */}

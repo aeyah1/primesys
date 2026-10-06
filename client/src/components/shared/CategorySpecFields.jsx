@@ -5,7 +5,7 @@ import { CATEGORY_FIELDS } from '@/lib/utils'
 // Renders structured spec inputs for the given category.
 // All fields are optional — the Add button only requires Item Description.
 //
-// `specs` is a per-category-keyed object (e.g. { brand: 'HP', model: 'Victus 15' }).
+// `specs` is a per-category-keyed object (e.g. { size_type: 'A4 / 80gsm' }).
 // `onChange(nextSpecs)` is called with the new object whenever any field changes.
 export default function CategorySpecFields({ category, specs = {}, onChange }) {
   const fields = CATEGORY_FIELDS[category] || []

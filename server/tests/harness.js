@@ -20,7 +20,7 @@ const path = require('path')
 const SERVER  = path.join(__dirname, '..')
 const CLIENT  = path.join(SERVER, '..', 'client')
 const SCHEMA  = path.join(SERVER, '..', 'database', 'schema.sql')
-const UPLOADS = ['pr', 'delivery'].map(d => path.join(SERVER, 'uploads', d))
+const UPLOADS = ['pr', 'delivery', 'ppmp', 'canvass'].map(d => path.join(SERVER, 'uploads', d))
 
 const DB = {
   host:     process.env.TEST_DB_HOST     || '127.0.0.1',
@@ -97,6 +97,61 @@ const twgAreas = (userIds, areas = ALL_AREAS) =>
 const LINK_POS = `UPDATE lots l JOIN purchase_orders po ON po.purchase_request_id = l.purchase_request_id AND po.po_status = 'active'
                      SET l.po_id = po.id WHERE l.status = 'awarded' AND l.po_id IS NULL;`
 
+// Fixture awards written before the TWG certified them: the ones ready for a
+// PO or past it count as certified, as server/db/canvass_outside.sql sets it for existing data.
+const CERTIFIED = `UPDATE lots l JOIN purchase_requests pr ON pr.id = l.purchase_request_id SET l.certified_at = l.created_at
+                     WHERE l.status = 'awarded' AND (l.po_id IS NOT NULL OR pr.status IN ('for_po', 'completed'));`
+
+// Fixture SQL giving an office a Final PPMP in effect for this year, one line per item name with plenty
+// planned and every month scheduled, so its test requests can be submitted (server/utils/ppmpUse.js).
+const ppmpFor = (deptId, names, { id = 900, year = new Date().getFullYear(), quantity = 100000, unitCost = 9999999, fund = 'STF' } = {}) => `
+  INSERT INTO ppmps (id, department_id, fiscal_year, version_no, kind, fund_source, status, effective_at)
+    VALUES (${id}, ${deptId}, ${year}, 1, 'final', '${fund}', 'approved', NOW());
+  INSERT INTO ppmp_items (id, ppmp_id, description, unit, quantity, unit_cost, months, sort_order) VALUES
+    ${names.map((n, i) => `(${id * 100 + i}, ${id}, '${n.replace(/'/g, "''")}', 'pc', ${quantity}, ${unitCost}, '1,2,3,4,5,6,7,8,9,10,11,12', ${i})`).join(', ')};`
+
+// A scanned canvass document (the canvasser's returned RFQs), as a PR attachment upload.
+const canvassScan = () => {
+  const form = new FormData()
+  form.append('file', new Blob(['%PDF-1.4\n%%EOF\n'], { type: 'application/pdf' }), 'canvass.pdf')
+  return form
+}
+
+// The BAC's award for a canvass (GET /canvass/:prId): each lot with an item
+// still to award goes to `pick(lot)`, the bidder the system recommends unless given.
+const lotWinners = (canvass, pick = (lot) => lot.recommended_bidder_id) => ({
+  winners: canvass.lots.filter(l => canvass.items.some(i => l.item_ids.includes(i.id) && i.state === 'pending'))
+    .map(l => ({ lot: l.label, bidder_id: pick(l) })),
+})
+
+// Takes a PR in canvass through to Ready for PO: the BAC enters the bids,
+// attaches the canvasser's file and sends them to the TWG; the TWG marks every
+// bid compliant and certifies; the BAC awards each lot to its lowest total.
+// `tok(id)` signs a user's token; `as` names the { bac, twg } users;
+// bids: [{ name, prices: { [pr_item_id]: unit_price } }]. Throws on any refusal.
+async function award(base, tok, prId, as, bids) {
+  const call = async (who, method, p, body = {}) => {
+    const form = body instanceof FormData
+    const res = await fetch(base + p, {
+      method, body: method === 'GET' ? undefined : form ? body : JSON.stringify(body),
+      headers: { Authorization: `Bearer ${tok(who)}`, ...(form || method === 'GET' ? {} : { 'Content-Type': 'application/json' }) },
+    })
+    if (!res.ok) throw new Error(`${method} ${p} → ${res.status} ${(await res.text()).slice(0, 200)}`)
+    return res.json()
+  }
+  await call(as.bac, 'PUT', `/canvass/${prId}/bids`, {
+    bidders: bids.map(b => ({ name: b.name, prices: Object.entries(b.prices).map(([id, unit_price]) => ({ pr_item_id: Number(id), unit_price })) })),
+  })
+  await call(as.bac, 'POST', `/pr/${prId}/attachments`, canvassScan())
+  await call(as.bac, 'POST', `/canvass/${prId}/send`)
+  const sent = await call(as.bac, 'GET', `/canvass/${prId}`)
+  const open = new Set(sent.items.filter(i => i.state === 'pending').map(i => String(i.id)))
+  const all = sent.bidders.flatMap(b => Object.keys(b.prices).filter(item => open.has(item)).map(item => ({ bidder_id: b.id, pr_item_id: Number(item), compliant: true })))
+  await call(as.twg, 'PUT', `/twg/${prId}/evaluation`, { bids: all })
+  await call(as.twg, 'POST', `/twg/${prId}/certify`, { action: 'certify' })
+  await call(as.bac, 'POST', `/canvass/${prId}/award`, lotWinners(await call(as.bac, 'GET', `/canvass/${prId}`)))
+}
+
 const listUploads = () => new Set(UPLOADS.flatMap(d => (fs.existsSync(d) ? fs.readdirSync(d).map(f => path.join(d, f)) : [])))
 
 // Boots the real server with the mailer replaced by `onMail`, and waits until it answers.
@@ -161,4 +216,4 @@ async function main({ db, base, fixtures = '', onMail, run }) {
   }
 }
 
-module.exports = { SERVER, CLIENT, LOGS, print, configure, buildDb, dropDb, sql, bootServer, suite, main, twgAreas, ALL_AREAS, LINK_POS }
+module.exports = { SERVER, CLIENT, LOGS, print, configure, buildDb, dropDb, sql, bootServer, suite, main, twgAreas, ALL_AREAS, LINK_POS, CERTIFIED, ppmpFor, canvassScan, lotWinners, award }

@@ -63,12 +63,14 @@ async function coverage(db) {
 // Tells a PR's area reviewers it is waiting for them. When no active member
 // reviews that area, the admins are told instead (they can assign a reviewer
 // or review it themselves), so a PR never waits unnoticed.
-async function notifyAreaReviewers(io, pr, { resubmitted = false, exceptId = null } = {}) {
+async function notifyAreaReviewers(io, pr, { resubmitted = false, certify = false, exceptId = null } = {}) {
   const prLabel = pr.title ? `${pr.pr_number} — ${pr.title}` : pr.pr_number
   const area    = categoryLabel(pr.category)
   const reviewers = await areaReviewers(pool, pr.category)
   if (reviewers.length) {
-    const message = resubmitted
+    const message = certify
+      ? `The BAC sent the bids of PR ${prLabel} (${area}). They are awaiting the TWG's evaluation and certification.`
+      : resubmitted
       ? `PR ${prLabel} (${area}) was revised and is awaiting TWG review again.`
       : `PR ${prLabel} (${area}) is awaiting TWG review.`
     for (const u of reviewers) if (u.id !== exceptId) await notify(io, u.id, message, 'info', pr.id, 'pr')
@@ -77,9 +79,9 @@ async function notifyAreaReviewers(io, pr, { resubmitted = false, exceptId = nul
   const [admins] = await pool.execute("SELECT id FROM users WHERE role = 'admin' AND is_active = 1")
   for (const a of admins) {
     await notify(io, a.id,
-      `PR ${prLabel} is waiting for TWG review, but no active TWG member reviews ${area}. Assign a reviewer in User Management.`,
+      `PR ${prLabel} is waiting for ${certify ? 'the TWG\'s certification' : 'TWG review'}, but no active TWG member reviews ${area}. Assign a reviewer in User Management.`,
       'warning', pr.id, 'pr')
   }
 }
 
-module.exports = { IN_AREA, areasOf, reviewsCategory, setAreas, coverage, notifyAreaReviewers }
+module.exports = { IN_AREA, areasOf, reviewsCategory, setAreas, coverage, notifyAreaReviewers, areaReviewers }

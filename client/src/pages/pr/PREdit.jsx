@@ -1,10 +1,10 @@
-import { useState, useEffect, useRef, Fragment } from 'react'
+import { useState, useEffect, Fragment } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Package, Plus, Trash2, Send } from 'lucide-react'
 import ItemCategorySelector from '@/components/shared/ItemCategorySelector'
-import UnitInput from '@/components/shared/UnitInput'
 import RequestContextForm from '@/components/shared/RequestContextForm'
+import { requesterPayload } from '@/components/shared/RequesterFields'
 import { toast } from '@/lib/toast'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -12,14 +12,15 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { fmtCurrency, CATEGORY_FORM, buildItemNotes, groupItemsBySection, FUND_SOURCES, fundCodeFor, CATEGORY_LABELS } from '@/lib/utils'
+import { fmtCurrency, CATEGORY_FORM, buildItemNotes, groupItemsBySection, FUND_SOURCES, CATEGORY_LABELS } from '@/lib/utils'
 import { SectionNameInput, SectionHeaderRow } from '@/components/shared/ItemSections'
 import CategorySpecFields from '@/components/shared/CategorySpecFields'
 import { useAuth } from '@/context/AuthContext'
 import api from '@/lib/axios'
 import ReviewSubmitDialog from '@/components/shared/ReviewSubmitDialog'
+import { usePpmpPlans, takenByKey, lineChecks, PpmpLineNote, PpmpItemField, NoPpmpNotice, quarterOf } from '@/components/ppmp/PpmpLinePicker'
 
-const EMPTY_DRAFT = { group_label: '', stock_property_no: '', category: '', item_name: '', quantity: '1', unit: 'pc', estimated_cost: '', specs: {} }
+const EMPTY_DRAFT = { group_label: '', stock_property_no: '', category: '', ppmp_item_id: null, line: null, quantity: '1', estimated_cost: '', specs: {} }
 
 const TH = ({ children, className = '' }) => (
   <th className={`px-4 py-3 text-xs font-bold text-[--color-text-secondary] uppercase tracking-wider bg-[--color-canvas] ${className}`}>
@@ -34,7 +35,6 @@ export default function PREdit() {
   const { id }    = useParams()
   const navigate  = useNavigate()
   const qc        = useQueryClient()
-  const itemRef   = useRef(null)
   const { user }  = useAuth()
   const isRequestor = user?.role === 'requestor'
 
@@ -42,6 +42,7 @@ export default function PREdit() {
     title: '', fund_cluster: '', fund_source: 'STF', responsibility_center_code: '', category: 'office_supplies',
     department: '', department_id: '', purpose_type: 'personal', purpose: '', date_needed: '', recommended_by: '',
     event_name: '', event_date: '', project_name: '',
+    requested_by_name: '', requested_by_designation: '', signature: null, signature_changed: false,
   })
   const [items, setItems]   = useState([])
   const [reviewing, setReviewing] = useState(false)
@@ -54,13 +55,8 @@ export default function PREdit() {
   const categoryForm = CATEGORY_FORM[form.category] || CATEGORY_FORM.office_supplies
 
   const setCategory = (next) => {
-    const nextForm = CATEGORY_FORM[next] || CATEGORY_FORM.office_supplies
     setF('category', next)
-    setDraft(p => ({
-      ...p,
-      unit:  nextForm.units.includes(p.unit) ? p.unit : nextForm.defaultUnit,
-      specs: {},
-    }))
+    setDraft(p => ({ ...p, specs: {} }))
   }
 
   const { data: pr, isLoading: prLoading } = useQuery({
@@ -95,14 +91,32 @@ export default function PREdit() {
         event_name:                 pr.event_name                 || '',
         event_date:                 pr.event_date                 ? String(pr.event_date).slice(0, 10)  : '',
         project_name:               pr.project_name               || '',
+        // Who requested it as the request names them; their signature loads below.
+        requested_by_name:          pr.requested_by_name          || '',
+        requested_by_designation:   pr.requested_by_designation   || '',
+        requested_by_touched:       !!pr.requested_by_name,
+        signature:                  null,
+        signature_changed:          false,
       })
       setInitialized(true)
     }
   }, [pr, initialized])
 
+  // The signature already on the request, shown until it is signed again or removed.
+  const { data: savedSignature } = useQuery({
+    queryKey: ['pr-signature', id],
+    queryFn: () => api.get(`/pr/${id}/requester-signature`).then(r => r.data),
+    enabled: !!pr?.requested_by_signed,
+  })
+  useEffect(() => {
+    if (initialized && savedSignature?.image) {
+      setForm(p => (p.signature || p.signature_changed ? p : { ...p, signature: { image: savedSignature.image, method: savedSignature.method } }))
+    }
+  }, [initialized, savedSignature])
+
   useEffect(() => {
     if (existingItems.length > 0 && initialized && items.length === 0) {
-      setItems(existingItems.map(i => ({ ...i, _existing: true })))
+      setItems(existingItems.map(i => ({ ...i, _existing: true, _quantity: i.quantity })))
     }
   }, [existingItems, initialized])
 
@@ -116,30 +130,42 @@ export default function PREdit() {
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to remove item'),
   })
 
+  // Items come from the office's Final PPMP in effect; this request's own holds are left out while it is edited.
+  const { plans, isLoading: plansLoading, lineById } = usePpmpPlans({ departmentId: isRequestor ? null : form.department_id, prId: id })
+  const taken = takenByKey(items, lineById)
+  // The quarter of the PPMP's year the request draws on (1 to 4), or null: the year's total applies.
+  const quarter = quarterOf(plans, pr && { label: pr.quarter_label, year: pr.quarter_year })
+  const planYear = items.map(i => lineById.get(Number(i.ppmp_item_id))?.fiscal_year).find(Boolean) ?? (quarter ? Number(pr.quarter_year) : undefined)
+  const checkItem = (item, exceptIndex) => {
+    const line = item.line || lineById.get(Number(item.ppmp_item_id))
+    return line ? { line, ...lineChecks(line, { quantity: item.quantity, price: item.estimated_cost, dateNeeded: form.date_needed, quarter, taken: takenByKey(items, lineById, exceptIndex).get(line.key) || 0 }) } : null
+  }
+  const draftCheck = draft.line ? checkItem(draft, -1) : null
+  // A picked line brings its price; typing over it clears the pick.
+  const pickLine = (line) => setDraft(p => (line ? { ...p, ppmp_item_id: line.id, line, estimated_cost: String(line.unit_cost) } : { ...p, ppmp_item_id: null, line: null }))
+
   const handleAddItem = () => {
-    if (!draft.item_name.trim()) { toast.error('Item description is required'); return }
+    if (!draft.line) { toast.error('Pick the item from the PPMP'); return }
+    if (draftCheck?.block) { toast.error(draftCheck.block); return }
     const notes = buildItemNotes(form.category, draft.specs)
     const newItem = {
       group_label:       draft.group_label,
       stock_property_no: draft.stock_property_no.trim(),
       category:          draft.category || form.category,
-      item_name:         draft.item_name.trim(),
+      ppmp_item_id:      draft.line.id,
+      item_name:         draft.line.description,
       quantity:          draft.quantity,
-      unit:              draft.unit,
+      unit:              draft.line.unit,
       estimated_cost:    draft.estimated_cost,
       notes,
       _new: true,
     }
     setItems(p => [...p, newItem])
-    setDraft(p => ({ ...EMPTY_DRAFT, unit: p.unit, group_label: p.group_label }))   // the section stays for the next item
-    itemRef.current?.focus()
+    setDraft(p => ({ ...EMPTY_DRAFT, group_label: p.group_label }))   // the section stays for the next item
   }
 
   // "Add item" on a section heading: point the add form at that section.
-  const addToSection = (label) => {
-    setD('group_label', label)
-    itemRef.current?.focus()
-  }
+  const addToSection = (label) => setD('group_label', label)
 
   const handleRemoveItem = (idx) => {
     const item = items[idx]
@@ -156,10 +182,13 @@ export default function PREdit() {
     e?.preventDefault()
     if (!form.title.trim()) { toast.error('Give your request a purpose'); return }
     if (submit && items.length === 0) { toast.error('Add at least one item before submitting'); return }
+    if (items.some(i => !(parseFloat(i.quantity) > 0))) { toast.error('Give every item a quantity above 0, or remove it'); return }
+    if (submit && processed.some(i => !i.ppmp_item_id || i.check?.block)) { toast.error('Pick every item from the PPMP, and lower the ones marked in red to what is left'); return }
     if (submit && !confirmed) { setReviewing(true); return }
     setSaving(true)
     try {
-      await updatePR(form)
+      const { signature, signature_changed, requested_by_touched, department_touched, ...details } = form
+      await updatePR({ ...details, ...requesterPayload(form) })
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to update PR')
       setSaving(false)
@@ -171,6 +200,7 @@ export default function PREdit() {
       try {
         await api.post(`/pr/${id}/items`, {
           group_label:       item.group_label       || undefined,
+          ppmp_item_id:      item.ppmp_item_id      || undefined,
           stock_property_no: item.stock_property_no || undefined,
           category:          item.category          || undefined,
           item_name:      item.item_name,
@@ -181,7 +211,11 @@ export default function PREdit() {
         })
       } catch { failed++ }
     }
-    if (failed) toast.error(`${failed} new item${failed === 1 ? '' : 's'} could not be saved, so the PR was not submitted`)
+    // Saved items whose quantity was changed in the list.
+    for (const item of items.filter(i => i._existing && parseFloat(i.quantity) !== parseFloat(i._quantity))) {
+      try { await api.patch(`/pr/${id}/items/${item.id}`, { quantity: parseFloat(item.quantity) }) } catch { failed++ }
+    }
+    if (failed) toast.error(`${failed} item${failed === 1 ? '' : 's'} could not be saved, so the PR was not submitted`)
 
     let sent = false
     if (submit && !failed) {
@@ -207,6 +241,7 @@ export default function PREdit() {
   const processed = items.map((item, i) => ({
     ...item,
     globalIdx: i,
+    check: checkItem(item, i),
     totalCost: (parseFloat(item.estimated_cost) || 0) * (parseFloat(item.quantity) || 1),
   }))
   const grouped    = groupItemsBySection(processed)
@@ -352,7 +387,7 @@ export default function PREdit() {
                     <TH className="text-center w-24">Stock/Property</TH>
                     <TH className="text-center w-20">Unit</TH>
                     <TH className="text-left">{categoryForm.itemLabel}</TH>
-                    <TH className="text-center w-16">Qty</TH>
+                    <TH className="text-center w-24">Qty</TH>
                     <TH className="text-right w-32">Estimated Cost</TH>
                     <TH className="text-right w-32">Total Cost</TH>
                     <th className="w-10 bg-[--color-canvas]" />
@@ -385,8 +420,15 @@ export default function PREdit() {
                                     {item.notes}
                                   </div>
                                 )}
+                                {item.check ? <PpmpLineNote {...item.check} left={null} planned={item.check.line.planned} className="mt-2 font-normal" />
+                                  : item.ppmp_item_id ? <p className="mt-2 text-[11px] text-[--color-text-muted]">From an earlier version of the PPMP; checked against the current one when submitted.</p>
+                                  : <p className="mt-2 text-[11px] font-semibold text-red-700">Not from the PPMP. Remove it and pick it from the PPMP.</p>}
                               </TD>
-                              <TD className="text-center tabular-nums font-medium">{item.quantity}</TD>
+                              <TD className="text-center">
+                                <Input type="number" min="0.01" step="any" aria-label={`Quantity of ${item.item_name}`} value={item.quantity}
+                                  onChange={e => setItems(p => p.map((x, i) => (i === item.globalIdx ? { ...x, quantity: e.target.value } : x)))}
+                                  className={`h-9 w-20 px-2 text-center tabular-nums ${item.check?.block ? 'border-red-400 text-red-700' : ''}`} />
+                              </TD>
                               <TD className="text-right tabular-nums text-[--color-text-secondary]">
                                 {item.estimated_cost ? fmtCurrency(parseFloat(item.estimated_cost)) : '—'}
                               </TD>
@@ -435,6 +477,9 @@ export default function PREdit() {
             </div>
 
             {/* Add Item Form */}
+            {!plansLoading && !plans.length ? (
+              <div className="px-4 py-4"><NoPpmpNotice requestor={isRequestor} /></div>
+            ) : (
             <div className="bg-[--color-canvas] px-4 py-4 space-y-3">
               <p className="text-xs font-semibold text-[--color-text-muted] uppercase tracking-wide">Add Item</p>
 
@@ -478,25 +523,15 @@ export default function PREdit() {
                     className="text-sm"
                   />
                 </div>
-                <div className="col-span-4 space-y-1">
-                  <Label className="text-xs">{categoryForm.itemLabel} <span className="text-[--color-brand]">*</span></Label>
-                  <Input
-                    ref={itemRef}
-                    placeholder={categoryForm.itemPlaceholder}
-                    value={draft.item_name}
-                    onChange={e => setD('item_name', e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleAddItem())}
-                  />
+                {/* The item, picked from the PPMP: its description and unit are the line's */}
+                <div className="col-span-4">
+                  <PpmpItemField id="pr-ppmp-item" plans={plans} isLoading={plansLoading} value={draft.line} onPick={pickLine} taken={taken} year={planYear} quarter={quarter} />
                 </div>
                 <div className="col-span-2 space-y-1">
                   <Label className="text-xs">Unit</Label>
-                  <UnitInput
-                    value={draft.unit}
-                    onChange={v => setD('unit', v)}
-                    options={categoryForm.units}
-                    placeholder={categoryForm.defaultUnit}
-                    className="text-sm"
-                  />
+                  <div className="flex h-10 items-center rounded-lg border border-[--color-border] bg-[--color-canvas] px-3 text-sm text-[--color-text-secondary]">
+                    {draft.line?.unit || '—'}
+                  </div>
                 </div>
                 <div className="col-span-1 space-y-1">
                   <Label className="text-xs">Qty</Label>
@@ -525,13 +560,15 @@ export default function PREdit() {
                 <div className="col-span-1 self-end">
                   <Button
                     type="button" className="w-full px-0"
-                    disabled={!draft.item_name.trim()}
+                    disabled={!draft.line || !!draftCheck?.block}
                     onClick={handleAddItem}
                   >
                     <Plus className="size-4" />
                   </Button>
                 </div>
               </div>
+
+              {draftCheck && <PpmpLineNote {...draftCheck} />}
 
               {/* Per-category structured spec fields */}
               <CategorySpecFields
@@ -540,6 +577,7 @@ export default function PREdit() {
                 onChange={(next) => setD('specs', next)}
               />
             </div>
+            )}
           </CardContent>
         </Card>
 

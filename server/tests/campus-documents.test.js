@@ -1,8 +1,8 @@
-// The three documents that follow the campus's house style rather than a COA
-// form: the Purchase Order, the Abstract of Quotations, and the Procurement
-// Summary Report. All three draw through server/pdf/campusForm.js, so they are
-// checked together - a change to the shared furniture must not quietly break
-// one of them.
+// The documents that follow the campus's house style rather than a COA form:
+// the Purchase Order and the Procurement Summary Report. Both draw through
+// server/pdf/campusForm.js, so they are checked together - a change to the
+// shared furniture must not quietly break one of them. (The Abstract of
+// Quotations is the canvasser's, made outside the system.)
 //
 // Geometry is read back from each page's own drawing operators, so a table that
 // ran off the page or silently spilled onto another sheet is caught.
@@ -15,13 +15,11 @@ const H    = require('./harness')
 
 const PDFDocument   = require(require.resolve('pdfkit', { paths: [H.SERVER] }))
 const drawPO        = require(path.join(H.SERVER, 'pdf', 'purchaseOrder'))
-const drawAbstract  = require(path.join(H.SERVER, 'pdf', 'abstractOfQuotations'))
 const drawSummary   = require(path.join(H.SERVER, 'pdf', 'procurementSummary'))
 const { pesosInWords } = drawPO
 const { M }         = require(path.join(H.SERVER, 'utils', 'pdfHelpers'))
 
 const PORTRAIT  = { w: 612, h: 792 }
-const LANDSCAPE = { w: 792, h: 612 }
 
 function render(fn, args, opts = {}) {
   const doc = new PDFDocument({ size: 'LETTER', margin: M, ...opts })
@@ -117,48 +115,6 @@ const PO_ITEMS = [
   { group_label: 'Office Supplies', unit: 'ream', item_name: 'Paper Multi Purpose Folio (8*13) 80 gsm', quantity: 150, unit_price: 295 },
 ]
 
-const AB_PR = {
-  pr_number: 'CSO 2026-002', created_at: '2026-02-10',
-  title: 'Office Use of the Department of Computer Studies',
-  purpose: "The current stock ran out in January and the office cannot process clearances without it.",
-  mode_of_procurement: 'Small Value Procurement',
-}
-const item = (id, name, quantity, unit, cost, state, awardedTo) => ({
-  id, item_name: name, quantity, unit, estimated_cost: cost, state,
-  award: awardedTo ? { awarded_to: awardedTo } : null,
-})
-const AB_ITEMS = [
-  item(1, 'Paper Multi Purpose -Short 80gsm', 40, 'ream', 260, 'awarded', 'ABC Trading Corporation'),
-  item(2, 'Paper Multi Purpose Folio (8*13) 80 gsm', 150, 'ream', 300, 'awarded', 'ABC Trading Corporation'),
-  item(3, 'Stapler no. 35 (with remover)', 10, 'piece', 250, 'awarded', 'XYZ Supplies'),
-  item(4, 'Class Record', 50, 'pcs', 50, 'dropped', null),
-]
-const AB_QUOTES = [
-  { id: 11, supplier_name: 'ABC Trading Corporation' },
-  { id: 12, supplier_name: 'XYZ Supplies' },
-  { id: 13, supplier_name: 'Cantilan Merchandise' },
-]
-const AB_PRICES = [
-  { quotation_id: 11, pr_item_id: 1, unit_price: 255 },
-  { quotation_id: 12, pr_item_id: 1, unit_price: 270 },
-  { quotation_id: 13, pr_item_id: 1, unit_price: 265 },
-  { quotation_id: 11, pr_item_id: 2, unit_price: 295 },
-  { quotation_id: 12, pr_item_id: 2, unit_price: 310 },
-  { quotation_id: 12, pr_item_id: 3, unit_price: 240 },
-  { quotation_id: 13, pr_item_id: 3, unit_price: 249 },
-]
-const AB_LOTS = [
-  { id: 1, lot_number: 'LOT A', status: 'awarded', awarded_to: 'ABC Trading Corporation', awarded_amount: 54450, po_number: 'PO-2026-001' },
-  { id: 2, lot_number: 'LOT B', status: 'awarded', awarded_to: 'XYZ Supplies', awarded_amount: 2400, po_number: null,
-    few_quotations_reason: 'Two quotations obtained; the third supplier declined' },
-]
-const AB_LOT_ITEMS = [{ lot_id: 1, pr_item_id: 1 }, { lot_id: 1, pr_item_id: 2 }, { lot_id: 2, pr_item_id: 3 }]
-
-const abstract = (over = {}) => render(drawAbstract, {
-  pr: AB_PR, quotes: AB_QUOTES, prices: AB_PRICES, lots: AB_LOTS,
-  lotItems: AB_LOT_ITEMS, items: AB_ITEMS, orgSettings: ORG, ...over,
-}, over.quotes && !over.quotes.length ? {} : { layout: 'landscape' })
-
 const row = (label, prs, estimated, awarded) => ({ label, prs, estimated, awarded })
 const SUMMARY = {
   period: { label: 'Q1 2026', from: '2026-01-01', to: '2026-03-31' },
@@ -178,21 +134,18 @@ const SUMMARY = {
 async function run() {
   const t = H.suite('CAMPUS DOCUMENTS')
 
-  // ── The letterhead, on all three ────────────────────────────────────
+  // ── The letterhead, on both ─────────────────────────────────────────
   const poBuf  = await render(drawPO, { po: PO, items: PO_ITEMS, priced: true, orgSettings: ORG })
-  const abBuf  = await abstract()
   const sumBuf = await render(drawSummary, SUMMARY)
   const poPages  = parse(poBuf, PORTRAIT.h)
-  const abPages  = parse(abBuf, LANDSCAPE.h)
   const sumPages = parse(sumBuf, PORTRAIT.h)
 
-  for (const [name, pages] of [['Purchase Order', poPages], ['Abstract', abPages], ['Summary', sumPages]]) {
+  for (const [name, pages] of [['Purchase Order', poPages], ['Summary', sumPages]]) {
     t.check('Letterhead', `the ${name} names the university`, has(pages[0], 'NORTH EASTERN MINDANAO STATE UNIVERSITY'))
     t.check('Letterhead', `the ${name} names the campus`, has(pages[0], 'Cantilan Campus'))
     t.check('Letterhead', `the ${name} carries the telefax`, has(pages[0], 'Telefax No.: 086-212-5132'))
   }
-  t.check('Letterhead', 'each document is titled', has(poPages[0], 'PURCHASE ORDER')
-    && has(abPages[0], 'ABSTRACT OF QUOTATIONS') && has(sumPages[0], 'PROCUREMENT SUMMARY REPORT'))
+  t.check('Letterhead', 'each document is titled', has(poPages[0], 'PURCHASE ORDER') && has(sumPages[0], 'PROCUREMENT SUMMARY REPORT'))
 
   // ── Purchase Order ──────────────────────────────────────────────────
   t.check('Purchase Order', 'fits one page', pageCount(poBuf) === 1, pageCount(poBuf))
@@ -275,67 +228,6 @@ async function run() {
   t.check('Amount in words', 'a missing amount is zero, not blank', pesosInWords(null) === 'Zero Pesos and 00/100')
   t.check('Amount in words', 'centavos never round the pesos up', pesosInWords(9.99).startsWith('Nine Pesos'))
 
-  // ── Abstract of Quotations ──────────────────────────────────────────
-  t.check('Abstract', 'fits one page', pageCount(abBuf) === 1, pageCount(abBuf))
-  t.check('Abstract', 'nothing is drawn outside the margins', inside(abPages, LANDSCAPE))
-  t.check('Abstract', 'names the request and its date',
-    has(abPages[0], 'CSO 2026-002') && has(abPages[0], 'February 10, 2026'))
-  t.check('Abstract', 'states the mode of procurement', has(abPages[0], 'Small Value Procurement'))
-  t.check('Abstract', 'states the approved budget', has(abPages[0], '60,400.00'))
-  t.check('Abstract', 'carries the purpose', has(abPages[0], 'Office Use of the Department of Computer Studies'))
-  t.check('Abstract', 'the TWG justification is not printed', !has(abPages[0], 'ran out in January'))
-  t.check('Abstract', 'gives every supplier a column',
-    AB_QUOTES.every(q => hasWrapped(abPages[0], q.supplier_name)))
-  t.check('Abstract', 'shows what each supplier offered',
-    ['255.00', '270.00', '265.00', '295.00', '310.00', '240.00', '249.00'].every(p => has(abPages[0], p)))
-  t.check('Abstract', 'marks a supplier who did not quote an item', has(abPages[0], '-'))
-  t.check('Abstract', 'names who each item went to',
-    has(abPages[0], 'ABC Trading Corporation') && has(abPages[0], 'XYZ Supplies'))
-  t.check('Abstract', 'marks an item that was dropped', has(abPages[0], 'Dropped'))
-  t.check('Abstract', 'totals what each supplier won',
-    has(abPages[0], '54,450.00') && has(abPages[0], '2,400.00'))
-  t.check('Abstract', 'records why an award had too few quotations',
-    has(abPages[0], 'the third supplier declined'))
-  t.check('Abstract', 'is signed by the canvasser and the BAC',
-    has(abPages[0], 'PEDRO B. REYES') && has(abPages[0], 'ANA C. GARCIA, Ph. D.'))
-
-  // The lowest offer for each item is the one printed bold.
-  const boldRuns = (abPages[0].texts.filter(x => x.str === '255.00').length)
-  t.check('Abstract', 'each price is drawn once', boldRuns === 1, boldRuns)
-
-  // Awards recorded without any quotations: portrait, and still a document.
-  const noQuotesBuf = await abstract({ quotes: [], prices: [] })
-  const noQuotes = parse(noQuotesBuf, PORTRAIT.h)
-  t.check('Abstract', 'with no quotations it says so plainly',
-    has(noQuotes[0], 'No supplier quotations were recorded for this request.'))
-  t.check('Abstract', 'with no quotations it still lists the awards', has(noQuotes[0], 'LOT A: ABC Trading Corporation'))
-  t.check('Abstract', 'with no quotations it stays inside the margins', inside(noQuotes, PORTRAIT))
-
-  // An award over the whole request carries no per-item link, so it stands
-  // for every item that was not dropped.
-  const wholeBuf = await abstract({
-    lots: [{ id: 9, lot_number: 'LOT A', status: 'awarded', awarded_to: 'Whole Award Trading', awarded_amount: 99000 }],
-    lotItems: [],
-    items: AB_ITEMS.map(i => ({ ...i, award: null })),
-  })
-  const whole = parse(wholeBuf, LANDSCAPE.h)[0]
-  t.check('Abstract', 'a whole-request award names its supplier on every awarded item',
-    whole.texts.filter(x => x.str.includes('Whole Award Trading')).length >= 3)
-  t.check('Abstract', 'a whole-request award still leaves a dropped item dropped', has(whole, 'Dropped'))
-
-  // However many suppliers quoted, the grid must end at the right margin.
-  for (const n of [1, 2, 6, 10]) {
-    const quotes = Array.from({ length: n }, (_, k) => ({ id: 200 + k, supplier_name: `Supplier Number ${k + 1} Trading and General Merchandise` }))
-    const items = Array.from({ length: 30 }, (_, k) => item(k + 1, `Item ${k + 1} described at some length so the row has to wrap`, k + 1, 'pcs', 100 + k, 'pending', null))
-    const prices = quotes.flatMap(q => items.map(i => ({ quotation_id: q.id, pr_item_id: i.id, unit_price: 100 + i.id })))
-    const buf = await abstract({ quotes, prices, items, lots: [], lotItems: [] })
-    const pages = parse(buf, LANDSCAPE.h)
-    t.check('Abstract widths', `${n} supplier(s) stay inside the margins`, inside(pages, LANDSCAPE))
-    t.check('Abstract widths', `${n} supplier(s) repeat the headers on every sheet`,
-      pages.every(p => has(p, 'Awarded to')))
-    t.check('Abstract widths', `${n} supplier(s) still reach the signatures`, anyPage(pages, 'Canvassed by:'))
-  }
-
   // ── Procurement Summary Report ──────────────────────────────────────
   t.check('Summary', 'nothing is drawn outside the margins', inside(sumPages, PORTRAIT))
   t.check('Summary', 'names the period it covers', has(sumPages[0], 'Q1 2026'))
@@ -389,9 +281,9 @@ async function run() {
   t.check('Summary', 'a long report still reaches the signatures', anyPage(long, 'Noted by:'))
 
   // ── Isolation ───────────────────────────────────────────────────────
-  // These three share campusForm.js and must not reach into the older helpers
+  // These share campusForm.js and must not reach into the older helpers
   // that still style the Inspection and Acceptance Report.
-  for (const f of ['purchaseOrder', 'abstractOfQuotations', 'procurementSummary']) {
+  for (const f of ['purchaseOrder', 'procurementSummary']) {
     const src = fs.readFileSync(path.join(H.SERVER, 'pdf', `${f}.js`), 'utf8')
     t.check('Isolation', `${f} uses only the campus form helpers`,
       !/drawTable|pageHeader|sigBlock|metaField/.test(src))

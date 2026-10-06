@@ -14,7 +14,6 @@ const rateLimit = require('express-rate-limit')
 const { ipKeyGenerator } = require('express-rate-limit')
 const cron      = require('node-cron')
 const { sendDueReminders } = require('./controllers/reminders.controller')
-const { sendRfqReminders } = require('./utils/rfqWorkflow')
 const { loadUserState, tokenRevoked } = require('./middleware/auth.middleware')
 
 const app    = express()
@@ -26,7 +25,8 @@ const io     = new Server(server, {
 })
 
 app.use(helmet())
-app.use(cors({ origin: config.clientUrl, credentials: true }))
+// Content-Disposition is exposed so the browser can save a file under the name the server gives it.
+app.use(cors({ origin: config.clientUrl, credentials: true, exposedHeaders: ['Content-Disposition'] }))
 app.use(express.json({ limit: '2mb' }))
 app.use(express.urlencoded({ extended: true, limit: '2mb' }))
 
@@ -93,9 +93,8 @@ app.use('/api/reports',       require('./routes/reports.routes'))
 app.use('/api/archive',       require('./routes/archive.routes'))
 app.use('/api/twg',           require('./routes/twg.routes'))
 app.use('/api/bac',           require('./routes/bac.routes'))
-app.use('/api/suppliers',     require('./routes/suppliers.routes'))
-// Reached from emailed RFQ links, without an account (routes/public.routes.js has its own limits).
-app.use('/api/public',        require('./routes/public.routes'))
+app.use('/api/ppmp',          require('./routes/ppmp.routes'))
+app.use('/api/dashboard',     require('./routes/dashboard.routes'))
 
 app.use((err, req, res, next) => {
   // Client-facing 4xx errors (status set explicitly, e.g. a workflow rule
@@ -147,11 +146,6 @@ cron.schedule('* * * * *', async () => {
     await sendDueReminders()
   } catch (err) {
     console.error('[cron] sendDueReminders failed:', err.message)
-  }
-  try {
-    await sendRfqReminders()
-  } catch (err) {
-    console.error('[cron] sendRfqReminders failed:', err.message)
   }
 })
 

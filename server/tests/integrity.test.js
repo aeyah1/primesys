@@ -11,7 +11,7 @@ const serverReq = (m) => require(require.resolve(m, { paths: [H.SERVER] }))
 const config = require(path.join(H.SERVER, 'config.js'))
 const jwt    = serverReq('jsonwebtoken')
 
-const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 4: 'requestor', 5: 'supply', 6: 'twg' }
+const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 4: 'requestor', 5: 'supply', 6: 'twg', 7: 'bac' }
 const tok  = (id) => jwt.sign({ id, role: ROLE[id] }, config.jwt.secret, { expiresIn: '1h' })
 
 function fixtures() {
@@ -23,7 +23,7 @@ function fixtures() {
     SET FOREIGN_KEY_CHECKS = 0;
     INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified) VALUES
       ${U(1, 'Admin One', 'admin1')}, ${U(2, 'Proc One', 'proc1')}, ${U(3, 'Req A', 'reqa')},
-      ${U(4, 'Req B', 'reqb')}, ${U(5, 'Sup One', 'sup1')}, ${U(6, 'Teresa Guevarra', 'twg1')};
+      ${U(4, 'Req B', 'reqb')}, ${U(5, 'Sup One', 'sup1')}, ${U(6, 'Teresa Guevarra', 'twg1')}, ${U(7, 'Bac One', 'bac1')};
     INSERT INTO purchase_requests (id, pr_number, title, status, created_by) VALUES
       ${P(40, 'submitted', 3)}, ${P(41, 'twg_review', 3)}, ${P(42, 'bidding', 4)}, ${P(43, 'bidding', 4)},
       ${P(44, 'for_po', 4)}, ${P(45, 'for_po', 4)}, ${P(46, 'for_po', 4)}, ${P(47, 'for_po', 4)},
@@ -32,7 +32,7 @@ function fixtures() {
     INSERT INTO purchase_requests (id, pr_number, title, status, created_by, created_at, date_needed) VALUES
       (54, 'PR-I-54', 'Filed after 4 PM', 'draft', 3, '2026-09-12 17:30:00', '2026-09-20');
     INSERT INTO pr_items (id, pr_id, item_name, quantity, estimated_cost) VALUES
-      (1, 40, 'Bond paper', 2, 250), (2, 41, 'Laptop', 1, 45000), (3, 53, 'Chair', 4, 1500);
+      (1, 40, 'Bond paper', 2, 250), (2, 41, 'Laptop', 1, 45000), (3, 53, 'Chair', 4, 1500), (4, 52, 'Toner', 1, 500);
     INSERT INTO lots (id, purchase_request_id, lot_number, status, awarded_to, awarded_amount, created_by) VALUES
       ${L(1, 43, 1, 'awarded', 'S43', 100)},
       ${L(2, 44, 1, 'awarded', 'S44', 100)},
@@ -48,6 +48,12 @@ function fixtures() {
       (1, 'PO-I-001', 49, 'S49', '2026-09-01', 500, 2);
     ${H.twgAreas([6])}
     ${H.LINK_POS}
+    ${H.CERTIFIED}
+    -- Requests are filed for an office and drawn from its verified PPMP (utils/ppmpUse.js).
+    INSERT INTO departments (id, code, name) VALUES (90, 'TST', 'Test Office');
+    UPDATE users SET department_id = 90 WHERE department_id IS NULL;
+    UPDATE purchase_requests SET department_id = 90 WHERE department_id IS NULL;
+    ${H.ppmpFor(90, ['Bond paper', 'Laptop', 'Chair', 'Toner', 'Laptop, 15.6 inch, 16GB RAM', 'Cable', 'a', 'b'])}
     SET FOREIGN_KEY_CHECKS = 1;
   `
 }
@@ -70,8 +76,8 @@ async function run() {
 
   // FE-3: paging (before any user is created)
   const G0 = 'Paging (FE-3)'
-  const p1 = await is(G0, 'users: page 1 of 3 (2 per page)', 1, 'GET', '/users?limit=2&page=1', undefined,
-    (r) => r.status === 200 && r.data.data.length === 2 && r.data.total === 6 && r.data.page === 1 && r.data.totalPages === 3)
+  const p1 = await is(G0, 'users: page 1 of 4 (2 per page)', 1, 'GET', '/users?limit=2&page=1', undefined,
+    (r) => r.status === 200 && r.data.data.length === 2 && r.data.total === 7 && r.data.page === 1 && r.data.totalPages === 4)
   await is(G0, 'users: page 2 has other accounts', 1, 'GET', '/users?limit=2&page=2', undefined,
     (r) => r.status === 200 && r.data.data.length === 2 && !r.data.data.some(u => p1.data.data.some(x => x.id === u.id)))
   await is(G0, 'users: search finds a username', 1, 'GET', '/users?search=twg1', undefined,
@@ -112,7 +118,7 @@ async function run() {
     (r) => r.status === 200 && r.data.some(l => l.from_status === 'twg_review' && l.to_status === 'revision_requested' && /laptop model/.test(l.note)))
   const notices = await is(G3, '…requestor notified with the reason', 3, 'GET', '/notifications', undefined,
     (r) => r.status === 200 && r.data.some(n => /returned to you for revision: Please add the laptop model/.test(n.message)))
-  await is(G3, 'requestor fixes it (adds the model)', 3, 'POST', '/pr/41/items', { item_name: 'Laptop model: HP 15', quantity: 1, estimated_cost: 0 }, code(201))
+  await is(G3, 'requestor fixes it (adds the specs)', 3, 'POST', '/pr/41/items', { item_name: 'Laptop, 15.6 inch, 16GB RAM', quantity: 1, estimated_cost: 0 }, code(201))
   await is(G3, '…and submits it again → 200', 3, 'PATCH', '/pr/41/status', { status: 'submitted' }, code(200))
   await is(G3, '…back in the TWG queue', 6, 'GET', '/twg/pending', undefined, (r) => r.status === 200 && r.data.data.some(p => p.id === 41))
   await is(G3, 'return a PR under canvass with no award → 200', 2, 'PATCH', '/pr/42/status', { status: 'revision_requested', notes: 'Quantities unclear' }, code(200))
@@ -124,7 +130,6 @@ async function run() {
   const G4 = 'Award guards (WF-2)'
   await is(G4, 'edit an award whose PR has an active PO → 409', 2, 'PATCH', '/lots/10', { awarded_to: 'Someone else', awarded_amount: 1 }, code(409, /purchase order/))
   await is(G4, 'cancel an award whose PR has an active PO → 409', 2, 'PATCH', '/lots/10', { status: 'cancelled', reason: 'Supplier backed out' }, code(409))
-  await is(G4, 'add a lot item under an active PO → 409', 2, 'POST', '/lots/10/items', { item_name: 'x' }, code(409))
   await is(G4, 'edit an award on a completed PR → 409', 2, 'PATCH', '/lots/11', { awarded_to: 'X' }, code(409, /closed/))
   await is(G4, 'revive a cancelled award → 409', 2, 'PATCH', '/lots/12', { status: 'awarded', awarded_to: 'Old' }, code(409, /cancelled/))
   await is(G4, 'lot status other than awarded/cancelled → 400', 2, 'PATCH', '/lots/13', { status: 'open' }, code(400))
@@ -138,7 +143,7 @@ async function run() {
 
   // WF-3: one supplier per PR; the PO comes from the awards
   const G5 = 'Supplier and PO (WF-3)'
-  await is(G5, 'award more on a PR whose items are all awarded → 409', 2, 'POST', '/lots', { purchase_request_id: 51, awarded_to: 'Other Co', awarded_amount: 5 }, code(409, /already awarded/))
+  await is(G5, 'no more bids on a PR whose items are all awarded → 409', 7, 'PUT', '/canvass/51/bids', { bidders: [{ name: 'Other Co', prices: [] }] }, code(409, /in canvass/))
   const po46 = await is(G5, 'issue a PO sending a fake supplier and total', 2, 'POST', '/po',
     { purchase_request_id: 46, supplier_name: 'Evil Co', total_amount: 1, issued_date: '2026-09-12' }, code(201))
   await is(G5, '…PO names the awarded supplier and the awards\' total', 2, 'GET', `/po/${po46.data?.id}`, undefined,
@@ -160,7 +165,10 @@ async function run() {
   await is(G5, 'recanvass (Ready for PO → Bidding)', 2, 'PATCH', '/pr/52/status', { status: 'bidding', notes: 'Supplier price expired' }, code(200))
   await is(G5, '…the old award is cancelled', 2, 'GET', '/lots/pr/52', undefined, (r) => r.status === 200 && r.data.length === 1 && r.data[0].status === 'cancelled')
   await is(G5, '…and the log says so', 2, 'GET', '/pr/52/logs', undefined, (r) => r.status === 200 && r.data.some(l => l.to_status === 'bidding' && /1 award cancelled/.test(l.note)))
-  await is(G5, 'award the new supplier', 2, 'POST', '/lots', { purchase_request_id: 52, awarded_to: 'S52 New', awarded_amount: 400 }, code(201))
+  await is(G5, '…no PO before a new award → 409', 2, 'POST', '/po', { purchase_request_id: 52, issued_date: '2026-09-12' }, code(409, /certification/))
+  let through = 'ok'
+  try { await H.award(BASE, tok, 52, { bac: 7, twg: 6 }, [{ name: 'S52 New', prices: { 4: 400 } }]) } catch (e) { through = e.message }
+  t.check(G5, 'the new supplier\'s bid, certified by the TWG and awarded by the BAC', through === 'ok', through)
   const po52 = await is(G5, 'issue the PO', 2, 'POST', '/po', { purchase_request_id: 52, issued_date: '2026-09-12' }, code(201))
   await is(G5, '…from the new award only (not the old supplier or a combined total)', 2, 'GET', `/po/${po52.data?.id}`, undefined,
     (r) => r.status === 200 && r.data.supplier_name === 'S52 New' && Number(r.data.total_amount) === 400)
@@ -208,20 +216,15 @@ async function run() {
   await is(G7, 'PR: date the calendar lacks → 400', 3, 'POST', '/pr', { title: 'x', date_needed: '2026-02-30' }, code(400))
   await is(G7, 'PR: bad quantity names the item', 3, 'POST', '/pr', { title: 'x', items: [{ item_name: 'a' }, { item_name: 'b', quantity: 'x' }] }, code(400, /Item 2 quantity/))
   await is(G7, 'PR edit: department over 150 characters → 400', 3, 'PATCH', '/pr/53', { title: 't', department: 'd'.repeat(151) }, code(400))
-  await is(G7, 'award: amount 0 → 400', 2, 'POST', '/lots', { purchase_request_id: 42, awarded_to: 'X', awarded_amount: 0 }, code(400))
-  await is(G7, 'award: no amount → 400', 2, 'POST', '/lots', { purchase_request_id: 42, awarded_to: 'X' }, code(400))
-  await is(G7, 'award: bad email → 400', 2, 'POST', '/lots', { purchase_request_id: 42, awarded_to: 'X', awarded_amount: 5, supplier_email: 'nope' }, code(400))
-  await is(G7, 'award: supplier name over 200 characters → 400', 2, 'POST', '/lots', { purchase_request_id: 42, awarded_to: 'x'.repeat(201), awarded_amount: 5 }, code(400))
-  await is(G7, 'quarter: label Q5 → 400', 1, 'POST', '/quarters', { label: 'Q5', year: 2027 }, code(400))
-  await is(G7, 'quarter: year 1800 → 400', 1, 'POST', '/quarters', { label: 'Q1', year: 1800 }, code(400))
-  await is(G7, 'quarter: negative budget → 400', 1, 'POST', '/quarters', { label: 'Q1', year: 2027, budget: -5 }, code(400))
-  const q = await is(G7, 'quarter: Q1 2027 accepted', 1, 'POST', '/quarters', { label: 'Q1', year: 2027, budget: 500000 }, code(201))
-  await is(G7, 'quarter budget "abc" → 400', 1, 'PATCH', `/quarters/${q.data?.id}/budget`, { budget: 'abc' }, code(400))
-  await is(G7, 'quarter: created reply matches the saved row (API-12)', 1, 'GET', '/quarters', undefined,
-    (r) => r.status === 200 && q.data?.is_active === 0 && r.data.find(x => x.id === q.data.id)?.is_active === 0)
-  await is(G7, 'quarter: the same budget again → 200', 1, 'PATCH', `/quarters/${q.data?.id}/budget`, { budget: 500000 }, code(200))
-  await is(G7, 'quarter: toggle an unknown id → 404 (API-12)', 1, 'PATCH', '/quarters/9999/toggle', undefined, code(404))
-  await is(G7, 'quarter: budget of an unknown id → 404 (API-12)', 1, 'PATCH', '/quarters/9999/budget', { budget: 5 }, code(404))
+  const one = [{ pr_item_id: 1, unit_price: 5 }]
+  await is(G7, 'bids: price 0 → 400', 7, 'PUT', '/canvass/43/bids', { bidders: [{ name: 'X', prices: [{ pr_item_id: 1, unit_price: 0 }] }] }, code(400))
+  await is(G7, 'bids: prices not a list → 400', 7, 'PUT', '/canvass/43/bids', { bidders: [{ name: 'X', prices: 5 }] }, code(400))
+  await is(G7, 'bids: a winner that isn\'t a bidder\'s place → 400', 7, 'PUT', '/canvass/43/bids', { bidders: [{ name: 'X', prices: one }], winners: [{ pr_item_id: 1, bidder: 'x' }] }, code(400))
+  await is(G7, 'bids: bidder name over 200 characters → 400', 7, 'PUT', '/canvass/43/bids', { bidders: [{ name: 'x'.repeat(201), prices: one }] }, code(400))
+  await is(G7, 'quarters are automatic: none is added by hand', 1, 'POST', '/quarters', { label: 'Q1', year: 2027 }, code(404))
+  await is(G7, '…nor switched on or given a budget', 1, 'PATCH', '/quarters/1/toggle', undefined, code(404))
+  await is(G7, 'the list holds this year\'s four quarters, with their dates', 1, 'GET', '/quarters', undefined,
+    (r) => r.status === 200 && ['Q1', 'Q2', 'Q3', 'Q4'].every(l => r.data.some(x => x.label === l && x.year === new Date().getFullYear() && x.start_date && x.end_date)))
   await is(G7, 'settings: fund cluster over 50 characters → 400', 1, 'PATCH', '/settings', { fund_cluster: 'f'.repeat(51) }, code(400))
   await is(G7, 'user: name over 100 characters → 400', 1, 'POST', '/users', { name: 'n'.repeat(101), username: 'longname', email: 'l@int.invalid', password: 'Long-Enough-1', role: 'supply' }, code(400))
   await is(G7, 'user: 2-letter username → 400', 1, 'POST', '/users', { name: 'N', username: 'ab', email: 'ab@int.invalid', password: 'Long-Enough-1', role: 'supply' }, code(400))

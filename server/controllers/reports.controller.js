@@ -3,6 +3,7 @@ const { prScope } = require('../middleware/scope.middleware')
 const asyncHandler = require('../utils/asyncHandler')
 const { categoryLabel } = require('../utils/categories')
 const { FUND_SOURCES, loadOrgSettings } = require('../utils/orgSettings')
+const { plannedBudgets } = require('../utils/quarters')
 const drawProcurementSummary = require('../pdf/procurementSummary')
 
 // Reports count only PRs this user may see (C2: procurement doesn't count other
@@ -14,7 +15,7 @@ exports.summary = async (req, res) => {
 
     // Quarterly spending - POs are linked directly to PRs via purchase_request_id
     const [byQuarter] = await pool.execute(`
-      SELECT q.id, q.label, q.year, q.budget, q.start_date, q.end_date,
+      SELECT q.id, q.label, q.year, q.start_date, q.end_date,
              COUNT(DISTINCT pr.id)              AS pr_count,
              COALESCE(SUM(po.total_amount - COALESCE(po.short_amount, 0)), 0)  AS total_spending
       FROM quarters q
@@ -60,7 +61,7 @@ exports.summary = async (req, res) => {
       SELECT
         SUM(pr.status != 'cancelled')          AS total_prs,
         SUM(pr.status = 'completed')           AS completed,
-        SUM(pr.status IN ('bidding','for_po')) AS in_progress
+        SUM(pr.status IN ('bidding','bac_review','twg_certification','for_po')) AS in_progress
       FROM purchase_requests pr
       WHERE ${scope.sql}
     `, scope.params)
@@ -69,8 +70,10 @@ exports.summary = async (req, res) => {
       `SELECT COALESCE(SUM(total_amount - COALESCE(short_amount, 0)), 0) AS total_spending FROM purchase_orders WHERE po_status = 'active'`
     )
 
+    // Each quarter's budget is what the offices' Final PPMPs plan for it.
+    const planned = await plannedBudgets(pool)
     res.json({
-      byQuarter,
+      byQuarter: byQuarter.map(q => ({ ...q, budget: planned.get(`${q.label} ${q.year}`) ?? null })),
       byCategory,
       byStatus,
       monthly,

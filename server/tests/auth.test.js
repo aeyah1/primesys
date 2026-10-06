@@ -1,4 +1,4 @@
-// Authentication hardening: registration, verification, login, reset,
+// Authentication hardening: registration, admin approval, login, reset,
 // JWT/authorization, admin role assignment, sockets, CAPTCHA, throttling, rate
 // limits, security logging. Real HTTP against a throwaway database, with sent
 // emails captured so their tokens can be read (see harness.js). Run: npm test
@@ -9,7 +9,7 @@ const { db: TEST_DB, base: BASE, port: PORT } = H.configure({
   db: 'primesys_auth_test_tmp', port: 5096,
   env: {
     // Test-sized limits so every path can be exercised in one run.
-    REGISTRATION_RATE_LIMIT: '30', REGISTRATION_RATE_WINDOW: '60',
+    REGISTRATION_RATE_LIMIT: '40', REGISTRATION_RATE_WINDOW: '60',
     LOGIN_IP_RATE_LIMIT: '60', LOGIN_IP_RATE_WINDOW: '15',
     LOGIN_MAX_ATTEMPTS: '5', LOGIN_LOCKOUT_MINUTES: '2', LOGIN_LOCKOUT_MAX_MINUTES: '30',
     AUTH_EMAIL_RATE_LIMIT: '20', AUTH_EMAIL_COOLDOWN_MINUTES: '2',
@@ -27,11 +27,14 @@ const SECRETS = [PW, FPW, NEWPW]      // + every raw token captured below
 const bcrypt = serverReq('bcryptjs')
 function fixtures() {
   const h = bcrypt.hashSync(FPW, 10)
+  // Sign-ups go to OFA (never approved here); OFB is for role changes; req1 holds OFC; OFD is for the approval checks.
   return `
+    INSERT INTO departments (id, code, name) VALUES (1, 'OFA', 'Office A'), (2, 'OFB', 'Office B'), (3, 'OFC', 'Office C'), (4, 'OFD', 'Office D');
+    INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified, department_id) VALUES
+      (1, 'Admin One', 'admin1', 'admin1@auth.invalid', '${h}', 'admin',       1, 1, NULL),
+      (2, 'Proc One',  'proc1',  'proc1@auth.invalid',  '${h}', 'procurement', 1, 1, NULL),
+      (3, 'Req One',   'req1',   'req1@auth.invalid',   '${h}', 'requestor',   1, 1, 3);
     INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified) VALUES
-      (1, 'Admin One', 'admin1', 'admin1@auth.invalid', '${h}', 'admin',       1, 1),
-      (2, 'Proc One',  'proc1',  'proc1@auth.invalid',  '${h}', 'procurement', 1, 1),
-      (3, 'Req One',   'req1',   'req1@auth.invalid',   '${h}', 'requestor',   1, 1),
       (4, 'Sup One',   'sup1',   'sup1@auth.invalid',   '${h}', 'supply',      1, 1),
       (5, 'Twg One',   'twg1',   'twg1@auth.invalid',   '${h}', 'twg',         1, 1),
       (6, 'Gone User', 'gone1',  'gone1@auth.invalid',  '${h}', 'requestor',   0, 1),
@@ -72,23 +75,30 @@ const tokenIn = (m, kind) => (m?.html.match(new RegExp(`${kind}\\?token=([a-f0-9
 const TOKENS = []
 
 let seq = 0
-const reg = (over = {}) => { seq++; return { first_name: 'Test', last_name: `User${seq}`, username: `newuser${seq}`, email: `newuser${seq}@auth.invalid`, password: PW, confirm_password: PW, website: '', ...over } }
+const reg = (over = {}) => { seq++; return { first_name: 'Test', last_name: `User${seq}`, username: `newuser${seq}`, email: `newuser${seq}@auth.invalid`, password: PW, confirm_password: PW, department_id: 1, website: '', ...over } }
 const wait = (ms) => new Promise(r => setTimeout(r, ms))
 
 async function run() {
   // Registration
   const G1 = 'Registration'
-  const u1 = reg()
+  const u1 = reg({ department_id: 4 })
   let r = await http('POST', '/auth/register', u1)
   check(G1, 'normal registration → 201', r.status === 201, show(r))
   const firstReply = r.data?.message
-  let [row] = await q('SELECT role, is_verified, is_active, verify_token, TIMESTAMPDIFF(MINUTE, NOW(), verify_expires) AS mins FROM users WHERE username = ?', [u1.username])
-  check(G1, '…created as requestor, unverified, active', row && row.role === 'requestor' && row.is_verified === 0 && row.is_active === 1, JSON.stringify(row))
-  check(G1, '…verification link lasts 24 h (was ~16 h: UTC/local mix)', row && row.mins >= 1435 && row.mins <= 1440, `mins=${row?.mins}`)
-  check(G1, '…token stored hashed (64 hex), not the raw link token', row && /^[a-f0-9]{64}$/.test(row.verify_token) && !mailsTo(u1.email)[0]?.html.includes(row.verify_token), row?.verify_token)
-  check(G1, '…one verification email sent', mailsTo(u1.email).length === 1, mailsTo(u1.email).length)
+  check(G1, '…the reply says an administrator will review it', /administrator will review/.test(firstReply), firstReply)
+  let [row] = await q('SELECT role, is_verified, is_active, department_id FROM users WHERE username = ?', [u1.username])
+  check(G1, '…created as Fund Administrator of its office, waiting, active', row && row.role === 'requestor' && row.is_verified === 0 && row.is_active === 1 && row.department_id === 4, JSON.stringify(row))
+  check(G1, '…no email link is sent', mailsTo(u1.email).length === 0, mailsTo(u1.email).length)
+  const [adminNote] = await q("SELECT COUNT(*) AS n FROM notifications WHERE user_id = 1 AND message LIKE '%OFD and is waiting for your approval%'")
+  check(G1, '…the admin is told in the app', adminNote.n === 1, adminNote.n)
   check(G1, '…reply carries no role, token, or account data', r.data && Object.keys(r.data).join() === 'message', JSON.stringify(r.data))
-  const v1 = tokenIn(mailsTo(u1.email)[0], 'verify-email'); TOKENS.push(v1)
+  for (const [label, over, want] of [['no office', { department_id: undefined }, 400], ['an unknown office', { department_id: 99 }, 400]]) {
+    const body = reg(over)
+    r = await http('POST', '/auth/register', body)
+    check(G1, `${label} → ${want}, no account`, r.status === want && (await q('SELECT COUNT(*) AS n FROM users WHERE username = ?', [body.username]))[0].n === 0, show(r))
+  }
+  r = await http('POST', '/auth/register', reg({ department_id: 3 }))
+  check(G1, 'an office that has a Fund Administrator → 409', r.status === 409 && /OFC already has a Fund Administrator/.test(r.data.message) && !/Req One/.test(r.data.message), show(r))
 
   for (const [field, value] of [['role', 'admin'], ['role', 'procurement'], ['role', 'supply'], ['role', 'twg'],
                                 ['is_verified', true], ['is_active', true], ['is_approved', 1], ['permissions', ['*']], ['is_admin', true]]) {
@@ -99,6 +109,8 @@ async function run() {
   }
   r = await http('GET', '/auth/registration-info')
   check(G1, 'sign-up form is told which email domains are accepted', r.status === 200 && JSON.stringify(r.data.email_domains) === '["auth.invalid","demo.invalid"]', show(r))
+  check(G1, '…and the offices, with which are taken (no names)', r.data.offices?.length === 4 && r.data.offices.find(o => o.code === 'OFC')?.taken === true
+    && r.data.offices.find(o => o.code === 'OFA')?.taken === false && Object.keys(r.data.offices[0]).sort().join() === 'code,id,name,taken', JSON.stringify(r.data.offices))
   const outsider = reg({ email: 'someone@gmail.com' })
   r = await http('POST', '/auth/register', outsider)
   check(G1, 'email outside the allowed domains → 400, no account', r.status === 400 && /ending in @auth\.invalid or @demo\.invalid/.test(r.data.message)
@@ -118,7 +130,7 @@ async function run() {
   r = await http('POST', '/auth/register', dupUnverified)
   check(G1, 'duplicate email (any case) → the same 201 reply as a new sign-up (SEC-7)', r.status === 201 && r.data.message === firstReply, show(r))
   const [dupRow] = await q('SELECT COUNT(*) AS n FROM users WHERE username = ?', [dupUnverified.username])
-  check(G1, '…no account created, no extra link inside the cooldown', dupRow.n === 0 && mailsTo(u1.email).length === 1, `n=${dupRow.n} mails=${mailsTo(u1.email).length}`)
+  check(G1, '…no account created, nothing emailed to an account still waiting', dupRow.n === 0 && mailsTo(u1.email).length === 0, `n=${dupRow.n} mails=${mailsTo(u1.email).length}`)
   r = await http('POST', '/auth/register', reg({ email: 'SUP1@auth.invalid' }))
   const notice = mailsTo('sup1@auth.invalid')
   check(G1, 'email of a verified account → same 201, owner told once', r.status === 201 && r.data.message === firstReply && notice.length === 1
@@ -137,40 +149,44 @@ async function run() {
     check(G1, `${label} → 400`, r.status === 400, show(r))
   }
 
-  // Email verification
-  const G2 = 'Email verification'
+  // Admin approval
+  const G2 = 'Admin approval'
+  const adminTok = tok(1, 'admin')
+  const idOf = async (username) => (await q('SELECT id FROM users WHERE username = ?', [username]))[0]?.id
   r = await http('POST', '/auth/login', { identifier: u1.username, password: PW })
-  check(G2, 'sign-in before verifying (right password) → 403 unverified', r.status === 403 && r.data.type === 'unverified', show(r))
+  check(G2, 'sign-in before approval (right password) → 403 pending', r.status === 403 && r.data.type === 'pending' && /waiting for the administrator/.test(r.data.message) && !r.data.token, show(r))
   r = await http('POST', '/auth/login', { identifier: u1.username, password: 'wrong-password' })
   check(G2, '…wrong password → generic 401 (state not revealed)', r.status === 401 && r.data.message === 'Invalid username/email or password.', show(r))
-  r = await http('POST', '/auth/resend-verification', { identifier: u1.username })
-  const genericResend = r.data?.message
-  check(G2, 'resend right after sign-up → generic reply, no email (cooldown)', r.status === 200 && mailsTo(u1.email).length === 1, `${show(r)} mails=${mailsTo(u1.email).length}`)
-  r = await http('POST', '/auth/resend-verification', { identifier: 'nobody_here' })
-  check(G2, 'resend for unknown account → identical reply', r.status === 200 && r.data.message === genericResend, show(r))
-  r = await http('POST', '/auth/verify-email', { token: v1 })
-  ;[row] = await q('SELECT is_verified, verify_token FROM users WHERE username = ?', [u1.username])
-  check(G2, 'valid token → verified, token cleared', r.status === 200 && row.is_verified === 1 && row.verify_token === null, show(r))
-  r = await http('POST', '/auth/verify-email', { token: v1 })
-  check(G2, 'same token again (single use / already verified) → 400', r.status === 400, show(r))
-  r = await http('POST', '/auth/verify-email', { token: 'f'.repeat(64) })
-  check(G2, 'invalid token → 400', r.status === 400, show(r))
-  r = await http('POST', '/auth/resend-verification', { identifier: u1.email })
-  check(G2, 'resend for a verified account → no email', r.status === 200 && mailsTo(u1.email).length === 1, `mails=${mailsTo(u1.email).length}`)
+  for (const p of ['/auth/verify-email', '/auth/resend-verification']) {
+    r = await http('POST', p, { token: 'f'.repeat(64), identifier: u1.username })
+    check(G2, `the email-link route ${p} is gone → 404`, r.status === 404, show(r))
+  }
+  const u3 = reg({ department_id: 4 }); await http('POST', '/auth/register', u3)
+  const u1Id = await idOf(u1.username), u3Id = await idOf(u3.username)
+  r = await http('PATCH', `/users/${u1Id}/approve`, undefined, tok(2, 'procurement'))
+  check(G2, 'only an admin approves → 403', r.status === 403, show(r))
+  r = await http('PATCH', `/users/${u1Id}/approve`, undefined, adminTok)
+  ;[row] = await q('SELECT is_verified FROM users WHERE id = ?', [u1Id])
+  check(G2, 'admin approves → 200, approved', r.status === 200 && row.is_verified === 1, show(r))
+  check(G2, '…the person is emailed, with a sign-in link and the office', mailsTo(u1.email).length === 1 && /approved/.test(mailsTo(u1.email)[0].subject) && /OFD/.test(mailsTo(u1.email)[0].html) && /\/login/.test(mailsTo(u1.email)[0].html), mailsTo(u1.email).length)
+  r = await http('PATCH', `/users/${u1Id}/approve`, undefined, adminTok)
+  check(G2, 'approving it again → 409', r.status === 409, show(r))
+  r = await http('PATCH', `/users/${u3Id}/approve`, undefined, adminTok)
+  check(G2, 'a second Fund Administrator for the same office → 409, still waiting', r.status === 409 && /OFD already has a Fund Administrator/.test(r.data.message)
+    && (await q('SELECT is_verified FROM users WHERE id = ?', [u3Id]))[0].is_verified === 0, show(r))
+  r = await http('POST', '/auth/register', reg({ department_id: 4 }))
+  check(G2, '…and the office now refuses new sign-ups', r.status === 409, show(r))
 
-  const u2 = reg(); await http('POST', '/auth/register', u2)
-  const v2 = tokenIn(mailsTo(u2.email)[0], 'verify-email'); TOKENS.push(v2)
-  await q('UPDATE users SET verify_expires = NOW() - INTERVAL 1 MINUTE WHERE username = ?', [u2.username])
-  r = await http('POST', '/auth/verify-email', { token: v2 })
-  check(G2, 'expired token → 400', r.status === 400, show(r))
-  await q('UPDATE users SET verify_expires = NOW() + INTERVAL 24 HOUR - INTERVAL 3 MINUTE WHERE username = ?', [u2.username])
-  r = await http('POST', '/auth/resend-verification', { identifier: u2.username })
-  const v2b = tokenIn(mailsTo(u2.email)[1], 'verify-email'); TOKENS.push(v2b)
-  check(G2, 'resend after the cooldown (by username) → new email', mailsTo(u2.email).length === 2 && !!v2b, `mails=${mailsTo(u2.email).length}`)
-  r = await http('POST', '/auth/verify-email', { token: v2 })
-  check(G2, '…the old link no longer works', r.status === 400, show(r))
-  r = await http('POST', '/auth/verify-email', { token: v2b })
-  check(G2, '…the new link verifies', r.status === 200, show(r))
+  r = await http('POST', `/users/${u3Id}/reject`, { reason: '  ' }, adminTok)
+  check(G2, 'turning a sign-up down needs a reason → 400', r.status === 400, show(r))
+  r = await http('POST', `/users/${u3Id}/reject`, { reason: 'OFD already has its Fund Administrator' }, adminTok)
+  check(G2, 'admin turns it down → 200, the account is removed', r.status === 200 && !(await idOf(u3.username)), show(r))
+  check(G2, '…the person is emailed the reason', mailsTo(u3.email).length === 1 && /not approved/.test(mailsTo(u3.email)[0].html) && /already has its Fund Administrator/.test(mailsTo(u3.email)[0].html), mailsTo(u3.email).length)
+  r = await http('POST', `/users/${u1Id}/reject`, { reason: 'x' }, adminTok)
+  check(G2, 'an approved account can\'t be turned down → 409', r.status === 409, show(r))
+  const again = reg({ email: u3.email })
+  r = await http('POST', '/auth/register', again)
+  check(G2, 'a turned-down person can sign up again', r.status === 201 && !!(await idOf(again.username)), show(r))
 
   // Login
   const G3 = 'Login'
@@ -178,6 +194,12 @@ async function run() {
   const u1Token = r.data?.token
   check(G3, 'username + password → 200, requestor token', r.status === 200 && r.data.user.role === 'requestor' && !!u1Token, show(r))
   check(G3, '…no password hash in the reply', r.status === 200 && !('password_hash' in r.data.user), Object.keys(r.data?.user || {}).join())
+  // The New Request page reads the office from the signed-in user, so sign-in must carry it, as a reload does.
+  check(G3, '…with their office (code and name), right at sign-in', r.data?.user?.department_id === 4 && r.data.user.department_code === 'OFD' && r.data.user.department_name === 'Office D',
+    JSON.stringify(r.data?.user))
+  const reload = await http('GET', '/auth/me', undefined, u1Token)
+  check(G3, '…the same profile a reload returns', JSON.stringify(reload.data) === JSON.stringify(r.data?.user), `${JSON.stringify(reload.data)} vs ${JSON.stringify(r.data?.user)}`)
+  check(G3, '…and no token version or verification flag', !('token_version' in r.data.user) && !('is_verified' in r.data.user), Object.keys(r.data?.user || {}).join())
   check(G3, '…the token carries only the account id and version (SEC-8)', Object.keys(jwt.decode(u1Token) || {}).sort().join() === 'exp,iat,id,tv', JSON.stringify(jwt.decode(u1Token)))
   r = await http('POST', '/auth/login', { identifier: u1.email.toUpperCase(), password: PW })
   check(G3, 'email (any case) + password → 200', r.status === 200, show(r))
@@ -260,7 +282,7 @@ async function run() {
     ['admin: list users', 'GET', '/users'], ['admin: create a user', 'POST', '/users', { name: 'X', username: 'x_user', email: 'x@auth.invalid', password: 'Longenough1', role: 'admin' }],
     ['admin: change own role', 'PATCH', `/users/${0}`, { name: 'X', role: 'admin' }],
     ['procurement: issue PO', 'POST', '/po', { purchase_request_id: 1, supplier_name: 'S', issued_date: '2026-09-11', total_amount: 5 }],
-    ['procurement: reports', 'GET', '/reports/summary'], ['procurement: award', 'POST', '/lots', { purchase_request_id: 1, awarded_to: 'S' }],
+    ['procurement: reports', 'GET', '/reports/summary'], ['BAC: award', 'POST', '/canvass/1/award', {}],
     ['TWG: review a PR', 'POST', '/twg/1/review', { action: 'approve' }], ['supply: supply update', 'PATCH', '/delivery/1/supply-update', { notes: 'x' }],
   ]) {
     const rr = await http(m, route.replace('/0', `/${u1Token ? JSON.parse(Buffer.from(u1Token.split('.')[1], 'base64url')).id : 0}`), body, u1Token)
@@ -275,7 +297,7 @@ async function run() {
   check(G5, "…and req1's token from before the reset is refused (SEC-1)", r.status === 401, show(r))
   const procToken = tok(2, 'procurement')
   const before = await http('GET', '/reports/summary', undefined, procToken)
-  await http('PATCH', '/users/2', { name: 'Proc One', role: 'requestor' }, tok(1, 'admin'))
+  await http('PATCH', '/users/2', { name: 'Proc One', role: 'requestor', department_id: 2 }, tok(1, 'admin'))
   const after = await http('GET', '/reports/summary', undefined, procToken)
   check(G5, 'demotion applies to an existing token at once', before.status === 200 && after.status === 403, `${before.status} → ${show(after)}`)
   await http('PATCH', '/users/2', { name: 'Proc One', role: 'procurement' }, tok(1, 'admin'))
@@ -293,17 +315,21 @@ async function run() {
   check(G6, 'admin cannot demote themselves (always an admin left)', r.status === 400, show(r))
   r = await http('PATCH', '/users/1/toggle', undefined, admin)
   check(G6, 'admin cannot deactivate themselves', r.status === 400, show(r))
+  r = await http('POST', '/users', { name: 'Admin FA', username: 'made_fa', email: 'made_fa@auth.invalid', password: 'Admin-Made-3', role: 'requestor' }, admin)
+  check(G6, 'an admin-made Fund Administrator needs an office → 400', r.status === 400 && /office/.test(r.data.message), show(r))
+  r = await http('POST', '/users', { name: 'Admin FA', username: 'made_fa', email: 'made_fa@auth.invalid', password: 'Admin-Made-3', role: 'requestor', department_id: 3 }, admin)
+  check(G6, '…and one for a taken office → 409', r.status === 409, show(r))
   r = await http('POST', '/users', { name: 'Made By Admin', username: 'made_proc', email: 'made_proc@auth.invalid', password: 'Admin-Made-1', role: 'procurement' }, admin)
   check(G6, 'admin creates a procurement account (the controlled path)', r.status === 201 && r.data.role === 'procurement', show(r))
   r = await http('POST', '/auth/login', { identifier: 'made_proc', password: 'Admin-Made-1' })
   check(G6, '…it signs in as procurement', r.status === 200 && r.data.user.role === 'procurement', show(r))
-  r = await http('POST', '/users', { name: 'Outside Staff', username: 'outside_staff', email: 'outside.staff@gmail.com', password: 'Admin-Made-2', role: 'requestor' }, admin)
+  r = await http('POST', '/users', { name: 'Outside Staff', username: 'outside_staff', email: 'outside.staff@gmail.com', password: 'Admin-Made-2', role: 'requestor', department_id: 2 }, admin)
   check(G6, 'admin-created accounts are not limited to the sign-up domains', r.status === 201, show(r))
   r = await http('POST', '/users', { name: 'Weak', username: 'weak_pw', email: 'weak@auth.invalid', password: 'short', role: 'supply' }, admin)
   check(G6, 'admin-set password under 8 characters → 400', r.status === 400, show(r))
   r = await http('PATCH', '/users/7/approve', undefined, admin)
   const r2 = await http('PATCH', '/users/7/decline', undefined, admin)
-  check(G6, 'role-request approve/decline endpoints are gone → 404', r.status === 404 && r2.status === 404, `${r.status} ${r2.status}`)
+  check(G6, 'approving an approved account → 409; the old decline endpoint is gone → 404', r.status === 409 && r2.status === 404, `${r.status} ${r2.status}`)
   await http('PATCH', '/users/7/toggle', undefined, admin)
   r = await http('POST', '/auth/login', { identifier: 'pend1', password: FPW })
   check(G6, 'a reactivated former pending account signs in', r.status === 200 && r.data.user.role === 'procurement' && !('is_approved' in r.data.user), show(r))
@@ -427,12 +453,12 @@ async function run() {
   const t = { unknown: [], wrong: [] }
   for (let i = 0; i < 4; i++) {
     t.unknown.push((await http('POST', '/auth/login', { identifier: `timing_ghost_${i}`, password: 'wrong-password' })).ms)
-    t.wrong.push((await http('POST', '/auth/login', { identifier: u2.username, password: 'wrong-password' })).ms)
+    t.wrong.push((await http('POST', '/auth/login', { identifier: u1.username, password: 'wrong-password' })).ms)
   }
   const med = (a) => a.sort((x, y) => x - y)[Math.floor(a.length / 2)]
   const ratio = med(t.wrong) / med(t.unknown)
   check(G10, `unknown account takes as long as a wrong password (ratio ${ratio.toFixed(2)})`, ratio > 0.5 && ratio < 2, JSON.stringify(t))
-  await http('POST', '/auth/login', { identifier: u2.username, password: PW })   // clear its failures
+  await http('POST', '/auth/login', { identifier: u1.username, password: PW })   // clear its failures
 
   // Rate limits (last: they block this address)
   const G11 = 'Rate limits'
@@ -444,9 +470,7 @@ async function run() {
   check(G11, `…accounts created stay under the limit (${usersAfter - usersBefore})`, usersAfter - usersBefore < config.auth.registrationLimit, usersAfter - usersBefore)
   hit = 0; sent = 0
   for (let i = 0; i < 30 && !hit; i++) { sent++; r = await http('POST', '/auth/forgot-password', { email: `spam${i}@auth.invalid` }); if (r.status === 429) hit = sent }
-  check(G11, 'password-reset / resend spam from one address → 429', hit > 0, show(r))
-  r = await http('POST', '/auth/resend-verification', { identifier: 'anyone' })
-  check(G11, '…resend shares that limit', r.status === 429, show(r))
+  check(G11, 'password-reset spam from one address → 429', hit > 0, show(r))
   hit = 0; sent = 0
   for (let i = 0; i < 80 && !hit; i++) { sent++; r = await http('POST', '/auth/login', { identifier: `spray_${i}`, password: 'wrong-password' }); if (r.status === 429) hit = sent }
   check(G11, 'password spraying across accounts from one address → 429', hit > 0, show(r))
@@ -457,7 +481,7 @@ async function run() {
   const G12 = 'Security log'
   const all = LOGS.join('\n')
   const events = new Set([...all.matchAll(/\[security\] \S+ (\w+)/g)].map(m => m[1]))
-  for (const e of ['register', 'register_rejected', 'email_verified', 'verification_resent', 'login', 'login_failed', 'login_locked',
+  for (const e of ['register', 'register_rejected', 'account_approved', 'account_rejected', 'login', 'login_failed', 'login_locked',
                    'login_throttled', 'password_reset_requested', 'password_reset_completed', 'role_changed', 'account_deactivated',
                    'account_activated', 'user_created', 'rate_limited', 'password_changed', 'password_set_by_admin']) {
     check(G12, `logs "${e}"`, events.has(e), [...events].join(','))

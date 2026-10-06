@@ -1,9 +1,12 @@
-import { User, Calendar, Briefcase, Building2, PenLine } from 'lucide-react'
+import { useEffect } from 'react'
+import { User, Calendar, Briefcase, Building2 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import api from '@/lib/axios'
+import { useAuth } from '@/context/AuthContext'
+import RequesterFields from './RequesterFields'
 
 // Single source of truth for the four purpose_type options.
 // To add/edit a purpose type: update this array AND the ENUM in the DB.
@@ -17,33 +20,63 @@ export const PURPOSE_TYPES = [
 // Pretty labels exposed for badges and read-only views elsewhere.
 export const PURPOSE_TYPE_LABELS = Object.fromEntries(PURPOSE_TYPES.map(t => [t.value, t.label]))
 
-// Renders the Request Context section: department, purpose type cards (with
-// conditional event/project fields), purpose textarea, date needed, recommended by.
+// Renders the Request Context section: department, who requested it and their
+// signature, purpose type cards (with conditional event/project fields), date needed.
 //
 // `value` is the full context sub-object on the parent's form state.
 // `onChange(nextValue)` is called with the merged object whenever any field changes.
 export default function RequestContextForm({ value = {}, onChange }) {
   const set = (k, v) => onChange({ ...value, [k]: v })
+  // A Fund Administrator files only for their own office, whose PPMP the request draws on.
+  const { user } = useAuth()
+  const ownOffice = user?.role === 'requestor'
   const selectedType = value.purpose_type || 'personal'
 
-  // The offices that can file a request. The one picked here decides who the
-  // printed form names as "Requested by": the head of that office, not the
-  // person filling this in.
+  // The offices that can file a request; the one picked suggests its head as "Requested by".
   const { data: departments = [] } = useQuery({
     queryKey: ['departments'],
     queryFn:  () => api.get('/departments').then(r => r.data),
     staleTime: 5 * 60_000,
   })
-  const picked = departments.find(d => d.id === Number(value.department_id))
+  // A Fund Administrator's suggestions for Office / Section: their office's code and name, and what was printed before.
+  const { data: sections = [] } = useQuery({
+    queryKey: ['pr-sections', 'own'],
+    queryFn: () => api.get('/pr/sections').then(r => r.data),
+    enabled: ownOffice,
+    staleTime: 60_000,
+  })
+  // Until something is typed, a Fund Administrator's request prints their office's code (as Requested by names the head).
+  useEffect(() => {
+    if (ownOffice && user.department_code && !value.department && !value.department_touched) onChange({ department: user.department_code })
+  }, [ownOffice, user?.department_code])
 
   return (
     <div className="space-y-4">
       <div className="space-y-1.5">
         <Label htmlFor="ctx-department">
           Office / Section
-          <span className="ml-1 font-normal text-[--color-text-muted] text-xs">(the office this request is for)</span>
+          <span className="ml-1 font-normal text-[--color-text-muted] text-xs">
+            {ownOffice ? '(type it, or pick from the list)' : '(the office this request is for)'}
+          </span>
         </Label>
-        {departments.length > 0 ? (
+        {ownOffice ? (
+          user.department_code ? (
+            <>
+              <Input id="ctx-department" list="ctx-sections" maxLength={150} autoComplete="off" placeholder={user.department_code}
+                value={value.department || ''} onChange={e => onChange({ department: e.target.value, department_touched: true })} />
+              <datalist id="ctx-sections">
+                {sections.map(s => <option key={s.value} value={s.value}>{s.note}</option>)}
+              </datalist>
+              <p className="text-[11px] text-[--color-text-muted]">
+                Printed on the form's Office/Section line. Left blank, it prints {user.department_code}. Your items still come from {user.department_code}'s PPMP.
+              </p>
+            </>
+          ) : (
+            <div id="ctx-department" className="flex h-10 items-center rounded-lg border border-[--color-border] bg-[--color-canvas] px-3 text-sm text-[--color-text-secondary]">
+              No office yet. Ask the administrator to set it.
+            </div>
+          )
+        ) : departments.length > 0 ? (
           <Select
             value={value.department_id ? String(value.department_id) : ''}
             onValueChange={(v) => set('department_id', v ? Number(v) : null)}
@@ -70,15 +103,11 @@ export default function RequestContextForm({ value = {}, onChange }) {
             </p>
           </>
         )}
-        {picked && (
-          <p className="flex items-start gap-1.5 text-[11px] text-[--color-text-muted]">
-            <PenLine className="size-3 mt-0.5 shrink-0" />
-            {picked.head_name
-              ? <span>The form will be signed by <strong className="text-[--color-text-secondary]">{picked.head_name}</strong>{picked.head_designation ? `, ${picked.head_designation}` : ''}.</span>
-              : <span>{picked.code} has no head of office recorded, so the form prints a blank line to sign by hand.</span>}
-          </p>
-        )}
       </div>
+
+      {(ownOffice || value.department_id) && (
+        <RequesterFields value={value} onChange={(next) => onChange({ ...value, ...next })} departmentId={ownOffice ? null : value.department_id} />
+      )}
 
       <div className="space-y-2">
         <Label>

@@ -13,13 +13,13 @@ const { IN_AREA } = require('../utils/twgAreas')
 //                 by the TWG, plus any PR they made a TWG decision on. Never drafts.
 // supply      -> PRs with an awarded lot or a purchase order
 // bac         -> PRs the TWG approved (from Approved by TWG on, and ones
-//                 cancelled after that approval), for the canvasses they evaluate
+//                 cancelled after that approval), for the canvasses they review
 // requestor   -> only PRs they created (also the fallback for unknown roles)
 //
 // Everyone can also see PRs they created themselves. Deleted PRs are archived:
 // hidden everywhere except the read-only views that pass `includeDeleted`.
 
-const TWG_STAGES = "'submitted', 'twg_review', 'revision_requested', 'rejected'"
+const TWG_STAGES = "'submitted', 'twg_review', 'revision_requested', 'rejected', 'twg_certification'"
 
 // Which PRs each role may see (the table above), over the alias `pr`.
 function roleScope(user) {
@@ -33,15 +33,16 @@ function roleScope(user) {
         sql: `(pr.created_by = ?
                OR (pr.status <> 'draft' AND (
                      EXISTS (SELECT 1 FROM pr_status_logs rl
-                              WHERE rl.pr_id = pr.id AND rl.changed_by = ? AND rl.from_status = 'submitted'
-                                AND rl.to_status IN ('twg_review', 'revision_requested', 'rejected'))
+                              WHERE rl.pr_id = pr.id AND rl.changed_by = ?
+                                AND ((rl.from_status = 'submitted' AND rl.to_status IN ('twg_review', 'revision_requested', 'rejected'))
+                                     OR rl.from_status = 'twg_certification'))
                   OR (${IN_AREA} AND (pr.status IN (${TWG_STAGES}) OR pr.twg_reviewed_by IS NOT NULL)))))`,
         params: [user.id, user.id, user.id],
       }
     case 'bac':
       return {
         sql: `(pr.created_by = ?
-               OR pr.status IN ('twg_review', 'bidding', 'for_po', 'completed')
+               OR pr.status IN ('twg_review', 'bidding', 'bac_review', 'twg_certification', 'for_po', 'completed')
                OR (pr.status = 'cancelled' AND EXISTS (SELECT 1 FROM pr_status_logs bl
                                                         WHERE bl.pr_id = pr.id AND bl.to_status = 'twg_review')))`,
         params: [user.id],

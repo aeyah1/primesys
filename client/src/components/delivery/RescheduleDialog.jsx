@@ -36,7 +36,7 @@ export default function RescheduleDialog({ po, onClose }) {
             <textarea rows={3} value={reason} onChange={e => setReason(e.target.value)} maxLength={500} autoFocus
               placeholder="e.g. The supplier's shipment was delayed" className={TEXTAREA} />
           </div>
-          <p className="text-xs text-[--color-text-muted]">The requestor and the supply officers are told.</p>
+          <p className="text-xs text-[--color-text-muted]">The Fund Administrator and the supply officers are told.</p>
         </div>
         <DialogFooter className="px-0 pb-0 pt-6">
           <Button variant="outline" onClick={onClose} disabled={isPending}>Cancel</Button>

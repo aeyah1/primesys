@@ -1,0 +1,84 @@
+const fs        = require('fs')
+const router    = require('express').Router()
+const { body, param, query } = require('express-validator')
+const c         = require('../controllers/ppmp.controller')
+const auth      = require('../middleware/auth.middleware')
+const authorize = require('../middleware/authorize.middleware')
+const httpError = require('../utils/httpError')
+const { handle, oneOfRule, textRule, moneyRule } = require('../middleware/validate')
+const { FUND_SOURCE_VALUES } = require('../utils/orgSettings')
+const { PROCUREMENT_MODES } = require('../utils/procurementModes')
+const makeUploader = require('../utils/upload')
+
+const upload = makeUploader('ppmp')
+
+// PPMPs: Fund Administrators upload their office's softcopy, in effect once complete; admins, Procurement, the BAC, and the TWG read;
+// an admin may withdraw one put in effect by mistake.
+router.use(auth, authorize('requestor', 'admin', 'procurement', 'bac', 'twg'))
+
+const id = [param('id').isInt({ min: 1 }).withMessage('PPMP not found'), handle]
+const keeper = authorize('requestor')
+// An upload sends its choices as JSON in the `payload` field, next to the two files.
+const payload = (req, _res, next) => {
+  try { req.body = JSON.parse(req.body?.payload || '{}') } catch { return next(httpError(400, 'The upload is incomplete. Try again.')) }
+  next()
+}
+// The items are read from the softcopy itself; the upload only says which file rows to keep, and the picks for what the
+// file leaves out (year, Indicative or Final, source of funds).
+const choices = [
+  body('fiscal_year').optional({ values: 'null' }).isInt({ min: 2020, max: 2100 }).withMessage('Pick the fiscal year').toInt(),
+  oneOfRule('kind', 'Pick Indicative or Final', ['indicative', 'final'], { required: true }),
+  oneOfRule('fund_source', 'Pick the source of funds', FUND_SOURCE_VALUES, { required: true }),
+  body('rows').isArray({ min: 1, max: 500 }).withMessage('Keep at least one item'),
+  body('rows.*').isInt({ min: 1 }).withMessage('Unknown file row').toInt(),
+  handle,
+]
+// Once the reply is sent, uploaded files that were not stored as a PPMP's originals are deleted.
+const cleanup = (req, res, next) => {
+  res.on('finish', () => Object.values(req.files || {}).flat().filter(f => !f.kept).forEach(f => fs.unlink(f.path, () => {})))
+  next()
+}
+const files = [upload.fields(['data']), cleanup]
+
+router.get('/',          c.list)
+// What a purchase request may draw on: the lines of the office's Final PPMP in effect, and what is left of each.
+router.get('/lines',
+  query('department_id').optional().isInt({ min: 1 }).withMessage('Pick a valid office').toInt(),
+  query('pr_id').optional().isInt({ min: 1 }).withMessage('Unknown request').toInt(),
+  handle, c.lines)
+// Every office's PPMP standing for a year, for those who follow all offices.
+router.get('/coverage', authorize('admin', 'procurement', 'bac', 'twg'),
+  query('year').optional().isInt({ min: 2020, max: 2100 }).withMessage('Pick a valid year').toInt(),
+  handle, c.coverage)
+router.post('/read',     keeper, files, c.read)
+router.post('/',         keeper, files, payload, choices, c.upload)
+router.get('/:id',       id, c.get)
+router.get('/:id/pdf',   id, c.pdf)
+router.get('/:id/files/:fileId', id, param('fileId').isInt({ min: 1 }).withMessage('File not found'), handle, c.downloadFile)
+router.put('/:id',       keeper, id, files, payload, choices, c.reupload)
+router.delete('/:id',    keeper, id, c.remove)
+// The Fund Administrator's on-screen edits to the PPMP in effect, saved as its next version (sized to the ppmp_items columns).
+const editLines = [
+  body('items').isArray({ min: 1, max: 500 }).withMessage('Keep at least one line (500 at most)'),
+  oneOfRule('items.*.part', 'Pick Part I or Part II for each line', ['ps', 'other'], { required: true }),
+  textRule('items.*.category', 'Category', 100),
+  textRule('items.*.code', 'Code', 50),
+  textRule('items.*.description', 'Each line\'s description', 500, { required: true }),
+  textRule('items.*.unit', 'Each line\'s unit', 50, { required: true }),
+  moneyRule('items.*.unit_cost', 'Each line\'s unit cost', { required: true, positive: true }),
+  oneOfRule('items.*.mode_of_procurement', 'Pick each line\'s mode of procurement', PROCUREMENT_MODES, { required: true }),
+  body('items.*.quarters').isArray({ min: 4, max: 4 }).withMessage('Give each line\'s quantity for every quarter'),
+  body('items.*.quarters.*').isFloat({ min: 0, max: 99999999 }).withMessage('A quarter\'s quantity must be 0 or more'),
+  textRule('items.*.remarks', 'Remarks', 500),
+  body('items.*.id').optional({ values: 'null' }).isInt({ min: 1 }).withMessage('Unknown line').toInt(),
+  handle,
+]
+router.post('/:id/edit', keeper, id, editLines, c.edit)
+// An admin takes back a PPMP put in effect by mistake, with the reason.
+router.post('/:id/withdraw', authorize('admin'), id, textRule('reason', 'Reason', 500, { required: true }), handle, c.withdraw)
+// Removing the PPMP in effect: its Fund Administrator asks (or takes it back); an admin withdraws it, or declines.
+router.post('/:id/removal',         keeper, id, textRule('reason', 'Reason', 500, { required: true }), handle, c.requestRemoval)
+router.delete('/:id/removal',       keeper, id, c.cancelRemoval)
+router.post('/:id/removal/decline', authorize('admin'), id, textRule('reason', 'Reason', 500, { required: true }), handle, c.declineRemoval)
+
+module.exports = router

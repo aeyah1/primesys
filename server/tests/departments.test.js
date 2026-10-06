@@ -65,6 +65,10 @@ async function run() {
     r => r.data.length === 3 && r.data.some(d => d.code === 'OLD' && d.is_active === false))
   await is('The list', 'a non-admin cannot ask for retired ones', 3, 'GET', '/departments?all=true', undefined,
     r => r.data.length === 2, 'still only active')
+  await is('The list', 'only an admin sees how many people and requests each office has', 3, 'GET', '/departments', undefined,
+    r => r.data.every(d => !('user_count' in d) && !('pr_count' in d)))
+  await is('The list', '…the admin does', 1, 'GET', '/departments', undefined,
+    r => r.data.every(d => 'user_count' in d && 'pr_count' in d))
 
   // ── Managing them ───────────────────────────────────────────────────
   await is('Managing', 'an admin adds an office', 1, 'POST', '/departments',
@@ -96,10 +100,14 @@ async function run() {
   await is('Requested by', '…while the record still shows who encoded it', 3, 'GET', `/pr/${filed.data.id}`, undefined,
     r => r.data.created_by_name === 'Felix Atenin')
 
-  const other = await is('Requested by', 'filing for another office names that office\'s head', 3, 'POST', '/pr',
+  const own = await is('Requested by', 'a Fund Administrator asking for another office', 3, 'POST', '/pr',
     { title: 'For HR', department_id: 11 }, r => r.status === 201)
-  await is('Requested by', '…HR has no head, so it falls back to the encoder', 3, 'GET', `/pr/${other.data.id}`, undefined,
-    r => r.data.requested_by_name === 'Felix Atenin' && r.data.requested_by_designation === 'Administrative Aide IV',
+  await is('Requested by', '…files for their own office anyway (its PPMP is theirs)', 3, 'GET', `/pr/${own.data.id}`, undefined,
+    r => r.data.department_id === 10 && r.data.department === 'DCS', 'DCS')
+  const other = await is('Requested by', 'staff filing for another office names that office\'s head', 2, 'POST', '/pr',
+    { title: 'For HR', department_id: 11 }, r => r.status === 201)
+  await is('Requested by', '…HR has no head, so it falls back to the encoder', 2, 'GET', `/pr/${other.data.id}`, undefined,
+    r => r.data.department_id === 11 && r.data.requested_by_name === 'Proc One' && r.data.requested_by_designation === null,
     'the encoder')
 
   const nomad = await is('Requested by', 'an encoder with no office files anyway', 4, 'POST', '/pr',
@@ -107,9 +115,9 @@ async function run() {
   await is('Requested by', '…and is named themselves', 4, 'GET', `/pr/${nomad.data.id}`, undefined,
     r => r.data.department_id === null && r.data.requested_by_name === 'Nomad Encoder')
 
-  await is('Requested by', 'a retired office cannot be filed for', 3, 'POST', '/pr',
+  await is('Requested by', 'a retired office cannot be filed for', 2, 'POST', '/pr',
     { title: 'Retired', department_id: 12 }, r => r.status === 400, '400')
-  await is('Requested by', 'an unknown office is refused', 3, 'POST', '/pr',
+  await is('Requested by', 'an unknown office is refused', 2, 'POST', '/pr',
     { title: 'Ghost', department_id: 9999 }, r => r.status === 400, '400')
 
   // ── Frozen at filing ────────────────────────────────────────────────
@@ -123,7 +131,11 @@ async function run() {
     r => r.data.requested_by_name === 'NEW CHAIR, Ph. D.')
 
   // ── Editing a draft moves the signatory with the office ─────────────
-  await is('Editing', 'moving a draft to another office', 3, 'PATCH', `/pr/${after.data.id}`,
+  await is('Editing', 'a Fund Administrator can\'t move their draft to another office', 3, 'PATCH', `/pr/${after.data.id}`,
+    { title: 'After the change', department_id: 11 }, r => r.status === 200)
+  await is('Editing', '…it stays with theirs', 3, 'GET', `/pr/${after.data.id}`, undefined,
+    r => r.data.department === 'DCS' && r.data.department_id === 10, 'DCS')
+  await is('Editing', 'an admin moves the draft to another office', 1, 'PATCH', `/pr/${after.data.id}`,
     { title: 'After the change', department_id: 11 }, r => r.status === 200)
   await is('Editing', '…moves who signs it', 3, 'GET', `/pr/${after.data.id}`, undefined,
     r => r.data.department === 'HR' && r.data.department_id === 11
@@ -152,9 +164,13 @@ async function run() {
     r => r.status === 201)
   await is('People', 'the office shows on the user list', 1, 'GET', '/users?role=requestor', undefined,
     r => r.data.data.some(u => u.id === 4 && u.department_code === 'HR'))
-  await is('People', 'an office can be taken away again', 1, 'PATCH', '/users/4',
-    { name: 'Nomad Encoder', role: 'requestor', department_id: null }, r => r.status === 200)
-  await is('People', '…and is then empty', 4, 'GET', '/auth/me', undefined, r => r.data.department_id === null, 'null')
+  await is('People', 'a Fund Administrator can\'t be left without an office', 1, 'PATCH', '/users/4',
+    { name: 'Nomad Encoder', role: 'requestor', department_id: null }, r => r.status === 400, '400')
+  await is('People', '…so it stays', 4, 'GET', '/auth/me', undefined, r => r.data.department_id === 11, '11')
+  await is('People', 'a second Fund Administrator for HR is refused', 1, 'PATCH', '/users/3',
+    { name: 'Felix Atenin', role: 'requestor', department_id: 11 }, r => r.status === 409 && /HR already has a Fund Administrator \(Nomad Encoder\)/.test(r.data.message), '409')
+  await is('People', 'making the HR one staff frees the office', 1, 'PATCH', '/users/4', { name: 'Nomad Encoder', role: 'procurement' }, r => r.status === 200)
+  await is('People', '…for another account', 1, 'PATCH', '/users/3', { name: 'Felix Atenin', role: 'requestor', department_id: 11 }, r => r.status === 200)
 
   return t.summary()
 }

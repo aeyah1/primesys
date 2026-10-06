@@ -7,17 +7,19 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { FilterChip, Pager } from '@/components/shared/ListParts'
 import { fmtCurrency, fmtDate, fmtDatetime } from '@/lib/utils'
 import { openPdf, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
 
 const VIEWS = [
-  { key: 'pending',  label: 'To evaluate',  empty: 'No canvass is waiting for the BAC.' },
-  { key: 'approved', label: 'Resolutions',          empty: 'The BAC has not approved any awards yet.' },
+  { key: 'pending',  label: 'To do',       empty: 'No request is waiting for the BAC.' },
+  { key: 'approved', label: 'Resolutions', empty: 'The BAC has not approved any canvass result yet.' },
 ]
 
-// The Bids and Awards Committee's queue: canvasses Procurement submitted for
-// its evaluation, and the resolutions it adopted. The award is made on the PR page.
+// The Bids and Awards Committee's queue: requests in canvass, whose bids it
+// enters and sends to the TWG, and requests the TWG certified, whose winners it
+// picks (both on the canvass page), and the resolutions it adopted.
 export default function BacApprovals() {
   const [view, setView]     = useState('pending')
   const [search, setSearch] = useState('')
@@ -39,7 +41,7 @@ export default function BacApprovals() {
         <div>
           <h2 className="text-ui-2xl font-bold text-[--color-text-primary]">For Evaluation</h2>
           <p className="text-ui-sm text-[--color-text-secondary] mt-0.5">
-            Canvasses Procurement submitted: evaluate the quotations and make the award
+            Enter the bids from the canvasser's returned RFQs and send them to the TWG; once the TWG certifies them, pick the winners and award
           </p>
         </div>
         <div className="relative max-w-72">
@@ -51,14 +53,9 @@ export default function BacApprovals() {
 
       <div className="flex flex-wrap gap-2">
         {VIEWS.map(v => (
-          <button key={v.key} onClick={() => { setView(v.key); setPage(1) }}
-            className={`rounded-full border px-3 py-1 text-ui-xs font-medium transition-colors ${
-              view === v.key
-                ? 'border-[--color-brand] bg-[--color-brand] text-white'
-                : 'border-[--color-border-strong] bg-white text-[--color-text-secondary] hover:border-[--color-brand] hover:text-[--color-brand]'
-            }`}>
-            {v.label} <span className="opacity-80">({data?.counts?.[v.key] ?? 0})</span>
-          </button>
+          <FilterChip key={v.key} active={view === v.key} count={data?.counts?.[v.key] ?? 0} onClick={() => { setView(v.key); setPage(1) }}>
+            {v.label}
+          </FilterChip>
         ))}
       </div>
 
@@ -77,7 +74,7 @@ export default function BacApprovals() {
               : rows.map(row => (
                 <div key={view === 'approved' ? row.resolution_id : row.id}
                   className="flex items-start justify-between gap-4 px-6 py-4 border-b border-[--color-border] last:border-0 hover:bg-overlay/60 transition-colors">
-                  <Link to={`/pr/${row.id}/canvass?tab=${view === 'approved' ? 'resolutions' : 'award'}`} className="min-w-0 flex-1">
+                  <Link to={`/pr/${row.id}/canvass${view === 'approved' ? '#resolutions' : ''}`} className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       {view === 'approved' && (
                         <span className="text-ui-sm font-bold text-[--color-text-primary]">Resolution No. {row.resolution_number}</span>
@@ -87,8 +84,8 @@ export default function BacApprovals() {
                     {row.title && <p className="text-ui-sm text-[--color-text-primary] mt-1 line-clamp-2">{row.title}</p>}
                     <p className="text-[10px] text-[--color-text-muted] mt-1.5">
                       {view === 'pending'
-                        ? <>{row.quotations} quotation{Number(row.quotations) === 1 ? '' : 's'} · {row.items} item{Number(row.items) === 1 ? '' : 's'} · budget <span className="font-semibold text-[--color-text-secondary]">{fmtCurrency(row.total)}</span>{' · '}{row.mode_of_procurement || 'No mode set'}{' · '}Submitted {fmtDatetime(row.since)}</>
-                        : <>{row.suppliers}{' · '}<span className="font-semibold text-[--color-text-secondary]">{fmtCurrency(row.total)}</span>{' · '}Awarded {fmtDate(row.resolved_on)} by {row.approved_by_name}</>}
+                        ? <><span className="font-semibold text-[--color-brand]">{row.status === 'bac_review' ? 'Certified by the TWG: pick the winners' : 'Enter the bids'}</span>{' · '}{Number(row.bidders) ? `${row.bidders} bidder${Number(row.bidders) === 1 ? '' : 's'}` : 'No bids yet'} · {row.items} item{Number(row.items) === 1 ? '' : 's'}, budget <span className="font-semibold text-[--color-text-secondary]">{fmtCurrency(row.total)}</span>{' · '}{row.mode_of_procurement || 'No mode set'}{' · '}Since {fmtDatetime(row.since)}{row.status === 'bidding' && row.certification_return_reason ? ' · Returned by the TWG' : ''}</>
+                        : <>{row.suppliers}{' · '}<span className="font-semibold text-[--color-text-secondary]">{fmtCurrency(row.total)}</span>{' · '}Approved {fmtDate(row.resolved_on)} by {row.approved_by_name}</>}
                     </p>
                   </Link>
                   <div className="flex items-center gap-2 shrink-0">
@@ -97,22 +94,15 @@ export default function BacApprovals() {
                         <FileText className="size-3.5" /> Resolution
                       </Button>
                     ) : <Scale className="size-4 text-[--color-brand]" />}
-                    <Link to={`/pr/${row.id}/canvass?tab=${view === 'approved' ? 'resolutions' : 'award'}`} aria-label={`Open ${row.pr_number}`}>
+                    <Link to={`/pr/${row.id}/canvass${view === 'approved' ? '#resolutions' : ''}`} aria-label={`Open ${row.pr_number}`}>
                       <ChevronRight className="size-4 text-[--color-text-muted]" />
                     </Link>
                   </div>
                 </div>
               ))}
+          <Pager page={page} totalPages={data?.totalPages} onPage={setPage} />
         </CardContent>
       </Card>
-
-      {data?.totalPages > 1 && (
-        <div className="flex items-center justify-end gap-2">
-          <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Previous</Button>
-          <span className="text-ui-xs text-[--color-text-muted]">Page {page} of {data.totalPages}</span>
-          <Button size="sm" variant="outline" disabled={page >= data.totalPages} onClick={() => setPage(p => p + 1)}>Next</Button>
-        </div>
-      )}
     </div>
   )
 }

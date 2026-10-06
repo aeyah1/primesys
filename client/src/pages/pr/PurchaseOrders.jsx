@@ -14,11 +14,10 @@ import RescheduleDialog from '@/components/delivery/RescheduleDialog'
 import CancelPODialog from '@/components/delivery/CancelPODialog'
 import CloseBalanceDialog from '@/components/delivery/CloseBalanceDialog'
 import { receivedText } from '@/components/delivery/shared'
-import { fmtDate, fmtCurrency, localToday } from '@/lib/utils'
+import { PoDeliveries } from '@/components/delivery/DeliveryRow'
+import { fmtDate, fmtCurrency, localToday, plural } from '@/lib/utils'
 import { openPdf, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
-
-const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 
 // Issues one supplier's PO: it covers their awards with no PO yet. The
 // supplier's details and the total come from those awards on the server.
@@ -70,7 +69,7 @@ function IssuePOForm({ prId, group }) {
       </div>
       {missing && (
         <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          {missing.lot_number} has no contract amount. Edit the award in the canvass above to add it.
+          {missing.lot_number} has no contract amount. Cancel it on the canvass page and record its winner again, with the prices.
         </p>
       )}
       <div className="flex justify-end">
@@ -92,7 +91,7 @@ function Field({ label, children }) {
 }
 
 /* The PR's purchase orders: one per supplier's awards. Staff issue them;
-   supply records deliveries; the requestor sees them. */
+   supply records deliveries; the Fund Administrator sees them. */
 export default function PurchaseOrders({ pr, canManage }) {
   const prId  = String(pr.id)
   const today = localToday()
@@ -103,9 +102,9 @@ export default function PurchaseOrders({ pr, canManage }) {
     enabled:  canManage,
   })
 
-  // Awards with no PO yet, one group per supplier.
+  // Certified awards with no PO yet, one group per supplier.
   const waiting = []
-  for (const lot of lots.filter(l => l.status === 'awarded' && !l.po_id)) {
+  for (const lot of lots.filter(l => l.status === 'awarded' && !l.po_id && l.certified_at)) {
     let g = waiting.find(x => x.key === nameKey(lot.awarded_to))
     if (!g) waiting.push(g = { key: nameKey(lot.awarded_to), name: lot.awarded_to, lots: [], total: 0, items: 0, lead: lot })
     g.lots.push(lot)
@@ -175,6 +174,7 @@ export default function PurchaseOrders({ pr, canManage }) {
               </p>
             )}
 
+            <PoDeliveries po={po} />
             {(po.can_record_delivery || po.can_reschedule || po.can_cancel || po.can_close) && (
               <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[--color-border] pt-4">
                 {po.can_cancel && (
@@ -222,7 +222,7 @@ export default function PurchaseOrders({ pr, canManage }) {
             <Clock className="size-4 text-[--color-text-muted] shrink-0" />
             <p className="text-ui-sm text-[--color-text-secondary]">
               {canManage
-                ? 'No purchase order yet. Once a supplier is awarded in the canvass above, their PO can be issued here.'
+                ? 'No purchase order yet. Once the TWG certifies a winner of the canvass, its PO can be issued here.'
                 : 'No purchase order has been issued for this PR yet. Procurement issues one to each supplier awarded.'}
             </p>
           </div>

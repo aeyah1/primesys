@@ -87,8 +87,8 @@ module.exports = function drawPurchaseOrder(doc, { po, items, priced, orgSetting
       section = label
       rows.push({ kind: 'section', label, height: Math.max(ROW_H, f.heightIn('Times-Bold', FS, label.toUpperCase(), COLS[2].width - PAD * 2) + PAD * 2) })
     }
-    // A purchase order states a price per line when the award came from
-    // quotations; a lump-sum award has only its contract total.
+    // A purchase order states a price per line when the award has its winning
+    // prices; an older lump-sum award has only its contract total.
     const unit = priced ? item.unit_price : null
     const line = priced ? (parseFloat(item.quantity) || 0) * (parseFloat(unit) || 0) : 0
     total += line

@@ -4,28 +4,31 @@ const httpError = require('./httpError')
 const { orderBySection } = require('./itemSections')
 
 // Award (lot) rules
-// A lot records the supplier awarded some of a PR's items (lot_items with a
-// pr_item_id) for an amount. Different items may go to different suppliers,
-// each PR item to at most one award at a time. Each supplier's awards get
-// their own purchase order (lots.po_id), whose supplier and total come from
+// The canvass is done outside the system; Procurement records its result as
+// awards: a lot names the supplier that won some of a PR's items (lot_items
+// with a pr_item_id and the winning unit price). Different items may go to
+// different suppliers, each PR item to at most one award at a time. The BAC
+// approves the awards in a BAC Resolution (lots.resolution_id) and the TWG
+// certifies them (lots.certified_at); only certified awards get a purchase
+// order, one per supplier (lots.po_id), whose supplier and total come from
 // those awards, never from the browser.
 //
 // An award recorded before awards named their items (older data) has no
 // linked items and covers the whole PR.
 //
-// An award is fixed once it has a purchase order or its PR is closed. To
-// change it, cancel the PO (which cancels its awards) and award again.
-//
-// While the BAC awards (orgSettings.bacApprovalRequired, utils/bacWorkflow.js)
-// every award is the BAC's, made in a BAC Resolution (lots.resolution_id).
+// An award is fixed while the BAC or the TWG reviews it, once it has a
+// purchase order, or once its PR is closed. To change one with a PO, cancel
+// the PO (which cancels its awards) and award again.
 //
 // Every award write locks the PR row first (prWorkflow.loadPR with `lock`), so
 // awards, POs, and status moves on one PR run one after another.
 
 const deny  = (status, message) => ({ status, message })
 const FINAL = ['completed', 'cancelled', 'rejected']
+// While these review the awards, they can't change.
+const REVIEWING = ['bac_review', 'twg_certification']
 
-// A supplier's details, on lots and quotations alike.
+// A supplier's details, as recorded on its awards.
 const SUPPLIER_COLUMNS = ['supplier_contact', 'supplier_address', 'supplier_phone', 'supplier_email', 'supplier_tin']
 
 // Supplier names that differ only in upper/lower case or spacing are one supplier.
@@ -41,17 +44,11 @@ const lineCents = (quantity, price) => Math.round(Number(quantity || 0) * Number
 function awardLockedReason(pr, lot) {
   if (pr.deleted_at)              return deny(409, 'This PR has been deleted')
   if (FINAL.includes(pr.status))  return deny(409, 'This PR is closed, so its awards are kept as they are')
+  if (REVIEWING.includes(pr.status)) {
+    return deny(409, `This PR is with the ${pr.status === 'bac_review' ? 'BAC' : 'TWG'} for review, so its awards are kept as they are. Ask for it to be returned to change one.`)
+  }
   if (lot.status === 'cancelled') return deny(409, 'This award was cancelled. Record a new award instead.')
   if (lot.po_id)                  return deny(409, 'This award has a purchase order, so it can\'t change. Cancel the PO first to award its items again.')
-  return null
-}
-
-// Why no award can be recorded on this PR now (null when it can): only while
-// it is under canvass, which is while some of its items still need one.
-function awardBlock(pr) {
-  if (pr.deleted_at)         return deny(409, 'This PR has been deleted')
-  if (pr.status === 'for_po') return deny(409, 'Every item on this PR is already awarded. Cancel an award to award its items again.')
-  if (pr.status !== 'bidding') return deny(409, 'Awards are recorded while the PR is under canvass (Bidding)')
   return null
 }
 
@@ -90,35 +87,37 @@ async function itemStates(db, prId) {
   }
 }
 
-// Where the PR's awards stand: items still to award, and how many awards have
-// a PO that is fully delivered.
+// Where the PR's awards stand: items still to award, awards not yet certified
+// by the TWG (one with a PO is past that), and how many awards have a PO that
+// is fully delivered.
 async function awardProgress(db, prId) {
   const { items } = await itemStates(db, prId)
   const [[a]] = await db.execute(
-    `SELECT COUNT(*) AS awarded,
+    `SELECT COUNT(*) AS awarded, COALESCE(SUM(l.certified_at IS NULL AND l.po_id IS NULL), 0) AS uncertified,
             COALESCE(SUM(po.po_status = 'active' AND po.delivery_status = 'delivered'), 0) AS delivered
        FROM lots l LEFT JOIN purchase_orders po ON po.id = l.po_id
       WHERE l.purchase_request_id = ? AND l.status = 'awarded'`, [prId])
-  return { pending: items.filter(i => i.state === 'pending').length, awarded: Number(a.awarded), delivered: Number(a.delivered) }
+  return { pending: items.filter(i => i.state === 'pending').length, awarded: Number(a.awarded), uncertified: Number(a.uncertified), delivered: Number(a.delivered) }
 }
 
-// The status the awards put a PR in, from canvass on: Bidding while any item
-// needs an award, Ready for PO once every item is awarded (or dropped),
+// The status the awards put a PR in canvass or Ready for PO in: in canvass while
+// an item needs an award or an award waits for the BAC and the TWG (it is
+// recorded and reviewed again), Ready for PO once every award is certified,
 // Completed once every award's PO is fully delivered.
 function statusFromAwards(p) {
-  if (p.pending > 0 || p.awarded === 0) return 'bidding'
+  if (p.pending > 0 || p.awarded === 0 || p.uncertified > 0) return 'bidding'
   return p.delivered === p.awarded ? 'completed' : 'for_po'
 }
 
-// One supplier's awards on the PR that have no PO yet, for their purchase
-// order: supplier, contact, total. `supplier` names them when the PR has
+// One supplier's certified awards on the PR that have no PO yet, for their
+// purchase order: supplier, contact, total. `supplier` names them when the PR has
 // awards to more than one supplier waiting. Throws an HTTP error when there is
 // nothing consistent to order.
 async function awardsForPO(db, prId, supplier) {
   const [lots] = await db.execute(
-    `SELECT id, lot_number, awarded_to, supplier_id, awarded_amount, supplier_contact, supplier_address
-       FROM lots WHERE purchase_request_id = ? AND status = 'awarded' AND po_id IS NULL ORDER BY id`, [prId])
-  if (!lots.length) throw httpError(409, 'No award on this PR is waiting for a purchase order. Record the award in Lots & Awards first.')
+    `SELECT id, lot_number, awarded_to, awarded_amount, supplier_contact, supplier_address
+       FROM lots WHERE purchase_request_id = ? AND status = 'awarded' AND po_id IS NULL AND certified_at IS NOT NULL ORDER BY id`, [prId])
+  if (!lots.length) throw httpError(409, 'No award on this PR is waiting for a purchase order. Its awards need the BAC\'s award and the TWG\'s certification first.')
   const groups = new Map()
   for (const l of lots) {
     const key = supplierKey(l.awarded_to)
@@ -136,12 +135,11 @@ async function awardsForPO(db, prId, supplier) {
     chosen = [...groups.values()][0]
   }
   const noAmount = chosen.find(l => !(Number(l.awarded_amount) > 0))
-  if (noAmount) throw httpError(409, `${noAmount.lot_number} has no contract amount. Edit the award to add it, then issue the PO.`)
+  if (noAmount) throw httpError(409, `${noAmount.lot_number} has no contract amount. Cancel it and record its winner again, with the prices.`)
   return {
     lotIds:           chosen.map(l => l.id),
     lotNumbers:       chosen.map(l => l.lot_number),
     supplier_name:    chosen[0].awarded_to,
-    supplier_id:      chosen.find(l => l.supplier_id)?.supplier_id ?? null,
     supplier_contact: chosen.find(l => l.supplier_contact)?.supplier_contact ?? null,
     supplier_address: chosen.find(l => l.supplier_address)?.supplier_address ?? null,
     total_amount:     (chosen.reduce((s, l) => s + cents(l.awarded_amount), 0) / 100).toFixed(2),
@@ -166,17 +164,16 @@ async function poItems(db, poId, prId) {
 }
 
 // Records an award: the lot (the PR's next LOT number) and its items, copies
-// of the PR items it covers. `prices`: each item's awarded unit price (from a
-// quotation), or none for a lump-sum award. `resolutionId`: the BAC Resolution
-// that made it, when the BAC awards. Resolves with { id, lot_number }.
-async function recordAward(db, { resolutionId = null, prId, supplier, supplierId = null, amount, details = {}, title = null, notes = null, fewQuotationsReason = null, quotationId = null, userId, items, prices = null }) {
+// of the PR items it covers, each at its winning unit price (`prices`, by
+// item). Resolves with { id, lot_number }.
+async function recordAward(db, { prId, supplier, amount, details = {}, title = null, notes = null, userId, items, prices = null }) {
   const [[{ n }]] = await db.execute('SELECT COUNT(*) AS n FROM lots WHERE purchase_request_id = ?', [prId])
   const lot_number = `LOT-${String(Number(n) + 1).padStart(3, '0')}`
   const [lot] = await db.execute(
-    `INSERT INTO lots (purchase_request_id, lot_number, title, status, awarded_to, supplier_id, awarded_amount,
-                       ${SUPPLIER_COLUMNS.join(', ')}, notes, few_quotations_reason, quotation_id, resolution_id, created_by)
-     VALUES (?, ?, ?, 'awarded', ?, ?, ?, ${SUPPLIER_COLUMNS.map(() => '?').join(', ')}, ?, ?, ?, ?, ?)`,
-    [prId, lot_number, title, supplier, supplierId, amount, ...SUPPLIER_COLUMNS.map(c => details[c] || null), notes, fewQuotationsReason, quotationId, resolutionId, userId]
+    `INSERT INTO lots (purchase_request_id, lot_number, title, status, awarded_to, awarded_amount,
+                       ${SUPPLIER_COLUMNS.join(', ')}, notes, created_by)
+     VALUES (?, ?, ?, 'awarded', ?, ?, ${SUPPLIER_COLUMNS.map(() => '?').join(', ')}, ?, ?)`,
+    [prId, lot_number, title, supplier, amount, ...SUPPLIER_COLUMNS.map(c => details[c] || null), notes, userId]
   )
   if (items.length) {
     await db.execute(
@@ -188,7 +185,7 @@ async function recordAward(db, { resolutionId = null, prId, supplier, supplierId
   return { id: lot.insertId, lot_number }
 }
 
-// Tells the supply officers (who receive the goods) about new awards.
+// Tells the supply officers (who receive the goods) about newly certified awards.
 async function announceAwards(io, prNumber, lots) {
   const [officers] = await pool.execute("SELECT id FROM users WHERE role = 'supply' AND is_active = 1")
   for (const lot of lots) {
@@ -210,6 +207,6 @@ async function cancelAwards(db, prId, note) {
 
 module.exports = {
   SUPPLIER_COLUMNS, supplierKey, peso, short, cents, lineCents,
-  awardLockedReason, awardBlock, budgetBlock, itemStates, awardProgress, statusFromAwards,
+  REVIEWING, awardLockedReason, budgetBlock, itemStates, awardProgress, statusFromAwards,
   awardsForPO, poItems, recordAward, announceAwards, cancelAwards,
 }

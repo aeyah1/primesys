@@ -80,11 +80,17 @@ async function run() {
   // ── The quarters ─────────────────────────────────────────────────────
   const G = 'Quarters'
   const qs = (await is(G, 'Procurement lists the quarters', 2, 'GET', '/archive/quarters', undefined, r => r.status === 200)).data
-  t.check(G, 'newest first: Q2 2026, Q1 2026, Q4 2025', qs.map(x => `${x.label} ${x.year}`).join() === 'Q2 2026,Q1 2026,Q4 2025', qs.map(x => `${x.label} ${x.year}`).join())
-  t.check(G, 'Q1: 4 requests, 1 deleted', qs[1].prs === 4 && qs[1].deleted === 1, JSON.stringify(qs[1]))
-  t.check(G, 'Q2: 45 requests (not the requestor\'s draft)', qs[0].prs === 45, qs[0].prs)
-  t.check(G, 'Q4 2025: none', qs[2].prs === 0 && qs[2].deleted === 0)
-  t.check(G, 'the current quarter is marked', qs[0].is_active === true && qs[1].is_active === false)
+  // Filing the requestor's draft without a quarter added this year's quarters too, so the fixtures are found by id.
+  const byId = (id) => qs.find(x => x.id === id)
+  const fixtureOrder = qs.filter(x => [1, 2, 3].includes(x.id)).map(x => `${x.label} ${x.year}`).join()
+  t.check(G, 'newest first: Q2 2026, Q1 2026, Q4 2025', fixtureOrder === 'Q2 2026,Q1 2026,Q4 2025', fixtureOrder)
+  t.check(G, 'Q1: 4 requests, 1 deleted', byId(1).prs === 4 && byId(1).deleted === 1, JSON.stringify(byId(1)))
+  t.check(G, 'Q2: 45 requests (not the requestor\'s draft)', byId(2).prs === 45, byId(2).prs)
+  t.check(G, 'Q4 2025: none', byId(3).prs === 0 && byId(3).deleted === 0)
+  const d = new Date()
+  const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  t.check(G, 'the current quarter is the one today falls in', qs.every(x => x.is_current === (x.start_date <= today && today <= x.end_date)),
+    qs.map(x => `${x.label} ${x.year} ${x.is_current}`).join(', '))
 
   const Q = 'Figures'
   const q1 = (await is(Q, 'Q1\'s figures', 2, 'GET', '/archive/quarters/1', undefined, r => r.status === 200 && r.data.label === 'Q1')).data.totals
@@ -115,12 +121,31 @@ async function run() {
   await is(P, 'an empty quarter still prints', 2, 'GET', '/archive/quarters/3/register', undefined, r => r.status === 200 && r.pdf.length > 1000)
   await is(P, 'an admin can print it', 1, 'GET', '/archive/quarters/1/register', undefined, r => r.status === 200)
 
-  // ── Who may see it ───────────────────────────────────────────────────
+  // ── The whole year, offices, and orders ──────────────────────────────
+  const Y = 'Year'
+  const y26 = await is(Y, '2026\'s figures cover both quarters', 2, 'GET', '/archive/years/2026', undefined,
+    r => r.status === 200 && r.data.whole_year === true && r.data.totals.prs === 49)
+  t.check(Y, 'budget: Q1\'s P115,000 + Q2\'s P45,000', y26.data?.totals.budget === 160000, y26.data?.totals.budget)
+  await is(Y, 'the list by year', 2, 'GET', '/pr?year=2026&limit=1', undefined, r => r.data.total === 49)
+  await is(Y, 'a year without its PRs\' quarters lists none', 2, 'GET', '/pr?year=2025&limit=1', undefined, r => r.data.total === 0)
+  await is(Y, 'a year with no quarters is not found', 2, 'GET', '/archive/years/2031', undefined, r => r.status === 404, '404')
+  await is(Y, 'a nonsense year is refused', 2, 'GET', '/archive/years/abc', undefined, r => r.status === 400, '400')
+  const yreg = await is(Y, 'the annual register is a complete PDF', 2, 'GET', '/archive/years/2026/register', undefined,
+    r => r.status === 200 && r.type.includes('pdf') && r.pdf.toString('latin1').trimEnd().endsWith('%%EOF'))
+  t.check(Y, 'named for the year', /Annual-Register-2026\.pdf/.test(yreg.disposition || ''), yreg.disposition)
+  await is(Y, 'by office', 2, 'GET', '/pr?quarter_id=1&department_id=1', undefined, r => r.data.total === 1 && r.data.data[0].id === done)
+  await is(Y, 'oldest first', 2, 'GET', '/pr?quarter_id=1&sort=oldest', undefined, r => r.data.data[0].id === done)
+  await is(Y, 'newest first by default', 2, 'GET', '/pr?quarter_id=1', undefined, r => r.data.data[0].id === rejected)
+
+  // ── Who may see it: every role, each within its own scope ────────────
   const W = 'Access'
-  for (const [who, role] of [[3, 'requestor'], [4, 'TWG'], [5, 'BAC'], [6, 'supply']]) {
-    await is(W, `the ${role} can't open the archive`, who, 'GET', '/archive/quarters', undefined, r => r.status === 403, '403')
-  }
-  await is(W, 'nor print a register', 3, 'GET', '/archive/quarters/1/register', undefined, r => r.status === 403, '403')
+  const mine = await is(W, 'a Fund Administrator opens the archive', 3, 'GET', '/archive/quarters', undefined, r => r.status === 200)
+  t.check(W, '…and counts only their own request', mine.data?.find(x => x.id === 2)?.prs === 1 && mine.data?.find(x => x.id === 1)?.prs === 0,
+    JSON.stringify(mine.data?.map(x => [x.id, x.prs])))
+  await is(W, '…whose figures leave out the rest', 3, 'GET', '/archive/quarters/1', undefined, r => r.data.totals.prs === 0 && r.data.totals.budget === 0)
+  await is(W, 'the BAC sees the canvassed and completed ones', 5, 'GET', '/archive/quarters/1', undefined, r => r.data.totals.prs === 2, '2')
+  await is(W, 'Supply sees the one with purchase orders', 6, 'GET', '/archive/quarters/1', undefined, r => r.data.totals.prs === 1, '1')
+  await is(W, 'a Fund Administrator\'s register prints', 3, 'GET', '/archive/quarters/2/register', undefined, r => r.status === 200 && r.pdf.length > 1000)
   await is(W, 'not without signing in', null, 'GET', '/archive/quarters', undefined, r => r.status === 401, '401')
 
   return t.summary()

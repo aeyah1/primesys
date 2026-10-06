@@ -10,11 +10,14 @@ const securityLog  = require('../utils/securityLog')
 // Office/Section picker; `?all=true` includes retired offices, for admins
 // managing the list.
 exports.list = asyncHandler(async (req, res) => {
-  const all = req.query.all === 'true' && req.user.role === 'admin'
-  const [rows] = await pool.execute(`
-    SELECT d.id, d.code, d.name, d.head_name, d.head_designation, d.is_active,
+  const admin = req.user.role === 'admin'
+  const all = req.query.all === 'true' && admin
+  // How many people and requests each office has: for the admin's office list only.
+  const counts = admin ? `,
            (SELECT COUNT(*) FROM users u WHERE u.department_id = d.id) AS user_count,
-           (SELECT COUNT(*) FROM purchase_requests pr WHERE pr.department_id = d.id) AS pr_count
+           (SELECT COUNT(*) FROM purchase_requests pr WHERE pr.department_id = d.id) AS pr_count` : ''
+  const [rows] = await pool.execute(`
+    SELECT d.id, d.code, d.name, d.head_name, d.head_designation, d.is_active${counts}
       FROM departments d
      ${all ? '' : 'WHERE d.is_active = 1'}
      ORDER BY d.code`)

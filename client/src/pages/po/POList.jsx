@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { Search, ShoppingCart, FileDown, Truck } from 'lucide-react'
 import { toast } from '@/lib/toast'
@@ -9,12 +9,14 @@ import { Input } from '@/components/ui/input'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableEmpty } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DeliveryStatusBadge, POStatusBadge } from '@/components/shared/StatusBadge'
+import { Tab, Pager } from '@/components/shared/ListParts'
 import PODetailDialog from '@/components/delivery/PODetailDialog'
 import ReceiveDialog from '@/components/delivery/ReceiveDialog'
 import { receivedText } from '@/components/delivery/shared'
 import { fmtDate, fmtCurrency } from '@/lib/utils'
 import { openPdf, blobErrorMessage } from '@/lib/download'
 import { useAuth } from '@/context/AuthContext'
+import useUrlParams from '@/hooks/useUrlParams'
 import api from '@/lib/axios'
 
 // Views (po.controller VIEWS): the work to receive first.
@@ -35,18 +37,13 @@ export default function POList() {
 
   // View, search, page, and the PO being viewed live in the URL, so a link
   // (e.g. from Deliveries or the dashboard) opens the same view.
-  const [params, setParams] = useSearchParams()
+  const [params, setUrl] = useUrlParams()
   const view  = TABS.some(t => t.key === params.get('view')) ? params.get('view') : 'all'
   const page  = Math.max(parseInt(params.get('page')) || 1, 1)
   const open  = params.get('po')
   const [search, setSearch]       = useState(params.get('q') || params.get('search') || '')
   const [receiving, setReceiving] = useState(null)
-  const update = (changes) => setParams(prev => {
-    const next = new URLSearchParams(prev)
-    for (const [k, v] of Object.entries(changes)) (v === '' || v == null ? next.delete(k) : next.set(k, String(v)))
-    next.delete('search')   // older links used ?search=
-    return next
-  }, { replace: true })
+  const update = (changes) => setUrl({ ...changes, search: '' })   // older links used ?search=
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['po-list', { search, view, page }],
@@ -73,24 +70,12 @@ export default function POList() {
 
       <Card>
         <div className="flex items-center gap-1 px-4 pt-3 border-b border-[--color-border] overflow-x-auto">
-          {TABS.map(t => {
-            const n = data?.counts?.[t.key] ?? 0
-            const alert = t.key === 'overdue' && n > 0
-            return (
-              <button key={t.key} onClick={() => update({ view: t.key === 'all' ? '' : t.key, page: '' })}
-                className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-colors mb-[-1px] ${
-                  view === t.key ? 'border-[--color-brand] text-[--color-brand]' : 'border-transparent text-[--color-text-muted] hover:text-[--color-text-primary]'
-                }`}>
-                {t.label}
-                {n > 0 && (
-                  <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
-                    alert ? 'bg-red-50 border border-red-300 text-red-700'
-                      : view === t.key ? 'bg-[--color-brand-light] text-[--color-brand]' : 'bg-[--color-overlay] text-[--color-text-muted]'
-                  }`}>{n}</span>
-                )}
-              </button>
-            )
-          })}
+          {TABS.map(t => (
+            <Tab key={t.key} active={view === t.key} count={data?.counts?.[t.key] ?? 0} alert={t.key === 'overdue'}
+              onClick={() => update({ view: t.key === 'all' ? '' : t.key, page: '' })}>
+              {t.label}
+            </Tab>
+          ))}
         </div>
 
         <CardContent className="p-0">
@@ -167,15 +152,8 @@ export default function POList() {
             </TableBody>
           </Table>
 
-          {data && data.totalPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t border-[--color-border]">
-              <span className="text-xs text-[--color-text-muted]">Page {data.page} of {data.totalPages} · {data.total} total</span>
-              <div className="flex gap-2">
-                <Button variant="secondary" size="sm" onClick={() => update({ page: page - 1 > 1 ? page - 1 : '' })} disabled={page <= 1}>Previous</Button>
-                <Button variant="secondary" size="sm" onClick={() => update({ page: page + 1 })} disabled={page >= data.totalPages}>Next</Button>
-              </div>
-            </div>
-          )}
+          <Pager page={page} totalPages={data?.totalPages} summary={`${data?.total} total`}
+            onPage={(n) => update({ page: n > 1 ? n : '' })} />
         </CardContent>
       </Card>
 

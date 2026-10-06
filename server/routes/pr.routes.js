@@ -10,6 +10,7 @@ const { handle, textRule, moneyRule, quantityRule, dateRule, idRule, oneOfRule }
 const { FUND_SOURCE_VALUES } = require('../utils/orgSettings')
 const { PROCUREMENT_MODES } = require('../utils/procurementModes')
 const { CATEGORIES } = require('../utils/categories')
+const { METHODS: SIGN_METHODS } = require('../utils/signature')
 const { requireAccess } = require('../middleware/scope.middleware')
 const makeUploader = require('../utils/upload')
 
@@ -20,11 +21,17 @@ const prFields = (titleRequired) => [
   // Which of the three campus funds this request is drawn on.
   oneOfRule('fund_source', 'Pick a valid source of fund', FUND_SOURCE_VALUES),
   textRule('responsibility_center_code', 'Responsibility center code', 50),
-  textRule('department', 'Department', 150),
+  textRule('department', 'Office / Section', 150),
   // The office this PR is filed for; its head signs "Requested by".
   idRule('department_id', 'Pick a valid office'),
   textRule('purpose', 'Purpose', 2000),
   textRule('recommended_by', 'Recommended by', 150),
+  // Who requested it (typed by the Fund Administrator), and their signature: a PNG image, checked in the controller.
+  textRule('requested_by_name', 'Requested by', 150),
+  textRule('requested_by_designation', 'Designation of who requested it', 150),
+  body('requested_by_signature').optional({ values: 'null' }).isString().withMessage('The signature must be an image')
+    .isLength({ max: 200 * 1024 }).withMessage('The signature image is too large (100 KB at most)'),
+  oneOfRule('requested_by_sign_method', 'Say how it was signed', SIGN_METHODS),
   textRule('event_name', 'Event name', 200),
   textRule('project_name', 'Project name', 200),
   textRule('notes', 'Notes', 2000),
@@ -33,6 +40,8 @@ const prFields = (titleRequired) => [
 ]
 // Item fields; `name` words each message ("Quantity ..." or "Item 2 quantity ...").
 const itemFields = (prefix, name) => [
+  // The office's PPMP line the item is picked from.
+  idRule(`${prefix}ppmp_item_id`, 'Pick the item from the PPMP again'),
   textRule(`${prefix}group_label`, name('section name'), 255),
   textRule(`${prefix}stock_property_no`, name('stock/property no.'), 50),
   // What kind of thing this is; the request's own category follows from these.
@@ -68,6 +77,10 @@ router.use(auth)
 router.get('/',          c.list)
 router.get('/stats',     c.stats)
 router.get('/reads',     c.listReads)
+// Suggestions for "Requested by": the office head and who requested for it before.
+router.get('/requesters', authorize('procurement', 'admin', 'requestor'), c.requesters)
+// Suggestions for "Office / Section": the office's code and name, and what was printed there before.
+router.get('/sections',   authorize('procurement', 'admin', 'requestor'), c.sections)
 // Every /:id route is scoped: 404 unless this user may see the PR (C2).
 // Read-only routes (prRead) also reach deleted PRs, so the archive can open them.
 const prAccess = requireAccess('pr')
@@ -76,7 +89,12 @@ const prRead   = requireAccess('pr', 'id', { includeDeleted: true })
 router.get('/:id/pdf',   prRead, c.generatePDF)
 // The Request for Quotation, for the staff who canvass suppliers.
 router.get('/:id/rfq',   authorize('procurement', 'admin'), prRead, c.generateRFQ)
+// The same RFQ as a Word document, to edit or print where the PDF can't be opened.
+router.get('/:id/rfq/docx', authorize('procurement', 'admin'), prRead, c.generateRFQDocx)
 router.get('/:id',       prRead, c.getById)
+router.get('/:id/requester-signature', prRead, c.requesterSignature)
+// Its items against the office's PPMP.
+router.get('/:id/ppmp',  prRead, c.ppmpReview)
 
 router.post('/:id/read', prRead, c.markRead)
 
@@ -114,7 +132,8 @@ router.patch('/:id/mode',
   handle,
   c.setProcurementMode)
 
-router.delete('/:id', authorize('admin', 'procurement', 'requestor'), prAccess, c.remove)
+// Deleting someone else's request takes the reason (required in the controller), told to whoever filed it.
+router.delete('/:id', authorize('admin', 'procurement', 'requestor'), prAccess, textRule('reason', 'Reason', 500), handle, c.remove)
 
 // Remind procurement: requestor / procurement / admin, at most 1 reminder per PR per hour
 router.post('/:id/remind',
@@ -127,7 +146,7 @@ router.post('/:id/remind',
 // PR Items
 router.get('/:id/items',              prRead, items.listItems)
 router.post('/:id/items',             authorize('procurement', 'admin', 'requestor'), prAccess,
-  textRule('item_name', 'Item name', 500, { required: true }), itemFields('', oneItem), handle, items.addItem)
+  itemFields('', oneItem), handle, items.addItem)   // a picked PPMP line names the item, so the name is checked in the controller
 router.patch('/:id/items/:itemId',    authorize('procurement', 'admin', 'requestor'), prAccess,
   itemFields('', oneItem), handle, items.updateItem)
 router.delete('/:id/items/:itemId',   authorize('procurement', 'admin', 'requestor'), prAccess, items.deleteItem)
@@ -139,13 +158,13 @@ router.get('/:id/logs', prRead, c.getLogs)
 router.get('/:id/attachments',                    prRead, files.listAttachments)
 router.get('/:id/attachments/:attachId/download', prRead, files.downloadAttachment)
 router.post('/:id/attachments',
-  authorize('procurement', 'admin', 'requestor', 'supply'),
+  authorize('procurement', 'admin', 'requestor', 'supply', 'bac'),
   prAccess,        // before multer, so a blocked upload never writes a file
   upload.single('file'),
   files.uploadAttachment
 )
 router.delete('/:id/attachments/:attachId',
-  authorize('procurement', 'admin'),
+  authorize('procurement', 'admin', 'bac'),
   prAccess,
   files.deleteAttachment
 )
