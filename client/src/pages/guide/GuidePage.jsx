@@ -190,7 +190,7 @@ function RoleGuide({ role }) {
         <Step number={2} icon={Clock}         title="Quarters are automatic"  description="Nobody sets up quarters. Each year's Q1 to Q4 are added on their own, the current quarter follows today's date, and each quarter's budget is what the offices' Final PPMPs plan for it. Reports compare spending against those plans." />
         <Step number={3} icon={Shield}        title="Supervise, don't decide" description="You can see every request under All Requests and every finished one in the Archive. TWG reviews and BAC approvals belong to their members, so an admin can't make them. Your Overview warns you when a TWG area has no reviewer, and you are notified when an award waits but no BAC member is active." />
         <Step number={4} icon={ClipboardList} title="View Reports"           description="Go to Reports for spending by quarter and category, budget use, and PR counts by status." />
-        <Step number={5} icon={Building2}     title="Organization settings"  description="Set the fund cluster and responsibility center code in Settings → Organization. They are filled in on every new PR." />
+        <Step number={5} icon={Building2}     title="Organization settings"  description="Set the fund cluster and responsibility center code in Settings → Organization. They are filled in on every new PR. Under Saved signatures, add each signatory's signature with their consent: it prints over their name once their step is done, on staff copies only." />
       </div>
       <Tip>A request filed without a quarter goes under the one today falls in; an End User always picks a quarter of their PPMP's year.</Tip>
     </div>

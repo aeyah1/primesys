@@ -2,6 +2,7 @@ const { M } = require('../utils/pdfHelpers')
 const { isTemporary } = require('../utils/prNumber')
 const { signatureBuffer } = require('../utils/signature')
 const { approverFor } = require('../utils/orgSettings')
+const { signatureOf } = require('../utils/orgSignatures')
 
 // Purchase Request, drawn as the government form the campus files on paper
 // (Appendix 60). The layout is a plain bordered grid in a serif face, matching
@@ -250,6 +251,9 @@ module.exports = function drawPRForm(doc, { pr, orgSettings = {}, items = [] }) 
   // The requester's signature, drawn on the screen or uploaded, on their line; a blank line to sign by hand otherwise.
   const signature = signatureBuffer(pr.requested_by_signature)
   if (signature) doc.image(signature, leftX + 4, y + 2, { fit: [HALF - 8, 26], align: 'center', valign: 'center' })
+  // The approving official's saved signature, on a signed copy (utils/orgSignatures.js).
+  const approverSignature = signatureOf(orgSettings, approver.name)
+  if (approverSignature) doc.image(approverSignature, rightX + 4, y + 2, { fit: [HALF - 8, 26], align: 'center', valign: 'center' })
   y += 30
   signRow(y, 20,    'Printed\nName', requestedName, approver.name, { font: 'Times-Bold', size: 10 }); y += 20
   signRow(y, 18,    'Designation', requestedTitle, approver.designation, { font: 'Times-Bold', size: 9 }); y += 18
@@ -266,6 +270,8 @@ module.exports = function drawPRForm(doc, { pr, orgSettings = {}, items = [] }) 
     rect(x, y, BOX_W, BOX_H, BLUE, 1.2)
     doc.font('Times-Bold').fontSize(10).fillColor(BLUE)
        .text(title, x + 8, y + 8, { width: BOX_W - 16, align: 'center' })
+    const saved = signatureOf(orgSettings, name)
+    if (saved) doc.image(saved, x + 44, y + 21, { fit: [BOX_W - 88, 18], align: 'center', valign: 'bottom' })
     doc.lineWidth(0.75).strokeColor(BLUE)
        .moveTo(x + 44, y + 40).lineTo(x + BOX_W - 44, y + 40).stroke()
     doc.font('Times-Bold').fontSize(8.5).fillColor(BLUE)

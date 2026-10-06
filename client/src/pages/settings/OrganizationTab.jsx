@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import DepartmentsCard from './DepartmentsCard'
+import SignaturesCard from './SignaturesCard'
 import api from '@/lib/axios'
 
 // Campus-wide values printed on the procurement forms. Admin-only; the route
@@ -126,6 +127,7 @@ export default function OrganizationTab() {
     onSuccess: () => {
       toast.success('Organization details saved')
       qc.invalidateQueries({ queryKey: ['org-settings'] })
+      qc.invalidateQueries({ queryKey: ['org-signatures'] })
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to save'),
   })
@@ -293,6 +295,8 @@ export default function OrganizationTab() {
           {saving ? 'Saving…' : 'Save changes'}
         </Button>
       </div>
+
+      <SignaturesCard unsaved={dirty} />
     </div>
   )
 }
