@@ -2,6 +2,7 @@ const fs   = require('fs')
 const path = require('path')
 const { M } = require('../utils/pdfHelpers')
 const { canvassersOf } = require('../utils/orgSettings')
+const { signatureOf } = require('../utils/orgSignatures')
 
 // Request for Quotation, drawn as the campus's own form.
 //
@@ -115,6 +116,9 @@ function drawLot(doc, { pr, orgSettings: org, lot, first }) {
   doc.text(REQUEST_TEXT, M, y, { width: W, align: 'justify' })
   y = doc.y + 8
 
+  // The vice chairman's saved signature, on a signed copy, written over the printed name so the page keeps its fit.
+  const vice = signatureOf(org, s('bac_vice_chairman_name'))
+  if (vice) doc.image(vice, M + W / 2 - 80, y - 7, { fit: [160, 20], align: 'center', valign: 'center' })
   doc.font('Times-Bold').fontSize(10).text(s('bac_vice_chairman_name'), M, y, { width: W, align: 'center' })
   doc.font('Times-Roman').fontSize(9).text(s('bac_vice_chairman_designation', 'BAC Vice Chairman'), M, y + 12, { width: W, align: 'center' })
   y += 26
@@ -184,6 +188,8 @@ function drawLot(doc, { pr, orgSettings: org, lot, first }) {
   // The canvassers, three to a row; with none set, one blank line to sign by hand.
   const canvassers = canvassersOf(org)
   const signers = canvassers.length ? canvassers : [{ name: '', designation: '' }]
+  // Their saved signatures, on a signed copy, each written over the printed name.
+  const signed = signers.map(c => signatureOf(org, c.name))
   const FOOTER_H = ROW_H * 2 + 8    // ABC + purpose rows, then a gap
     + 42                            // delivery period / warranty / price validity
     + 28                            // the acceptance sentence and its gap
@@ -231,6 +237,7 @@ function drawLot(doc, { pr, orgSettings: org, lot, first }) {
   const colW = W / 3
   signers.forEach((c, k) => {
     const cx = M + (k % 3) * colW, cy = y + Math.floor(k / 3) * 22
+    if (signed[k]) doc.image(signed[k], cx, cy - 6, { fit: [colW - 30, 18], valign: 'center' })
     doc.font('Times-Bold').fontSize(9).text(c.name, cx, cy, { width: colW - 10, height: 11, ellipsis: true })
     doc.font('Times-Roman').fontSize(8).text(c.designation || 'Canvasser', cx, cy + 12, { width: colW - 10, height: 10, ellipsis: true })
   })

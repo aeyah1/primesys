@@ -16,8 +16,8 @@ const WAYS = [
 
 /* A signature for a document: signed on the spot inside a box (mouse, finger,
    or pen), or a picture of it uploaded. signer: whose signature it is.
-   onSave({ image, method }): image is a PNG data URL, method 'drawn' or 'uploaded'. */
-export default function SignatureDialog({ signer, onSave, onClose }) {
+   onSave({ image, method }): image is a PNG data URL, method 'drawn' or 'uploaded'. description: what it is for. */
+export default function SignatureDialog({ signer, description, onSave, onClose }) {
   const [way, setWay] = useState('drawn')
   const [image, setImage] = useState(null)   // the uploaded picture, as a PNG data URL
   const [drawn, setDrawn] = useState(false)
@@ -67,7 +67,7 @@ export default function SignatureDialog({ signer, onSave, onClose }) {
 
   return (
     <Dialog open onOpenChange={v => { if (!v) onClose() }}>
-      <DialogContent title="Signature" description={signer ? `The signature of ${signer}, printed on the Requested by line of the form.` : undefined} className="max-w-xl">
+      <DialogContent title="Signature" description={description ?? (signer ? `The signature of ${signer}, printed on the Requested by line of the form.` : undefined)} className="max-w-xl">
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-2">
             {WAYS.map(({ key, label, icon: Icon }) => (

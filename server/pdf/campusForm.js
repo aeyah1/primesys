@@ -121,13 +121,14 @@ function forms(doc) {
   }
 
   // A label over a signature line, with a name and designation beneath it.
-  // Leaving `name` blank prints an empty line for signing by hand.
-  const signature = (x, y, width, { label, name, designation, align = 'center' }) => {
+  // Leaving `name` blank prints an empty line for signing by hand; `image` (PNG bytes) is a saved signature on the line.
+  const signature = (x, y, width, { label, name, designation, align = 'center', image = null }) => {
     if (label) {
       doc.font('Times-Roman').fontSize(8.5).fillColor(BLACK)
         .text(label, x, y, { width, align, lineBreak: false })
     }
     const lineY = y + (label ? 30 : 22)
+    if (image) doc.image(image, x + 20, lineY - 22, { fit: [width - 40, 21], align: 'center', valign: 'bottom' })
     rule(x + 10, lineY, x + width - 10)
     doc.font('Times-Bold').fontSize(9.5).fillColor(BLACK)
       .text(name || '', x, lineY + 3, { width, align, lineBreak: false })

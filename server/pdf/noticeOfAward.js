@@ -1,5 +1,6 @@
 const { W, M, BLACK, ROW_H, PAD, FS, BOTTOM, amount, qty, fmtDate, pesosInWords, forms } = require('./campusForm')
 const { approverFor } = require('../utils/orgSettings')
+const { signatureOf } = require('../utils/orgSignatures')
 const { lineCents } = require('../utils/awardWorkflow')
 
 // Notice of Award to one supplier, in the campus's house style.
@@ -80,7 +81,7 @@ module.exports = function drawNoticeOfAward(doc, { resolution, pr, supplier, lot
   y = doc.y + 14
 
   // ── Signatures: the approving official, then the supplier's conforme ─
-  f.signature(M + W / 2, y, W / 2, { label: 'Very truly yours,', name: approver.name, designation: approver.designation })
+  f.signature(M + W / 2, y, W / 2, { label: 'Very truly yours,', name: approver.name, designation: approver.designation, image: signatureOf(orgSettings, approver.name) })
   y += 70
   f.signature(M, y, W / 2, { label: 'Conforme:', name: '', designation: 'Signature over Printed Name of Supplier' })
   doc.font('Times-Roman').fontSize(9).fillColor(BLACK).text('Date: ____________________', M + W / 2 + 20, y + 30, { width: W / 2 - 20 })
