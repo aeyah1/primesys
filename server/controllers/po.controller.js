@@ -11,6 +11,7 @@ const { poLines, recordBlock, QTY_ORDERED, QTY_RECEIVED } = require('../utils/de
 const httpError = require('../utils/httpError')
 const { paging } = require('../middleware/validate')
 const { loadOrgSettings } = require('../utils/orgSettings')
+const { withSignatures, signedCopy } = require('../utils/orgSignatures')
 const drawPurchaseOrder = require('../pdf/purchaseOrder')
 
 const STAFF = ['procurement', 'admin']
@@ -241,7 +242,7 @@ exports.generatePDF = asyncHandler(async (req, res) => {
   const { M } = require('../utils/pdfHelpers')
 
   const [rows] = await pool.execute(`
-    SELECT po.*, pr.pr_number, pr.title AS pr_title, pr.id AS pr_id,
+    SELECT po.*, pr.pr_number, pr.title AS pr_title, pr.id AS pr_id, pr.deleted_at AS pr_deleted_at,
            pr.mode_of_procurement, pr.department, pr.fund_cluster,
            (SELECT l.supplier_tin FROM lots l WHERE l.po_id = po.id AND l.supplier_tin IS NOT NULL LIMIT 1) AS supplier_tin,
            u.name AS issued_by_name,
@@ -256,7 +257,8 @@ exports.generatePDF = asyncHandler(async (req, res) => {
   if (!rows.length) return res.status(404).json({ message: 'PO not found' })
   const po = rows[0]
 
-  const orgSettings = await loadOrgSettings(pool)
+  // Signed while the PO stands (it was issued); a cancelled one prints unsigned.
+  const orgSettings = await withSignatures(pool, await loadOrgSettings(pool), signedCopy(req.user, po.po_status === 'active' && !po.pr_deleted_at))
   const items = await poItems(pool, po.id, po.pr_id)
   // Awarded unit prices when every line has one (the canvass winners' prices);
   // otherwise the PR's estimates, and the contract amount is the total.

@@ -1,6 +1,7 @@
 const pool         = require('../db/pool')
 const asyncHandler = require('../utils/asyncHandler')
-const { SETTING_KEYS } = require('../utils/orgSettings')
+const { SETTING_KEYS, loadOrgSettings } = require('../utils/orgSettings')
+const signatures   = require('../utils/orgSignatures')
 
 // What the PR form shows to everyone else; signatories and numbering are the admin's to see.
 const FORM_KEYS = ['fund_cluster', 'fund_code_stf', 'fund_code_gaa', 'fund_code_igp', 'responsibility_center_code']
@@ -25,5 +26,24 @@ exports.update = asyncHandler(async (req, res) => {
      ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)`,
     sent.flatMap(k => [k, typeof req.body[k] === 'string' ? req.body[k].trim() || null : null])
   )
+  // A signatory renamed or removed takes their saved signature with them.
+  await signatures.dropUnnamed(pool, await loadOrgSettings(pool))
   res.json({ message: 'Settings saved' })
+})
+
+// GET /settings/signatures - the officials' saved signatures (admin only).
+exports.signatures = asyncHandler(async (req, res) => {
+  res.json(await signatures.listSignatures(pool, await loadOrgSettings(pool)))
+})
+
+// PUT /settings/signatures - { name, image, method, consent: true }: saves or replaces a named official's signature.
+exports.saveSignature = asyncHandler(async (req, res) => {
+  await signatures.saveSignature(pool, await loadOrgSettings(pool), req.user, req.body)
+  res.json({ message: 'Signature saved' })
+})
+
+// DELETE /settings/signatures - { name }: removes it.
+exports.removeSignature = asyncHandler(async (req, res) => {
+  await signatures.removeSignature(pool, req.body.name)
+  res.json({ message: 'Signature removed' })
 })

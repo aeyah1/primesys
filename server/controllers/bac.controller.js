@@ -6,6 +6,7 @@ const { paging }      = require('../middleware/validate')
 const { loadPR }      = require('../utils/prWorkflow')
 const { BAC_READERS } = require('../utils/bacWorkflow')
 const { loadOrgSettings } = require('../utils/orgSettings')
+const { withSignatures, signedCopy } = require('../utils/orgSignatures')
 const { M }            = require('../pdf/campusForm')
 const drawResolution   = require('../pdf/bacResolution')
 const drawTwgCertificate = require('../pdf/twgCertificate')
@@ -119,7 +120,8 @@ exports.resolutionPdf = asyncHandler(async (req, res) => {
   const { resolution, pr, lots } = await resolutionOf(req.params.prId, req.params.rid)
   const [[{ abc }]] = await pool.execute(
     'SELECT COALESCE(SUM(quantity * estimated_cost), 0) AS abc FROM pr_items WHERE pr_id = ? AND dropped_at IS NULL', [pr.id])
-  const orgSettings = await loadOrgSettings(pool)
+  // A resolution exists once the BAC awarded, so it is signed (on a staff copy).
+  const orgSettings = await withSignatures(pool, await loadOrgSettings(pool), signedCopy(req.user, !pr.deleted_at))
   sendPdf(res, `BAC-Resolution-${resolution.resolution_number}.pdf`, (doc) =>
     drawResolution(doc, { resolution, pr, abc, lots, orgSettings }))
 })
@@ -162,5 +164,5 @@ exports.certificatePdf = asyncHandler(async (req, res) => {
 // supplier of that lot, covering all their awards in the resolution.
 exports.noticePdf = asyncHandler(async (req, res) => {
   const n = await noticeFor(req.params.prId, req.params.rid, req.params.lotId)
-  sendPdf(res, n.filename, drawOf(n, await loadOrgSettings(pool)))
+  sendPdf(res, n.filename, drawOf(n, await withSignatures(pool, await loadOrgSettings(pool), signedCopy(req.user, !n.pr.deleted_at))))
 })

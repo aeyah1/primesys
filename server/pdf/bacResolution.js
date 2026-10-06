@@ -1,5 +1,6 @@
 const { W, M, BLACK, ROW_H, PAD, FS, BOTTOM, amount, fmtDate, forms } = require('./campusForm')
 const { approverFor, bacMembers } = require('../utils/orgSettings')
+const { signatureOf } = require('../utils/orgSignatures')
 
 // BAC Resolution recommending award, in the campus's house style: the same
 // letterhead, bordered grid and signature blocks as its RFQ and purchase order.
@@ -99,12 +100,12 @@ module.exports = function drawBacResolution(doc, { resolution, pr, abc, lots, or
   y += 16
   for (let i = 0; i < signers.length; i += perRow) {
     if (y + rowH > BOTTOM) { doc.addPage(); y = M }
-    signers.slice(i, i + perRow).forEach((p, k) => f.signature(M + colW * k, y, colW, p))
+    signers.slice(i, i + perRow).forEach((p, k) => f.signature(M + colW * k, y, colW, { ...p, image: signatureOf(orgSettings, p.name) }))
     y += rowH
   }
 
   if (y + 64 > BOTTOM) { doc.addPage(); y = M }
-  f.signature(M + W / 4, y + 6, W / 2, { label: 'Approved:', name: approver.name, designation: approver.designation })
+  f.signature(M + W / 4, y + 6, W / 2, { label: 'Approved:', name: approver.name, designation: approver.designation, image: signatureOf(orgSettings, approver.name) })
 
   doc.fillColor(BLACK).strokeColor(BLACK)
 }
