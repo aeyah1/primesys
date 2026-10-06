@@ -350,7 +350,8 @@ function PRItemsSection({ prId, pr, canEdit, category }) {
                   </div>
                   {/* The item, picked from the PPMP: its description and unit are the line's */}
                   <div className="col-span-4">
-                    <PpmpItemField id="pr-detail-ppmp-item" plans={plans} isLoading={plansLoading} value={draft.line} onPick={pickLine} taken={taken} year={planYear} quarter={quarter} />
+                    <PpmpItemField id="pr-detail-ppmp-item" plans={plans} isLoading={plansLoading} value={draft.line} onPick={pickLine} taken={taken} year={planYear} quarter={quarter}
+                      kind={draft.category || category} />
                   </div>
                   <div className="col-span-2 space-y-1">
                     <Label className="text-xs">Unit</Label>
@@ -461,7 +462,8 @@ function PRItemsSection({ prId, pr, canEdit, category }) {
               <PpmpItemField id="pr-edit-ppmp-item" plans={plans} isLoading={plansLoading}
                 value={editDraft.line || (editDraft.ppmp_item_id ? { description: editDraft.item_name } : null)}
                 onPick={line => setEditDraft(p => (line ? { ...p, ppmp_item_id: line.id, line, item_name: line.description, unit: line.unit } : { ...p, ppmp_item_id: null, line: null }))}
-                taken={takenByKey(items, lineById, items.findIndex(i => i.id === editingItem?.id))} year={planYear} quarter={quarter} />
+                taken={takenByKey(items, lineById, items.findIndex(i => i.id === editingItem?.id))} year={planYear} quarter={quarter}
+                kind={editDraft.category || category} />
 
               <div className="grid grid-cols-12 gap-2 items-end">
                 <div className="col-span-3 space-y-1">
