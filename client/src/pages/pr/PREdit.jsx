@@ -525,7 +525,8 @@ export default function PREdit() {
                 </div>
                 {/* The item, picked from the PPMP: its description and unit are the line's */}
                 <div className="col-span-4">
-                  <PpmpItemField id="pr-ppmp-item" plans={plans} isLoading={plansLoading} value={draft.line} onPick={pickLine} taken={taken} year={planYear} quarter={quarter} />
+                  <PpmpItemField id="pr-ppmp-item" plans={plans} isLoading={plansLoading} value={draft.line} onPick={pickLine} taken={taken} year={planYear} quarter={quarter}
+                    kind={draft.category || form.category} />
                 </div>
                 <div className="col-span-2 space-y-1">
                   <Label className="text-xs">Unit</Label>

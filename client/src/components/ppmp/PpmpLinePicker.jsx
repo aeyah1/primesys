@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { fmtCurrency } from '@/lib/utils'
+import { fmtCurrency, CATEGORY_LABELS } from '@/lib/utils'
 import { MONTHS } from '@/components/ppmp/PpmpStatusBadge'
 import api from '@/lib/axios'
 
@@ -101,10 +101,21 @@ export function matchScore(query, line) {
   return typed.reduce((sum, w) => sum + score(w), 0) / typed.length
 }
 
+// The PPMP headings that hold each kind of item, so Browse can bring that kind to the top; a heading may fit two kinds.
+const KIND_HEADINGS = {
+  hardware:        /\bict\b|equipment|hardware|tools|electric|electronic|computer|machiner/,
+  office_supplies: /office suppl|janitorial|stationer|cleaning/,
+  lab_educational: /laborator|instructional|educational|training|shop suppl|book|science/,
+  furniture:       /furniture|fixture/,
+  food_catering:   /meal|food|catering|snack|refreshment/,
+  event_supplies:  /event|tarpaulin|decor|souvenir/,
+}
+const fitsKind = (line, kind) => !!KIND_HEADINGS[kind]?.test(String(line.category || '').toLowerCase())
+
 // The item field of a PR form: type what is needed and the closest PPMP lines come up, the best one first; a close one
-// is ready to take with Enter, a weak one only by a click. Browse lists every line. `year` keeps the pick to one fiscal year once
-// the request has an item from it; `quarter` (1 to 4) to the lines planned in that quarter, with what is left of its quantity.
-export function PpmpItemField({ plans, isLoading, value, onPick, taken, year, quarter = null, label = 'Item from the PPMP', id }) {
+// is ready to take with Enter, a weak one only by a click. Browse lists every line, those of the item's `kind` first. `year` keeps the
+// pick to one fiscal year once the request has an item from it; `quarter` (1 to 4) to the lines planned in that quarter, with what is left of its quantity.
+export function PpmpItemField({ plans, isLoading, value, onPick, taken, year, quarter = null, kind = null, label = 'Item from the PPMP', id }) {
   const [text, setText] = useState(null)   // what is being typed; null shows the picked line
   const [active, setActive] = useState(-2)   // -2: not moved with the arrow keys yet, so the list's own start applies
   const [focused, setFocused] = useState(false)
@@ -182,18 +193,43 @@ export function PpmpItemField({ plans, isLoading, value, onPick, taken, year, qu
           <List className="size-4" />
         </Button>
       </div>
-      <BrowsePpmp open={browsing} onOpenChange={setBrowsing} plans={usable} leftOf={leftOf} onPick={choose} quarter={quarter} />
+      <BrowsePpmp open={browsing} onOpenChange={setBrowsing} plans={usable} leftOf={leftOf} onPick={choose} quarter={quarter} kind={kind} />
     </div>
   )
 }
 
-// Every line of the PPMP to pick from (of the quarter, when the request draws on one), with a search, one fiscal year at a time.
-function BrowsePpmp({ open, onOpenChange, plans, leftOf, onPick, quarter }) {
+// Every line of the PPMP to pick from (of the quarter, when the request draws on one), with a search, one fiscal year at a time;
+// the lines of the item's kind come first, highlighted, then the others.
+function BrowsePpmp({ open, onOpenChange, plans, leftOf, onPick, quarter, kind }) {
   const [search, setSearch] = useState('')
   const [planId, setPlanId] = useState(null)
   const plan = plans.find(p => p.id === planId) || plans[0]
   const words = search.toLowerCase().split(/\s+/).filter(Boolean)
   const lines = (plan?.lines || []).filter(l => words.every(w => `${l.code || ''} ${l.description} ${l.category || ''}`.toLowerCase().includes(w)))
+  const fits = kind ? lines.filter(l => fitsKind(l, kind)) : []
+  const rest = fits.length ? lines.filter(l => !fitsKind(l, kind)) : lines
+  const heading = (text, strong) => (
+    <li className={`bg-[--color-canvas] px-4 py-2 text-[11px] font-bold uppercase tracking-wider ${strong ? 'text-[--color-brand]' : 'text-[--color-text-muted]'}`}>{text}</li>
+  )
+  const row = (l, fit) => {
+    const left = leftOf(l)
+    return (
+      <li key={l.id}>
+        <button type="button" disabled={left <= 0} onClick={() => { onPick({ ...l, fiscal_year: plan.fiscal_year }); setSearch('') }}
+          className={`flex w-full items-start justify-between gap-4 px-4 py-3 text-left transition-colors hover:bg-[--color-overlay] disabled:cursor-not-allowed disabled:opacity-50 ${fit ? 'bg-[--color-brand-light]' : ''}`}>
+          <span className="min-w-0">
+            <span className="block text-sm font-medium text-[--color-text-primary]">{l.description}</span>
+            <span className="block text-[11px] text-[--color-text-muted]">
+              {[l.code, l.category, fmtCurrency(l.unit_cost) + ' each', l.months.map(m => MONTHS[m - 1]).join(', ')].filter(Boolean).join(' · ')}
+            </span>
+          </span>
+          <span className={`shrink-0 text-xs font-semibold tabular-nums ${left > 0 ? 'text-[--color-text-secondary]' : 'text-red-700'}`}>
+            {left > 0 ? `${left} ${l.unit} left${quarter ? ` for Q${quarter}` : ''}` : 'None left'}
+          </span>
+        </button>
+      </li>
+    )
+  }
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent title="Pick from the PPMP" className="max-w-2xl"
@@ -212,25 +248,10 @@ function BrowsePpmp({ open, onOpenChange, plans, leftOf, onPick, quarter }) {
           </div>
           <ul className="divide-y divide-[--color-border] rounded-lg border border-[--color-border]">
             {lines.length === 0 && <li className="px-4 py-6 text-center text-sm text-[--color-text-muted]">No line matches.</li>}
-            {lines.map(l => {
-              const left = leftOf(l)
-              return (
-                <li key={l.id}>
-                  <button type="button" disabled={left <= 0} onClick={() => { onPick({ ...l, fiscal_year: plan.fiscal_year }); setSearch('') }}
-                    className="flex w-full items-start justify-between gap-4 px-4 py-3 text-left transition-colors hover:bg-[--color-overlay] disabled:cursor-not-allowed disabled:opacity-50">
-                    <span className="min-w-0">
-                      <span className="block text-sm font-medium text-[--color-text-primary]">{l.description}</span>
-                      <span className="block text-[11px] text-[--color-text-muted]">
-                        {[l.code, l.category, fmtCurrency(l.unit_cost) + ' each', l.months.map(m => MONTHS[m - 1]).join(', ')].filter(Boolean).join(' · ')}
-                      </span>
-                    </span>
-                    <span className={`shrink-0 text-xs font-semibold tabular-nums ${left > 0 ? 'text-[--color-text-secondary]' : 'text-red-700'}`}>
-                      {left > 0 ? `${left} ${l.unit} left${quarter ? ` for Q${quarter}` : ''}` : 'None left'}
-                    </span>
-                  </button>
-                </li>
-              )
-            })}
+            {fits.length > 0 && heading(`${CATEGORY_LABELS[kind]} items`, true)}
+            {fits.map(l => row(l, true))}
+            {fits.length > 0 && rest.length > 0 && heading('Other PPMP items', false)}
+            {rest.map(l => row(l, false))}
           </ul>
         </div>
       </DialogContent>
