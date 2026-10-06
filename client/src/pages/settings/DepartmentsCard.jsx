@@ -63,7 +63,7 @@ export default function DepartmentsCard() {
             </div>
             <CardDescription className="mt-1.5">
               The offices that file purchase requests. An office's head is suggested for "Requested by"
-              on its requests, and printed there when the Fund Administrator leaves it blank. Leave a head
+              on its requests, and printed there when the End User leaves it blank. Leave a head
               blank to print an empty line for signing by hand.
             </CardDescription>
           </div>
@@ -78,7 +78,7 @@ export default function DepartmentsCard() {
           <p className="px-6 pb-6 text-ui-sm text-[--color-text-muted]">Loading…</p>
         ) : departments.length === 0 ? (
           <p className="px-6 pb-6 text-ui-sm text-[--color-text-muted]">
-            No offices yet. Add one so Fund Administrators can pick it on the PR form.
+            No offices yet. Add one so End Users can pick it on the PR form.
           </p>
         ) : (
           <div className="divide-y divide-[--color-border] border-t border-[--color-border]">
@@ -93,7 +93,7 @@ export default function DepartmentsCard() {
                   <p className="text-ui-xs text-[--color-text-muted] mt-1">
                     {d.head_name
                       ? <>Signs as <strong className="text-[--color-text-secondary]">{d.head_name}</strong>{d.head_designation ? `, ${d.head_designation}` : ''}</>
-                      : <span className="text-amber-600">No head recorded: "Requested by" prints blank unless the Fund Administrator types it</span>}
+                      : <span className="text-amber-600">No head recorded: "Requested by" prints blank unless the End User types it</span>}
                   </p>
                   {(d.user_count > 0 || d.pr_count > 0) && (
                     <p className="text-[11px] text-[--color-text-muted] mt-1">

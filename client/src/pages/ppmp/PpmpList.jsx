@@ -208,7 +208,7 @@ function Coverage() {
           <TableHeader>
             <TableRow>
               <TableHead>Office</TableHead>
-              <TableHead>Fund Administrator</TableHead>
+              <TableHead>End User</TableHead>
               <TableHead>PPMP</TableHead>
               <TableHead>Requests</TableHead>
             </TableRow>

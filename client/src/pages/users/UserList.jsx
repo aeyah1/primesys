@@ -34,11 +34,11 @@ const ROLE_TABS = [
   { key: 'procurement', label: 'Procurement' },
   { key: 'bac',         label: 'BAC' },
   { key: 'supply',      label: 'Supply' },
-  { key: 'requestor',   label: 'Fund Administrators' },
+  { key: 'requestor',   label: 'End Users' },
 ]
 const GROUP_ORDER = ROLE_TABS.slice(1).map(t => t.key)
 const GROUP_LABELS = {
-  admin: 'Admins', twg: 'TWG members', procurement: 'Procurement officers', bac: 'BAC members', supply: 'Supply officers', requestor: 'Fund Administrators',
+  admin: 'Admins', twg: 'TWG members', procurement: 'Procurement officers', bac: 'BAC members', supply: 'Supply officers', requestor: 'End Users',
 }
 const STATUSES = [
   { key: '',           label: 'Any status' },
@@ -239,7 +239,7 @@ export default function UserList() {
       return toast.error('All fields are required')
     }
     if (password.length < 8) return toast.error('Password must be at least 8 characters')
-    if (role === 'requestor' && !addForm.department_id) return toast.error('Pick the office this Fund Administrator handles')
+    if (role === 'requestor' && !addForm.department_id) return toast.error('Pick the office this End User handles')
     createUser({ name: name.trim(), username: username.trim(), email: email.trim(), password, role,
       department_id: addForm.department_id || null, designation: addForm.designation?.trim() || null,
       ...(role === 'twg' ? { areas } : {}) })
@@ -251,7 +251,7 @@ export default function UserList() {
     if (editForm.newPassword && editForm.newPassword.length < 8) {
       return toast.error('Password must be at least 8 characters')
     }
-    if (editForm.role === 'requestor' && !editForm.department_id) return toast.error('Pick the office this Fund Administrator handles')
+    if (editForm.role === 'requestor' && !editForm.department_id) return toast.error('Pick the office this End User handles')
     updateUser({
       id: editUser.id,
       body: {
@@ -562,7 +562,7 @@ export default function UserList() {
                 <SelectContent>
                   <SelectItem value="admin">Admin</SelectItem>
                   <SelectItem value="procurement">Procurement Officer</SelectItem>
-                  <SelectItem value="requestor">Fund Administrator</SelectItem>
+                  <SelectItem value="requestor">End User</SelectItem>
                   <SelectItem value="supply">Supply Officer</SelectItem>
                   <SelectItem value="twg">TWG (Technical Working Group)</SelectItem>
                   <SelectItem value="bac">BAC (Bids and Awards Committee)</SelectItem>
@@ -601,7 +601,7 @@ export default function UserList() {
               </div>
             </div>
             <p className="text-[11px] text-[--color-text-muted] -mt-1">
-              A Fund Administrator handles one office, and each office has one. The PR form's
+              An End User handles one office, and each office has one. The PR form's
               "Requested by" names that office's head; set heads under Settings &gt; Organization.
             </p>
 
@@ -665,7 +665,7 @@ export default function UserList() {
                 <SelectContent>
                   <SelectItem value="admin">Admin</SelectItem>
                   <SelectItem value="procurement">Procurement Officer</SelectItem>
-                  <SelectItem value="requestor">Fund Administrator</SelectItem>
+                  <SelectItem value="requestor">End User</SelectItem>
                   <SelectItem value="supply">Supply Officer</SelectItem>
                   <SelectItem value="twg">TWG (Technical Working Group)</SelectItem>
                   <SelectItem value="bac">BAC (Bids and Awards Committee)</SelectItem>
@@ -704,7 +704,7 @@ export default function UserList() {
               </div>
             </div>
             <p className="text-[11px] text-[--color-text-muted] -mt-1">
-              A Fund Administrator handles one office, and each office has one. The PR form's
+              An End User handles one office, and each office has one. The PR form's
               "Requested by" names that office's head; set heads under Settings &gt; Organization.
             </p>
 
@@ -765,7 +765,7 @@ export default function UserList() {
                 maxLength={500}
                 rows={3}
                 autoFocus
-                placeholder="e.g. Not NEMSU staff, or the office already has a Fund Administrator"
+                placeholder="e.g. Not NEMSU staff, or the office already has an End User"
                 className="w-full rounded-md border border-[--color-border] bg-[--color-surface] px-3 py-2 text-sm text-[--color-text-primary] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent resize-y"
               />
             </div>

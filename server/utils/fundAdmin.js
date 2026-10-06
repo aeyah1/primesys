@@ -14,11 +14,11 @@ async function officeHolder(db, departmentId, exceptId = 0) {
 // Throws unless this account may hold its office; locks the office row so two approvals cannot both pass.
 async function assertOfficeFree(db, { id = 0, role, department_id }) {
   if (role !== 'requestor') return
-  if (!department_id) throw httpError(400, 'Pick the office this Fund Administrator handles')
+  if (!department_id) throw httpError(400, 'Pick the office this End User handles')
   const [[dept]] = await db.execute('SELECT id, code FROM departments WHERE id = ? FOR UPDATE', [department_id])
   if (!dept) throw httpError(400, 'That office no longer exists')
   const holder = await officeHolder(db, department_id, id)
-  if (holder) throw httpError(409, `${dept.code} already has a Fund Administrator (${holder.name}). Deactivate or reassign them first.`)
+  if (holder) throw httpError(409, `${dept.code} already has an End User (${holder.name}). Deactivate or reassign them first.`)
 }
 
 module.exports = { officeHolder, assertOfficeFree }

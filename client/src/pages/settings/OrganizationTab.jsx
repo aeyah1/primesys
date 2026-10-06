@@ -199,7 +199,7 @@ export default function OrganizationTab() {
           </div>
           <CardDescription>
             The signature blocks on the printed forms. Leave a name blank to print an empty
-            line for signing by hand. "Requested by" is not here: the Fund Administrator types it on
+            line for signing by hand. "Requested by" is not here: the End User types it on
             each request, and the office's head, set above, is suggested.
           </CardDescription>
         </CardHeader>

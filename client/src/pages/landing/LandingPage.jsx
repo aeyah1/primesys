@@ -49,7 +49,7 @@ const FEATURES = [
 ]
 
 const STEPS = [
-  { num: '01', label: 'Purchase Request', desc: 'A Fund Administrator submits a purchase request with items and estimated costs.' },
+  { num: '01', label: 'Purchase Request', desc: 'An End User submits a purchase request with items and estimated costs.' },
   { num: '02', label: 'TWG Review',       desc: 'The Technical Working Group reviews the request and approves it for procurement.' },
   { num: '03', label: 'Canvass & Award',  desc: 'The canvasser canvasses suppliers; the BAC and the TWG review the winners.' },
   { num: '04', label: 'Issue PO',         desc: 'Purchase order issued to the awarded supplier.' },
