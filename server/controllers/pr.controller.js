@@ -14,6 +14,7 @@ const { currentQuarter } = require('../utils/quarters')
 const { CATEGORIES, isCategory, syncPRCategory } = require('../utils/categories')
 const crypto          = require('crypto')
 const { loadOrgSettings, fundCodeFor, FUND_SOURCE_VALUES } = require('../utils/orgSettings')
+const { withSignatures, prSigned } = require('../utils/orgSignatures')
 const { temporaryRef, isTemporary } = require('../utils/prNumber')
 const { requestedBy, requesterOf, resolveDepartment } = require('../utils/departments')
 const { requesterSignature } = require('../utils/signature')
@@ -686,7 +687,7 @@ exports.generatePDF = asyncHandler(async (req, res) => {
   if (!rows.length) return res.status(404).json({ message: 'PR not found' })
   const pr = rows[0]
 
-  const orgSettings = await loadOrgSettings(pool)
+  const orgSettings = await withSignatures(pool, await loadOrgSettings(pool), prSigned(req.user, pr))
 
   // The form prints the item's specifications under its description, so
   // "Window 1" and "Width = 401 cm x Height = 280 cm" read as one entry.
@@ -709,7 +710,7 @@ exports.generatePDF = asyncHandler(async (req, res) => {
 // to fill in. One page per lot, since the campus canvasses a lot at a time.
 // What the Request for Quotation shows (PDF and Word alike): the PR, the campus settings, and its items.
 async function rfqOf(id) {
-  const [rows] = await pool.execute('SELECT pr_number, title, purpose FROM purchase_requests WHERE id = ?', [id])
+  const [rows] = await pool.execute('SELECT pr_number, title, purpose, status, deleted_at FROM purchase_requests WHERE id = ?', [id])
   if (!rows.length) throw httpError(404, 'PR not found')
   const pr = rows[0]
   if (isTemporary(pr.pr_number)) {
@@ -728,6 +729,8 @@ exports.generateRFQ = asyncHandler(async (req, res) => {
   const { M } = require('../utils/pdfHelpers')
   const drawRFQ = require('../pdf/requestForQuotation')
   const rfq = await rfqOf(req.params.id)
+  // The printed RFQ carries the saved signatures; the Word copy, made to be edited, never does.
+  rfq.orgSettings = await withSignatures(pool, rfq.orgSettings, prSigned(req.user, rfq.pr))
 
   const doc = new PDFDocument({ size: 'LETTER', margin: M })
   res.setHeader('Content-Type', 'application/pdf')

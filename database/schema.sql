@@ -95,6 +95,18 @@ CREATE TABLE `org_settings` (
   PRIMARY KEY (`setting_key`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Saved signatures of the officials named in the settings, kept under each one's name (utils/orgSignatures.js).
+CREATE TABLE `org_signatures` (
+  `name_key`    VARCHAR(150) NOT NULL,   -- the signatory's name in lower case, spaces collapsed
+  `name`        VARCHAR(150) NOT NULL,
+  `image`       MEDIUMTEXT   NOT NULL,   -- PNG data URL
+  `sign_method` ENUM('drawn','uploaded') NOT NULL,
+  `saved_by`    INT UNSIGNED NULL,
+  `updated_at`  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`name_key`),
+  CONSTRAINT `fk_org_signatures_by` FOREIGN KEY (`saved_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Purchase requests
 -- Status flow and who may change it: server/utils/prWorkflow.js.
 -- A deleted PR is kept (deleted_at / deleted_by) and listed under Archive.

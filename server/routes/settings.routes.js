@@ -77,4 +77,13 @@ router.patch('/',  auth, authorize('admin'),
   handle,
   c.update)
 
+// The officials' saved signatures: the admin's alone to see, save, and remove (utils/orgSignatures.js).
+const signer = textRule('name', 'Name', 150, { required: true })
+router.get('/signatures',    auth, authorize('admin'), c.signatures)
+router.put('/signatures',    auth, authorize('admin'), signer,
+  body('image').isString().withMessage('The signature must be a PNG image').isLength({ max: 200_000 }).withMessage('The signature image is too large'),
+  body('consent').isBoolean({ strict: true }).withMessage('Confirm that the person agreed'),
+  handle, c.saveSignature)
+router.delete('/signatures', auth, authorize('admin'), signer, handle, c.removeSignature)
+
 module.exports = router
