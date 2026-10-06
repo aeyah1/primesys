@@ -102,7 +102,6 @@ add('Requestor A', 'PO list = own PRs only',           3, 'GET', '/po?limit=100'
 add('Requestor A', "B's PO by ID",                     3, 'GET', '/po/2', undefined, code(404), '404')
 add('Requestor A', "B's PO PDF",                       3, 'GET', '/po/2/pdf', undefined, code(404), '404')
 add('Requestor A', 'delivery list = own PRs only',     3, 'GET', '/delivery', undefined, sameIds([1]), 'ids=[1]')
-add('Requestor A', "B's IAR PDF",                      3, 'GET', '/delivery/2/pdf', undefined, code(404), '404')
 add('Requestor A', "B's delivery attachments",         3, 'GET', '/delivery/2/attachments', undefined, code(404), '404')
 add('Requestor A', "B's delivery attachment download", 3, 'GET', '/delivery/2/attachments/1/download', undefined, code(404, 'Delivery not found'), '404 Delivery not found')
 add('Requestor A', "add item to B's PR",               3, 'POST', '/pr/3/items', { item_name: 'tamper' }, code(404), '404')

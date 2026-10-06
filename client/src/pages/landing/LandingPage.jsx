@@ -53,7 +53,7 @@ const STEPS = [
   { num: '02', label: 'TWG Review',       desc: 'The Technical Working Group reviews the request and approves it for procurement.' },
   { num: '03', label: 'Canvass & Award',  desc: 'The canvasser canvasses suppliers; the BAC and the TWG review the winners.' },
   { num: '04', label: 'Issue PO',         desc: 'Purchase order issued to the awarded supplier.' },
-  { num: '05', label: 'Delivery',         desc: 'Goods received and confirmed — the cycle closes with an IAR.' },
+  { num: '05', label: 'Delivery',         desc: 'Goods received and recorded, and the request is completed.' },
 ]
 
 const BENEFITS = [

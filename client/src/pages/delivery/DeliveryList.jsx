@@ -3,7 +3,7 @@ import { useQuery, useMutation } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import {
   Plus, Pencil, Search, AlertTriangle, Trash2,
-  Package, CheckCircle, TruckIcon, Paperclip, Send, FileDown,
+  Package, CheckCircle, TruckIcon, Paperclip, Send,
 } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { useAuth } from '@/context/AuthContext'
@@ -20,7 +20,6 @@ import AttachmentsPanel from '@/components/shared/AttachmentsPanel'
 import ReceiveDialog from '@/components/delivery/ReceiveDialog'
 import { qty, TEXTAREA, useRefreshDeliveries } from '@/components/delivery/shared'
 import { fmtDate, localToday } from '@/lib/utils'
-import { openPdf, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
 
 const TABS = [
@@ -69,8 +68,6 @@ export default function DeliveryList() {
   const isStaff   = ['procurement', 'admin'].includes(user?.role)
   const isSupply  = user?.role === 'supply'
   const canRecord = isStaff || isSupply
-
-  const iar = (d) => openPdf(`/delivery/${d.id}/pdf`).catch(async (err) => toast.error(await blobErrorMessage(err, 'Could not open the inspection report')))
 
   // Stats (from the full search result, before the tab filter)
   const stats = useMemo(() => ({
@@ -270,9 +267,6 @@ export default function DeliveryList() {
                         {/* Actions */}
                         <TableCell>
                           <div className="flex items-center gap-1">
-                            <button onClick={() => iar(d)} className={iconBtn} title="Inspection and Acceptance Report (PDF)">
-                              <FileDown className="size-3.5" />
-                            </button>
                             {canRecord && (
                               <button onClick={() => setAttachDelivery(d)} className={iconBtn} title="Invoices and proof of delivery">
                                 <Paperclip className="size-3.5" />

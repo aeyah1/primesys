@@ -60,7 +60,6 @@ module.exports = function deliveryStatusEmail({
         ${prComplete
           ? 'Your request is now <strong>Completed</strong>.'
           : 'You will get another notice when more items arrive.'}
-        The Inspection and Acceptance Report for this delivery is attached.
       </p>
       <p style="color:#9ca3af;font-size:11px;margin:24px 0 0;border-top:1px solid #f3f4f6;padding-top:16px;">
         This is an automated notification from PRimeSys. Do not reply to this email.
