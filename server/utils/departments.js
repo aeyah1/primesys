@@ -2,9 +2,9 @@ const httpError = require('./httpError')
 
 // Departments
 // The offices that file purchase requests. On the printed form the requesting
-// party is the HEAD of the office ("JUAN A. DELA CRUZ, Ph. D. /
-// Department Chair, DCS"), not whoever encoded the request, so each department
-// carries its head's name and designation.
+// party is whoever asked for it, typed by the Fund Administrator who files it;
+// by default the HEAD of the office ("JUAN A. DELA CRUZ, Ph. D. / Department
+// Chair, DCS"), so each department carries its head's name and designation.
 //
 // A PR freezes both when it is filed, the same rule the fund codes follow: a
 // later change of chair must not rewrite PRs already on record.
@@ -17,6 +17,14 @@ const httpError = require('./httpError')
 function requestedBy(dept, filer) {
   if (dept?.head_name) return { name: dept.head_name, designation: dept.head_designation || null }
   return { name: filer?.name || null, designation: filer?.designation || null }
+}
+
+// Who requested it: the name typed on the request (the Fund Administrator files
+// for whoever asked), else the office head as above. `body` is the request body.
+function requesterOf(body, dept, filer) {
+  const name = typeof body.requested_by_name === 'string' ? body.requested_by_name.trim() : ''
+  if (name) return { name, designation: body.requested_by_designation?.trim() || null }
+  return requestedBy(dept, filer)
 }
 
 // The department a PR is being filed for: the one asked for, else the filer's
@@ -38,4 +46,4 @@ async function resolveDepartment(db, { departmentId, userId }) {
   return dept
 }
 
-module.exports = { requestedBy, resolveDepartment }
+module.exports = { requestedBy, requesterOf, resolveDepartment }

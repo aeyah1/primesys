@@ -10,7 +10,7 @@ const serverReq = (m) => require(require.resolve(m, { paths: [H.SERVER] }))
 const config = require(path.join(H.SERVER, 'config.js'))
 const jwt    = serverReq('jsonwebtoken')
 
-const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 4: 'twg', 6: 'supply' }
+const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 4: 'twg', 5: 'bac', 6: 'supply' }
 const tok  = (id) => jwt.sign({ id, tv: 0 }, config.jwt.secret, { expiresIn: '1h' })
 const MAIL = []
 const pad  = (n) => String(n).padStart(2, '0')
@@ -24,8 +24,12 @@ function fixtures() {
     SET FOREIGN_KEY_CHECKS = 0;
     INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified) VALUES ${Object.keys(ROLE).map(U).join(', ')};
     INSERT INTO quarters (id, label, year, start_date, end_date, is_active) VALUES (1, 'Q1', ${year}, '${year}-01-01', '${year}-12-31', 1);
-    INSERT INTO org_settings (setting_key, setting_value) VALUES ('minimum_quotations', '1');
     ${H.twgAreas([4])}
+    -- Requests are filed for an office and drawn from its verified PPMP (utils/ppmpUse.js).
+    INSERT INTO departments (id, code, name) VALUES (90, 'TST', 'Test Office');
+    UPDATE users SET department_id = 90 WHERE department_id IS NULL;
+    UPDATE purchase_requests SET department_id = 90 WHERE department_id IS NULL;
+    ${H.ppmpFor(90, ['Chair', 'Whiteboard marker'])}
     SET FOREIGN_KEY_CHECKS = 1;
   `
 }
@@ -48,21 +52,15 @@ async function run() {
     if (r.status >= 400) throw new Error(`${m} ${p} -> ${r.status} ${JSON.stringify(r.data)}`)
     return r.data
   }
-  const S = (name) => ({ name, email: `${name.split(' ')[0].toLowerCase()}@x.invalid`, contact_person: 'A', phone: '0917 123 4567', address: 'Cantilan' })
-  const alpha = (await must(2, 'POST', '/suppliers', S('Alpha Furniture'))).id
-  const beta  = (await must(2, 'POST', '/suppliers', S('Beta Office'))).id
-
-  // The requestor's PR: chairs from Alpha, markers from Beta.
+  // The requestor's PR in two lots: chairs from Alpha, markers from Beta.
   const pr = (await must(3, 'POST', '/pr', { title: 'Room 101', items: [
-    { item_name: 'Chair', quantity: 50, estimated_cost: 1500 }, { item_name: 'Whiteboard marker', quantity: 12, unit: 'pc', estimated_cost: 45 }] })).id
+    { group_label: 'LOT 1', item_name: 'Chair', quantity: 50, estimated_cost: 1500 },
+    { group_label: 'LOT 2', item_name: 'Whiteboard marker', quantity: 12, unit: 'pc', estimated_cost: 45 }] })).id
   await must(3, 'PATCH', `/pr/${pr}/status`, { status: 'submitted' })
   await must(4, 'POST', `/twg/${pr}/review`, { action: 'approve' })
-  await must(2, 'POST', `/canvass/${pr}/open`, { mode_of_procurement: 'Shopping', deadline: `${day(3)}T17:00` })
+  await must(2, 'POST', `/canvass/${pr}/start`, { mode_of_procurement: 'Shopping' })
   const [chair, marker] = (await must(2, 'GET', `/canvass/${pr}`)).items.map(i => i.id)
-  const qa = (await must(2, 'POST', `/canvass/${pr}/quotations`, { supplier_id: alpha, prices: [{ item: chair, unit_price: 1400 }] })).id
-  const qb = (await must(2, 'POST', `/canvass/${pr}/quotations`, { supplier_id: beta, prices: [{ item: marker, unit_price: 40 }] })).id
-  await must(2, 'POST', `/canvass/${pr}/rfq/close`)
-  await must(2, 'POST', `/canvass/${pr}/award`, { picks: [{ item: chair, quotation: qa }, { item: marker, quotation: qb }] })
+  await H.award(BASE, tok, pr, { bac: 5, twg: 4 }, [{ name: 'Alpha Furniture', prices: { [chair]: 1400 } }, { name: 'Beta Office', prices: { [marker]: 40 } }])
   await must(2, 'POST', '/po', { purchase_request_id: pr, supplier: 'Alpha Furniture', issued_date: day(0) })
   await must(2, 'POST', '/po', { purchase_request_id: pr, supplier: 'Beta Office', issued_date: day(0) })
   const [poA, poB] = await q('SELECT id, po_number FROM purchase_orders WHERE purchase_request_id = ? ORDER BY id', [pr])

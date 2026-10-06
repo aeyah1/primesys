@@ -54,7 +54,6 @@ router.patch('/:id/close',
   authorize('procurement', 'admin'),
   poAccess,
   textRule('reason', 'Reason', 1000, { required: true }),
-  body('carry_quotes').optional().isBoolean().withMessage('carry_quotes must be true or false').toBoolean(),
   moneyRule('short_amount', 'The value not delivered', { positive: true }),
   handle,
   c.close

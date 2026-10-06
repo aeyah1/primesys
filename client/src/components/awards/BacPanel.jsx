@@ -1,146 +1,33 @@
-import { useState } from 'react'
-import { useQuery, useMutation } from '@tanstack/react-query'
-import { Scale, FileText, Send, Undo2, AlertTriangle, Mail } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { FileText, AlertTriangle, ShieldCheck } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
-import { Label } from '@/components/ui/label'
-import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
-import { fmtCurrency, fmtDate, fmtDatetime } from '@/lib/utils'
+import { fmtCurrency, fmtDate, plural } from '@/lib/utils'
 import { openPdf, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
-import { nameKey, useRefreshAwards } from './supplier'
-import { useConfirm } from '@/components/shared/ConfirmDialog'
 
-const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
-
-/* ── The BAC hands the canvass back to Procurement, with the reason ───── */
-function ReturnDialog({ prId, onClose }) {
-  const refresh = useRefreshAwards(prId)
-  const [reason, setReason] = useState('')
-  const { mutate, isPending } = useMutation({
-    mutationFn: () => api.post(`/bac/${prId}/return`, { reason: reason.trim() }),
-    onSuccess: () => { toast.success('Returned to Procurement'); refresh(); onClose() },
-    onError: (err) => toast.error(err.response?.data?.message || 'Failed to return it'),
-  })
-  return (
-    <Dialog open onOpenChange={v => { if (!v) onClose() }}>
-      <DialogContent title="Return to Procurement"
-        description="Procurement can change the canvass again, then submit it back. Awards already made stay.">
-        <div className="space-y-1.5">
-          <Label>Reason <span className="text-red-600 text-xs">*</span></Label>
-          <textarea value={reason} onChange={e => setReason(e.target.value)} rows={3} maxLength={500} autoFocus
-            placeholder="e.g. Get a third quotation for the laptops"
-            className="w-full rounded-md border border-[--color-border] bg-[--color-surface] px-3 py-2 text-sm text-[--color-text-primary] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent resize-y" />
-        </div>
-        <DialogFooter className="px-0 pb-0 pt-6">
-          <Button variant="outline" onClick={onClose} disabled={isPending}>Cancel</Button>
-          <Button variant="danger" disabled={isPending || !reason.trim()} onClick={() => mutate()}>
-            {isPending ? 'Returning…' : 'Return'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-/* ── Whether a supplier's Notice of Award was emailed, and why not ───── */
-function NoticeEmail({ prId, resolutionId, notice, canSend }) {
-  const refresh = useRefreshAwards(prId)
-  const { mutate, isPending } = useMutation({
-    mutationFn: () => api.post(`/bac/${prId}/resolutions/${resolutionId}/notice/${notice.lot_id}/email`),
-    onSuccess: ({ data }) => { toast.success(data.message); refresh() },
-    onError: (err) => { toast.error(err.response?.data?.message || 'Failed to email the notice'); refresh() },
-  })
-  if (notice.sent_at) {
-    return <span className="inline-flex items-center gap-1 text-[11px] text-emerald-700"><Mail className="size-3" /> Emailed to {notice.sent_to}, {fmtDatetime(notice.sent_at)}</span>
-  }
-  if (!notice.confirmed) {
-    return (
-      <span className="text-[11px] text-amber-700">
-        {notice.email ? `${notice.email} is not confirmed` : 'No email on the supplier list'}: deliver the notice by hand.
-      </span>
-    )
-  }
-  return (
-    <span className="inline-flex flex-wrap items-center gap-2 text-[11px]">
-      {notice.error && <span className="text-red-700">Email failed: {notice.error}</span>}
-      {canSend && (
-        <button disabled={isPending} onClick={() => mutate()}
-          className="inline-flex items-center gap-1 rounded-full border border-[--color-border-strong] bg-white px-2.5 py-1 font-medium text-[--color-text-secondary] hover:border-[--color-brand] hover:text-[--color-brand] disabled:opacity-60 transition-colors">
-          <Mail className="size-3" /> {isPending ? 'Sending…' : notice.error ? 'Email again' : `Email to ${notice.email}`}
-        </button>
-      )}
-    </span>
-  )
-}
-
-/* Where a canvass stands with the BAC. part 'status': Procurement submits
-   it, the BAC evaluates and awards or returns it. part 'resolutions': each
-   award's BAC Resolution with its Notices of Award. */
+/* Where a canvass stands between the BAC and the TWG. part 'status': returned
+   by the TWG (the BAC corrects the bids, BacBidSheet), with the TWG for its
+   evaluation, or certified and waiting for the BAC's award (BacAwardSheet).
+   part 'resolutions': each BAC Resolution with its Notices of Award. */
 export default function BacPanel({ prId, part = 'status' }) {
-  const confirm = useConfirm()
-  const refresh = useRefreshAwards(prId)
-  const [returning, setReturning] = useState(false)
   const { data } = useQuery({
     queryKey: ['bac', 'pr', prId],
     queryFn: () => api.get(`/bac/${prId}`).then(r => r.data),
   })
-  const { mutate: submit, isPending: submitting } = useMutation({
-    mutationFn: () => api.post(`/bac/${prId}/submit`),
-    onSuccess: () => { toast.success('Submitted to the BAC for evaluation'); refresh() },
-    onError: (err) => toast.error(err.response?.data?.message || 'Failed to submit it'),
-  })
-  if (!data || (!data.required && !data.resolutions.length)) return null
+  if (!data) return null
   if (part === 'resolutions' && !data.resolutions.length) {
-    return <p className="text-sm text-[--color-text-muted]">No award has been made in a BAC Resolution yet.</p>
+    return <p className="text-sm text-[--color-text-muted]">The BAC has not adopted a resolution for this request yet.</p>
   }
 
   const can = data.permissions
   const print = (endpoint, label) => openPdf(endpoint)
     .catch(async (err) => toast.error(await blobErrorMessage(err, `Could not open the ${label}`)))
 
-  return (
-    <div className="space-y-3">
-      {part === 'status' && data.with_bac && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-3">
-          <p className="flex items-center gap-2 text-sm text-indigo-900">
-            <Scale className="size-4 shrink-0" />
-            <span>
-              <span className="font-semibold">With the BAC for evaluation</span> since {fmtDatetime(data.submitted_at)}
-              {data.submitted_by_name ? `, submitted by ${data.submitted_by_name}` : ''}. The quotations are locked.
-            </span>
-          </p>
-          {can.return && (
-            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setReturning(true)}>
-              <Undo2 className="size-3.5" /> Return to Procurement
-            </Button>
-          )}
-        </div>
-      )}
-
-      {part === 'status' && data.return_reason && (
-        <p className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          <AlertTriangle className="size-4 shrink-0 mt-0.5" />
-          <span><span className="font-semibold">Returned by the BAC:</span> {data.return_reason}</span>
-        </p>
-      )}
-
-      {part === 'status' && can.submit && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[--color-border] bg-[--color-canvas] px-4 py-3">
-          <p className="text-sm text-[--color-text-secondary]">
-            Once the quotations are in, submit the canvass to the BAC. It evaluates them and makes the award.
-          </p>
-          <Button size="sm" className="gap-1.5" disabled={submitting}
-            onClick={async () => { if (await confirm({ title: 'Submit this canvass to the BAC?', message: 'The quotations lock until the BAC awards or returns it.', confirmLabel: 'Submit to the BAC' })) submit() }}>
-            <Send className="size-3.5" /> {submitting ? 'Submitting…' : 'Submit to the BAC'}
-          </Button>
-        </div>
-      )}
-
-      {part === 'resolutions' && data.resolutions.map(r => {
-        // One Notice of Award per supplier in the resolution.
-        const suppliers = [...new Map(r.lots.map(l => [nameKey(l.awarded_to), l])).values()]
-        return (
+  if (part === 'resolutions') {
+    return (
+      <div className="space-y-3">
+        {data.resolutions.map(r => (
           <div key={r.id} className="rounded-xl border border-[--color-border] px-4 py-3 space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
@@ -158,26 +45,43 @@ export default function BacPanel({ prId, part = 'status' }) {
               )}
             </div>
             {can.print && (
-              <div className="space-y-1.5">
-                {suppliers.map(l => {
-                  const notice = r.notices?.find(n => nameKey(n.awarded_to) === nameKey(l.awarded_to))
-                  return (
-                    <div key={l.id} className="flex flex-wrap items-center gap-2">
-                      <button onClick={() => print(`/bac/${prId}/resolutions/${r.id}/notice/${l.id}`, 'Notice of Award')}
-                        className="inline-flex items-center gap-1.5 rounded-full border border-[--color-border-strong] bg-white px-2.5 py-1 text-[11px] font-medium text-[--color-text-secondary] hover:border-[--color-brand] hover:text-[--color-brand] transition-colors">
-                        <FileText className="size-3" /> Notice of Award: {l.awarded_to}
-                      </button>
-                      {notice && <NoticeEmail prId={prId} resolutionId={r.id} notice={notice} canSend={can.email_notice} />}
-                    </div>
-                  )
-                })}
+              <div className="flex flex-wrap gap-1.5">
+                {r.notices.map(n => (
+                  <button key={n.lot_id} onClick={() => print(`/bac/${prId}/resolutions/${r.id}/notice/${n.lot_id}`, 'Notice of Award')}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-[--color-border-strong] bg-white px-2.5 py-1 text-[11px] font-medium text-[--color-text-secondary] hover:border-[--color-brand] hover:text-[--color-brand] transition-colors">
+                    <FileText className="size-3" /> Notice of Award: {n.awarded_to}
+                  </button>
+                ))}
               </div>
             )}
           </div>
-        )
-      })}
+        ))}
+      </div>
+    )
+  }
 
-      {returning && <ReturnDialog prId={prId} onClose={() => setReturning(false)} />}
+  return (
+    <div className="space-y-3">
+      {data.certification_return_reason && (
+        <p className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <AlertTriangle className="size-4 shrink-0 mt-0.5" />
+          <span><span className="font-semibold">Returned by the TWG:</span> {data.certification_return_reason}. The BAC corrects the bids and sends the canvass again.</span>
+        </p>
+      )}
+
+      {data.status === 'twg_certification' && (
+        <p className="flex items-center gap-2 rounded-xl border border-teal-300 bg-teal-50 px-4 py-3 text-sm text-teal-900">
+          <ShieldCheck className="size-4 shrink-0" />
+          <span><span className="font-semibold">With the TWG.</span> It checks every bid against the required specifications, marks each compliant or not, and certifies them.</span>
+        </p>
+      )}
+
+      {data.status === 'bac_review' && (
+        <p className="flex items-center gap-2 rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
+          <ShieldCheck className="size-4 shrink-0" />
+          <span><span className="font-semibold">Certified by the TWG.</span> The BAC picks each lot's winner; the system recommends the lowest compliant total.</span>
+        </p>
+      )}
     </div>
   )
 }

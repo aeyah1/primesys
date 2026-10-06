@@ -61,22 +61,28 @@ export function useLiveUpdates() {
       // type. The type is a severity the server picks freely ('info',
       // 'warning', ...), so switching on it silently stopped matching when
       // those were consolidated, and the lists went stale until refetched.
-      // reference_type is only ever 'pr', 'lot' or 'delivery'.
+      // reference_type is 'pr', 'lot', 'delivery' or 'ppmp'.
       const id = notification.reference_id ? String(notification.reference_id) : null
       const refresh = (...keys) => keys.forEach(k => qc.invalidateQueries({ queryKey: k }))
 
       switch (notification.reference_type) {
         case 'pr':
-          refresh(['pr-list'], ['pr-stats'], ['po-list'], ['lot-queue'], ['archive'], ['twg-pending'])
+          refresh(['pr-list'], ['pr-stats'], ['po-list'], ['lot-queue'], ['archive'], ['twg'], ['bac'], ['dashboard'])
           if (id) refresh(['pr', id], ['pr-items', id], ['pr-logs', id], ['canvass', id])
+          refresh(['po-detail'])   // a delivery notice to the requestor points at their PR
           break
 
         case 'lot':
-          refresh(['pr-list'], ['pr-stats'], ['lots'], ['lot-queue'])
+          refresh(['pr-list'], ['pr-stats'], ['lots'], ['lot-queue'], ['bac'], ['dashboard'])
           break
 
         case 'delivery':
-          refresh(['pr-list'], ['pr-stats'], ['po-list'], ['delivery-list'], ['archive'])
+          refresh(['pr-list'], ['pr-stats'], ['po-list'], ['po-detail'], ['deliveries'], ['archive'], ['dashboard'])
+          break
+
+        case 'ppmp':
+          refresh(['ppmp-list'], ['ppmp-coverage'])
+          if (id) refresh(['ppmp', id])
           break
       }
     }

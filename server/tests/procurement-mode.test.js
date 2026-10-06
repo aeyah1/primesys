@@ -1,9 +1,5 @@
-// Two controls the campus's process needs that the system had neither of:
-// the mode of procurement on the record, and a floor on how many supplier
-// quotations an award may be made from.
-//
-// The quotation rule is the one that matters: canvassing exists to compare
-// suppliers, and the system would award from a single quotation without a word.
+// The mode of procurement on the record: who may set it, which modes there
+// are, chosen when the canvass starts, and fixed once a supplier is awarded.
 // Real HTTP against a throwaway database (harness.js).
 const path = require('path')
 const H    = require('./harness')
@@ -14,7 +10,7 @@ const config = require(path.join(H.SERVER, 'config.js'))
 const jwt    = serverReq('jsonwebtoken')
 const { PROCUREMENT_MODES } = require(path.join(H.SERVER, 'utils', 'procurementModes'))
 
-const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 4: 'twg' }
+const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 4: 'twg', 5: 'bac' }
 const tok  = (id) => jwt.sign({ id, tv: 0 }, config.jwt.secret, { expiresIn: '1h' })
 
 function fixtures() {
@@ -24,11 +20,15 @@ function fixtures() {
   return `
     SET FOREIGN_KEY_CHECKS = 0;
     INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified) VALUES
-      ${U(1, 'Admin One')}, ${U(2, 'Proc One')}, ${U(3, 'Req One')}, ${U(4, 'Twg One')};
+      ${U(1, 'Admin One')}, ${U(2, 'Proc One')}, ${U(3, 'Req One')}, ${U(4, 'Twg One')}, ${U(5, 'Bac One')};
     INSERT INTO quarters (id, label, year, start_date, end_date, is_active) VALUES
       (1, 'Q1', ${new Date().getFullYear()}, '${new Date().getFullYear()}-01-01', '${new Date().getFullYear()}-12-31', 1);
-    INSERT INTO org_settings (setting_key, setting_value) VALUES ('minimum_quotations', '3');
     ${H.twgAreas([4])}
+    -- Requests are filed for an office and drawn from its verified PPMP (utils/ppmpUse.js).
+    INSERT INTO departments (id, code, name) VALUES (90, 'TST', 'Test Office');
+    UPDATE users SET department_id = 90 WHERE department_id IS NULL;
+    UPDATE purchase_requests SET department_id = 90 WHERE department_id IS NULL;
+    ${H.ppmpFor(90, ['Laptop'])}
     SET FOREIGN_KEY_CHECKS = 1;
   `
 }
@@ -42,29 +42,16 @@ async function http(who, method, p, body) {
 }
 const show = (r) => `${r.status} ${JSON.stringify(r.data)}`.slice(0, 220)
 
-// A PR taken all the way to canvass, with `n` suppliers quoting its one item.
-async function prUnderCanvass(title, quotationCount) {
-  const made = await http(2, 'POST', '/pr', { title, items: [{ item_name: 'Laptop', quantity: 1, estimated_cost: 50000 }] })
-  const id = made.data.id
+// A PR the TWG approved, its one item a laptop.
+async function approvedPr(title) {
+  const id = (await http(2, 'POST', '/pr', { title, items: [{ item_name: 'Laptop', quantity: 1, estimated_cost: 50000 }] })).data.id
   await http(2, 'PATCH', `/pr/${id}/status`, { status: 'submitted' })
   await http(4, 'POST', `/twg/${id}/review`, { action: 'approve' })
-  await http(2, 'PATCH', `/pr/${id}/status`, { status: 'bidding' })
-  const canvass = await http(2, 'GET', `/canvass/${id}`)
-  const itemId = canvass.data.items[0].id
-  const quotes = []
-  for (let k = 0; k < quotationCount; k++) {
-    const q = await http(2, 'POST', `/canvass/${id}/quotations`, {
-      supplier_name: `Supplier ${k + 1}`, supplier_contact: 'A Person', supplier_address: 'Cantilan',
-      supplier_phone: '09171234567', supplier_email: `s${k}@x.invalid`,
-      prices: [{ item: itemId, unit_price: 49000 + k * 100 }],
-    })
-    quotes.push(q.data.id)
-  }
-  return { id, itemId, quotes }
+  return id
 }
 
 async function run() {
-  const t = H.suite('MODE & MINIMUM QUOTATIONS')
+  const t = H.suite('MODE OF PROCUREMENT')
   const is = async (g, label, who, m, p, body, ok, want) => {
     const r = await http(who, m, p, body)
     t.check(g, label, ok(r), `${show(r)}${want ? ` (want ${want})` : ''}`)
@@ -98,45 +85,18 @@ async function run() {
     t.check('Mode', `"${mode}" is accepted`, r.status === 200, show(r))
   }
 
-  // ── Awarding on too few quotations ──────────────────────────────────
-  const one = await prUnderCanvass('One quotation only', 1)
-  let r = await http(2, 'POST', `/canvass/${one.id}/award`, { picks: [{ item: one.itemId, quotation: one.quotes[0] }] })
-  t.check('Minimum quotations', 'an award on one quotation is refused', r.status === 400, show(r))
-  t.check('Minimum quotations', '…and the message says how many are expected',
-    /1 quotation but 3 are expected/.test(r.data?.message || ''), r.data?.message)
-
-  r = await http(2, 'POST', `/canvass/${one.id}/award`, {
-    picks: [{ item: one.itemId, quotation: one.quotes[0] }],
-    few_quotations_reason: 'Sole distributor in the province',
-  })
-  t.check('Minimum quotations', 'with a written reason it goes through', r.status === 201, show(r))
-  const lot = await H.sql(TEST_DB, 'SELECT few_quotations_reason FROM lots WHERE purchase_request_id = ?', [one.id])
-  t.check('Minimum quotations', '…and the reason is kept on the award',
-    lot[0]?.few_quotations_reason === 'Sole distributor in the province', JSON.stringify(lot[0]))
-
-  const two = await prUnderCanvass('Two quotations', 2)
-  r = await http(2, 'POST', `/canvass/${two.id}/award`, { picks: [{ item: two.itemId, quotation: two.quotes[0] }] })
-  t.check('Minimum quotations', 'two is still too few', r.status === 400, show(r))
-
-  const three = await prUnderCanvass('Three quotations', 3)
-  r = await http(2, 'POST', `/canvass/${three.id}/award`, { picks: [{ item: three.itemId, quotation: three.quotes[0] }] })
-  t.check('Minimum quotations', 'three needs no reason at all', r.status === 201, show(r))
-  const clean = await H.sql(TEST_DB, 'SELECT few_quotations_reason FROM lots WHERE purchase_request_id = ?', [three.id])
-  t.check('Minimum quotations', '…and carries no reason', clean[0]?.few_quotations_reason === null, JSON.stringify(clean[0]))
-
-  // ── The campus can set its own floor ────────────────────────────────
-  await is('The setting', 'an admin lowers the minimum to 1', 1, 'PATCH', '/settings',
-    { minimum_quotations: '1' }, r => r.status === 200)
-  const solo = await prUnderCanvass('One is enough now', 1)
-  r = await http(2, 'POST', `/canvass/${solo.id}/award`, { picks: [{ item: solo.itemId, quotation: solo.quotes[0] }] })
-  t.check('The setting', 'one quotation is then allowed', r.status === 201, show(r))
-  await is('The setting', 'put it back to three', 1, 'PATCH', '/settings',
-    { minimum_quotations: '3' }, r => r.status === 200)
-
-  // Awarding with nothing recorded at all is its own message.
-  const none = await prUnderCanvass('No quotations', 0)
-  const canvass = await http(2, 'GET', `/canvass/${none.id}`)
-  t.check('The setting', 'a PR with no quotations has none to pick', canvass.data.quotations.length === 0)
+  // ── Chosen when the canvass starts, fixed once awarded ──────────────
+  const id = await approvedPr('Laptop for the dean')
+  await is('Canvass', 'the canvass starts with a mode', 2, 'POST', `/canvass/${id}/start`, {}, r => r.status === 400, '400')
+  await is('Canvass', '…from the list', 2, 'POST', `/canvass/${id}/start`, { mode_of_procurement: 'Telepathy' }, r => r.status === 400, '400')
+  await is('Canvass', 'start it by Shopping', 2, 'POST', `/canvass/${id}/start`, { mode_of_procurement: 'Shopping' }, r => r.status === 200)
+  await is('Canvass', '…the mode is on the record', 2, 'GET', `/pr/${id}`, undefined, r => r.data.mode_of_procurement === 'Shopping' && r.data.status === 'bidding')
+  await is('Canvass', 'it may still change before a winner is recorded', 2, 'PATCH', `/pr/${id}/mode`, { mode_of_procurement: 'Small Value Procurement' }, r => r.status === 200)
+  const item = (await http(2, 'GET', `/canvass/${id}`)).data.items[0].id
+  let through = 'ok'
+  try { await H.award(BASE, tok, id, { bac: 5, twg: 4 }, [{ name: 'Supplier 1', prices: { [item]: 49000 } }]) } catch (e) { through = e.message }
+  t.check('Canvass', 'the BAC\'s bids, the TWG\'s certificate, the BAC\'s award', through === 'ok', through)
+  await is('Canvass', '…then the mode is fixed', 2, 'PATCH', `/pr/${id}/mode`, { mode_of_procurement: 'Shopping' }, r => r.status === 409 && /fixed/.test(r.data.message), '409')
 
   return t.summary()
 }

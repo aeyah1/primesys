@@ -23,21 +23,29 @@ export const localToday = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+// "1 item", "3 items".
+export const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
+
+// Whole days since a date, never negative.
+export const daysSince = (d) => Math.max(0, Math.floor((Date.now() - new Date(d).getTime()) / 864e5))
+
 export const fmtDatetime = (d) => {
   if (!d) return '—'
   return new Date(d).toLocaleString('en-PH', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-// Keep these in sync with the server-side validation lists in pr.controller / lots.controller.
+// In workflow order, which charts and lists follow; keep in sync with server/utils/prWorkflow.js.
 export const PR_STATUS_LABELS = {
   draft:              'Draft',
   submitted:          'Submitted',
-  twg_review:         'Approved by TWG',
   revision_requested: 'Revision Requested',
-  rejected:           'Rejected by TWG',
-  bidding:            'Bidding',
+  twg_review:         'Approved by TWG',
+  bidding:            'Canvass',
+  twg_certification:  'TWG certification',
+  bac_review:         'BAC award',
   for_po:             'Ready for PO',
   completed:          'Completed',
+  rejected:           'Rejected by TWG',
   cancelled:          'Cancelled',
 }
 
@@ -48,7 +56,9 @@ export const PR_STATUS_HELP = {
   twg_review:         'The TWG approved it. Waiting for the Procurement Office.',
   revision_requested: 'The TWG asked for changes before it can go on.',
   rejected:           'The TWG did not approve it. It will not go further.',
-  bidding:            'The Procurement Office is asking suppliers for prices.',
+  bidding:            'The canvasser is asking suppliers for prices; the BAC enters the bids for the TWG to check.',
+  bac_review:         'The TWG checked the offers. The Bids and Awards Committee chooses the winners.',
+  twg_certification:  'The TWG is checking every offer against the specifications.',
   for_po:             'A supplier was chosen. The purchase order comes next, then delivery.',
   completed:          'Everything was delivered. Done.',
   cancelled:          'Stopped by the Procurement Office. It will not go further.',
@@ -61,6 +71,8 @@ export const PR_STATUS_COLORS = {
   revision_requested: 'bg-amber-50 text-amber-700 border-amber-300',
   rejected:           'bg-red-50 text-red-700 border-red-300',
   bidding:            'bg-orange-50 text-orange-700 border-orange-300',
+  bac_review:         'bg-indigo-50 text-indigo-700 border-indigo-300',
+  twg_certification:  'bg-teal-50 text-teal-700 border-teal-300',
   for_po:             'bg-violet-50 text-violet-700 border-violet-300',
   completed:          'bg-emerald-50 text-emerald-700 border-emerald-300',
   cancelled:          'bg-rose-50 text-rose-700 border-rose-300',
@@ -122,7 +134,7 @@ export const CATEGORY_FORM = {
     sectionLabel:       'Project / Setup',
     sectionPlaceholder: 'e.g. PROJECT: New Computer Laboratory',
     itemLabel:          'Equipment',
-    itemPlaceholder:    'e.g. HP Victus 15 Laptop / Epson L3210 Printer',
+    itemPlaceholder:    'e.g. Laptop computer, 15.6 inch / Ink tank printer, A4',
     units: ['pc','set','unit','pair','lot','box'],
     defaultUnit: 'pc',
   },
@@ -169,28 +181,25 @@ export const CATEGORY_FORM = {
 }
 
 // Per-category structured spec fields. These replace the single "Specifications"
-// textarea with category-specific inputs (Brand/Model for Hardware, Material/Color
-// for Furniture, etc.). On Add, values get concatenated into the item's `notes`
+// textarea with category-specific inputs (Material/Color for Furniture, etc.; no
+// Brand field, since a PR may not name brands). On Add, values get concatenated into the item's `notes`
 // string with each label preserved — no new DB columns needed.
 //
 // To add a new field to a category: edit this array. To add a new category:
 // add the entry AND a corresponding card in ItemCategorySelector.
 export const CATEGORY_FIELDS = {
   hardware: [
-    { key: 'brand', label: 'Brand',                       placeholder: 'e.g. HP, Dell, Lenovo' },
-    { key: 'model', label: 'Model',                       placeholder: 'e.g. Victus 15-fa1xxxxx' },
-    { key: 'specs', label: 'Specifications', type: 'textarea',
-      placeholder: 'e.g.\nIntel Core i5-13420H\n16GB DDR4 RAM, 512GB NVMe SSD\n15.6" FHD 144Hz display\nNVIDIA RTX 4050' },
+    { key: 'specs', label: 'Minimum Specifications', type: 'textarea',
+      placeholder: 'e.g.\nProcessor: 8 cores or more, 4.0 GHz or faster\n16GB RAM, 512GB SSD\n15.6" full HD display\nDedicated graphics, 6GB or more' },
   ],
   office_supplies: [
-    { key: 'brand',     label: 'Brand',       placeholder: 'e.g. Hard Copy, Paperline (optional)' },
     { key: 'size_type', label: 'Size / Type', placeholder: 'e.g. A4 / 80gsm / sub20' },
     { key: 'notes',     label: 'Notes', type: 'textarea',
       placeholder: 'Anything else worth noting (optional)' },
   ],
   lab_educational: [
     { key: 'topic',        label: 'Topic / Subject', placeholder: 'e.g. General Chemistry, Biology Lab' },
-    { key: 'author_brand', label: 'Author / Brand',  placeholder: 'e.g. Chang & Goldsby, Olympus' },
+    { key: 'title_author', label: 'Title / Author',  placeholder: 'e.g. General Chemistry, Chang & Goldsby' },
     { key: 'specs',        label: 'Specifications', type: 'textarea',
       placeholder: 'e.g.\nEdition: 13th\nWith CD / access code\nIncludes lab manual' },
   ],
@@ -318,6 +327,10 @@ export const fundCodeFor = (orgSettings, source) => {
   const found = FUND_SOURCES.find(f => f.value === source)
   return (found && orgSettings?.[found.settingKey]) || orgSettings?.fund_cluster || ''
 }
+
+// A request's temporary reference (REQ-000123), until Procurement assigns its PR
+// number when the canvass starts. Keep in step with server/utils/prNumber.js.
+export const isTemporaryPrNumber = (number) => /^REQ-\d+$/.test(String(number || ''))
 
 // How a purchase is procured. Keep in step with server/utils/procurementModes.js,
 // which is where the list is validated and where the caveat about RA 12009 lives.

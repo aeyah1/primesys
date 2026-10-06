@@ -12,41 +12,23 @@ const { closeBlock } = require('../utils/shortDelivery')
 const { orderBySection } = require('../utils/itemSections')
 const { currentQuarter } = require('../utils/quarters')
 const { CATEGORIES, isCategory, syncPRCategory } = require('../utils/categories')
-const { loadOrgSettings, prNumberPrefix, fundCodeFor, FUND_SOURCE_VALUES } = require('../utils/orgSettings')
-const { requestedBy, resolveDepartment } = require('../utils/departments')
-const { reviewsCategory, notifyAreaReviewers } = require('../utils/twgAreas')
+const crypto          = require('crypto')
+const { loadOrgSettings, fundCodeFor, FUND_SOURCE_VALUES } = require('../utils/orgSettings')
+const { temporaryRef, isTemporary } = require('../utils/prNumber')
+const { requestedBy, requesterOf, resolveDepartment } = require('../utils/departments')
+const { requesterSignature } = require('../utils/signature')
+const { reviewsCategory, notifyAreaReviewers, areaReviewers } = require('../utils/twgAreas')
+const { assertNoBrands } = require('../utils/brandNames')
+const { linesForItems, lockOfficePlans, reviewPr, usablePlans } = require('../utils/ppmpUse')
 const drawPRForm = require('../pdf/prForm')
-
-// The next PR number, in the form the printed PR carries: "CSO 2026-001",
-// where CSO is the campus prefix (org_settings.pr_number_prefix) and the count
-// runs per calendar year. The year is in the prefix, so the LIKE alone scopes
-// the sequence.
-//
-// MAX(suffix) + 1, so numbers are stable across deletions and concurrent
-// inserts collide on the UNIQUE constraint (handled by the caller's retry).
-// `attempt` shifts the candidate forward on retry.
-//
-// PRs numbered before this format (PR-2026-Q3-001) keep their numbers: they
-// don't match the LIKE, so they neither block nor renumber.
-const prNumberStem = (prefixWord) => `${prefixWord} ${new Date().getFullYear()}-`
-
-const genPRNumber = async (prefixWord, attempt = 0) => {
-  const prefix = prNumberStem(prefixWord)
-  const [rows] = await pool.execute(
-    `SELECT MAX(CAST(SUBSTRING(pr_number, ${prefix.length + 1}) AS UNSIGNED)) AS max_n
-       FROM purchase_requests
-      WHERE pr_number LIKE ?`,
-    [prefix + '%']
-  )
-  const next = (rows[0].max_n || 0) + 1 + attempt
-  return prefix + String(next).padStart(3, '0')
-}
 
 // Orders the PR list may use (?sort=); anything else falls back to newest.
 // "oldest_approval" puts the longest-waiting TWG approvals first, which is
 // Procurement's work order; rows without the value sort last.
 const LIST_SORTS = {
   newest:          'pr.created_at DESC, pr.id DESC',
+  oldest:          'pr.created_at ASC, pr.id ASC',
+  pr_number:       'pr.pr_number ASC, pr.id ASC',
   oldest_approval: 'pr.twg_reviewed_at IS NULL, pr.twg_reviewed_at ASC, pr.id ASC',
   date_needed:     'pr.date_needed IS NULL, pr.date_needed ASC, pr.id ASC',
   total:           'estimated_total DESC, pr.id DESC',
@@ -69,8 +51,10 @@ exports.list = asyncHandler(async (req, res) => {
   if (statuses.length) { where.push(`pr.status IN (${statuses.map(() => '?').join(', ')})`); params.push(...statuses) }
   else if (status) where.push('1 = 0')
   if (category) { where.push('pr.category = ?'); params.push(category) }
-  // The quarter a PR was filed under (the Archive).
+  // The quarter a PR was filed under, the year of its quarter, and its office (the Archive).
   if (/^\d+$/.test(String(req.query.quarter_id ?? ''))) { where.push('pr.quarter_id = ?'); params.push(Number(req.query.quarter_id)) }
+  if (/^\d{4}$/.test(String(req.query.year ?? ''))) { where.push('pr.quarter_id IN (SELECT id FROM quarters WHERE year = ?)'); params.push(Number(req.query.year)) }
+  if (/^\d+$/.test(String(req.query.department_id ?? ''))) { where.push('pr.department_id = ?'); params.push(Number(req.query.department_id)) }
   if (search) {
     where.push('(pr.pr_number LIKE ? OR pr.title LIKE ?)')
     params.push(`%${search}%`, `%${search}%`)
@@ -85,7 +69,7 @@ exports.list = asyncHandler(async (req, res) => {
   const [rows] = await pool.execute(`
     SELECT pr.id, pr.pr_number, pr.title, pr.status, pr.fund_cluster, pr.category,
            pr.department, pr.purpose_type, pr.date_needed, pr.created_at,
-           pr.created_by, pr.deleted_at,
+           pr.created_by, pr.deleted_at, pr.delete_reason,
            u.name AS created_by_name, du.name AS deleted_by_name,
            q.label AS quarter_label, q.year AS quarter_year,
            ${ACTIVE('MIN(px.id)')} AS po_id,
@@ -147,7 +131,7 @@ exports.stats = asyncHandler(async (req, res) => {
 
   const out = {
     total: 0, draft: 0, submitted: 0, twg_review: 0, revision_requested: 0, rejected: 0,
-    bidding: 0, for_po: 0, completed: 0, cancelled: 0, deleted: Number(deleted),
+    bidding: 0, bac_review: 0, twg_certification: 0, for_po: 0, completed: 0, cancelled: 0, deleted: Number(deleted),
     pending_delivery: 0, partial_delivery: 0, delivered: 0,
   }
   for (const r of prRows) {
@@ -211,15 +195,16 @@ exports.getById = asyncHandler(async (req, res) => {
     WHERE psl.pr_id = ? AND psl.to_status = 'revision_requested'
     ORDER BY psl.id DESC LIMIT 1
   `, [req.params.id])
-  const pr = rows[0]
+  const { requested_by_signature, ...pr } = rows[0]
   // No itemCount here: Submit stays offered on an empty draft, and the move
   // itself (changePRStatus) answers "Add at least one item before submitting".
   const facts = { ...pr, hasPO: active.length > 0, hasAnyPO: pos.length > 0, hasLot: !!has_lot, hasAward: !!has_award }
-  // TWG decision: a submitted PR, by a reviewer of its area or an admin.
-  const twgReview = pr.status === 'submitted' && !pr.deleted_at
+  // TWG decisions, by a reviewer of its area: the review of a submitted PR, and the certification of its canvass result.
+  const twgDecides = !pr.deleted_at && ['submitted', 'twg_certification'].includes(pr.status)
     && req.user.role === 'twg' && await reviewsCategory(pool, req.user.id, pr.category)
   res.json({
     ...pr,
+    requested_by_signed: !!requested_by_signature,
     // Each active PO with what this user may do with it.
     pos: active.map(({ has_deliveries, ...po }) => ({
       ...po,
@@ -232,7 +217,8 @@ exports.getById = asyncHandler(async (req, res) => {
     revision,
     permissions: {
       ...prPermissions(req.user, facts),
-      twg_review: twgReview,
+      twg_review:  twgDecides && pr.status === 'submitted',
+      twg_certify: twgDecides && pr.status === 'twg_certification',
     },
   })
 })
@@ -258,24 +244,24 @@ exports.create = asyncHandler(async (req, res) => {
     event_name, event_date, project_name, items,
   } = req.body
   const initialStatus = (status === 'submitted') ? 'submitted' : 'draft'
+  const signature = requesterSignature(req.body)
   const prCategory    = VALID_CATEGORIES.includes(category) ? category : 'office_supplies'
   const prPurposeType = VALID_PURPOSE_TYPES.includes(purpose_type) ? purpose_type : 'personal'
 
   // Items arrive with the PR and are saved in the same transaction, so a
   // submitted PR never exists without its items and none can go missing.
   const itemList = Array.isArray(items) ? items : []
-  const badItem  = itemList.findIndex(it => !it?.item_name?.trim())
+  const badItem  = itemList.findIndex(it => !it?.item_name?.trim() && !it?.ppmp_item_id)
   if (badItem >= 0) return res.status(400).json({ message: `Item ${badItem + 1} needs a name` })
   if (initialStatus === 'submitted' && !itemList.length) {
     return res.status(400).json({ message: 'Add at least one item before submitting' })
   }
+  assertNoBrands({ title, purpose }, itemList)
 
-  // Procurement terms are filled in here, not asked of the person filing:
-  // requestors' PRs always go under the current quarter (staff may pick one),
-  // and the fund cluster / responsibility center code come from Organization
-  // settings unless staff give them.
+  // Procurement terms are filled in here, not asked of the person filing: the
+  // fund cluster / responsibility center code come from Organization settings
+  // unless staff give them.
   const isStaff   = ['procurement', 'admin'].includes(req.user.role)
-  const quarterId = (isStaff && quarter_id) ? quarter_id : ((await currentQuarter(pool))?.id ?? null)
   const org = await loadOrgSettings(pool)
   // Which of the three funds this request is drawn on, and the code that goes
   // with it. The code is frozen onto the PR, so a later change to the campus's
@@ -287,53 +273,62 @@ exports.create = asyncHandler(async (req, res) => {
   // whoever encoded the request. Both the office and its head are frozen onto
   // the PR now, so a later change of chair leaves filed PRs alone
   // (utils/departments.js). The office asked for wins; otherwise the filer's own.
+  // A Fund Administrator files only for their own office, whose PPMP the request draws on.
   const [[filer]] = await pool.execute('SELECT name, designation FROM users WHERE id = ?', [req.user.id])
-  const dept = await resolveDepartment(pool, { departmentId: department_id, userId: req.user.id })
-  const requester = requestedBy(dept, filer)
-  // Office/Section prints the department's code; free text is still accepted
-  // for an office that is not on the list.
-  const departmentText = dept ? dept.code : (department?.trim() || null)
+  const dept = await resolveDepartment(pool, { departmentId: req.user.role === 'requestor' ? null : department_id, userId: req.user.id })
+  // Items picked from the office's PPMP take the line's description and unit.
+  const lines = await linesForItems(pool, dept?.id, itemList)
+  // The quarter it is filed under: a Fund Administrator picks one of their PPMP's year, whose items it requests;
+  // staff may pick any. Without one, the current quarter.
+  if (quarter_id && !isStaff) {
+    const [[q]] = await pool.execute('SELECT year FROM quarters WHERE id = ?', [quarter_id])
+    const years = (await usablePlans(pool, dept?.id)).map(p => p.fiscal_year)
+    if (!q || !years.includes(Number(q.year))) return res.status(400).json({ message: 'Pick a quarter of your office\'s PPMP year' })
+  }
+  const quarterId = quarter_id || ((await currentQuarter(pool))?.id ?? null)
+  // Who requested it: as the Fund Administrator typed it, else the office head.
+  const requester = requesterOf(req.body, dept, filer)
+  if (signature && !requester.name) return res.status(400).json({ message: 'Name who requested it before it is signed' })
+  // Office/Section as printed: what the Fund Administrator typed, else the office's code (free text when no office is on the list).
+  const departmentText = (req.user.role === 'requestor' && department?.trim()) || (dept ? dept.code : (department?.trim() || null))
 
   const { prId, pr_number, category: createdCategory } = await withTransaction(async (conn) => {
-    // Retry on UNIQUE-constraint collision (concurrent inserts picking the same suffix).
-    const MAX_ATTEMPTS = 5
-    let created = null
-    for (let attempt = 0; attempt < MAX_ATTEMPTS && !created; attempt++) {
-      const pr_number = await genPRNumber(prNumberPrefix(org.pr_number_prefix), attempt)
-      try {
-        const [result] = await conn.execute(
-          `INSERT INTO purchase_requests (
-             pr_number, quarter_id, title, fund_cluster, fund_source, responsibility_center_code,
-             department, department_id, purpose_type, purpose, date_needed, recommended_by,
-             event_name, event_date, project_name, category, status, created_by,
-             requested_by_name, requested_by_designation
-           ) VALUES (?, ?, ?, ?, ?, ?,  ?, ?, ?, ?, ?,  ?, ?, ?, ?, ?, 'draft', ?,  ?, ?)`,
-          [
-            pr_number, quarterId, title || null, fundCluster, fundSource, rcCode,
-            departmentText, dept?.id ?? null,
-            prPurposeType,
-            purpose?.trim() || null,
-            toSqlDate(date_needed),
-            recommended_by?.trim() || null,
-            event_name?.trim() || null,
-            toSqlDate(event_date),
-            project_name?.trim() || null,
-            prCategory, req.user.id,
-            requester.name, requester.designation,
-          ]
-        )
-        created = { prId: result.insertId, pr_number }
-      } catch (err) {
-        if (err.code !== 'ER_DUP_ENTRY' || attempt === MAX_ATTEMPTS - 1) throw err
-      }
-    }
-    for (const it of itemList) {
+    // Submitting straight away: queue on the office's PPMP before writing any rows (utils/ppmpUse.js).
+    if (initialStatus === 'submitted') await lockOfficePlans(conn, { deptId: dept?.id })
+    // A temporary reference until Procurement assigns the PR number (utils/prNumber.js);
+    // a one-off placeholder holds the UNIQUE column until the row has its id.
+    const [result] = await conn.execute(
+      `INSERT INTO purchase_requests (
+         pr_number, quarter_id, title, fund_cluster, fund_source, responsibility_center_code,
+         department, department_id, purpose_type, purpose, date_needed, recommended_by,
+         event_name, event_date, project_name, category, status, created_by,
+         requested_by_name, requested_by_designation, requested_by_signature, requested_by_sign_method, requested_by_signed_at
+       ) VALUES (?, ?, ?, ?, ?, ?,  ?, ?, ?, ?, ?,  ?, ?, ?, ?, ?, 'draft', ?,  ?, ?, ?, ?, ?)`,
+      [
+        `REQ-NEW-${crypto.randomUUID()}`, quarterId, title || null, fundCluster, fundSource, rcCode,
+        departmentText, dept?.id ?? null,
+        prPurposeType,
+        purpose?.trim() || null,
+        toSqlDate(date_needed),
+        recommended_by?.trim() || null,
+        event_name?.trim() || null,
+        toSqlDate(event_date),
+        project_name?.trim() || null,
+        prCategory, req.user.id,
+        requester.name, requester.designation,
+        signature?.image ?? null, signature?.method ?? null, signature ? new Date() : null,
+      ]
+    )
+    const created = { prId: result.insertId, pr_number: temporaryRef(result.insertId) }
+    await conn.execute('UPDATE purchase_requests SET pr_number = ? WHERE id = ?', [created.pr_number, created.prId])
+    for (const [n, it] of itemList.entries()) {
+      const line = lines[n]
       await conn.execute(
-        `INSERT INTO pr_items (pr_id, stock_property_no, group_label, category, item_name, quantity, unit, estimated_cost, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [created.prId, it.stock_property_no?.trim() || null, it.group_label?.trim() || null,
-         isCategory(it.category) ? it.category : prCategory, it.item_name.trim(),
-         it.quantity || 1, it.unit || null, it.estimated_cost || null, it.notes || null]
+        `INSERT INTO pr_items (pr_id, ppmp_item_id, stock_property_no, group_label, category, item_name, quantity, unit, estimated_cost, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [created.prId, line?.id ?? null, it.stock_property_no?.trim() || null, it.group_label?.trim() || null,
+         isCategory(it.category) ? it.category : prCategory, line?.description ?? it.item_name.trim(),
+         it.quantity || 1, line?.unit ?? (it.unit || null), it.estimated_cost || null, it.notes || null]
       )
     }
     // The request's category follows its items, so it describes what is being
@@ -358,6 +353,12 @@ exports.create = asyncHandler(async (req, res) => {
   res.status(201).json({ id: prId, pr_number })
 })
 
+// The request's items against its office's PPMP: each item's line, what is left of it, warnings, and what blocks submitting.
+exports.ppmpReview = asyncHandler(async (req, res) => {
+  const { plan, items, problems } = await reviewPr(pool, req.params.id)
+  res.json({ plan, items, problems })
+})
+
 exports.updateStatus = asyncHandler(async (req, res) => {
   const { status, notes } = req.body
   if (!PR_STATUSES.includes(status)) return res.status(400).json({ message: 'Invalid status' })
@@ -375,7 +376,7 @@ exports.updateStatus = asyncHandler(async (req, res) => {
 
   if (created_by !== req.user.id) {
     const statusLabels = {
-      bidding:   'is now under canvass',
+      bidding:   'is now in canvass',
       cancelled: 'has been cancelled',
       draft:     'has been returned to draft',
       submitted: 'has been submitted',
@@ -404,18 +405,34 @@ exports.update = asyncHandler(async (req, res) => {
 
   const denied = await editDenied(pool, req.user, req.params.id)
   if (denied) return res.status(denied.status).json({ message: denied.message })
+  assertNoBrands({ title, purpose })
 
   // Moving the PR to another office moves who signs "Requested by" with it: the
   // form must name the head of the office it is actually filed under. A PR is
   // only editable before the TWG sees it, so this never rewrites an approved one.
   const [[owner]] = await pool.execute(
-    'SELECT u.name, u.designation FROM purchase_requests pr JOIN users u ON u.id = pr.created_by WHERE pr.id = ?',
+    `SELECT u.name, u.designation, pr.department, pr.department_id, pr.requested_by_name, d.code AS office_code, d.head_name, d.head_designation
+       FROM purchase_requests pr JOIN users u ON u.id = pr.created_by LEFT JOIN departments d ON d.id = pr.department_id
+      WHERE pr.id = ?`,
     [req.params.id])
-  const dept = 'department_id' in req.body
+  // A Fund Administrator's request stays with their own office (and its PPMP).
+  const officeLocked = req.user.role === 'requestor'
+  const dept = 'department_id' in req.body && !officeLocked
     ? await resolveDepartment(pool, { departmentId: department_id })
     : undefined
-  const requester = dept === undefined ? null : requestedBy(dept, owner)
-  const departmentText = dept === undefined ? (department?.trim() || null) : (dept ? dept.code : (department?.trim() || null))
+  // Who requested it: as typed (else the office head), or the new office's head when only the office changes.
+  const office = dept === undefined ? (owner.department_id ? { head_name: owner.head_name, head_designation: owner.head_designation } : null) : dept
+  const requester = 'requested_by_name' in req.body ? requesterOf(req.body, office, owner)
+    : dept === undefined ? null : requestedBy(dept, owner)
+  // A signature belongs to the person named: naming someone else drops it.
+  let signature = requesterSignature(req.body)
+  if (signature === undefined && requester && requester.name !== owner.requested_by_name) signature = null
+  if (signature && !(requester ? requester.name : owner.requested_by_name)) {
+    return res.status(400).json({ message: 'Name who requested it before it is signed' })
+  }
+  // A Fund Administrator may retype Office/Section (blank prints the office's code); the office itself stays.
+  const departmentText = officeLocked ? ('department' in req.body ? (department?.trim() || owner.office_code || null) : owner.department)
+    : dept === undefined ? (department?.trim() || null) : (dept ? dept.code : (department?.trim() || null))
   // The office and its signatory move together, and only when the request
   // actually names an office: sending it empty clears all three, so a PR can't
   // end up filed under one office but signed by another's head.
@@ -426,11 +443,18 @@ exports.update = asyncHandler(async (req, res) => {
            fund_cluster                = ?` : ''
   const sourceValues = newSource ? [newSource, fundCodeFor(await loadOrgSettings(pool), newSource)] : []
 
-  const officeSet = dept === undefined ? '' : `,
-           department_id               = ?,
+  const officeSet = (dept === undefined ? '' : `,
+           department_id               = ?`) + (requester ? `,
            requested_by_name           = ?,
-           requested_by_designation    = ?`
-  const officeValues = dept === undefined ? [] : [dept?.id ?? null, requester?.name ?? null, requester?.designation ?? null]
+           requested_by_designation    = ?` : '') + (signature === undefined ? '' : `,
+           requested_by_signature      = ?,
+           requested_by_sign_method    = ?,
+           requested_by_signed_at      = ${signature ? 'NOW()' : 'NULL'}`)
+  const officeValues = [
+    ...(dept === undefined ? [] : [dept?.id ?? null]),
+    ...(requester ? [requester.name ?? null, requester.designation ?? null] : []),
+    ...(signature === undefined ? [] : [signature?.image ?? null, signature?.method ?? null]),
+  ]
 
   // Each context column is set unconditionally (no COALESCE) so the client can
   // legitimately CLEAR a field by sending null/empty. category and purpose_type
@@ -470,6 +494,55 @@ exports.update = asyncHandler(async (req, res) => {
   res.json({ message: 'PR updated' })
 })
 
+// GET /pr/requesters?department_id= - suggestions for "Requested by": the
+// office head, then who requested for the office before, latest first. A Fund
+// Administrator gets their own office's.
+exports.requesters = asyncHandler(async (req, res) => {
+  const [[me]] = await pool.execute('SELECT department_id FROM users WHERE id = ?', [req.user.id])
+  const officeId = req.user.role === 'requestor' ? me?.department_id : (Number(req.query.department_id) || null)
+  if (!officeId) return res.json([])
+  const [[head]] = await pool.execute('SELECT head_name AS name, head_designation AS designation FROM departments WHERE id = ?', [officeId])
+  const [past] = await pool.execute(
+    `SELECT requested_by_name AS name, requested_by_designation AS designation, MAX(id) AS latest
+       FROM purchase_requests WHERE department_id = ? AND requested_by_name IS NOT NULL AND deleted_at IS NULL
+      GROUP BY requested_by_name, requested_by_designation ORDER BY latest DESC LIMIT 20`, [officeId])
+  const people = []
+  for (const p of [...(head?.name ? [{ ...head, head: true }] : []), ...past]) {
+    if (people.some(x => x.name.toLowerCase() === p.name.toLowerCase())) continue
+    people.push({ name: p.name, designation: p.designation || null, head: !!p.head })
+  }
+  res.json(people)
+})
+
+// GET /pr/:id/requester-signature - the requester's signature image, how it was made, and when.
+// GET /pr/sections?department_id= - suggestions for "Office / Section": the
+// office's code and name, then what its requests printed there before, newest first.
+// A Fund Administrator always gets their own office's.
+exports.sections = asyncHandler(async (req, res) => {
+  const [[me]] = await pool.execute('SELECT department_id FROM users WHERE id = ?', [req.user.id])
+  const officeId = req.user.role === 'requestor' ? me?.department_id : (Number(req.query.department_id) || null)
+  if (!officeId) return res.json([])
+  const [[office]] = await pool.execute('SELECT code, name FROM departments WHERE id = ?', [officeId])
+  if (!office) return res.json([])
+  const [past] = await pool.execute(
+    `SELECT department AS value, MAX(id) AS latest FROM purchase_requests
+      WHERE department_id = ? AND department IS NOT NULL AND department <> '' AND deleted_at IS NULL
+      GROUP BY department ORDER BY latest DESC LIMIT 20`, [officeId])
+  const out = []
+  for (const [value, note] of [[office.code, 'office code'], [office.name, 'office name'], ...past.map(p => [p.value, 'used before'])]) {
+    if (value && !out.some(x => x.value.toLowerCase() === value.toLowerCase())) out.push({ value, note })
+  }
+  res.json(out)
+})
+
+exports.requesterSignature = asyncHandler(async (req, res) => {
+  const [[row]] = await pool.execute(
+    'SELECT requested_by_signature AS image, requested_by_sign_method AS method, requested_by_signed_at AS signed_at FROM purchase_requests WHERE id = ?',
+    [req.params.id])
+  if (!row) return res.status(404).json({ message: 'PR not found' })
+  res.json(row.image ? row : { image: null, method: null, signed_at: null })
+})
+
 // PATCH /pr/:id/mode - how this purchase is procured. Procurement or the BAC
 // decides it, usually once the TWG has approved and the canvass is being set
 // up, so it is separate from the request's own details. Fixed once a supplier
@@ -488,19 +561,39 @@ exports.setProcurementMode = asyncHandler(async (req, res) => {
 exports.remove = asyncHandler(async (req, res) => {
   // Soft delete: the PR, with its items, attachments, and audit log, is kept and
   // listed under Archive > Deleted. The rule check and the mark run under a row
-  // lock, so a lot or PO can't appear in between.
-  const denied = await withTransaction(async (conn) => {
+  // lock, so a lot or PO can't appear in between. Someone else's request is
+  // deleted with the reason (its filer is told); the delete is logged.
+  const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : ''   // checked in the route
+  const result = await withTransaction(async (conn) => {
     const pr = await loadPR(conn, req.params.id, { lock: true })
     if (!pr) return { status: 404, message: 'PR not found' }
     const block = deleteBlock(req.user, pr)
     if (block) return block
+    if (pr.created_by !== req.user.id && !reason) return { status: 400, message: 'Say why it is deleted. Whoever filed it is told.' }
     await conn.execute(
-      'UPDATE purchase_requests SET deleted_at = CURRENT_TIMESTAMP, deleted_by = ? WHERE id = ?',
-      [req.user.id, pr.id]
+      'UPDATE purchase_requests SET deleted_at = CURRENT_TIMESTAMP, deleted_by = ?, delete_reason = ? WHERE id = ?',
+      [req.user.id, reason || null, pr.id]
     )
-    return null
+    await conn.execute('INSERT INTO pr_status_logs (pr_id, changed_by, from_status, to_status, note) VALUES (?, ?, ?, ?, ?)',
+      [pr.id, req.user.id, pr.status, 'deleted', reason || 'Deleted by whoever filed it'])
+    return { pr }
   })
-  if (denied) return res.status(denied.status).json({ message: denied.message })
+  if (!result.pr) return res.status(result.status).json({ message: result.message })
+
+  // Its filer (unless they deleted it), and whoever had it: the TWG reviewers of its area, or Procurement once approved.
+  const { pr } = result
+  const tell = new Set(pr.created_by !== req.user.id ? [pr.created_by] : [])
+  if (pr.status === 'submitted') (await areaReviewers(pool, pr.category)).forEach(u => tell.add(u.id))
+  if (pr.status === 'twg_review') {
+    const [procs] = await pool.execute("SELECT id FROM users WHERE role = 'procurement' AND is_active = 1")
+    procs.forEach(u => tell.add(u.id))
+  }
+  tell.delete(req.user.id)
+  const label = pr.title ? `${pr.pr_number} — ${pr.title}` : pr.pr_number
+  for (const id of tell) {
+    await notify(req.io, id, `PR ${label} was deleted by ${req.user.name}${reason ? `: ${reason}` : ''}. It is kept in the Archive.`, 'warning', pr.id, 'pr')
+      .catch(err => console.error('[notify] delete notice failed:', err.message))
+  }
   res.json({ message: 'PR deleted and moved to the archive' })
 })
 
@@ -614,29 +707,42 @@ exports.generatePDF = asyncHandler(async (req, res) => {
 // The Request for Quotation sent to suppliers once the PR is under canvass:
 // the items with their quantities, priced columns left blank for the supplier
 // to fill in. One page per lot, since the campus canvasses a lot at a time.
-exports.generateRFQ = asyncHandler(async (req, res) => {
-  const PDFDocument = require('pdfkit')
-  const { M } = require('../utils/pdfHelpers')
-  const drawRFQ = require('../pdf/requestForQuotation')
-
-  const [rows] = await pool.execute(
-    'SELECT pr_number, title, purpose FROM purchase_requests WHERE id = ?', [req.params.id])
-  if (!rows.length) return res.status(404).json({ message: 'PR not found' })
+// What the Request for Quotation shows (PDF and Word alike): the PR, the campus settings, and its items.
+async function rfqOf(id) {
+  const [rows] = await pool.execute('SELECT pr_number, title, purpose FROM purchase_requests WHERE id = ?', [id])
+  if (!rows.length) throw httpError(404, 'PR not found')
   const pr = rows[0]
-
+  if (isTemporary(pr.pr_number)) {
+    throw httpError(409, 'The RFQ carries the PR number, which Procurement assigns when the canvass starts. Start the canvass first.')
+  }
   const orgSettings = await loadOrgSettings(pool)
   // Dropped items are not canvassed, so they are left off the form.
   const items = orderBySection((await pool.execute(
     `SELECT item_name, quantity, unit, estimated_cost, notes, group_label
-       FROM pr_items WHERE pr_id = ? AND dropped_at IS NULL ORDER BY id`,
-    [req.params.id]
-  ))[0])
+       FROM pr_items WHERE pr_id = ? AND dropped_at IS NULL ORDER BY id`, [id]))[0])
+  return { pr, orgSettings, items }
+}
+
+exports.generateRFQ = asyncHandler(async (req, res) => {
+  const PDFDocument = require('pdfkit')
+  const { M } = require('../utils/pdfHelpers')
+  const drawRFQ = require('../pdf/requestForQuotation')
+  const rfq = await rfqOf(req.params.id)
 
   const doc = new PDFDocument({ size: 'LETTER', margin: M })
   res.setHeader('Content-Type', 'application/pdf')
-  res.setHeader('Content-Disposition', `attachment; filename="RFQ ${pr.pr_number}.pdf"`)
+  res.setHeader('Content-Disposition', `attachment; filename="RFQ ${rfq.pr.pr_number}.pdf"`)
   doc.pipe(res)
 
-  drawRFQ(doc, { pr, orgSettings, items })
+  drawRFQ(doc, rfq)
   doc.end()
+})
+
+// GET /pr/:id/rfq/docx - the same RFQ as a Word document, to edit or print where the PDF can't be opened.
+exports.generateRFQDocx = asyncHandler(async (req, res) => {
+  const rfqDocx = require('../pdf/requestForQuotationDocx')
+  const rfq = await rfqOf(req.params.id)
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+  res.setHeader('Content-Disposition', `attachment; filename="RFQ ${rfq.pr.pr_number}.docx"`)
+  res.send(rfqDocx(rfq))
 })

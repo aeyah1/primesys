@@ -36,7 +36,6 @@ const partialNotes  = [
 
 router.get('/',          c.list)
 router.get('/:id/pdf',   deliveryAccess, c.generateIAR)
-router.get('/:id',       deliveryAccess, c.getById)
 router.post('/',
   authorize('procurement', 'admin', 'supply'),
   body('po_id').isInt({ min: 1 }).withMessage('A purchase order is required'),

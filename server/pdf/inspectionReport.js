@@ -75,7 +75,7 @@ module.exports = function drawInspectionReport(doc, { d, items, priced, brought,
   const sigY = doc.page.height - 130
   hRule(doc, sigY - 10)
   sigBlock(doc, M,       sigY, 'Received By',   d.received_by_name || '', 'Supply Officer')
-  sigBlock(doc, M + 310, sigY, 'Inspected By',  d.requestor_name || '',   'Requestor')
+  sigBlock(doc, M + 310, sigY, 'Inspected By',  d.requestor_name || '',   'Fund Administrator')
 
   pageFooter(doc)
 }

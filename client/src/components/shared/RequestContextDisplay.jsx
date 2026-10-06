@@ -51,13 +51,13 @@ export function RequestContextFields({ pr, className = '' }) {
   return (
     <div className={`grid sm:grid-cols-2 lg:grid-cols-3 gap-4 ${className}`}>
       <Field icon={Building2}    label="Office / Section" value={pr.department} />
-      {/* Who the printed form names as the requesting party: the head of the
-          office, as they stood when it was filed. */}
+      {/* Who the printed form names as the requesting party: as the Fund
+          Administrator typed it, or the office head when it was filed. */}
       <Field
         icon={UserCheck}
         label="Requested by"
         value={pr.requested_by_name
-          ? `${pr.requested_by_name}${pr.requested_by_designation ? ` — ${pr.requested_by_designation}` : ''}`
+          ? `${pr.requested_by_name}${pr.requested_by_designation ? ` — ${pr.requested_by_designation}` : ''}${pr.requested_by_signed ? ' (signed)' : ''}`
           : null}
       />
       <Field icon={Calendar}     label="Date needed"     value={pr.date_needed ? fmtDate(pr.date_needed) : null} />

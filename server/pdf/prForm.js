@@ -1,4 +1,6 @@
 const { M } = require('../utils/pdfHelpers')
+const { isTemporary } = require('../utils/prNumber')
+const { signatureBuffer } = require('../utils/signature')
 const { approverFor } = require('../utils/orgSettings')
 
 // Purchase Request, drawn as the government form the campus files on paper
@@ -7,9 +9,8 @@ const { approverFor } = require('../utils/orgSettings')
 // and filed as-is.
 //
 // This file deliberately does not use the shared report helpers in
-// utils/pdfHelpers.js (beyond the page margin): those style the PO, the
-// Inspection Report and the Abstract of Quotations, and this form must not
-// drift when they are restyled.
+// utils/pdfHelpers.js (beyond the page margin): those style the PO and the
+// Inspection Report, and this form must not drift when they are restyled.
 //
 // Three item tiers map onto columns the system already has:
 //   group_label  -> section heading   ("WINDOW BLINDS", bold)
@@ -91,12 +92,22 @@ module.exports = function drawPRForm(doc, { pr, orgSettings = {}, items = [] }) 
 
   rect(M, y, OFFICE_W, ROW_H); rect(M + OFFICE_W, y, MID_W, ROW_H); rect(M + OFFICE_W + MID_W, y, DATE_W, ROW_H)
   put('Office/Section', M, y, OFFICE_W, ROW_H, { align: 'center' })
-  put(`PR No.: ${pr.pr_number || ''}`, M + OFFICE_W, y, MID_W, ROW_H, { font: 'Times-Bold' })
+  // A temporary reference is not a PR number: the line stays blank until Procurement assigns one.
+  put(`PR No.: ${pr.pr_number && !isTemporary(pr.pr_number) ? pr.pr_number : ''}`, M + OFFICE_W, y, MID_W, ROW_H, { font: 'Times-Bold' })
   put(`Date: ${fmtDate(pr.created_at)}`, M + OFFICE_W + MID_W, y, DATE_W, ROW_H, { font: 'Times-Bold' })
   y += ROW_H
 
   rect(M, y, OFFICE_W, ROW_H); rect(M + OFFICE_W, y, MID_W + DATE_W, ROW_H)
-  put(pr.department || '', M, y, OFFICE_W, ROW_H, { font: 'Times-Bold', align: 'center' })
+  // Office/Section as typed: shrunk to fit its cell (down to 6 pt), cut off past what the row holds.
+  const office = String(pr.department || '')
+  if (office) {
+    const inner = OFFICE_W - PAD * 2
+    let size = FS
+    doc.font('Times-Bold')
+    while (size > 6 && doc.fontSize(size).widthOfString(office) > inner) size -= 0.5
+    const th = Math.min(doc.fontSize(size).heightOfString(office, { width: inner }), ROW_H - 1)
+    doc.fillColor(BLACK).text(office, M + PAD, y + Math.max((ROW_H - th) / 2, 0.5), { width: inner, height: ROW_H - 1, align: 'center', ellipsis: true })
+  }
   put(`Responsibility Center Code : ${pr.responsibility_center_code || s('responsibility_center_code')}`,
       M + OFFICE_W, y, MID_W + DATE_W, ROW_H, { font: 'Times-Bold', size: 8.5 })
   y += ROW_H
@@ -239,7 +250,11 @@ module.exports = function drawPRForm(doc, { pr, orgSettings = {}, items = [] }) 
   const approver = approverFor(orgSettings, grandTotal)
 
   signRow(y, ROW_H, '', 'Requested by:', 'Approved by:'); y += ROW_H
-  signRow(y, 30,    'Signature', '', ''); y += 30
+  signRow(y, 30,    'Signature', '', '')
+  // The requester's signature, drawn on the screen or uploaded, on their line; a blank line to sign by hand otherwise.
+  const signature = signatureBuffer(pr.requested_by_signature)
+  if (signature) doc.image(signature, leftX + 4, y + 2, { fit: [HALF - 8, 26], align: 'center', valign: 'center' })
+  y += 30
   signRow(y, 20,    'Printed\nName', requestedName, approver.name, { font: 'Times-Bold', size: 10 }); y += 20
   signRow(y, 18,    'Designation', requestedTitle, approver.designation, { font: 'Times-Bold', size: 9 }); y += 18
 

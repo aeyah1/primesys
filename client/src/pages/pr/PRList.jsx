@@ -1,18 +1,19 @@
 import { useState } from 'react'
-import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
+import { Link, useNavigate } from 'react-router-dom'
 import { Plus, Search, FileText, Pencil, Trash2, Eye, ArrowUpDown } from 'lucide-react'
-import { toast } from '@/lib/toast'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
+import DeletePRDialog from '@/components/shared/DeletePRDialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableEmpty } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PRStatusBadge, DeliveryStatusBadge, CategoryBadge } from '@/components/shared/StatusBadge'
-import { fmtDate, fmtCurrency, localToday, CATEGORY_LABELS } from '@/lib/utils'
+import { FilterChip, Tab, Pager } from '@/components/shared/ListParts'
+import { fmtDate, fmtCurrency, localToday, daysSince, CATEGORY_LABELS } from '@/lib/utils'
 import { useAuth } from '@/context/AuthContext'
+import useUrlParams from '@/hooks/useUrlParams'
 import api from '@/lib/axios'
 
 // Status tabs in workflow order. "Approved by TWG" is Procurement's inbox.
@@ -22,7 +23,9 @@ const TABS = [
   { key: 'submitted',          label: 'At TWG' },
   { key: 'revision_requested', label: 'Revision' },
   { key: 'twg_review',         label: 'Approved by TWG' },
-  { key: 'bidding',            label: 'Bidding' },
+  { key: 'bidding',            label: 'Canvass' },
+  { key: 'twg_certification',  label: 'TWG certification' },
+  { key: 'bac_review',         label: 'BAC award' },
   { key: 'for_po',             label: 'Ready for PO' },
   { key: 'completed',          label: 'Completed' },
   { key: 'rejected',           label: 'Rejected' },
@@ -37,7 +40,6 @@ const SORTS = [
 ]
 const CATEGORIES = Object.keys(CATEGORY_LABELS)
 const FINAL      = ['completed', 'cancelled', 'rejected']
-const daysSince  = (d) => Math.max(0, Math.floor((Date.now() - new Date(d).getTime()) / 864e5))
 
 // Amount: the PO total once there is a PO, before that the items' estimate.
 function Amount({ pr }) {
@@ -56,18 +58,13 @@ export default function PRList() {
 
   // Tab, category, sort, search, and page live in the URL, so the back button,
   // a refresh, and a shared link all keep the same view.
-  const [params, setParams] = useSearchParams()
+  const [params, update] = useUrlParams()
   const tab      = TABS.some(t => t.key === params.get('status')) ? params.get('status') : 'all'
   const category = CATEGORIES.includes(params.get('category')) ? params.get('category') : ''
   const sort     = SORTS.some(s => s.key === params.get('sort')) ? params.get('sort')
                  : tab === 'twg_review' ? 'oldest_approval' : 'newest'
   const page     = Math.max(parseInt(params.get('page')) || 1, 1)
   const [search, setSearch] = useState(params.get('q') || '')
-  const update = (changes) => setParams(prev => {
-    const next = new URLSearchParams(prev)
-    for (const [k, v] of Object.entries(changes)) (v === '' || v == null ? next.delete(k) : next.set(k, String(v)))
-    return next
-  }, { replace: true })
 
   const isRequestor = user?.role === 'requestor'
   const isStaff     = ['procurement', 'admin'].includes(user?.role)
@@ -102,16 +99,11 @@ export default function PRList() {
     placeholderData: keepPreviousData,
   })
 
-  const { mutate: deletePR, isPending: deleting } = useMutation({
-    mutationFn: (id) => api.delete(`/pr/${id}`),
-    onSuccess: () => {
-      toast.success('Purchase request deleted')
-      qc.invalidateQueries({ queryKey: ['pr-list'] })
-      qc.invalidateQueries({ queryKey: ['pr-stats'] })
-      setDeleteTarget(null)
-    },
-    onError: (err) => toast.error(err.response?.data?.message || 'Failed to delete PR'),
-  })
+  const afterDelete = () => {
+    qc.invalidateQueries({ queryKey: ['pr-list'] })
+    qc.invalidateQueries({ queryKey: ['pr-stats'] })
+    setDeleteTarget(null)
+  }
 
   const canCreate = ['admin', 'procurement', 'requestor'].includes(user?.role)
   const today     = localToday()
@@ -141,43 +133,22 @@ export default function PRList() {
       <Card>
         <div className="flex items-center gap-1 px-4 pt-3 border-b border-[--color-border] overflow-x-auto">
           {TABS.map(t => (
-            <button
-              key={t.key}
-              onClick={() => update({ status: t.key === 'all' ? '' : t.key, sort: '', page: '' })}
-              className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-colors mb-[-1px] ${
-                tab === t.key
-                  ? 'border-[--color-brand] text-[--color-brand]'
-                  : 'border-transparent text-[--color-text-muted] hover:text-[--color-text-primary]'
-              }`}
-            >
+            <Tab key={t.key} active={tab === t.key} count={tabCount(t.key)}
+              onClick={() => update({ status: t.key === 'all' ? '' : t.key, sort: '', page: '' })}>
               {t.label}
-              {tabCount(t.key) > 0 && (
-                <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
-                  tab === t.key ? 'bg-[--color-brand-light] text-[--color-brand]' : 'bg-[--color-overlay] text-[--color-text-muted]'
-                }`}>{tabCount(t.key)}</span>
-              )}
-            </button>
+            </Tab>
           ))}
         </div>
 
         {/* Category filter (counts follow the tab) and sort order */}
         <div className="flex items-center justify-between gap-3 flex-wrap px-4 py-3 border-b border-[--color-border]">
           <div className="flex flex-wrap gap-1.5">
-            {['', ...CATEGORIES].map(c => {
-              const n = c ? catCount(c) : tabCount(tab)
-              return (
-                <button key={c || 'all'} onClick={() => update({ category: c, page: '' })}
-                  className={`rounded-full border px-3 py-1 text-ui-xs font-medium transition-colors ${
-                    category === c
-                      ? 'border-[--color-brand] bg-[--color-brand] text-white'
-                      : n
-                        ? 'border-[--color-border-strong] bg-white text-[--color-text-secondary] hover:border-[--color-brand] hover:text-[--color-brand]'
-                        : 'border-[--color-border] bg-white text-[--color-text-muted] hover:border-[--color-border-strong]'
-                  }`}>
-                  {c ? CATEGORY_LABELS[c] : 'All categories'} <span className="opacity-80">({n})</span>
-                </button>
-              )
-            })}
+            {['', ...CATEGORIES].map(c => (
+              <FilterChip key={c || 'all'} active={category === c} count={c ? catCount(c) : tabCount(tab)}
+                onClick={() => update({ category: c, page: '' })}>
+                {c ? CATEGORY_LABELS[c] : 'All categories'}
+              </FilterChip>
+            ))}
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <ArrowUpDown className="size-3.5 text-[--color-text-muted]" />
@@ -335,34 +306,12 @@ export default function PRList() {
             </TableBody>
           </Table>
 
-          {data && data.totalPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t border-[--color-border]">
-              <span className="text-xs text-[--color-text-muted]">
-                Page {data.page} of {data.totalPages} · {data.total} total
-              </span>
-              <div className="flex gap-2">
-                <Button variant="secondary" size="sm" onClick={() => update({ page: page - 1 })} disabled={page <= 1}>Previous</Button>
-                <Button variant="secondary" size="sm" onClick={() => update({ page: page + 1 })} disabled={page >= data.totalPages}>Next</Button>
-              </div>
-            </div>
-          )}
+          <Pager page={page} totalPages={data?.totalPages} summary={`${data?.total} total`}
+            onPage={(n) => update({ page: n > 1 ? n : '' })} />
         </CardContent>
       </Card>
 
-      {/* Delete confirmation */}
-      <Dialog open={!!deleteTarget} onOpenChange={v => { if (!v) setDeleteTarget(null) }}>
-        <DialogContent title="Delete Purchase Request">
-          <p className="text-sm text-[--color-text-secondary] pt-1">
-            Delete <strong>{deleteTarget?.pr_number}</strong>? It will be removed from active lists and kept in the Archive under Deleted.
-          </p>
-          <DialogFooter>
-            <Button variant="secondary" onClick={() => setDeleteTarget(null)}>Cancel</Button>
-            <Button variant="danger" onClick={() => deletePR(deleteTarget.id)} disabled={deleting}>
-              {deleting ? 'Deleting…' : 'Delete'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DeletePRDialog pr={deleteTarget} onClose={() => setDeleteTarget(null)} onDeleted={afterDelete} />
     </div>
   )
 }

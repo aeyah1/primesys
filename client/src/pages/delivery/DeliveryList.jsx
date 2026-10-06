@@ -397,7 +397,7 @@ export default function DeliveryList() {
                 onChange={e => setNote(e.target.value)} />
             </div>
             <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2.5 text-xs text-sky-800">
-              Procurement and the requestor are notified. A note doesn't change what was delivered; when more goods arrive, record them as a delivery.
+              Procurement and the Fund Administrator are notified. A note doesn't change what was delivered; when more goods arrive, record them as a delivery.
             </p>
           </div>
           <DialogFooter>

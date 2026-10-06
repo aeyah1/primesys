@@ -121,6 +121,16 @@ async function run() {
   t.check('Delivery attachment', '...and no temp copy left on the server disk', dirCount('delivery') === delBefore, dirCount('delivery'))
   r = await req(5, 'GET', `/delivery/1/attachments/${dup.id}/download`)
   t.check('Delivery attachment', 'download answers 200 with the same bytes', r.status === 200 && Buffer.from(await r.arrayBuffer()).equals(PNG), r.status)
+  // The proof is shown on the request's page, so the Fund Administrator who filed it may look, but not add or remove.
+  r = await req(3, 'GET', '/delivery/1/attachments')
+  const proof = r.status === 200 ? await r.json() : []
+  t.check('Delivery attachment', 'the Fund Administrator who filed the PR sees the proof', proof.length === 1 && proof[0].original_name === 'receipt.png', JSON.stringify(proof))
+  r = await req(3, 'GET', `/delivery/1/attachments/${dup.id}/download`)
+  t.check('Delivery attachment', '…and opens it, unchanged', r.status === 200 && Buffer.from(await r.arrayBuffer()).equals(PNG), r.status)
+  r = await req(3, 'POST', '/delivery/1/attachments', file(PNG, 'mine.png', 'image/png'))
+  t.check('Delivery attachment', '…but may not add one', r.status === 403, r.status)
+  r = await req(3, 'DELETE', `/delivery/1/attachments/${dup.id}`)
+  t.check('Delivery attachment', '…nor remove one', r.status === 403, r.status)
   r = await req(1, 'DELETE', '/delivery/1')
   await wait(300)
   t.check('Delivery attachment', 'removing the delivery record deletes its file', r.status === 200 && !store.has(dkey), `${r.status} ${[...store.keys()].join()}`)

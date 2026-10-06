@@ -1,6 +1,7 @@
 const fs   = require('fs')
 const path = require('path')
 const { M } = require('../utils/pdfHelpers')
+const { canvassersOf } = require('../utils/orgSettings')
 
 // Request for Quotation, drawn as the campus's own form.
 //
@@ -37,6 +38,23 @@ const HEAD_H = 26
 const PAD    = 3
 const FS     = 9
 const BOTTOM = 792 - M
+
+// The form's wording, shared with the Word copy (requestForQuotationDocx.js).
+const REQUEST_TEXT = 'Please quote your lowest price on the items listed below, subject to the General Condition in the last page stating the '
+  + 'shortest time of delivery and subject your quotation duly signed by your representative not later than '
+  + '______________________________ in the'
+const NOTES = [
+  '1. All Entries must be typewritten',
+  '2. Delivery period within ____________ calendar days',
+  '3. Warranty shall be for a period of six (6) months for supplies and materials,',
+  '     One (1) year for equipment from date of acceptance by the procuring entity',
+  '4. Price validity shall be for a period of ______________ calendar days',
+  '5. G-EPS Registration Certificate shall be attached upon submission of the quotation.',
+]
+const TERMS = ['Delivery Period:', 'Warranty:', 'Price Validity:']
+// What the canvasser writes on the two lines at the top left, for the supplier the copy goes to.
+const ADDRESSEE = ['Name of Supplier / Company', 'Business Address']
+const ACCEPT_TEXT = 'After having carefully read and accepted your General Conditions, I/We quote you on the items at prices note above.'
 
 const amount = (v) => (v === null || v === undefined || v === '' || Number.isNaN(Number(v))
   ? '' : Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
@@ -78,21 +96,23 @@ function drawLot(doc, { pr, orgSettings: org, lot, first }) {
 
   // ── Addressee, date and quotation number ───────────────────────────
   // The supplier's name and address are left blank: one printed form goes to
-  // each of the three suppliers canvassed.
+  // each of the suppliers canvassed, and the canvasser writes them in.
+  // Kept within 37 pt: a fourteen-item lot (the campus's office supplies) must still fit its page.
+  const caption = (label, top) => doc.font('Times-Italic').fontSize(6.5).fillColor(BLACK).text(label, M, top, { width: 190, align: 'center', lineBreak: false })
   rule(M, y + 11, M + 190)
+  caption(ADDRESSEE[0], y + 12.5)
   rule(M, y + 26, M + 190)
+  caption(ADDRESSEE[1], y + 27.5)
   doc.font('Times-Roman').fontSize(9.5).fillColor(BLACK)
   doc.text('Date:', M + 300, y + 2, { width: 40, lineBreak: false })
   rule(M + 340, y + 12, M + W)
   doc.text(`Quotation No.: ${lot.quotationNo}`, M + 300, y + 17, { width: 200, lineBreak: false })
   rule(M + 300, y + 27, M + W)
-  y += 34
+  y += 37
 
   // ── The request ────────────────────────────────────────────────────
   doc.font('Times-Roman').fontSize(8)
-  doc.text('Please quote your lowest price on the items listed below, subject to the General Condition in the last page stating the '
-    + 'shortest time of delivery and subject your quotation duly signed by your representative not later than '
-    + '______________________________ in the', M, y, { width: W, align: 'justify' })
+  doc.text(REQUEST_TEXT, M, y, { width: W, align: 'justify' })
   y = doc.y + 8
 
   doc.font('Times-Bold').fontSize(10).text(s('bac_vice_chairman_name'), M, y, { width: W, align: 'center' })
@@ -101,14 +121,7 @@ function drawLot(doc, { pr, orgSettings: org, lot, first }) {
 
   // ── Conditions ─────────────────────────────────────────────────────
   doc.font('Times-Roman').fontSize(8).text('Note', M, y, { width: 40, lineBreak: false })
-  const notes = [
-    '1. All Entries must be typewritten',
-    '2. Delivery period within ____________ calendar days',
-    '3. Warranty shall be for a period of six (6) months for supplies and materials,',
-    '     One (1) year for equipment from date of acceptance by the procuring entity',
-    '4. Price validity shall be for a period of ______________ calendar days',
-    '5. G-EPS Registration Certificate shall be attached upon submission of the quotation.',
-  ]
+  const notes = NOTES
   notes.forEach((n, i) => doc.text(n, M + 90, y + i * 9, { width: W - 90, lineBreak: false }))
   y += notes.length * 9 + 8
 
@@ -168,11 +181,14 @@ function drawLot(doc, { pr, orgSettings: org, lot, first }) {
   // block and the canvasser. Measured, not guessed: pdfkit silently starts a
   // new page if text runs past the bottom margin, which turned one lot into
   // three pages when this was too small.
+  // The canvassers, three to a row; with none set, one blank line to sign by hand.
+  const canvassers = canvassersOf(org)
+  const signers = canvassers.length ? canvassers : [{ name: '', designation: '' }]
   const FOOTER_H = ROW_H * 2 + 8    // ABC + purpose rows, then a gap
     + 42                            // delivery period / warranty / price validity
     + 28                            // the acceptance sentence and its gap
     + 46                            // printed name and contact rules
-    + 22                            // the canvasser
+    + 22 * Math.ceil(signers.length / 3)   // the canvassers
 
 
   for (const row of rows) {
@@ -196,15 +212,14 @@ function drawLot(doc, { pr, orgSettings: org, lot, first }) {
 
   // ── Terms the supplier fills in ────────────────────────────────────
   doc.font('Times-Roman').fontSize(8.5).fillColor(BLACK)
-  for (const [i, label] of ['Delivery Period:', 'Warranty:', 'Price Validity:'].entries()) {
+  for (const [i, label] of TERMS.entries()) {
     const ly = y + i * 12
     doc.text(label, M + 300, ly, { width: 90, align: 'right', lineBreak: false })
     rule(M + 396, ly + 9, M + W)
   }
   y += 42
 
-  doc.fontSize(8).text('After having carefully read and accepted your General Conditions, I/We quote you on the items at prices note above.',
-    M, y, { width: W })
+  doc.fontSize(8).text(ACCEPT_TEXT, M, y, { width: W })
   y = doc.y + 18
 
   rule(M + 290, y, M + W)
@@ -213,8 +228,12 @@ function drawLot(doc, { pr, orgSettings: org, lot, first }) {
   doc.fontSize(8).text('Tel No./Cellphone No./Email Add', M + 290, y + 29, { width: W - 290, align: 'center' })
   y += 46
 
-  doc.font('Times-Bold').fontSize(9).text(s('canvasser_name'), M, y, { width: 240 })
-  doc.font('Times-Roman').fontSize(8).text(s('canvasser_designation', 'Canvasser'), M, y + 12, { width: 240 })
+  const colW = W / 3
+  signers.forEach((c, k) => {
+    const cx = M + (k % 3) * colW, cy = y + Math.floor(k / 3) * 22
+    doc.font('Times-Bold').fontSize(9).text(c.name, cx, cy, { width: colW - 10, height: 11, ellipsis: true })
+    doc.font('Times-Roman').fontSize(8).text(c.designation || 'Canvasser', cx, cy + 12, { width: colW - 10, height: 10, ellipsis: true })
+  })
 }
 
 // Groups a PR's items into its lots. A PR with no sections is one unnamed lot.
@@ -246,4 +265,4 @@ module.exports = function drawRequestForQuotation(doc, { pr, orgSettings = {}, i
   lots.forEach((lot, i) => drawLot(doc, { pr, orgSettings, lot, first: i === 0 }))
   doc.fillColor(BLACK).strokeColor(BLACK)
 }
-module.exports.lotsOf = lotsOf
+Object.assign(module.exports, { lotsOf, COLS, SEAL, REQUEST_TEXT, NOTES, TERMS, ACCEPT_TEXT, ADDRESSEE, amount, qty })

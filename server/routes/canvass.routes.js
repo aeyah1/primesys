@@ -1,80 +1,50 @@
 const router    = require('express').Router()
-const { body }  = require('express-validator')
 const c         = require('../controllers/canvass.controller')
 const auth      = require('../middleware/auth.middleware')
 const authorize = require('../middleware/authorize.middleware')
 const { requireAccess } = require('../middleware/scope.middleware')
-const { handle, textRule, emailRule, phoneRule, moneyRule, dateRule, idRule } = require('../middleware/validate')
+const { body }  = require('express-validator')
+const { handle, textRule, oneOfRule, moneyRule } = require('../middleware/validate')
+const { PROCUREMENT_MODES } = require('../utils/procurementModes')
 
-// A PR's canvass: suppliers' quotations, the award from them, dropped items.
+// A PR's canvass: Procurement starts it; the BAC enters each supplier's
+// quotation, drops items no supplier offers, sends them to the TWG, and once
+// the TWG has certified them, awards each lot.
 // Scoped (C2): 404 unless this user may see the PR.
 router.use(auth)
 const prAccess = requireAccess('pr', 'prId')
 const staff    = authorize('procurement', 'admin')
+const bac      = authorize('bac')
 
-// A quotation names a supplier from the list (supplier_id), or types one in by
-// name with its contact details, which puts it on the list (utils/suppliers.js).
-const quotationRules = [
-  idRule('supplier_id', 'Unknown supplier'),
-  textRule('supplier_name', 'Supplier name', 200),
-  textRule('supplier_contact', 'Contact person', 100),
-  textRule('supplier_address', 'Business address', 500),
-  // Blank counts as missing, so a typed-in supplier is told the phone is required.
-  body('supplier_phone').customSanitizer(v => (typeof v === 'string' && !v.trim() ? '' : v)),
-  phoneRule('supplier_phone', 'Phone number'),
-  emailRule('supplier_email', 'Email address'),
-  textRule('supplier_tin', 'TIN', 50),
-  dateRule('quoted_at', 'Quotation date'),
+router.get('/:prId', authorize('procurement', 'admin', 'supply', 'bac', 'twg'), prAccess, c.summary)
+router.post('/:prId/start', staff, prAccess,
+  oneOfRule('mode_of_procurement', 'Pick a valid mode of procurement', PROCUREMENT_MODES, { required: true }),
+  textRule('pr_number', 'PR number', 50),
+  handle,
+  c.start)
+router.put('/:prId/bids', bac, prAccess,
+  body('bidders').isArray({ max: 30 }).withMessage('Enter at most 30 bidders'),
+  body('bidders.*.id').optional({ values: 'null' }).isInt({ min: 1 }).withMessage('Unknown quotation').toInt(),
+  textRule('bidders.*.name', 'Bidder name', 200, { required: true }),
+  textRule('bidders.*.rfq_no', 'RFQ No.', 50),
+  body('bidders.*.attachment_id').optional({ values: 'null' }).isInt({ min: 1 }).withMessage('Unknown RFQ file').toInt(),
+  body('bidders.*.prices').optional().isArray({ max: 500 }).withMessage('Too many prices'),
+  body('bidders.*.prices.*.pr_item_id').isInt({ min: 1 }).withMessage('Unknown item').toInt(),
+  moneyRule('bidders.*.prices.*.unit_price', 'Each bid price', { required: true, positive: true }),
+  handle,
+  c.saveBids)
+router.delete('/:prId/bidders/:bidderId', bac, prAccess, c.removeBidder)
+router.post('/:prId/send', bac, prAccess, c.send)
+router.post('/:prId/award', bac, prAccess,
+  body('winners').isArray({ max: 200 }).withMessage('Pick the winners'),
+  textRule('winners.*.lot', 'Lot', 255),
+  body('winners.*.bidder_id').isInt({ min: 1 }).withMessage('Unknown bidder').toInt(),
+  textRule('winners.*.reason', 'Reason', 500),
   textRule('notes', 'Notes', 2000),
-  textRule('delivery_period', 'Delivery period', 100),
-  textRule('warranty', 'Warranty', 100),
-  textRule('price_validity', 'Price validity', 100),
-  body('prices').isArray({ min: 1, max: 500 }).withMessage('Enter at least one quoted price'),
-  body('prices.*.item').isInt({ min: 1 }).withMessage('Unknown item').toInt(),
-  moneyRule('prices.*.unit_price', 'Each quoted price', { required: true, positive: true }),
-]
-
-router.get('/:prId', authorize('procurement', 'admin', 'supply', 'bac'), prAccess, c.summary)
-router.post('/:prId/quotations',        staff, prAccess, quotationRules, handle, c.createQuotation)
-router.patch('/:prId/quotations/:qid',  staff, prAccess, quotationRules, handle, c.updateQuotation)
-router.delete('/:prId/quotations/:qid', staff, prAccess, c.deleteQuotation)
-// Awarding is the BAC's while it evaluates the PR, else Procurement's (checked in the controller).
-router.post('/:prId/award', authorize('procurement', 'admin', 'bac'), prAccess,
-  body('picks').isArray({ min: 1, max: 500 }).withMessage('Choose the supplier for at least one item'),
-  body('picks.*.item').isInt({ min: 1 }).withMessage('Unknown item').toInt(),
-  body('picks.*.quotation').isInt({ min: 1 }).withMessage('Unknown quotation').toInt(),
-  textRule('reason', 'Reason', 500),
-  textRule('few_quotations_reason', 'Reason for awarding on fewer quotations', 500),
   handle,
-  c.awardFromQuotes)
-// The BAC marks an offer as failing the specifications, or clears the mark.
-router.patch('/:prId/quotations/:qid/qualification', authorize('bac'), prAccess,
-  body('disqualified').isBoolean().withMessage('Say whether the offer fails the specifications'),
-  textRule('reason', 'Reason', 500),
-  handle,
-  c.setQualification)
-// Canvass schedule and RFQs emailed to suppliers on the list (controllers/rfq.controller.js).
-const rfq = require('../controllers/rfq.controller')
-// Open for quotations: mode, schedule, and the suppliers emailed (none for a canvass on paper).
-router.post('/:prId/open', staff, prAccess,
-  textRule('mode_of_procurement', 'Mode of procurement', 60, { required: true }),
-  textRule('deadline', 'Closing time', 16, { required: true }),
-  body('supplier_ids').optional().isArray({ max: 50 }).withMessage('The suppliers must be a list'),
-  body('supplier_ids.*').isInt({ min: 1 }).withMessage('Unknown supplier').toInt(),
-  handle,
-  rfq.open)
-router.post('/:prId/rfq', staff, prAccess,
-  body('supplier_ids').isArray({ min: 1, max: 50 }).withMessage('Choose at least one supplier'),
-  body('supplier_ids.*').isInt({ min: 1 }).withMessage('Unknown supplier').toInt(),
-  textRule('deadline', 'Deadline', 16),
-  handle,
-  rfq.invite)
-router.post('/:prId/rfq/:invId/resend', staff, prAccess, rfq.resend)
-router.post('/:prId/rfq/close', staff, prAccess, rfq.close)
-router.post('/:prId/rfq/:invId/decline', staff, prAccess, textRule('reason', 'Reason', 500, { required: true }), handle, rfq.decline)
-router.post('/:prId/rfq/:invId/undecline', staff, prAccess, rfq.undecline)
-router.patch('/:prId/rfq/deadline', staff, prAccess, textRule('deadline', 'Deadline', 16, { required: true }), handle, rfq.extend)
-router.post('/:prId/items/:itemId/drop', staff, prAccess, textRule('reason', 'Reason', 500), handle, c.dropItem)
-router.post('/:prId/items/:itemId/restore', staff, prAccess, c.restoreItem)
+  c.award)
+router.post('/:prId/reopen', bac, prAccess, textRule('reason', 'Reason', 500), handle, c.reopen)
+router.post('/:prId/items/:itemId/drop', bac, prAccess, textRule('reason', 'Reason', 500), handle, c.dropItem)
+router.post('/:prId/items/:itemId/restore', authorize('bac', 'procurement', 'admin'), prAccess, c.restoreItem)
 
 module.exports = router

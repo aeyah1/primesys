@@ -7,6 +7,17 @@ const withTransaction = require('../db/transaction')
 const { paging }  = require('../middleware/validate')
 const { CATEGORIES } = require('../utils/categories')
 const { setAreas, coverage } = require('../utils/twgAreas')
+const { assertOfficeFree } = require('../utils/fundAdmin')
+const httpError = require('../utils/httpError')
+const sendMail = require('../utils/mailer')
+const config   = require('../config')
+const accountReviewEmail = require('../emails/accountReview')
+
+// A 4xx thrown by a rule goes back as is; anything else is logged and masked.
+const fail = (res, err) => {
+  if (err.status >= 400 && err.status < 500) return res.status(err.status).json({ message: err.message })
+  console.error(err); res.status(500).json({ message: 'Internal server error' })
+}
 
 // GET /users/twg-coverage - every category with its active TWG reviewers and
 // the PRs waiting in it, so an area nobody reviews stands out.
@@ -40,7 +51,7 @@ const USER_SORTS = {
 const STATUS_FILTERS = {
   active:     'u.is_active = 1',
   inactive:   'u.is_active = 0',
-  unverified: 'u.is_verified = 0',
+  pending:    'u.is_verified = 0',
 }
 const NO_AREAS = 'NOT EXISTS (SELECT 1 FROM twg_assignments ta WHERE ta.user_id = u.id)'
 const HAS_AREA = 'EXISTS (SELECT 1 FROM twg_assignments ta WHERE ta.user_id = u.id AND ta.category = ?)'
@@ -83,12 +94,12 @@ exports.list = async (req, res) => {
     const [roleRows] = await pool.execute(`SELECT u.role, COUNT(*) AS n FROM users u ${byRole.sql} GROUP BY u.role`, byRole.params)
     const byStatus = where('search', 'role', 'area')
     const [[st]] = await pool.execute(
-      `SELECT COUNT(*) AS total, SUM(u.is_active = 1) AS active, SUM(u.is_active = 0) AS inactive, SUM(u.is_verified = 0) AS unverified
+      `SELECT COUNT(*) AS total, SUM(u.is_active = 1) AS active, SUM(u.is_active = 0) AS inactive, SUM(u.is_verified = 0) AS pending
        FROM users u ${byStatus.sql}`, byStatus.params)
     const roles = Object.fromEntries(VALID_ROLES.map(r => [r, Number(roleRows.find(x => x.role === r)?.n || 0)]))
     const counts = {
       roles:  { all: Object.values(roles).reduce((a, b) => a + b, 0), ...roles },
-      status: { all: Number(st.total), active: Number(st.active || 0), inactive: Number(st.inactive || 0), unverified: Number(st.unverified || 0) },
+      status: { all: Number(st.total), active: Number(st.active || 0), inactive: Number(st.inactive || 0), pending: Number(st.pending || 0) },
     }
     if (role === 'twg') {
       const byArea = where('search', 'role', 'status')
@@ -111,17 +122,14 @@ exports.list = async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
 }
 
-// Assigning a role here is the one way an account gets a role other than
-// Requestor. Saving also approves the account (for any left unapproved by the
-// retired role-request sign-up). The change applies to the user's very next
-// request: the cached role is dropped.
+// Assigning a role here is the one way an account gets a role other than Fund Administrator; the cached role is dropped at once.
 exports.update = async (req, res) => {
   try {
     const { name, role, username, areas } = req.body
     if (!name || !role || !VALID_ROLES.includes(role)) {
       return res.status(400).json({ message: 'Valid name and role are required' })
     }
-    const [current] = await pool.execute('SELECT id, role FROM users WHERE id = ?', [req.params.id])
+    const [current] = await pool.execute('SELECT id, role, department_id, is_active, is_verified FROM users WHERE id = ?', [req.params.id])
     if (!current.length) return res.status(404).json({ message: 'User not found' })
     // An admin can't demote themselves, so there is always an admin left.
     if (current[0].id === req.user.id && role !== current[0].role) {
@@ -144,7 +152,10 @@ exports.update = async (req, res) => {
     if ('department_id' in req.body) { extra.push('department_id = ?'); extraValues.push(req.body.department_id || null) }
     if ('designation'   in req.body) { extra.push('designation = ?');   extraValues.push(String(req.body.designation ?? '').trim() || null) }
 
+    const officeId = 'department_id' in req.body ? (req.body.department_id || null) : current[0].department_id
     const areasSaved = await withTransaction(async (conn) => {
+      if (role === 'requestor' && !officeId) throw httpError(400, 'Pick the office this Fund Administrator handles')
+      if (current[0].is_active && current[0].is_verified) await assertOfficeFree(conn, { id: current[0].id, role, department_id: officeId })
       await conn.execute(
         `UPDATE users SET name = ?, role = ?${username ? ', username = ?' : ''}${extra.length ? ', ' + extra.join(', ') : ''} WHERE id = ?`,
         [name.trim(), role, ...(username ? [username.trim()] : []), ...extraValues, current[0].id]
@@ -157,7 +168,7 @@ exports.update = async (req, res) => {
     }
     if (areasSaved) securityLog('twg_areas_set', { userId: current[0].id, areas, by: req.user.id })
     res.json({ message: 'User updated' })
-  } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
+  } catch (err) { fail(res, err) }
 }
 
 exports.create = async (req, res) => {
@@ -181,6 +192,7 @@ exports.create = async (req, res) => {
     let result
     try {
       result = await withTransaction(async (conn) => {
+        await assertOfficeFree(conn, { role, department_id: req.body.department_id || null })
         const [r] = await conn.execute(
           `INSERT INTO users (name, username, email, password_hash, role, is_verified, department_id, designation)
            VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
@@ -201,20 +213,47 @@ exports.create = async (req, res) => {
       [result.insertId]
     )
     res.status(201).json(rows[0])
-  } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
+  } catch (err) { fail(res, err) }
 }
 
-exports.verifyUser = async (req, res) => {
+// Approves a sign-up; a Fund Administrator only while their office has none.
+exports.approve = async (req, res) => {
   try {
-    const [rows] = await pool.execute('SELECT id, is_verified FROM users WHERE id = ?', [req.params.id])
-    if (!rows.length) return res.status(404).json({ message: 'User not found' })
-    await pool.execute(
-      'UPDATE users SET is_verified = 1, verify_token = NULL, verify_expires = NULL WHERE id = ?',
-      [req.params.id]
-    )
-    securityLog('email_verified_by_admin', { userId: rows[0].id, by: req.user.id })
-    res.json({ message: 'User verified' })
-  } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
+    const user = await withTransaction(async (conn) => {
+      const [[u]] = await conn.execute(
+        `SELECT u.id, u.name, u.email, u.role, u.department_id, u.is_verified, d.code AS office
+           FROM users u LEFT JOIN departments d ON d.id = u.department_id WHERE u.id = ? FOR UPDATE`, [req.params.id])
+      if (!u) throw httpError(404, 'User not found')
+      if (u.is_verified) throw httpError(409, 'This account is already approved')
+      await assertOfficeFree(conn, u)
+      await conn.execute('UPDATE users SET is_verified = 1 WHERE id = ?', [u.id])
+      return u
+    })
+    invalidateUserCache(user.id)
+    securityLog('account_approved', { userId: user.id, by: req.user.id })
+    sendMail({
+      to: user.email, subject: 'Your PRimeSys account is approved',
+      html: accountReviewEmail({ name: user.name, approved: true, office: user.office || 'your office', loginUrl: `${config.clientUrl}/login` }),
+    }).catch(err => console.error('[mailer] approval email failed:', err.message))
+    res.json({ message: `${user.name} approved` })
+  } catch (err) { fail(res, err) }
+}
+
+// Turns down a sign-up: the waiting account is removed and the person is told why.
+exports.reject = async (req, res) => {
+  try {
+    const [[u]] = await pool.execute('SELECT id, name, email, is_verified FROM users WHERE id = ?', [req.params.id])
+    if (!u) return res.status(404).json({ message: 'User not found' })
+    if (u.is_verified) return res.status(409).json({ message: 'Only a sign-up waiting for approval can be turned down. Deactivate this account instead.' })
+    await pool.execute('DELETE FROM users WHERE id = ? AND is_verified = 0', [u.id])
+    invalidateUserCache(u.id)
+    securityLog('account_rejected', { userId: u.id, by: req.user.id })
+    sendMail({
+      to: u.email, subject: 'Your PRimeSys sign-up',
+      html: accountReviewEmail({ name: u.name, approved: false, reason: req.body.reason.trim() }),
+    }).catch(err => console.error('[mailer] rejection email failed:', err.message))
+    res.json({ message: `${u.name}'s sign-up turned down` })
+  } catch (err) { fail(res, err) }
 }
 
 exports.resetPassword = async (req, res) => {
@@ -237,16 +276,19 @@ exports.toggleActive = async (req, res) => {
     const id = parseInt(req.params.id)
     // An admin can't deactivate themselves, so there is always an active admin.
     if (id === req.user.id) return res.status(400).json({ message: 'You can\'t deactivate your own account' })
-    const [rows] = await pool.execute('SELECT id, is_active FROM users WHERE id = ?', [id])
+    const [rows] = await pool.execute('SELECT id, role, department_id, is_active, is_verified FROM users WHERE id = ?', [id])
     if (!rows.length) return res.status(404).json({ message: 'User not found' })
-    await pool.execute('UPDATE users SET is_active = NOT is_active WHERE id = ?', [id])
+    await withTransaction(async (conn) => {
+      if (!rows[0].is_active && rows[0].is_verified) await assertOfficeFree(conn, rows[0])
+      await conn.execute('UPDATE users SET is_active = NOT is_active WHERE id = ?', [id])
+    })
     invalidateUserCache(id)
     const nowActive = !rows[0].is_active
     // A deactivated user's open live-update connections are closed at once.
     if (!nowActive) req.io.in(`user_${id}`).disconnectSockets(true)
     securityLog(nowActive ? 'account_activated' : 'account_deactivated', { userId: id, by: req.user.id })
     res.json({ message: 'Status toggled' })
-  } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
+  } catch (err) { fail(res, err) }
 }
 
 exports.remove = async (req, res) => {
