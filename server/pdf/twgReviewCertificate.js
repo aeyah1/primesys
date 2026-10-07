@@ -1,4 +1,4 @@
-const { signatureBuffer } = require('../utils/signature')
+const { signatureBuffer, drawSignature } = require('../utils/signature')
 const { M, W, FOOT, PAD, footer, letterhead, issuedLine } = require('./twgCertificate')
 
 // The TWG's Certification (Goods and services) of a purchase request, issued when the TWG approves it, as the
@@ -110,7 +110,7 @@ module.exports = function drawTwgReviewCertificate(doc, { cert, pr, items = [], 
   y = doc.y + 4
   const signature = signatureBuffer(cert.signature)
   if (signature) {
-    try { doc.image(signature, M + (W - 160) / 2, y, { fit: [160, 40], align: 'center', valign: 'bottom' }) } catch { /* not fatal */ }
+    try { drawSignature(doc, signature, M + (W - 160) / 2, y, 160, 40) } catch { /* not fatal */ }
   } else {
     doc.lineWidth(0.6).strokeColor('#000').moveTo(M + (W - 210) / 2, y + 38).lineTo(M + (W + 210) / 2, y + 38).stroke()
   }

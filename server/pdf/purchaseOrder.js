@@ -1,6 +1,7 @@
 const { W, M, BLACK, ROW_H, PAD, FS, BOTTOM, amount, qty, fmtDate, pesosInWords, forms } = require('./campusForm')
 const { approverFor } = require('../utils/orgSettings')
 const { signatureOf } = require('../utils/orgSignatures')
+const { drawSignature } = require('../utils/signature')
 
 // Purchase Order, in the campus's house style: the same letterhead, bordered
 // grid and signature blocks as its Request for Quotation.
@@ -165,7 +166,7 @@ module.exports = function drawPurchaseOrder(doc, { po, items, priced, orgSetting
   doc.text(`Fund Cluster: ${po.fund_cluster || '________________'}`, M + PAD * 2, y + 5, { width: HALF - PAD * 4 })
   doc.text('Funds Available: ________________', M + PAD * 2, y + 17, { width: HALF - PAD * 4 })
   const accountant = signatureOf(orgSettings, s('chief_accountant_name'))
-  if (accountant) doc.image(accountant, M + 40, y + H - 37, { fit: [HALF - 80, 16], align: 'center', valign: 'bottom' })
+  if (accountant) drawSignature(doc, accountant, M + 40, y + H - 36, HALF - 80, 18)
   f.rule(M + 20, y + H - 20, M + HALF - 20)
   f.put(s('chief_accountant_name'), M, y + H - 19, HALF, 10, { font: 'Times-Bold', size: 8.5, align: 'center' })
   f.put(s('chief_accountant_designation', 'Chief Accountant/Head of Accounting Division/Unit'),

@@ -1,6 +1,6 @@
 const fs   = require('fs')
 const path = require('path')
-const { signatureBuffer } = require('../utils/signature')
+const { signatureBuffer, drawSignature } = require('../utils/signature')
 
 // The TWG's Certification (Goods and services), following the campus's own
 // form (certify 2026): the letterhead, the certification, every bid checked
@@ -165,7 +165,7 @@ function drawTwgCertificate(doc, { cert, bids, orgSettings = {} }) {
   y = doc.y + 2
   const signature = signatureBuffer(cert.signature)
   if (signature) {
-    try { doc.image(signature, M, y, { fit: [160, 40], valign: 'bottom' }) } catch { /* not fatal */ }
+    try { drawSignature(doc, signature, M, y, 160, 40, { align: 'left' }) } catch { /* not fatal */ }
   } else {
     doc.lineWidth(0.6).strokeColor('#000').moveTo(M, y + 38).lineTo(M + 210, y + 38).stroke()
   }
