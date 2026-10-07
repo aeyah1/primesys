@@ -199,7 +199,7 @@ const SLIDES = {
       Icon:  CheckCircle,
       color: 'from-amber-500 to-yellow-400',
       title: 'You\'re all set!',
-      body:  'Start by creating user accounts and giving each office its End User. Everything else is in the User Guide, in the sidebar anytime.',
+      body:  'Start by creating user accounts and giving each office its End Users. Everything else is in the User Guide, in the sidebar anytime.',
     },
   ],
 }
