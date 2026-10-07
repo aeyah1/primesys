@@ -98,7 +98,7 @@ async function run() {
     check(G1, `${label} → ${want}, no account`, r.status === want && (await q('SELECT COUNT(*) AS n FROM users WHERE username = ?', [body.username]))[0].n === 0, show(r))
   }
   r = await http('POST', '/auth/register', reg({ department_id: 3 }))
-  check(G1, 'an office that has a Fund Administrator → 409', r.status === 409 && /OFC already has an End User/.test(r.data.message) && !/Req One/.test(r.data.message), show(r))
+  check(G1, 'an office that already has an End User takes another sign-up → 201', r.status === 201, show(r))
 
   for (const [field, value] of [['role', 'admin'], ['role', 'procurement'], ['role', 'supply'], ['role', 'twg'],
                                 ['is_verified', true], ['is_active', true], ['is_approved', 1], ['permissions', ['*']], ['is_admin', true]]) {
@@ -109,8 +109,7 @@ async function run() {
   }
   r = await http('GET', '/auth/registration-info')
   check(G1, 'sign-up form is told which email domains are accepted', r.status === 200 && JSON.stringify(r.data.email_domains) === '["auth.invalid","demo.invalid"]', show(r))
-  check(G1, '…and the offices, with which are taken (no names)', r.data.offices?.length === 4 && r.data.offices.find(o => o.code === 'OFC')?.taken === true
-    && r.data.offices.find(o => o.code === 'OFA')?.taken === false && Object.keys(r.data.offices[0]).sort().join() === 'code,id,name,taken', JSON.stringify(r.data.offices))
+  check(G1, '…and the offices (no people)', r.data.offices?.length === 4 && Object.keys(r.data.offices[0]).sort().join() === 'code,id,name', JSON.stringify(r.data.offices))
   const outsider = reg({ email: 'someone@gmail.com' })
   r = await http('POST', '/auth/register', outsider)
   check(G1, 'email outside the allowed domains → 400, no account', r.status === 400 && /ending in @auth\.invalid or @demo\.invalid/.test(r.data.message)
@@ -171,11 +170,11 @@ async function run() {
   check(G2, '…the person is emailed, with a sign-in link and the office', mailsTo(u1.email).length === 1 && /approved/.test(mailsTo(u1.email)[0].subject) && /OFD/.test(mailsTo(u1.email)[0].html) && /\/login/.test(mailsTo(u1.email)[0].html), mailsTo(u1.email).length)
   r = await http('PATCH', `/users/${u1Id}/approve`, undefined, adminTok)
   check(G2, 'approving it again → 409', r.status === 409, show(r))
-  r = await http('PATCH', `/users/${u3Id}/approve`, undefined, adminTok)
-  check(G2, 'a second Fund Administrator for the same office → 409, still waiting', r.status === 409 && /OFD already has an End User/.test(r.data.message)
-    && (await q('SELECT is_verified FROM users WHERE id = ?', [u3Id]))[0].is_verified === 0, show(r))
-  r = await http('POST', '/auth/register', reg({ department_id: 4 }))
-  check(G2, '…and the office now refuses new sign-ups', r.status === 409, show(r))
+  const second = reg({ department_id: 4 })
+  r = await http('POST', '/auth/register', second)
+  check(G2, 'a second End User signs up for the same office → 201', r.status === 201, show(r))
+  r = await http('PATCH', `/users/${await idOf(second.username)}/approve`, undefined, adminTok)
+  check(G2, '…and is approved too: an office may have several', r.status === 200, show(r))
 
   r = await http('POST', `/users/${u3Id}/reject`, { reason: '  ' }, adminTok)
   check(G2, 'turning a sign-up down needs a reason → 400', r.status === 400, show(r))
@@ -318,7 +317,7 @@ async function run() {
   r = await http('POST', '/users', { name: 'Admin FA', username: 'made_fa', email: 'made_fa@auth.invalid', password: 'Admin-Made-3', role: 'requestor' }, admin)
   check(G6, 'an admin-made Fund Administrator needs an office → 400', r.status === 400 && /office/.test(r.data.message), show(r))
   r = await http('POST', '/users', { name: 'Admin FA', username: 'made_fa', email: 'made_fa@auth.invalid', password: 'Admin-Made-3', role: 'requestor', department_id: 3 }, admin)
-  check(G6, '…and one for a taken office → 409', r.status === 409, show(r))
+  check(G6, '…and one for an office that already has one → 201', r.status === 201, show(r))
   r = await http('POST', '/users', { name: 'Made By Admin', username: 'made_proc', email: 'made_proc@auth.invalid', password: 'Admin-Made-1', role: 'procurement' }, admin)
   check(G6, 'admin creates a procurement account (the controlled path)', r.status === 201 && r.data.role === 'procurement', show(r))
   r = await http('POST', '/auth/login', { identifier: 'made_proc', password: 'Admin-Made-1' })

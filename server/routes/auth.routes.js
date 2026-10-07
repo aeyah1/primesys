@@ -62,14 +62,11 @@ const nameRule = (field, label) => body(field)
   .isString().withMessage(`${label} is required`).bail()
   .trim().isLength({ min: 1, max: 50 }).withMessage(`${label} is required (50 characters at most)`)
 
-// What the sign-up form needs (public): accepted email domains, and the offices with whether each already has a Fund Administrator.
+// What the sign-up form needs (public): accepted email domains, and the active offices.
 router.get('/registration-info', async (req, res, next) => {
   try {
-    const [offices] = await pool.execute(
-      `SELECT d.id, d.code, d.name,
-              EXISTS (SELECT 1 FROM users u WHERE u.department_id = d.id AND u.role = 'requestor' AND u.is_active = 1 AND u.is_verified = 1) AS taken
-         FROM departments d WHERE d.is_active = 1 ORDER BY d.code`)
-    res.json({ email_domains: DOMAINS, offices: offices.map(o => ({ ...o, taken: !!o.taken })) })
+    const [offices] = await pool.execute('SELECT d.id, d.code, d.name FROM departments d WHERE d.is_active = 1 ORDER BY d.code')
+    res.json({ email_domains: DOMAINS, offices })
   } catch (err) { next(err) }
 })
 

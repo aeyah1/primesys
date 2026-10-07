@@ -340,7 +340,7 @@ export default function PRCreate() {
             <p className="text-ui-xs text-[--color-text-muted] mt-1">Who is asking, what it is for, and when it is needed.</p>
           </CardHeader>
           <CardContent>
-            <RequestContextForm value={form} onChange={setContext} />
+            <RequestContextForm value={form} onChange={setContext} followOffice />
           </CardContent>
         </Card>
 
