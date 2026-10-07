@@ -63,6 +63,9 @@ CREATE TABLE `users` (
   `token_version`              INT UNSIGNED NOT NULL DEFAULT 0,
   `fund_cluster`               VARCHAR(100) NULL,
   `responsibility_center_code` VARCHAR(100) NULL,
+  -- A TWG member's own saved signature (PNG data URL), filled in when they certify; only they read it.
+  `saved_signature`            MEDIUMTEXT   NULL,
+  `saved_sign_method`          ENUM('drawn','uploaded') NULL,
   `created_at`                 TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at`                 TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),

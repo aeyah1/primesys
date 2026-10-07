@@ -110,6 +110,7 @@ mysql -u root -p primesys < add_ppmp_changes.sql
 mysql -u root -p primesys < add_twg_review_certificate.sql
 mysql -u root -p primesys < add_pr_delete_reason.sql
 mysql -u root -p primesys < add_org_signatures.sql
+mysql -u root -p primesys < add_saved_signature.sql
 ```
 
 Apply only the ones your database is missing. The last ten need MariaDB (XAMPP); several of the earlier ones are one-shot `ALTER`s that fail if run twice. `add_user_columns.sql`, `add_missing_tables.sql`, and `add_twg_role.sql` would erase the `requestor` and `twg` roles on a newer database, so they stop with an error and change nothing when the database already has either role.

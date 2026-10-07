@@ -11,6 +11,7 @@ const { verifyCaptcha } = require('../utils/captcha')
 const { endSessions, invalidateUserCache } = require('../middleware/auth.middleware')
 const notify   = require('../utils/notify')
 const { officeHolder } = require('../utils/fundAdmin')
+const { checkSignature, METHODS } = require('../utils/signature')
 const resetPasswordEmail = require('../emails/resetPassword')
 const accountExistsEmail = require('../emails/accountExists')
 
@@ -290,5 +291,32 @@ exports.resetPassword = async (req, res) => {
     throttle.clearUser(userId)
     securityLog('password_reset_completed', { userId })
     res.json({ message: 'Password reset successfully. You can now sign in.' })
+  } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
+}
+
+// GET /auth/me/signature - this TWG member's saved signature: { image, sign_method }, both null when none.
+exports.mySignature = async (req, res) => {
+  try {
+    const [[row]] = await pool.execute('SELECT saved_signature AS image, saved_sign_method AS sign_method FROM users WHERE id = ?', [req.user.id])
+    res.json(row || { image: null, sign_method: null })
+  } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
+}
+
+// PUT /auth/me/signature - { image, method }: saves it, to fill in when they certify. DELETE clears it.
+exports.saveMySignature = async (req, res) => {
+  try {
+    const image = checkSignature(req.body.image)
+    await pool.execute('UPDATE users SET saved_signature = ?, saved_sign_method = ? WHERE id = ?',
+      [image, METHODS.includes(req.body.method) ? req.body.method : 'drawn', req.user.id])
+    res.json({ message: 'Signature saved' })
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ message: err.message })
+    console.error(err); res.status(500).json({ message: 'Internal server error' })
+  }
+}
+exports.removeMySignature = async (req, res) => {
+  try {
+    await pool.execute('UPDATE users SET saved_signature = NULL, saved_sign_method = NULL WHERE id = ?', [req.user.id])
+    res.json({ message: 'Signature removed' })
   } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
 }
