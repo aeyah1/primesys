@@ -174,6 +174,12 @@ async function run() {
   await is('People', '…and each sees HR on their profile', 3, 'GET', '/auth/me', undefined, r => r.data.department_code === 'HR')
   await is('People', '…yet each sees only the requests they filed', 3, 'GET', '/pr?limit=100', undefined,
     r => r.status === 200 && !r.data.data.some(p => p.title === 'Now in HR'))
+  await is('People', 'each is told of the new office at once, so their open pages follow it', 3, 'GET', '/notifications', undefined,
+    r => r.status === 200 && r.data.some(n => /^Your office is now HR \(.+\)\. The requests you file from now on are for it\.$/.test(n.message) && n.reference_type === 'account'))
+  const officeNotices = async () => ((await http(3, 'GET', '/notifications')).data || []).filter(n => /^Your office is now/.test(n.message)).length
+  const told = await officeNotices()
+  await is('People', 'saving them again with the same office', 1, 'PATCH', '/users/3', { name: 'Felix Atenin', role: 'requestor', department_id: 11 }, r => r.status === 200)
+  t.check('People', '…tells them nothing new', await officeNotices() === told)
 
   return t.summary()
 }
