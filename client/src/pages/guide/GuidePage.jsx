@@ -127,6 +127,7 @@ function RoleGuide({ role }) {
         <Step number={6} icon={ClipboardList}  title="Follow your decisions"  description="Your dashboard shows how many PRs are waiting, your weekly activity, and your recent decisions." />
       </div>
       <Tip>The TWG reviews but doesn't edit PRs. When something needs to change, request a revision so the End User can fix it. If a PR was filed under the wrong category, request a revision and ask the End User to change the category.</Tip>
+      <Tip>Save your signature once under Settings → Profile (or Save as my signature in the approval window): it is filled in on every certificate you issue, and you can still sign differently or leave it off before you confirm.</Tip>
     </div>
   )
 
