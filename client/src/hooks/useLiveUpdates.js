@@ -11,7 +11,7 @@ const TOAST_KIND = { success: 'success', delivered: 'success', warning: 'warning
 const ICON_COLOR = { success: 'text-emerald-600', warning: 'text-amber-600', error: 'text-red-600', info: 'text-[--color-brand]' }
 
 export function useLiveUpdates() {
-  const { socket } = useAuth()
+  const { socket, refreshUser } = useAuth()
   const qc         = useQueryClient()
   const navigate   = useNavigate()
 
@@ -61,7 +61,7 @@ export function useLiveUpdates() {
       // type. The type is a severity the server picks freely ('info',
       // 'warning', ...), so switching on it silently stopped matching when
       // those were consolidated, and the lists went stale until refetched.
-      // reference_type is 'pr', 'lot', 'delivery' or 'ppmp'.
+      // reference_type is 'pr', 'lot', 'delivery', 'ppmp' or 'account'.
       const id = notification.reference_id ? String(notification.reference_id) : null
       const refresh = (...keys) => keys.forEach(k => qc.invalidateQueries({ queryKey: k }))
 
@@ -84,12 +84,18 @@ export function useLiveUpdates() {
           refresh(['ppmp-list'], ['ppmp-coverage'])
           if (id) refresh(['ppmp', id])
           break
+
+        // The admin changed this account (its office): reload it, and what follows the office.
+        case 'account':
+          refreshUser()
+          refresh(['pr-sections'], ['pr-requesters'], ['ppmp-lines'], ['ppmp-list'], ['departments'], ['dashboard'])
+          break
       }
     }
 
     socket.on('notification', handler)
     return () => socket.off('notification', handler)
-  }, [socket, qc, navigate])
+  }, [socket, qc, navigate, refreshUser])
 }
 
 // Short 880Hz tone; mirrors the preview chime in NotificationsTab so the

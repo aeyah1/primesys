@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { User, Calendar, Briefcase, Building2 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { Input } from '@/components/ui/input'
@@ -25,7 +25,17 @@ export const PURPOSE_TYPE_LABELS = Object.fromEntries(PURPOSE_TYPES.map(t => [t.
 //
 // `value` is the full context sub-object on the parent's form state.
 // `onChange(nextValue)` is called with the merged object whenever any field changes.
-export default function RequestContextForm({ value = {}, onChange }) {
+// `followOffice`: a new request, whose Office / Section follows an office reassigned while it is open.
+
+// What Office / Section becomes when the office code is `code` and was `was`: the code while the field is blank, and
+// on a new request (`follow`) the new code in place of the old one still shown; null leaves it (typed, or unchanged).
+export function sectionFor(value, code, was, follow) {
+  if (!code || value.department_touched) return null
+  if (!value.department || (follow && was && was !== code && value.department === was)) return code
+  return null
+}
+
+export default function RequestContextForm({ value = {}, onChange, followOffice = false }) {
   const set = (k, v) => onChange({ ...value, [k]: v })
   // A Fund Administrator files only for their own office, whose PPMP the request draws on.
   const { user } = useAuth()
@@ -45,9 +55,14 @@ export default function RequestContextForm({ value = {}, onChange }) {
     enabled: ownOffice,
     staleTime: 60_000,
   })
-  // Until something is typed, a Fund Administrator's request prints their office's code (as Requested by names the head).
+  // Until something is typed, a Fund Administrator's request prints their office's code (as Requested by names the head);
+  // on a new request it follows a new office the administrator assigns, unless they typed their own.
+  const shownCode = useRef(null)
   useEffect(() => {
-    if (ownOffice && user.department_code && !value.department && !value.department_touched) onChange({ department: user.department_code })
+    if (!ownOffice || !user.department_code) return
+    const next = sectionFor(value, user.department_code, shownCode.current, followOffice)
+    shownCode.current = user.department_code
+    if (next) onChange({ department: next })
   }, [ownOffice, user?.department_code])
 
   return (

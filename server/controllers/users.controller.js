@@ -9,6 +9,7 @@ const { CATEGORIES } = require('../utils/categories')
 const { setAreas, coverage } = require('../utils/twgAreas')
 const { assertOffice } = require('../utils/fundAdmin')
 const httpError = require('../utils/httpError')
+const notify    = require('../utils/notify')
 const sendMail = require('../utils/mailer')
 const config   = require('../config')
 const accountReviewEmail = require('../emails/accountReview')
@@ -166,6 +167,14 @@ exports.update = async (req, res) => {
       securityLog('role_changed', { userId: current[0].id, from: current[0].role, to: role, by: req.user.id })
     }
     if (areasSaved) securityLog('twg_areas_set', { userId: current[0].id, areas, by: req.user.id })
+    // A new office is told to its holder at once, and their open pages (New Request's Office / Section, the PPMP) follow it.
+    if (Number(officeId || 0) !== Number(current[0].department_id || 0) && current[0].id !== req.user.id && current[0].is_active) {
+      const [[office]] = officeId ? await pool.execute('SELECT code, name FROM departments WHERE id = ?', [officeId]) : [[null]]
+      await notify(req.io, current[0].id, office
+        ? `Your office is now ${office.code} (${office.name}). The requests you file from now on are for it.`
+        : 'You no longer have an office. Ask the administrator if that is a mistake.', 'info', null, 'account')
+        .catch(err => console.error('[notify] office change failed:', err.message))
+    }
     res.json({ message: 'User updated' })
   } catch (err) { fail(res, err) }
 }
