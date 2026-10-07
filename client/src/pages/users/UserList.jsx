@@ -167,6 +167,7 @@ export default function UserList() {
   const refreshUsers = () => {
     qc.invalidateQueries({ queryKey: ['users'] })
     qc.invalidateQueries({ queryKey: ['twg-coverage'] })
+    qc.invalidateQueries({ queryKey: ['departments'] })   // the offices list counts each office's people
   }
 
   const { mutate: toggle } = useMutation({
@@ -601,7 +602,7 @@ export default function UserList() {
               </div>
             </div>
             <p className="text-[11px] text-[--color-text-muted] -mt-1">
-              An End User handles one office, and each office has one. The PR form's
+              An End User handles one office; an office may have several. The PR form's
               "Requested by" names that office's head; set heads under Settings &gt; Organization.
             </p>
 
@@ -704,7 +705,7 @@ export default function UserList() {
               </div>
             </div>
             <p className="text-[11px] text-[--color-text-muted] -mt-1">
-              An End User handles one office, and each office has one. The PR form's
+              An End User handles one office; an office may have several. The PR form's
               "Requested by" names that office's head; set heads under Settings &gt; Organization.
             </p>
 
@@ -765,7 +766,7 @@ export default function UserList() {
                 maxLength={500}
                 rows={3}
                 autoFocus
-                placeholder="e.g. Not NEMSU staff, or the office already has an End User"
+                placeholder="e.g. Not NEMSU staff"
                 className="w-full rounded-md border border-[--color-border] bg-[--color-surface] px-3 py-2 text-sm text-[--color-text-primary] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent resize-y"
               />
             </div>

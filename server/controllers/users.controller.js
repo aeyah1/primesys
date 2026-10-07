@@ -7,7 +7,7 @@ const withTransaction = require('../db/transaction')
 const { paging }  = require('../middleware/validate')
 const { CATEGORIES } = require('../utils/categories')
 const { setAreas, coverage } = require('../utils/twgAreas')
-const { assertOfficeFree } = require('../utils/fundAdmin')
+const { assertOffice } = require('../utils/fundAdmin')
 const httpError = require('../utils/httpError')
 const sendMail = require('../utils/mailer')
 const config   = require('../config')
@@ -154,8 +154,7 @@ exports.update = async (req, res) => {
 
     const officeId = 'department_id' in req.body ? (req.body.department_id || null) : current[0].department_id
     const areasSaved = await withTransaction(async (conn) => {
-      if (role === 'requestor' && !officeId) throw httpError(400, 'Pick the office this End User handles')
-      if (current[0].is_active && current[0].is_verified) await assertOfficeFree(conn, { id: current[0].id, role, department_id: officeId })
+      await assertOffice(conn, { role, department_id: officeId })
       await conn.execute(
         `UPDATE users SET name = ?, role = ?${username ? ', username = ?' : ''}${extra.length ? ', ' + extra.join(', ') : ''} WHERE id = ?`,
         [name.trim(), role, ...(username ? [username.trim()] : []), ...extraValues, current[0].id]
@@ -192,7 +191,7 @@ exports.create = async (req, res) => {
     let result
     try {
       result = await withTransaction(async (conn) => {
-        await assertOfficeFree(conn, { role, department_id: req.body.department_id || null })
+        await assertOffice(conn, { role, department_id: req.body.department_id || null })
         const [r] = await conn.execute(
           `INSERT INTO users (name, username, email, password_hash, role, is_verified, department_id, designation)
            VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
@@ -225,7 +224,7 @@ exports.approve = async (req, res) => {
            FROM users u LEFT JOIN departments d ON d.id = u.department_id WHERE u.id = ? FOR UPDATE`, [req.params.id])
       if (!u) throw httpError(404, 'User not found')
       if (u.is_verified) throw httpError(409, 'This account is already approved')
-      await assertOfficeFree(conn, u)
+      await assertOffice(conn, u)
       await conn.execute('UPDATE users SET is_verified = 1 WHERE id = ?', [u.id])
       return u
     })
@@ -279,7 +278,7 @@ exports.toggleActive = async (req, res) => {
     const [rows] = await pool.execute('SELECT id, role, department_id, is_active, is_verified FROM users WHERE id = ?', [id])
     if (!rows.length) return res.status(404).json({ message: 'User not found' })
     await withTransaction(async (conn) => {
-      if (!rows[0].is_active && rows[0].is_verified) await assertOfficeFree(conn, rows[0])
+      if (!rows[0].is_active && rows[0].is_verified) await assertOffice(conn, rows[0])
       await conn.execute('UPDATE users SET is_active = NOT is_active WHERE id = ?', [id])
     })
     invalidateUserCache(id)

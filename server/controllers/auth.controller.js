@@ -10,7 +10,6 @@ const securityLog = require('../utils/securityLog')
 const { verifyCaptcha } = require('../utils/captcha')
 const { endSessions, invalidateUserCache } = require('../middleware/auth.middleware')
 const notify   = require('../utils/notify')
-const { officeHolder } = require('../utils/fundAdmin')
 const { checkSignature, METHODS } = require('../utils/signature')
 const resetPasswordEmail = require('../emails/resetPassword')
 const accountExistsEmail = require('../emails/accountExists')
@@ -59,9 +58,6 @@ exports.register = async (req, res) => {
 
     const [[office]] = await pool.execute('SELECT id, code, name FROM departments WHERE id = ? AND is_active = 1', [department_id])
     if (!office) return res.status(400).json({ message: 'Pick your office' })
-    if (await officeHolder(pool, office.id)) {
-      return res.status(409).json({ message: `${office.code} already has an End User. If you are taking over, ask the administrator to reassign the office.` })
-    }
 
     const [usernameCheck] = await pool.execute('SELECT id FROM users WHERE LOWER(username) = LOWER(?)', [username])
     if (usernameCheck.length) return res.status(409).json({ message: 'That username is already taken' })

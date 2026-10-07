@@ -167,10 +167,13 @@ async function run() {
   await is('People', 'a Fund Administrator can\'t be left without an office', 1, 'PATCH', '/users/4',
     { name: 'Nomad Encoder', role: 'requestor', department_id: null }, r => r.status === 400, '400')
   await is('People', '…so it stays', 4, 'GET', '/auth/me', undefined, r => r.data.department_id === 11, '11')
-  await is('People', 'a second Fund Administrator for HR is refused', 1, 'PATCH', '/users/3',
-    { name: 'Felix Atenin', role: 'requestor', department_id: 11 }, r => r.status === 409 && /HR already has an End User \(Nomad Encoder\)/.test(r.data.message), '409')
-  await is('People', 'making the HR one staff frees the office', 1, 'PATCH', '/users/4', { name: 'Nomad Encoder', role: 'procurement' }, r => r.status === 200)
-  await is('People', '…for another account', 1, 'PATCH', '/users/3', { name: 'Felix Atenin', role: 'requestor', department_id: 11 }, r => r.status === 200)
+  await is('People', 'a second End User for HR: an office may have several', 1, 'PATCH', '/users/3',
+    { name: 'Felix Atenin', role: 'requestor', department_id: 11 }, r => r.status === 200)
+  await is('People', '…both are HR\'s on the user list', 1, 'GET', '/users?role=requestor', undefined,
+    r => [3, 4].every(id => r.data.data.find(u => u.id === id)?.department_code === 'HR'))
+  await is('People', '…and each sees HR on their profile', 3, 'GET', '/auth/me', undefined, r => r.data.department_code === 'HR')
+  await is('People', '…yet each sees only the requests they filed', 3, 'GET', '/pr?limit=100', undefined,
+    r => r.status === 200 && !r.data.data.some(p => p.title === 'Now in HR'))
 
   return t.summary()
 }
