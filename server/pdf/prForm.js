@@ -1,6 +1,6 @@
 const { M } = require('../utils/pdfHelpers')
 const { isTemporary } = require('../utils/prNumber')
-const { signatureBuffer } = require('../utils/signature')
+const { signatureBuffer, drawSignature } = require('../utils/signature')
 const { approverFor } = require('../utils/orgSettings')
 const { signatureOf } = require('../utils/orgSignatures')
 
@@ -250,10 +250,10 @@ module.exports = function drawPRForm(doc, { pr, orgSettings = {}, items = [] }) 
   signRow(y, 30,    'Signature', '', '')
   // The requester's signature, drawn on the screen or uploaded, on their line; a blank line to sign by hand otherwise.
   const signature = signatureBuffer(pr.requested_by_signature)
-  if (signature) doc.image(signature, leftX + 4, y + 2, { fit: [HALF - 8, 26], align: 'center', valign: 'center' })
+  if (signature) drawSignature(doc, signature, leftX + 4, y + 2, HALF - 8, 26, { valign: 'center' })
   // The approving official's saved signature, on a signed copy (utils/orgSignatures.js).
   const approverSignature = signatureOf(orgSettings, approver.name)
-  if (approverSignature) doc.image(approverSignature, rightX + 4, y + 2, { fit: [HALF - 8, 26], align: 'center', valign: 'center' })
+  if (approverSignature) drawSignature(doc, approverSignature, rightX + 4, y + 2, HALF - 8, 26, { valign: 'center' })
   y += 30
   signRow(y, 20,    'Printed\nName', requestedName, approver.name, { font: 'Times-Bold', size: 10 }); y += 20
   signRow(y, 18,    'Designation', requestedTitle, approver.designation, { font: 'Times-Bold', size: 9 }); y += 18
@@ -271,7 +271,7 @@ module.exports = function drawPRForm(doc, { pr, orgSettings = {}, items = [] }) 
     doc.font('Times-Bold').fontSize(10).fillColor(BLUE)
        .text(title, x + 8, y + 8, { width: BOX_W - 16, align: 'center' })
     const saved = signatureOf(orgSettings, name)
-    if (saved) doc.image(saved, x + 44, y + 21, { fit: [BOX_W - 88, 18], align: 'center', valign: 'bottom' })
+    if (saved) drawSignature(doc, saved, x + 44, y + 20, BOX_W - 88, 22)
     doc.lineWidth(0.75).strokeColor(BLUE)
        .moveTo(x + 44, y + 40).lineTo(x + BOX_W - 44, y + 40).stroke()
     doc.font('Times-Bold').fontSize(8.5).fillColor(BLUE)

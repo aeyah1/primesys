@@ -1,6 +1,7 @@
 const fs   = require('fs')
 const path = require('path')
 const { M } = require('../utils/pdfHelpers')
+const { drawSignature } = require('../utils/signature')
 
 // Shared furniture for the campus's own printed forms: the letterhead, the
 // bordered grid, and the signature blocks. The Purchase Request (Appendix 60)
@@ -128,7 +129,7 @@ function forms(doc) {
         .text(label, x, y, { width, align, lineBreak: false })
     }
     const lineY = y + (label ? 30 : 22)
-    if (image) doc.image(image, x + 20, lineY - 22, { fit: [width - 40, 21], align: 'center', valign: 'bottom' })
+    if (image) drawSignature(doc, image, x + 20, lineY - 21, width - 40, 23)
     rule(x + 10, lineY, x + width - 10)
     doc.font('Times-Bold').fontSize(9.5).fillColor(BLACK)
       .text(name || '', x, lineY + 3, { width, align, lineBreak: false })
