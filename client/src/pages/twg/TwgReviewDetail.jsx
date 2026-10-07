@@ -20,6 +20,7 @@ import PpmpComparison, { usePrPpmp, ViewPpmpButton } from '@/components/ppmp/Ppm
 import TwgCertificates from '@/components/awards/TwgCertificates'
 import TwgEvaluation, { evaluationPayload, evaluationBlock } from '@/components/awards/TwgEvaluation'
 import SignatureDialog from '@/components/shared/SignatureDialog'
+import useMySignature from '@/hooks/useMySignature'
 import { useAuth } from '@/context/AuthContext'
 import { openPdf, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
@@ -36,6 +37,8 @@ export default function TwgReviewDetail() {
   const [signature, setSignature] = useState(null)   // { image, method } on the certificate, or null
   const [signing, setSigning] = useState(false)
   const [marks, setMarks] = useState({})             // the TWG's marks on the canvass's bids (TwgEvaluation)
+  // This member's saved signature, filled in on the certificate (they may change or remove it before confirming).
+  const mySignature = useMySignature(user?.role === 'twg')
 
   const { data: pr, isLoading: prLoading } = useQuery({
     queryKey: ['pr', id],
@@ -137,7 +140,7 @@ export default function TwgReviewDetail() {
     setAction(next)
     setComment('')
     setCertNo(bac?.suggested_cert_no || '')
-    setSignature(null)
+    setSignature(['approve', 'certify'].includes(next) ? mySignature.saved : null)
   }
 
   return (
@@ -504,6 +507,13 @@ export default function TwgReviewDetail() {
                     <div className="flex flex-wrap items-center gap-2">
                       <div className="rounded-md border border-[--color-border] bg-white px-2 py-1"><img src={signature.image} alt={`Signature of ${user?.name || 'the TWG member'}`} className="h-10" /></div>
                       <Button type="button" size="sm" variant="ghost" onClick={() => setSignature(null)}>Remove</Button>
+                      {user?.role !== 'twg' ? null : signature.image === mySignature.saved?.image
+                        ? <span className="text-[11px] text-[--color-text-muted]">Your saved signature</span>
+                        : (
+                          <Button type="button" size="sm" variant="ghost" disabled={mySignature.saving} onClick={() => mySignature.save(signature)}>
+                            Save as my signature
+                          </Button>
+                        )}
                     </div>
                   ) : (
                     <p className="text-xs text-[--color-text-secondary]">Unsigned, the certificate prints a blank line to sign by hand.</p>

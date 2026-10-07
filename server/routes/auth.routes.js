@@ -3,6 +3,7 @@ const rateLimit = require('express-rate-limit')
 const { body }  = require('express-validator')
 const c         = require('../controllers/auth.controller')
 const auth      = require('../middleware/auth.middleware')
+const authorize = require('../middleware/authorize.middleware')
 const { handle, passwordRule, textRule, idRule } = require('../middleware/validate')
 const pool      = require('../db/pool')
 const securityLog = require('../utils/securityLog')
@@ -122,6 +123,14 @@ router.patch('/me',      auth,
   handle,
   c.updateProfile
 )
+// A TWG member's own saved signature, filled in when they certify; nobody else reads it.
+const twgOnly = authorize('twg')
+router.get('/me/signature',    auth, twgOnly, c.mySignature)
+router.put('/me/signature',    auth, twgOnly,
+  body('image').isString().withMessage('The signature must be a PNG image').isLength({ max: 200_000 }).withMessage('The signature image is too large'),
+  handle, c.saveMySignature)
+router.delete('/me/signature', auth, twgOnly, c.removeMySignature)
+
 router.patch('/password',
   auth,
   body('current_password').isString().notEmpty().withMessage('Current and new password are required'),

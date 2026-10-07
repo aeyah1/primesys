@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { Save } from 'lucide-react'
+import { Save, PenLine } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -9,6 +9,9 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { fmtDate } from '@/lib/utils'
 import { useAuth } from '@/context/AuthContext'
+import { useConfirm } from '@/components/shared/ConfirmDialog'
+import SignatureDialog from '@/components/shared/SignatureDialog'
+import useMySignature from '@/hooks/useMySignature'
 import api from '@/lib/axios'
 
 const ROLE_LABELS = {
@@ -94,7 +97,46 @@ export default function ProfileTab() {
           </div>
         </CardContent>
       </Card>
+
+      {user?.role === 'twg' && <MySignatureCard />}
     </div>
+  )
+}
+
+// A TWG member's saved signature, filled in on the certificates they issue (they can still change it each time).
+function MySignatureCard() {
+  const confirm = useConfirm()
+  const { user } = useAuth()
+  const { saved, save, saving, remove, removing } = useMySignature()
+  const [signing, setSigning] = useState(false)
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>My signature</CardTitle>
+        <CardDescription>
+          Saved, it is filled in on the certificate each time you approve a request or certify bids. You still see it
+          there, and can sign differently or leave it off before you confirm. Only you can see it.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-wrap items-center gap-3">
+        {saved
+          ? <img src={saved.image} alt={`Signature of ${user?.name || 'you'}`} className="h-12 max-w-56 rounded-md border border-[--color-border] bg-white object-contain px-2" />
+          : <p className="text-ui-sm text-[--color-text-secondary]">No signature saved: certificates print a blank line unless you sign them.</p>}
+        <div className="flex items-center gap-2">
+          <Button type="button" size="sm" variant="outline" className="gap-1.5" disabled={saving} onClick={() => setSigning(true)}>
+            <PenLine className="size-3.5" /> {saved ? 'Replace' : 'Add signature'}
+          </Button>
+          {saved && (
+            <Button type="button" size="sm" variant="ghost" disabled={removing}
+              onClick={async () => { if (await confirm({ title: 'Remove your saved signature?', message: 'Certificates print a blank line unless you sign them.', confirmLabel: 'Remove', danger: true })) remove() }}>
+              Remove
+            </Button>
+          )}
+        </div>
+      </CardContent>
+      {signing && <SignatureDialog signer={user?.name} description="Your signature, filled in on the TWG certificates you issue."
+        onClose={() => setSigning(false)} onSave={save} />}
+    </Card>
   )
 }
 

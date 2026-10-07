@@ -3,6 +3,7 @@ const path = require('path')
 const { M } = require('../utils/pdfHelpers')
 const { canvassersOf } = require('../utils/orgSettings')
 const { signatureOf } = require('../utils/orgSignatures')
+const { drawSignature } = require('../utils/signature')
 
 // Request for Quotation, drawn as the campus's own form.
 //
@@ -39,6 +40,13 @@ const HEAD_H = 26
 const PAD    = 3
 const FS     = 9
 const BOTTOM = 792 - M
+// The room a saved signature takes above the vice chairman's name, and above each row of canvassers' names.
+const VICE_ROOM = 15
+const NAME_ROOM = 16
+
+// Everything that must stay with a lot's last row: the ABC and purpose rows and a gap, the three terms the supplier
+// fills in, the acceptance sentence, their name and contact rules, and the canvassers' rows of `nameRowH` each.
+const footerHeight = (nameRowH, nameRows) => ROW_H * 2 + 8 + 42 + 28 + 46 + nameRowH * nameRows
 
 // The form's wording, shared with the Word copy (requestForQuotationDocx.js).
 const REQUEST_TEXT = 'Please quote your lowest price on the items listed below, subject to the General Condition in the last page stating the '
@@ -116,9 +124,36 @@ function drawLot(doc, { pr, orgSettings: org, lot, first }) {
   doc.text(REQUEST_TEXT, M, y, { width: W, align: 'justify' })
   y = doc.y + 8
 
-  // The vice chairman's saved signature, on a signed copy, written over the printed name so the page keeps its fit.
+  // The item rows and the canvassers are measured first, for where a signed copy's saved signatures go: above the
+  // names when the lot still fits its page with that room, else resting on the top of the names, so it never runs longer.
+  const descH = (font, text) => {
+    doc.font(font).fontSize(FS)
+    return doc.heightOfString(String(text || ''), { width: COLS[1].width - PAD * 2 })
+  }
+  const rows = []
+  let section = null, itemNo = 0
+  for (const item of lot.items) {
+    const label = (item.group_label || '').trim()
+    if (label && label !== section) {
+      section = label
+      rows.push({ kind: 'section', label, height: Math.max(ROW_H, descH('Times-Bold', label.toUpperCase()) + PAD * 2) })
+    }
+    rows.push({
+      kind: 'item', item, no: ++itemNo,
+      height: Math.max(ROW_H, descH('Times-BoldItalic', item.item_name) + (item.notes ? descH('Times-Roman', item.notes) : 0) + PAD * 2),
+    })
+  }
+  // The canvassers, three to a row; with none set, one blank line to sign by hand.
+  const canvassers = canvassersOf(org)
+  const signers = canvassers.length ? canvassers : [{ name: '', designation: '' }]
+  const signed = signers.map(c => signatureOf(org, c.name))
   const vice = signatureOf(org, s('bac_vice_chairman_name'))
-  if (vice) doc.image(vice, M + W / 2 - 80, y - 7, { fit: [160, 20], align: 'center', valign: 'center' })
+  const nameRows = Math.ceil(signers.length / 3)
+  const room = (vice ? VICE_ROOM : 0) + (signed.some(Boolean) ? NAME_ROOM * nameRows : 0)
+  const roomy = room > 0 && y + room + 26 + NOTES.length * 9 + 8 + HEAD_H + rows.reduce((t, r) => t + r.height, 0) + footerHeight(22, nameRows) <= BOTTOM
+
+  if (vice && roomy) { y += VICE_ROOM; drawSignature(doc, vice, M + W / 2 - 90, y - 23, 180, 24) }
+  else if (vice) drawSignature(doc, vice, M + W / 2 - 90, y - 11, 180, 17)
   doc.font('Times-Bold').fontSize(10).text(s('bac_vice_chairman_name'), M, y, { width: W, align: 'center' })
   doc.font('Times-Roman').fontSize(9).text(s('bac_vice_chairman_designation', 'BAC Vice Chairman'), M, y + 12, { width: W, align: 'center' })
   y += 26
@@ -139,26 +174,7 @@ function drawLot(doc, { pr, orgSettings: org, lot, first }) {
   }
   y = drawHeader(y)
 
-  // The description column carries the same three tiers as the PR form.
-  const descH = (font, text) => {
-    doc.font(font).fontSize(FS)
-    return doc.heightOfString(String(text || ''), { width: COLS[1].width - PAD * 2 })
-  }
-
-  const rows = []
-  let section = null, itemNo = 0
-  for (const item of lot.items) {
-    const label = (item.group_label || '').trim()
-    if (label && label !== section) {
-      section = label
-      rows.push({ kind: 'section', label, height: Math.max(ROW_H, descH('Times-Bold', label.toUpperCase()) + PAD * 2) })
-    }
-    rows.push({
-      kind: 'item', item, no: ++itemNo,
-      height: Math.max(ROW_H, descH('Times-BoldItalic', item.item_name) + (item.notes ? descH('Times-Roman', item.notes) : 0) + PAD * 2),
-    })
-  }
-
+  // The description column carries the same three tiers as the PR form (rows, above).
   const blank = (top) => COLS.forEach((c, i) => rect(X[i], top, c.width, ROW_H))
   const drawRow = (row, top) => {
     COLS.forEach((c, i) => rect(X[i], top, c.width, row.height))
@@ -185,17 +201,8 @@ function drawLot(doc, { pr, orgSettings: org, lot, first }) {
   // block and the canvasser. Measured, not guessed: pdfkit silently starts a
   // new page if text runs past the bottom margin, which turned one lot into
   // three pages when this was too small.
-  // The canvassers, three to a row; with none set, one blank line to sign by hand.
-  const canvassers = canvassersOf(org)
-  const signers = canvassers.length ? canvassers : [{ name: '', designation: '' }]
-  // Their saved signatures, on a signed copy, each written over the printed name.
-  const signed = signers.map(c => signatureOf(org, c.name))
-  const FOOTER_H = ROW_H * 2 + 8    // ABC + purpose rows, then a gap
-    + 42                            // delivery period / warranty / price validity
-    + 28                            // the acceptance sentence and its gap
-    + 46                            // printed name and contact rules
-    + 22 * Math.ceil(signers.length / 3)   // the canvassers
-
+  const nameRowH = 22 + (roomy && signed.some(Boolean) ? NAME_ROOM : 0)
+  const FOOTER_H = footerHeight(nameRowH, nameRows)
 
   for (const row of rows) {
     if (y + row.height > BOTTOM - ROW_H) { doc.addPage(); y = drawHeader(M) }
@@ -236,8 +243,8 @@ function drawLot(doc, { pr, orgSettings: org, lot, first }) {
 
   const colW = W / 3
   signers.forEach((c, k) => {
-    const cx = M + (k % 3) * colW, cy = y + Math.floor(k / 3) * 22
-    if (signed[k]) doc.image(signed[k], cx, cy - 6, { fit: [colW - 30, 18], valign: 'center' })
+    const cx = M + (k % 3) * colW, cy = y + Math.floor(k / 3) * nameRowH + nameRowH - 22
+    if (signed[k]) drawSignature(doc, signed[k], cx, roomy ? cy - 21 : cy - 11, colW - 30, roomy ? 22 : 17, { align: 'left' })
     doc.font('Times-Bold').fontSize(9).text(c.name, cx, cy, { width: colW - 10, height: 11, ellipsis: true })
     doc.font('Times-Roman').fontSize(8).text(c.designation || 'Canvasser', cx, cy + 12, { width: colW - 10, height: 10, ellipsis: true })
   })
