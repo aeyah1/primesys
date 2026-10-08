@@ -1,10 +1,19 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AtSign, CheckCircle2, AlertCircle } from 'lucide-react'
+import { Mail, MailCheck, AlertCircle, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { ENTER } from '@/pages/landing/LandingParts'
+import AuthLayout, { PanelIntro, PanelSteps } from './AuthLayout'
 import api from '@/lib/axios'
+
+// What resetting takes; the server keeps a link for one hour, single use, and a new request cancels older ones.
+const RESET_STEPS = [
+  { title: 'Enter your email',      text: 'Use the email address on your PRimeSys account.' },
+  { title: 'Open the link we send', text: 'It works once, for one hour. Asking again cancels any older link.' },
+  { title: 'Set a new password',    text: 'Choose one with at least 8 characters, then sign in with it.' },
+]
 
 export default function ForgotPassword() {
   const [email, setEmail]     = useState('')
@@ -26,78 +35,89 @@ export default function ForgotPassword() {
     }
   }
 
-  return (
-    <div className="min-h-screen flex flex-col justify-center bg-[--color-canvas] p-6">
-      <div className="w-full max-w-sm mx-auto py-8">
-        <div className="flex items-center gap-2.5 mb-8">
-          <div className="flex size-9 items-center justify-center">
-            <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-7 object-contain" />
+  const panel = (
+    <>
+      <PanelIntro eyebrow="Account help" title="Locked out? Get back in from your inbox.">
+        The reset link goes to the email address on your account.
+      </PanelIntro>
+      <PanelSteps steps={RESET_STEPS} done={sent ? 1 : 0} />
+    </>
+  )
+
+  if (sent) {
+    return (
+      <AuthLayout panel={panel}>
+        <div className="text-center">
+          <div className="mx-auto flex size-16 items-center justify-center rounded-full border border-[--color-border-strong] bg-[--color-surface] shadow-sm motion-safe:animate-scale-in-fast">
+            <MailCheck className="size-7 text-[--color-brand]" />
           </div>
-          <span className="font-bold text-xl text-[--color-text-primary] tracking-tight">PRimeSys</span>
+          <h1 className={`mt-6 text-ui-3xl font-bold tracking-tight text-[--color-text-primary] ${ENTER}`} style={{ animationDelay: '80ms' }}>
+            Check your email
+          </h1>
+          <p className={`mt-3 text-ui-base leading-relaxed text-[--color-text-secondary] ${ENTER}`} style={{ animationDelay: '140ms' }}>
+            If an account matches <strong className="break-words text-[--color-text-primary]">{email}</strong>, we have
+            sent a link to set a new password. It works for 1 hour.
+          </p>
         </div>
 
-        {sent ? (
-          <div className="rounded-2xl border border-blue-200 bg-blue-50 p-6 text-center space-y-3">
-            <CheckCircle2 className="size-10 text-blue-600 mx-auto" />
-            <h2 className="font-bold text-lg text-blue-900">Check your email</h2>
-            <p className="text-sm text-blue-800 leading-relaxed">
-              If an account matches <strong className="break-all">{email}</strong>, reset instructions will be sent.
-              The link expires in 1 hour. Nothing arrived? Check your spam folder, or wait a few minutes and try again.
-            </p>
-            <Link
-              to="/login"
-              className="inline-block mt-2 text-sm font-semibold text-[--color-brand] hover:underline"
-            >
-              Back to sign in
-            </Link>
+        <div className={`mt-7 rounded-md border border-[--color-border-strong] bg-[--color-surface] px-4 py-3.5 text-ui-sm ${ENTER}`} style={{ animationDelay: '200ms' }}>
+          <p className="font-semibold text-[--color-text-primary]">Nothing arrived?</p>
+          <p className="mt-1 leading-relaxed text-[--color-text-secondary]">Check your spam folder, or wait a few minutes and try again.</p>
+        </div>
+
+        <div className={`mt-7 space-y-3 text-center ${ENTER}`} style={{ animationDelay: '260ms' }}>
+          <Button asChild size="lg" className="w-full">
+            <Link to="/login">Back to sign in</Link>
+          </Button>
+          <button type="button" onClick={() => setSent(false)}
+            className="text-ui-sm font-semibold text-[--color-brand] transition-colors hover:underline">
+            Use a different email
+          </button>
+        </div>
+      </AuthLayout>
+    )
+  }
+
+  return (
+    <AuthLayout panel={panel} switchText="Remembered it?" switchTo="/login" switchLabel="Sign in">
+      <h1 className={`text-ui-3xl font-bold tracking-tight text-[--color-text-primary] ${ENTER}`}>Forgot your password?</h1>
+      <p className={`mt-2 text-ui-base leading-relaxed text-[--color-text-secondary] ${ENTER}`} style={{ animationDelay: '60ms' }}>
+        Enter the email address on your account and we'll send you a reset link.
+      </p>
+
+      <form onSubmit={submit} className="mt-8 space-y-5">
+        <div className={ENTER} style={{ animationDelay: '120ms' }}>
+          <Label htmlFor="email">Email address</Label>
+          <div className="relative">
+            <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-[--color-text-muted]" />
+            <Input
+              id="email"
+              type="email"
+              placeholder="you@example.com"
+              value={email}
+              onChange={e => { setEmail(e.target.value); setError('') }}
+              required
+              autoFocus
+              autoComplete="email"
+              className={`pl-10 ${error ? 'border-red-400 focus:border-red-400 focus:ring-red-200' : ''}`}
+            />
           </div>
-        ) : (
-          <>
-            <h1 className="font-bold text-2xl text-[--color-text-primary] mb-1 tracking-tight">
-              Forgot your password?
-            </h1>
-            <p className="text-sm text-[--color-text-secondary] mb-8 leading-relaxed">
-              Enter the email address on your account and we'll send you a reset link.
-            </p>
+        </div>
 
-            <form onSubmit={submit} className="space-y-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="email">Email address</Label>
-                <div className="relative">
-                  <AtSign className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-[--color-text-muted]" />
-                  <Input
-                    id="email"
-                    type="email"
-                    placeholder="you@example.com"
-                    value={email}
-                    onChange={e => { setEmail(e.target.value); setError('') }}
-                    required
-                    autoFocus
-                    className="pl-9"
-                  />
-                </div>
-              </div>
-
-              {error && (
-                <div className="flex gap-3 items-start rounded-xl border border-red-200 bg-red-50 p-3.5">
-                  <AlertCircle className="size-4 text-red-600 shrink-0 mt-0.5" />
-                  <p className="text-sm text-red-700">{error}</p>
-                </div>
-              )}
-
-              <Button type="submit" className="w-full mt-2" size="lg" disabled={loading}>
-                {loading ? 'Sending…' : 'Send reset link'}
-              </Button>
-            </form>
-
-            <div className="mt-6 pt-6 border-t border-[--color-border] text-center">
-              <Link to="/login" className="text-sm text-[--color-text-muted] hover:text-[--color-brand] transition-colors">
-                Back to sign in
-              </Link>
-            </div>
-          </>
+        {error && (
+          <div role="alert" className="flex items-start gap-3 rounded-md border border-red-300 bg-red-50 p-3.5 motion-safe:animate-fade-in-down">
+            <AlertCircle className="mt-0.5 size-4 shrink-0 text-red-600" />
+            <p className="text-ui-sm text-red-700">{error}</p>
+          </div>
         )}
-      </div>
-    </div>
+
+        <div className={`pt-1 ${ENTER}`} style={{ animationDelay: '180ms' }}>
+          <Button type="submit" size="lg" className="w-full" disabled={loading}>
+            {loading && <Loader2 className="size-4 animate-spin" />}
+            {loading ? 'Sending' : 'Send reset link'}
+          </Button>
+        </div>
+      </form>
+    </AuthLayout>
   )
 }
