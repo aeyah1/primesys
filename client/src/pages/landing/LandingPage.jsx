@@ -2,211 +2,116 @@ import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import {
-  FileText, Gavel, Package, ArrowRight,
-  Clock, Users, BarChart3, ChevronDown,
-  CheckCircle2, Zap, ShieldCheck, Bell,
+  ArrowRight, UserRound, ClipboardCheck, Building2, Gavel, PackageCheck, ShieldCheck,
+  Activity, Printer, CalendarRange, History, BellRing, BarChart3,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { AnimatedNumber } from '@/animations'
+import HeroPreview from './HeroPreview'
+import HowItWorks from './HowItWorks'
+import { ENTER, NAVY_BG, Reveal, SectionHead, DocumentStack, reducedMotion } from './LandingParts'
 
-/* ── data ─────────────────────────────────────────────────────── */
+const NAV = [
+  { id: 'how',      label: 'How it works' },
+  { id: 'roles',    label: 'Who uses it' },
+  { id: 'features', label: 'Features' },
+]
+
+const ROLES = [
+  { icon: UserRound,      name: 'End User',                  text: 'Files requests from the office PPMP and follows each one until it is delivered.' },
+  { icon: ClipboardCheck, name: 'Technical Working Group',   text: 'Reviews requests in their assigned categories and certifies the offers suppliers send.' },
+  { icon: Building2,      name: 'Procurement Office',        text: 'Starts the canvass, prints the Request for Quotation and issues the purchase orders.' },
+  { icon: Gavel,          name: 'Bids and Awards Committee', text: 'Records the quotations and awards each lot to a supplier the TWG found compliant.' },
+  { icon: PackageCheck,   name: 'Supply Office',             text: 'Receives what was ordered and records each delivery, item by item.' },
+  { icon: ShieldCheck,    name: 'Administrator',             text: 'Manages accounts, roles, offices and signatories, and oversees the whole flow.' },
+]
 
 const FEATURES = [
-  {
-    icon: FileText,
-    accent: 'from-blue-500 to-indigo-600',
-    badge: 'bg-blue-100 text-blue-700',
-    glow: 'hover:shadow-blue-100',
-    label: 'PR Tracking',
-    desc: 'Submit purchase requests and monitor every status change in real time — from draft to delivered.',
-    large: true,
-  },
-  {
-    icon: Gavel,
-    accent: 'from-amber-500 to-orange-500',
-    badge: 'bg-amber-100 text-amber-700',
-    glow: 'hover:shadow-amber-100',
-    label: 'Canvass & Award',
-    desc: 'Supplier canvassing with recorded awards, supplier details, and a status history for every PR.',
-  },
-  {
-    icon: Package,
-    accent: 'from-teal-500 to-blue-500',
-    badge: 'bg-teal-100 text-teal-700',
-    glow: 'hover:shadow-teal-100',
-    label: 'Delivery Monitor',
-    desc: 'Track purchase orders from issuance to receipt, with partial-delivery support.',
-  },
-  {
-    icon: BarChart3,
-    accent: 'from-violet-500 to-purple-600',
-    badge: 'bg-violet-100 text-violet-700',
-    glow: 'hover:shadow-violet-100',
-    label: 'Reports & Analytics',
-    desc: 'Quarterly spending breakdowns, PR status charts, and monthly trends — all exportable.',
-    large: true,
-  },
+  { icon: Activity,      title: 'Live status',          text: 'Changes appear without reloading. The next person is notified in the app, and by email for deliveries and reminders.' },
+  { icon: Printer,       title: 'Forms ready to sign',  text: 'Purchase requests, RFQs, certificates, notices and purchase orders print straight from the record.' },
+  { icon: CalendarRange, title: 'PPMP by quarter',      text: 'Requests draw on the office plan quarter by quarter, so nothing goes past what was planned.' },
+  { icon: History,       title: 'Full history',         text: 'Every status change keeps who made it and when. Finished requests move to the Archive and stay there.' },
+  { icon: BellRing,      title: 'Reminders',            text: 'Set a reminder on a request for yourself or a colleague. It arrives by email when it is due.' },
+  { icon: BarChart3,     title: 'Reports and export',   text: 'Spending by quarter and category, filters for the whole year, and CSV export from the Archive.' },
 ]
 
-const STEPS = [
-  { num: '01', label: 'Purchase Request', desc: 'An End User submits a purchase request with items and estimated costs.' },
-  { num: '02', label: 'TWG Review',       desc: 'The Technical Working Group reviews the request and approves it for procurement.' },
-  { num: '03', label: 'Canvass & Award',  desc: 'The canvasser canvasses suppliers; the BAC and the TWG review the winners.' },
-  { num: '04', label: 'Issue PO',         desc: 'Purchase order issued to the awarded supplier.' },
-  { num: '05', label: 'Delivery',         desc: 'Goods received and recorded, and the request is completed.' },
-]
-
-const BENEFITS = [
-  { icon: Zap,         label: 'Real-time updates',   desc: 'Status changes reach the people involved instantly in the app, with email for key events like deliveries and reminders.' },
-  { icon: ShieldCheck, label: 'Complete audit trail', desc: 'Every status change is timestamped and tied to a user, and finished PRs are archived, never erased.' },
-  { icon: Bell,        label: 'Smart reminders',      desc: 'Set reminders on PRs and lots for yourself or a colleague. Due reminders arrive by email.' },
-]
-
-const METRICS = [
-  { value: 5,   suffix: '',   label: 'Workflow stages',      icon: CheckCircle2 },
-  { value: 5,   suffix: '',   label: 'User roles supported', icon: Users },
-  { value: 100, suffix: '%',  label: 'Digital — no paper',  icon: ShieldCheck },
-  { value: 0,   suffix: '',   label: 'Manual follow-ups',   icon: Zap },
-]
-
-/* ── hooks ────────────────────────────────────────────────────── */
-
-function useContainerScroll(ref) {
-  const [scrolled,  setScrolled]  = useState(false)
-  const [progress, setProgress] = useState(0)
+// Header turns from navy to a light bar once the page scrolls past the top.
+function useScrolled(ref) {
+  const [scrolled, setScrolled] = useState(false)
   useEffect(() => {
     const el = ref.current
     if (!el) return
-    const handler = () => {
-      setScrolled(el.scrollTop > 52)
-      const max = el.scrollHeight - el.clientHeight
-      setProgress(max > 0 ? (el.scrollTop / max) * 100 : 0)
-    }
-    el.addEventListener('scroll', handler, { passive: true })
-    return () => el.removeEventListener('scroll', handler)
+    const onScroll = () => setScrolled(el.scrollTop > 24)
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => el.removeEventListener('scroll', onScroll)
   }, [ref])
-  return { scrolled, progress }
+  return scrolled
 }
 
-/* ── Reveal ───────────────────────────────────────────────────── */
+const scrollToId = id => document.getElementById(id)?.scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth' })
 
-function Reveal({ children, from = 'bottom', delay = 0, className = '' }) {
-  const ref  = useRef(null)
-  const [show, setShow] = useState(false)
-  useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const obs = new IntersectionObserver(
-      ([e]) => { if (e.isIntersecting) { setShow(true); obs.disconnect() } },
-      { threshold: 0.1, rootMargin: '0px 0px -40px 0px' }
-    )
-    obs.observe(el)
-    return () => obs.disconnect()
-  }, [])
-  const anims = {
-    bottom: `fade-in-up 0.55s ${delay}ms cubic-bezier(0.22,1,0.36,1) both`,
-    left:   `fade-in-right 0.55s ${delay}ms cubic-bezier(0.22,1,0.36,1) both`,
-    right:  `fade-in-left 0.55s ${delay}ms cubic-bezier(0.22,1,0.36,1) both`,
-    scale:  `scale-in 0.55s ${delay}ms cubic-bezier(0.22,1,0.36,1) both`,
-  }
-  return (
-    <div ref={ref} className={className}
-      style={show ? { animation: anims[from] } : { opacity: 0 }}>
-      {children}
-    </div>
-  )
-}
-
-/* ── MetricCounter ────────────────────────────────────────────── */
-
-function MetricCounter({ value, suffix, label, icon: Icon, delay }) {
-  const ref = useRef(null)
-  const [started, setStarted] = useState(false)
-  const [visible, setVisible] = useState(false)
-  useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const obs = new IntersectionObserver(
-      ([e]) => {
-        if (e.isIntersecting) {
-          setVisible(true)
-          setTimeout(() => setStarted(true), delay)
-          obs.disconnect()
-        }
-      },
-      { threshold: 0.2 }
-    )
-    obs.observe(el)
-    return () => obs.disconnect()
-  }, [delay])
-  return (
-    <div ref={ref} className="flex flex-col items-center text-center"
-      style={visible ? { animation: `fade-in-up 0.5s ${delay}ms ease-out both` } : { opacity: 0 }}>
-      <div className="flex size-12 items-center justify-center rounded-2xl bg-white/10 mb-4">
-        <Icon className="size-5 text-blue-300" />
-      </div>
-      <div className="text-4xl font-bold text-white tabular-nums mb-1">
-        {started
-          ? <AnimatedNumber value={value} duration={1200} suffix={suffix} />
-          : <span>0{suffix}</span>
-        }
-      </div>
-      <p className="text-blue-200/60 text-sm font-medium">{label}</p>
-    </div>
-  )
-}
-
-/* ── page ─────────────────────────────────────────────────────── */
+const NAVY_PRIMARY = 'bg-white text-[--sidebar-bg-top] hover:bg-white hover:shadow-lg hover:-translate-y-px shadow-md'
+const NAVY_GHOST   = 'text-white border border-white/30 hover:bg-white/10 hover:text-white hover:border-white/50'
 
 export default function LandingPage() {
   // Signed in already: offer the way back in, not a sign-in the user doesn't need.
   const { user } = useAuth()
   const containerRef = useRef(null)
-  const { scrolled, progress } = useContainerScroll(containerRef)
+  const scrolled = useScrolled(containerRef)
+
+  const ctas = user ? (
+    <Button asChild size="lg" className={`h-12 px-7 ${NAVY_PRIMARY}`}>
+      <Link to="/dashboard">Go to dashboard <ArrowRight className="size-4" /></Link>
+    </Button>
+  ) : (
+    <>
+      <Button asChild size="lg" className={`h-12 px-7 ${NAVY_PRIMARY}`}>
+        <Link to="/login">Sign in <ArrowRight className="size-4" /></Link>
+      </Button>
+      <Button asChild size="lg" variant="ghost" className={`h-12 px-7 ${NAVY_GHOST}`}>
+        <Link to="/register">Create an account</Link>
+      </Button>
+    </>
+  )
 
   return (
-    <div ref={containerRef} className="h-screen overflow-y-auto flex flex-col bg-[--color-canvas]">
+    <div ref={containerRef} className="h-screen overflow-y-auto overflow-x-hidden bg-[--color-canvas]">
 
-      {/* scroll progress */}
-      <div className="fixed top-0 left-0 h-[3px] z-[100] pointer-events-none"
-        style={{ width: `${progress}%`, background: 'linear-gradient(90deg, hsl(222,62%,45%), hsl(222,70%,60%))' }} />
-
-      {/* ── Nav ── */}
-      <header className="sticky top-0 z-50 transition-all duration-300"
-        style={scrolled
-          ? { background: 'rgba(255,255,255,0.93)', backdropFilter: 'blur(16px)', borderBottom: '1px solid var(--color-border)', boxShadow: '0 2px 16px rgba(18,42,107,0.10)' }
-          : { background: 'hsl(225, 75%, 12%)', borderBottom: '1px solid rgba(255,255,255,0.10)', boxShadow: '0 2px 16px rgba(0,0,0,0.20)' }
-        }>
-        <div className="max-w-7xl mx-auto px-6 sm:px-8 h-16 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-3" style={{ animation: 'fade-in-right 0.45s ease-out both' }}>
-            <div className="flex size-10 items-center justify-center">
-              <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-8 object-contain" />
-            </div>
-            <div>
-              <p className={`font-bold text-base leading-none tracking-tight transition-colors duration-300 ${scrolled ? 'text-[--color-text-primary]' : 'text-white'}`}>
-                PRimeSys
-              </p>
-              <p className={`text-[11px] mt-0.5 leading-none font-medium transition-colors duration-300 ${scrolled ? 'text-[--color-text-muted]' : 'text-[#ECB22E]'}`}>
-                Procurement Management System
-              </p>
-            </div>
+      {/* Header */}
+      <header className={`sticky top-0 z-50 border-b transition-[background-color,border-color,box-shadow] duration-300 ${
+        scrolled ? 'border-[--color-border] shadow-sm backdrop-blur-md' : 'border-transparent bg-[--sidebar-bg-top]'
+      }`} style={scrolled ? { background: 'color-mix(in srgb, var(--color-surface) 90%, transparent)' } : undefined}>
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-6 px-6 sm:px-8">
+          <Link to="/" className="flex items-center gap-3">
+            <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-9 object-contain" />
+            <span>
+              <span className={`block text-base font-bold leading-none tracking-tight transition-colors duration-300 ${scrolled ? 'text-[--color-text-primary]' : 'text-white'}`}>PRimeSys</span>
+              <span className={`mt-1 block text-[11px] font-medium leading-none transition-colors duration-300 ${scrolled ? 'text-[--color-text-muted]' : 'text-[--color-gold]'}`}>Procurement Management System</span>
+            </span>
           </Link>
 
-          <div className="flex items-center gap-2" style={{ animation: 'fade-in-left 0.45s 0.05s ease-out both' }}>
+          <nav className="hidden items-center gap-1 md:flex">
+            {NAV.map(n => (
+              <button key={n.id} type="button" onClick={() => scrollToId(n.id)}
+                className={`rounded-md px-3.5 py-2 text-ui-sm font-medium transition-colors duration-200 ${
+                  scrolled ? 'text-[--color-text-secondary] hover:bg-[--color-overlay] hover:text-[--color-text-primary]' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                }`}>
+                {n.label}
+              </button>
+            ))}
+          </nav>
+
+          <div className="flex items-center gap-2">
             {user ? (
-              <Button asChild size="sm"
-                className={scrolled ? '' : 'bg-white text-[hsl(222,62%,18%)] hover:bg-white/92 font-bold shadow-lg shadow-black/20'}>
+              <Button asChild size="sm" className={scrolled ? '' : NAVY_PRIMARY}>
                 <Link to="/dashboard">Go to dashboard</Link>
               </Button>
             ) : (
               <>
-                <Button asChild variant="ghost" size="sm"
-                  className={scrolled ? '' : 'text-white font-semibold hover:text-white hover:bg-white/15'}>
+                <Button asChild variant="ghost" size="sm" className={scrolled ? '' : 'text-white hover:bg-white/10 hover:text-white'}>
                   <Link to="/login">Sign in</Link>
                 </Button>
-                <Button asChild size="sm"
-                  className={scrolled ? '' : 'bg-white text-[hsl(222,62%,18%)] hover:bg-white/92 font-bold shadow-lg shadow-black/20'}>
-                  <Link to="/register">Get started</Link>
+                <Button asChild size="sm" className={`hidden sm:inline-flex ${scrolled ? '' : NAVY_PRIMARY}`}>
+                  <Link to="/register">Create an account</Link>
                 </Button>
               </>
             )}
@@ -214,197 +119,81 @@ export default function LandingPage() {
         </div>
       </header>
 
-      {/* ── Hero ── */}
-      <section
-        className="relative flex flex-col items-center justify-center min-h-[calc(100vh-4rem)] overflow-hidden px-6"
-        style={{ background: 'linear-gradient(155deg, hsl(222,75%,8%) 0%, hsl(222,62%,15%) 55%, hsl(222,55%,20%) 100%)' }}
-      >
-        {/* dot grid */}
-        <div className="pointer-events-none absolute inset-0 opacity-[0.07]"
-          style={{ backgroundImage: 'radial-gradient(circle, hsl(222,70%,70%) 1px, transparent 1px)', backgroundSize: '30px 30px' }} />
-
-        {/* orbs */}
-        <div className="pointer-events-none absolute -top-40 -left-40 size-[700px] rounded-full opacity-[0.13]"
-          style={{ background: 'radial-gradient(circle, hsl(222,62%,45%) 0%, transparent 65%)', animation: 'float 9s ease-in-out infinite' }} />
-        <div className="pointer-events-none absolute -bottom-48 -right-32 size-[600px] rounded-full opacity-[0.09]"
-          style={{ background: 'radial-gradient(circle, hsl(222,58%,38%) 0%, transparent 65%)', animation: 'float 12s ease-in-out infinite reverse' }} />
-        <div className="pointer-events-none absolute top-1/3 left-1/4 size-[350px] rounded-full opacity-[0.06]"
-          style={{ background: 'radial-gradient(circle, hsl(222,50%,55%) 0%, transparent 65%)', animation: 'float 7s ease-in-out infinite 2s' }} />
-
-        {/* content */}
-        <div className="relative z-10 text-center max-w-4xl mx-auto py-16">
-          <div className="inline-flex items-center gap-2.5 rounded-full border border-white/15 bg-white/[0.07] px-5 py-2 mb-10"
-            style={{ animation: 'fade-in-down 0.5s ease-out both' }}>
-            <span className="relative flex size-2">
-              <span className="animate-ping absolute size-full rounded-full bg-blue-400 opacity-70" />
-              <span className="relative size-2 rounded-full bg-blue-400" />
-            </span>
-            <span className="text-blue-300/90 text-[11px] font-semibold tracking-[0.12em] uppercase">North Eastern Mindanao State University</span>
-          </div>
-
-          <h1 className="font-bold text-white leading-[1.06] tracking-tight mb-7"
-            style={{ fontSize: 'clamp(2.8rem, 7vw, 5.5rem)', animation: 'fade-in-up 0.55s 0.12s cubic-bezier(0.22,1,0.36,1) both' }}>
-            Procurement,
-            <br />
-            <span style={{
-              background: 'linear-gradient(105deg, hsl(222,68%,70%) 0%, hsl(222,62%,78%) 50%, hsl(222,62%,62%) 100%)',
-              WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text',
-            }}>Start to Finish.</span>
-          </h1>
-
-          <p className="text-blue-100/45 leading-relaxed mx-auto mb-10"
-            style={{ fontSize: 'clamp(1rem, 2vw, 1.15rem)', maxWidth: '34rem', animation: 'fade-in-up 0.5s 0.24s cubic-bezier(0.22,1,0.36,1) both' }}>
-            One platform for purchase requests, supplier bidding, purchase orders,
-            and delivery monitoring — built for NEMSU.
-          </p>
-
-          <div className="flex items-center justify-center gap-3 flex-wrap mb-12"
-            style={{ animation: 'fade-in-up 0.5s 0.36s cubic-bezier(0.22,1,0.36,1) both' }}>
-            {user ? (
-              <Button asChild size="lg"
-                className="h-12 px-8 text-[15px] bg-white text-[hsl(222,62%,16%)] hover:bg-white/94 font-bold shadow-2xl shadow-black/35">
-                <Link to="/dashboard">
-                  <span className="flex items-center gap-2">Go to dashboard <ArrowRight className="size-4" /></span>
-                </Link>
-              </Button>
-            ) : (
-              <>
-                <Button asChild size="lg"
-                  className="h-12 px-8 text-[15px] bg-white text-[hsl(222,62%,16%)] hover:bg-white/94 font-bold shadow-2xl shadow-black/35">
-                  <Link to="/register">
-                    <span className="flex items-center gap-2">Get started free <ArrowRight className="size-4" /></span>
-                  </Link>
-                </Button>
-                <Button asChild size="lg" variant="ghost"
-                  className="h-12 px-8 text-[15px] text-white/80 hover:text-white hover:bg-white/10 border border-white/18">
-                  <Link to="/login">Sign in</Link>
-                </Button>
-              </>
+      {/* Hero */}
+      <section className="relative overflow-hidden" style={NAVY_BG}>
+        <div className="pointer-events-none absolute -right-48 top-0 size-[760px] rounded-full"
+          style={{ background: 'radial-gradient(closest-side, hsl(var(--brand) / 0.45), transparent)' }} />
+        <div className="relative mx-auto grid min-h-[calc(100vh-4rem)] max-w-7xl grid-cols-1 items-center gap-14 px-6 pb-20 pt-14 sm:px-8 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] lg:gap-16 lg:pb-24 lg:pt-20">
+          <div>
+            <p className={`flex items-center gap-3 text-ui-xs font-semibold uppercase tracking-[0.16em] text-[--color-gold] ${ENTER}`}>
+              <span className="h-px w-8 bg-[--color-gold]" />
+              NEMSU Cantilan Campus
+            </p>
+            <h1 className={`mt-6 text-balance font-bold leading-[1.05] tracking-[-0.025em] text-white text-[clamp(2.5rem,5.2vw,4.25rem)] ${ENTER}`}
+              style={{ animationDelay: '80ms' }}>
+              Every purchase request, from PPMP to delivery.
+            </h1>
+            <p className={`mt-6 max-w-xl text-ui-md leading-relaxed text-white/70 ${ENTER}`} style={{ animationDelay: '160ms' }}>
+              PRimeSys puts End Users, the TWG, the BAC, Procurement and Supply on the same record.
+              Anyone involved can see where a request is, who has it now, and what happens next.
+            </p>
+            <div className={`mt-9 flex flex-wrap items-center gap-3 ${ENTER}`} style={{ animationDelay: '240ms' }}>
+              {ctas}
+            </div>
+            {!user && (
+              <p className={`mt-5 text-ui-sm text-white/50 ${ENTER}`} style={{ animationDelay: '320ms' }}>
+                New accounts start as End User. The administrator assigns staff roles.
+              </p>
             )}
           </div>
 
-          <div className="flex flex-wrap items-center justify-center gap-2"
-            style={{ animation: 'fade-in-up 0.5s 0.48s cubic-bezier(0.22,1,0.36,1) both' }}>
-            {[
-              { icon: FileText,    label: 'PR Tracking' },
-              { icon: Gavel,       label: 'Bidding' },
-              { icon: Package,     label: 'Delivery' },
-              { icon: BarChart3,   label: 'Reports' },
-              { icon: Users,       label: '5 Roles' },
-              { icon: Clock,       label: 'Real-time' },
-              { icon: ShieldCheck, label: 'Audit Trail' },
-            ].map(({ icon: Icon, label }) => (
-              <div key={label}
-                className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-3.5 py-1.5 hover:bg-white/12 hover:border-white/18 transition-all duration-200">
-                <Icon className="size-3 text-blue-400/75 shrink-0" />
-                <span className="text-white/55 text-xs font-medium">{label}</span>
+          <div className={ENTER} style={{ animationDelay: '300ms' }}>
+            <HeroPreview />
+          </div>
+        </div>
+      </section>
+
+      {/* How it works */}
+      <section id="how" className="scroll-mt-16 px-6 pb-24 pt-20 sm:px-8 lg:pb-28 lg:pt-24">
+        <div className="mx-auto max-w-7xl">
+          <HowItWorks />
+        </div>
+      </section>
+
+      {/* Roles */}
+      <section id="roles" className="scroll-mt-16 border-y border-[--color-border] bg-[--color-surface] px-6 py-24 sm:px-8 lg:py-28">
+        <div className="mx-auto max-w-7xl">
+          <SectionHead eyebrow="Who uses it" title="Six roles, each with its own desk">
+            Everyone signs in to a dashboard for their part of the work and sees only the records that belong to it.
+          </SectionHead>
+          <div className="mt-14 grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-[--color-border-strong] bg-[--color-border] sm:grid-cols-2 lg:grid-cols-3">
+            {ROLES.map(({ icon: Icon, name, text }, i) => (
+              <div key={name} className="group bg-[--color-surface] transition-colors duration-200 hover:bg-[--color-canvas]">
+                <Reveal delay={i * 60} className="h-full p-7 sm:p-8">
+                  <Icon className="size-5 text-[--color-brand] transition-transform duration-200 group-hover:-translate-y-0.5" />
+                  <p className="mt-5 text-ui-md font-semibold text-[--color-text-primary]">{name}</p>
+                  <p className="mt-2 text-ui-sm leading-relaxed text-[--color-text-secondary]">{text}</p>
+                </Reveal>
               </div>
             ))}
           </div>
         </div>
-
-        {/* stats strip */}
-        <div className="relative z-10 w-full max-w-4xl mx-auto"
-          style={{ animation: 'fade-in-up 0.5s 0.6s cubic-bezier(0.22,1,0.36,1) both' }}>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-white/[0.08] rounded-t-2xl overflow-hidden border border-white/[0.09] border-b-0">
-            {[
-              { label: 'Workflow Stages', value: '5',    icon: CheckCircle2 },
-              { label: 'User Roles',      value: '5',    icon: Users },
-              { label: 'Live Updates',    value: '∞',    icon: Zap },
-              { label: 'Audit Trail',     value: '100%', icon: ShieldCheck },
-            ].map(({ label, value, icon: Icon }) => (
-              <div key={label} className="bg-white/[0.05] px-6 py-5 text-center hover:bg-white/[0.09] transition-colors duration-200">
-                <Icon className="size-4 text-blue-400/65 mx-auto mb-1.5" />
-                <p className="text-white font-bold text-xl">{value}</p>
-                <p className="text-white/40 text-xs mt-0.5 font-medium">{label}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* scroll hint */}
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1.5 opacity-30"
-          style={{ animation: 'fade-in-up 0.5s 1s ease-out both' }}>
-          <span className="text-white text-[9px] uppercase tracking-[0.2em]">Scroll</span>
-          <ChevronDown className="size-4 text-white animate-bounce" />
-        </div>
       </section>
 
-      {/* ── Features ── */}
-      <section className="bg-[--color-canvas] py-28 px-6">
-        <div className="max-w-7xl mx-auto">
-          <Reveal className="text-center mb-16">
-            <span className="inline-block rounded-full bg-[--color-brand-light] text-[--color-brand] text-xs font-bold uppercase tracking-[0.12em] px-4 py-1.5 mb-5">
-              Core Modules
-            </span>
-            <h2 className="font-bold text-[--color-text-primary] tracking-tight mb-4"
-              style={{ fontSize: 'clamp(1.8rem, 3.5vw, 2.6rem)' }}>
-              Everything procurement needs
-            </h2>
-            <p className="text-[--color-text-secondary] text-base max-w-lg mx-auto leading-relaxed">
-              Built specifically for campus procurement workflows — no bloat, no workarounds.
-            </p>
-          </Reveal>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            {FEATURES.map(({ icon: Icon, accent, badge, glow, label, desc, large }, i) => (
-              <Reveal key={label} delay={i * 85} className={large ? 'lg:col-span-2' : ''}>
-                <div className={`group h-full rounded-2xl border border-[--color-border] bg-white p-7 hover:-translate-y-2 hover:shadow-xl ${glow} hover:border-transparent transition-all duration-300`}>
-                  <div className={`flex size-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${accent} mb-5 shadow-md group-hover:scale-110 group-hover:rotate-3 transition-all duration-300`}>
-                    <Icon className="size-5 text-white" />
-                  </div>
-                  <span className={`inline-flex items-center rounded-full text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 mb-3 ${badge}`}>
-                    {label}
-                  </span>
-                  <p className="text-[--color-text-muted] text-sm leading-relaxed">{desc}</p>
-                </div>
-              </Reveal>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Metrics ── */}
-      <section className="py-24 px-6"
-        style={{ background: 'linear-gradient(135deg, hsl(222,75%,8%) 0%, hsl(222,62%,15%) 100%)' }}>
-        <div className="max-w-5xl mx-auto">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-10">
-            {METRICS.map(({ value, suffix, label, icon }, i) => (
-              <MetricCounter key={label} value={value} suffix={suffix} label={label} icon={icon} delay={i * 100} />
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── How it works ── */}
-      <section className="bg-[--color-surface] py-28 px-6">
-        <div className="max-w-7xl mx-auto">
-          <Reveal className="text-center mb-20">
-            <span className="inline-block rounded-full bg-[--color-brand-light] text-[--color-brand] text-xs font-bold uppercase tracking-[0.12em] px-4 py-1.5 mb-5">
-              Workflow
-            </span>
-            <h2 className="font-bold text-[--color-text-primary] tracking-tight mb-4"
-              style={{ fontSize: 'clamp(1.8rem, 3.5vw, 2.6rem)' }}>
-              How it works
-            </h2>
-            <p className="text-[--color-text-secondary] text-base max-w-sm mx-auto leading-relaxed">
-              Five structured stages. Nothing falls through the cracks.
-            </p>
-          </Reveal>
-
-          <div className="relative">
-            <div className="hidden lg:block absolute top-[2.25rem] left-[10%] right-[10%] h-px"
-              style={{ background: 'linear-gradient(90deg, transparent, var(--color-border) 15%, var(--color-border) 85%, transparent)' }} />
-            <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-6 relative z-10">
-              {STEPS.map(({ num, label, desc }, i) => (
-                <Reveal key={num} delay={i * 90}>
-                  <div className="group flex flex-col items-center text-center">
-                    <div className="flex size-[4.5rem] items-center justify-center rounded-full bg-white border-2 border-[--color-border] mb-5 shadow-sm group-hover:border-[--color-brand]/50 group-hover:shadow-md group-hover:scale-110 transition-all duration-300">
-                      <span className="text-[--color-brand] font-bold text-lg">{num}</span>
-                    </div>
-                    <p className="font-bold text-[--color-text-primary] text-sm mb-2">{label}</p>
-                    <p className="text-[--color-text-muted] text-xs leading-relaxed">{desc}</p>
-                  </div>
+      {/* Features */}
+      <section id="features" className="scroll-mt-16 overflow-hidden px-6 py-24 sm:px-8 lg:py-32">
+        <div className="mx-auto max-w-7xl">
+          <SectionHead eyebrow="Features" title="The paperwork stays. The chasing stops.">
+            Procurement still runs on signed forms. PRimeSys prints them from the record and keeps track of everything in between.
+          </SectionHead>
+          <div className="mt-16 grid grid-cols-1 items-center gap-16 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
+            <DocumentStack />
+            <div className="grid grid-cols-1 gap-x-10 gap-y-10 sm:grid-cols-2">
+              {FEATURES.map(({ icon: Icon, title, text }, i) => (
+                <Reveal key={title} delay={(i % 2) * 80 + Math.floor(i / 2) * 60} className="border-t border-[--color-border-strong] pt-5">
+                  <Icon className="size-5 text-[--color-brand]" />
+                  <p className="mt-3 text-ui-md font-semibold text-[--color-text-primary]">{title}</p>
+                  <p className="mt-1.5 text-ui-sm leading-relaxed text-[--color-text-secondary]">{text}</p>
                 </Reveal>
               ))}
             </div>
@@ -412,121 +201,45 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── Benefits ── */}
-      <section className="bg-[--color-canvas] py-28 px-6">
-        <div className="max-w-7xl mx-auto">
-          <Reveal className="text-center mb-16">
-            <span className="inline-block rounded-full bg-[--color-brand-light] text-[--color-brand] text-xs font-bold uppercase tracking-[0.12em] px-4 py-1.5 mb-5">
-              Why PRimeSys
-            </span>
-            <h2 className="font-bold text-[--color-text-primary] tracking-tight mb-4"
-              style={{ fontSize: 'clamp(1.8rem, 3.5vw, 2.6rem)' }}>
-              Built for accountability
-            </h2>
-            <p className="text-[--color-text-secondary] text-base max-w-md mx-auto leading-relaxed">
-              Every decision traces back to one principle — nothing gets lost, delayed, or disputed.
-            </p>
+      {/* Closing call to action */}
+      <section className="relative overflow-hidden" style={NAVY_BG}>
+        <div className="mx-auto flex max-w-7xl flex-col gap-10 px-6 py-20 sm:px-8 lg:flex-row lg:items-center lg:justify-between lg:py-24">
+          <Reveal className="flex items-start gap-6">
+            <img src="/nemsu-logo.png" alt="" className="hidden size-16 shrink-0 object-contain sm:block" />
+            <div>
+              <h2 className="max-w-xl text-balance font-bold leading-[1.15] tracking-tight text-white text-[clamp(1.75rem,3vw,2.5rem)]">
+                {user ? 'Pick up where you left off.' : 'See where your requests stand.'}
+              </h2>
+              <p className="mt-3 max-w-lg text-ui-md leading-relaxed text-white/65">
+                {user ? 'Your dashboard shows what is waiting on you today.' : 'Sign in with your PRimeSys account, or create one if you file requests for your office.'}
+              </p>
+            </div>
           </Reveal>
+          <Reveal delay={100} className="flex flex-wrap gap-3">{ctas}</Reveal>
+        </div>
+      </section>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {BENEFITS.map(({ icon: Icon, label, desc }, i) => (
-              <Reveal key={label} delay={i * 100}
-                from={i === 0 ? 'left' : i === 2 ? 'right' : 'bottom'}>
-                <div className="group h-full rounded-2xl border border-[--color-border] bg-white p-8 hover:-translate-y-1 hover:shadow-lg hover:border-[--color-brand]/20 transition-all duration-300">
-                  <div className="flex size-12 items-center justify-center rounded-xl bg-[--color-brand-light] mb-5 group-hover:scale-110 group-hover:bg-[--color-brand] transition-all duration-300">
-                    <Icon className="size-5 text-[--color-brand] group-hover:text-white transition-colors duration-300" />
-                  </div>
-                  <p className="font-bold text-[--color-text-primary] text-base mb-2.5">{label}</p>
-                  <p className="text-[--color-text-muted] text-sm leading-relaxed">{desc}</p>
-                </div>
-              </Reveal>
+      {/* Footer */}
+      <footer className="bg-[--color-surface]">
+        <div className="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-10 sm:px-8 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center gap-3">
+            <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-8 object-contain" />
+            <div>
+              <p className="font-bold leading-tight text-[--color-text-primary]">PRimeSys</p>
+              <p className="mt-0.5 text-ui-xs text-[--color-text-muted]">Procurement Management System</p>
+            </div>
+          </div>
+          <nav className="flex flex-wrap items-center gap-x-6 gap-y-2 text-ui-sm text-[--color-text-secondary]">
+            {NAV.map(n => (
+              <button key={n.id} type="button" onClick={() => scrollToId(n.id)} className="transition-colors duration-200 hover:text-[--color-brand]">{n.label}</button>
             ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── CTA ── */}
-      <section className="py-20 px-6 bg-[--color-canvas]">
-        <div className="max-w-7xl mx-auto">
-          <Reveal from="scale">
-            <div className="relative rounded-3xl overflow-hidden"
-              style={{ background: 'linear-gradient(150deg, hsl(222,78%,7%) 0%, hsl(222,65%,14%) 50%, hsl(222,55%,18%) 100%)' }}>
-              <div className="absolute inset-0 pointer-events-none opacity-[0.06]"
-                style={{ backgroundImage: 'radial-gradient(circle, hsl(222,70%,70%) 1px, transparent 1px)', backgroundSize: '26px 26px' }} />
-              <div className="pointer-events-none absolute -top-20 -right-16 size-72 rounded-full opacity-[0.12]"
-                style={{ background: 'radial-gradient(circle, hsl(222,62%,45%) 0%, transparent 70%)', animation: 'float 8s ease-in-out infinite' }} />
-              <div className="pointer-events-none absolute -bottom-20 -left-12 size-80 rounded-full opacity-[0.09]"
-                style={{ background: 'radial-gradient(circle, hsl(222,58%,40%) 0%, transparent 70%)', animation: 'float 10s ease-in-out infinite reverse' }} />
-
-              <div className="relative px-8 py-20 text-center">
-                <div className="flex size-20 items-center justify-center mx-auto mb-7">
-                  <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-16 object-contain" />
-                </div>
-                <h2 className="font-bold text-white tracking-tight mb-5"
-                  style={{ fontSize: 'clamp(1.8rem, 4vw, 3rem)' }}>
-                  Ready to get started?
-                </h2>
-                <p className="text-blue-100/45 text-base mb-10 max-w-lg mx-auto leading-relaxed">
-                  Create your account and start managing procurement with full transparency,
-                  accountability, and zero paperwork.
-                </p>
-                <div className="flex items-center justify-center gap-4 flex-wrap">
-                  {user ? (
-                    <Button asChild size="lg"
-                      className="h-12 px-10 text-[15px] bg-white text-[hsl(222,62%,16%)] hover:bg-white/94 font-bold shadow-2xl shadow-black/35">
-                      <Link to="/dashboard">
-                        <span className="flex items-center gap-2">Go to dashboard <ArrowRight className="size-4" /></span>
-                      </Link>
-                    </Button>
-                  ) : (
-                    <>
-                      <Button asChild size="lg"
-                        className="h-12 px-10 text-[15px] bg-white text-[hsl(222,62%,16%)] hover:bg-white/94 font-bold shadow-2xl shadow-black/35">
-                        <Link to="/register">
-                          <span className="flex items-center gap-2">Create free account <ArrowRight className="size-4" /></span>
-                        </Link>
-                      </Button>
-                      <Button asChild size="lg" variant="ghost"
-                        className="h-12 px-8 text-[15px] text-white/75 hover:text-white hover:bg-white/10 border border-white/18">
-                        <Link to="/login">Sign in instead</Link>
-                      </Button>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-          </Reveal>
-        </div>
-      </section>
-
-      {/* ── Footer ── */}
-      <footer className="border-t border-[--color-border] bg-[--color-canvas] mt-auto">
-        <div className="max-w-7xl mx-auto px-6 sm:px-8 py-10">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-6">
-            <div className="flex items-center gap-3">
-              <div className="flex size-9 items-center justify-center">
-                <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-7 object-contain" />
-              </div>
-              <div>
-                <p className="font-bold text-[--color-text-primary] leading-tight">PRimeSys</p>
-                <p className="text-[--color-text-muted] text-xs mt-0.5">Procurement Management System</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-8 text-sm text-[--color-text-muted]">
-              {user ? (
-                <Link to="/dashboard" className="hover:text-[--color-brand] transition-colors">Dashboard</Link>
-              ) : (
-                <>
-                  <Link to="/login"    className="hover:text-[--color-brand] transition-colors">Sign in</Link>
-                  <Link to="/register" className="hover:text-[--color-brand] transition-colors">Register</Link>
-                </>
-              )}
-            </div>
-            <p className="text-[--color-text-muted] text-sm">&copy; {new Date().getFullYear()} NEMSU Cantilan Campus</p>
-          </div>
+            {user
+              ? <Link to="/dashboard" className="transition-colors duration-200 hover:text-[--color-brand]">Dashboard</Link>
+              : <Link to="/login" className="transition-colors duration-200 hover:text-[--color-brand]">Sign in</Link>}
+          </nav>
+          <p className="text-ui-sm text-[--color-text-muted]">&copy; {new Date().getFullYear()} NEMSU Cantilan Campus</p>
         </div>
       </footer>
-
     </div>
   )
 }
