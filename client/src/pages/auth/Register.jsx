@@ -1,9 +1,8 @@
 import { useState, useCallback, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  Eye, EyeOff, User, AtSign, Lock, Mail, Building2,
-  FileText, Bell, ClipboardCheck,
-  CheckCircle, XCircle, Clock, Info,
+  Eye, EyeOff, AtSign, Lock, Mail, Building2,
+  CheckCircle, Circle, XCircle, Clock, Info, Loader2,
 } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
@@ -12,16 +11,21 @@ import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import CaptchaField, { captchaEnabled } from '@/components/shared/CaptchaField'
+import { ENTER } from '@/pages/landing/LandingParts'
+import AuthLayout, { PanelIntro, PanelSteps } from './AuthLayout'
 import api from '@/lib/axios'
 
-// What a new Fund Administrator account can do. Other roles are assigned by an admin.
-const FUND_ADMIN_CAN = [
-  { icon: FileText,       label: 'File purchase requests', desc: 'For your office, from the requests its heads bring you' },
-  { icon: ClipboardCheck, label: 'Follow every step',      desc: 'From TWG review to delivery' },
-  { icon: Bell,           label: 'Get notified',           desc: 'When your request moves or needs changes' },
+// How a new End User gets going. Other roles are assigned by an admin.
+const JOIN_STEPS = [
+  { title: 'Sign up',                 text: 'Give your name, your email and the office you file requests for.' },
+  { title: 'Wait for approval',       text: 'An administrator checks your sign-up and emails you once you can sign in.' },
+  { title: 'File your first request', text: 'Pick the quarter, add items from your office PPMP and send it to the TWG.' },
 ]
 
 const EMPTY = { first_name: '', last_name: '', username: '', email: '', office: '', password: '', confirm: '', website: '', captcha: '' }
+
+const ICON = 'absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-[--color-text-muted]'
+const EYE  = 'absolute right-3.5 top-1/2 -translate-y-1/2 text-[--color-text-muted] transition-colors hover:text-[--color-text-primary]'
 
 export default function Register() {
   const [form, setForm] = useState(EMPTY)
@@ -43,6 +47,7 @@ export default function Register() {
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }))
   const onCaptcha = useCallback((token) => setForm(p => ({ ...p, captcha: token })), [])
 
+  const pwLong    = form.password.length >= 8
   const pwMatch   = form.confirm.length > 0 && form.password === form.confirm
   const pwNoMatch = form.confirm.length > 0 && form.password !== form.confirm
 
@@ -83,289 +88,205 @@ export default function Register() {
     }
   }
 
+  const panel = (
+    <>
+      <PanelIntro eyebrow="For End Users" title="Request for your office, and follow it to delivery.">
+        Sign-up is for NEMSU faculty and staff who file purchase requests for their office.
+      </PanelIntro>
+      <PanelSteps steps={JOIN_STEPS} />
+      <p className={`mt-10 max-w-md text-ui-sm text-white/45 ${ENTER}`} style={{ animationDelay: '800ms' }}>
+        TWG, BAC, Procurement and Supply accounts are set up by the administrator.
+      </p>
+    </>
+  )
+
   return (
-    <div className="h-screen flex bg-[--color-canvas]">
+    <AuthLayout panel={panel} wide switchText="Already have an account?" switchTo="/login" switchLabel="Sign in">
+      <h1 className={`text-ui-3xl font-bold tracking-tight text-[--color-text-primary] ${ENTER}`}>Create your account</h1>
+      <p className={`mt-2 text-ui-base text-[--color-text-secondary] ${ENTER}`} style={{ animationDelay: '60ms' }}>
+        For faculty and staff who file purchase requests for their office.
+      </p>
 
-      {/* ── Brand panel ── */}
-      <div
-        className="hidden lg:flex flex-col justify-between w-[44%] p-10 relative overflow-hidden"
-        style={{ background: 'linear-gradient(160deg, hsl(225,75%,10%) 0%, hsl(222,65%,22%) 100%)', animation: 'fade-in-right 0.45s ease-out both' }}
-      >
-        <div className="pointer-events-none absolute -top-24 -right-24 size-80 rounded-full bg-white/[0.03]" />
-        <div className="pointer-events-none absolute -bottom-32 -left-16 size-96 rounded-full bg-white/[0.03]" />
-        <div className="pointer-events-none absolute top-1/3 right-0 w-px h-64 bg-gradient-to-b from-transparent via-white/10 to-transparent" />
+      <form onSubmit={submit} className="mt-8 space-y-8">
+        <section className={`space-y-4 ${ENTER}`} style={{ animationDelay: '120ms' }}>
+          <p className="text-ui-xs font-semibold uppercase tracking-[0.12em] text-[--color-text-muted]">About you</p>
 
-        <div className="relative flex items-center gap-3" style={{ animation: 'fade-in-down 0.4s 0.1s ease-out both' }}>
-          <div className="flex size-11 items-center justify-center">
-            <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-9 object-contain" />
-          </div>
-          <div>
-            <p className="text-white font-bold text-lg leading-none tracking-tight">PRimeSys</p>
-            <p className="text-[#ECB22E]/85 text-xs mt-0.5">Procurement Management</p>
-          </div>
-        </div>
-
-        <div className="relative space-y-7" style={{ animation: 'fade-in-up 0.45s 0.2s ease-out both' }}>
-          <div>
-            <div className="inline-flex items-center gap-2 rounded-full bg-white/10 border border-white/20 px-3 py-1 mb-5">
-              <div className="size-1.5 rounded-full bg-blue-400 animate-pulse" />
-              <span className="text-blue-300 text-xs font-medium tracking-wide">NEMSU-Cantilan</span>
-            </div>
-            <h2 className="text-white font-bold leading-[1.15] mb-3 text-4xl">
-              Create your<br />account.
-            </h2>
-            <p className="text-blue-100/50 leading-relaxed text-sm max-w-xs">
-              Sign up to file purchase requests and follow them through to delivery.
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            {FUND_ADMIN_CAN.map(({ icon: Icon, label, desc }, i) => (
-              <div
-                key={label}
-                style={{ animation: `fade-in-left 0.35s ${0.3 + i * 0.07}s ease-out both` }}
-                className="flex items-start gap-3 rounded-xl p-3.5 border border-white/10 bg-white/[0.06]"
-              >
-                <div className="flex size-8 shrink-0 items-center justify-center rounded-lg mt-0.5 bg-white/10">
-                  <Icon className="size-4 text-white/70" />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-white/85">{label}</p>
-                  <p className="text-white/45 text-xs mt-0.5 leading-snug">{desc}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <p className="relative text-white/20 text-xs">&copy; {new Date().getFullYear()} NEMSU Cantilan Campus</p>
-      </div>
-
-      {/* ── Form panel ── */}
-      {/* Own scroll container: index.css sets html/body to overflow:hidden, and on
-          mobile the form is taller than the viewport, so this panel scrolls itself. */}
-      <div className="flex-1 overflow-y-auto" style={{ animation: 'fade-in-left 0.45s 0.1s ease-out both' }}>
-        <div className="min-h-full flex flex-col px-6 py-10 lg:justify-center lg:p-8">
-        <div className="w-full max-w-sm mx-auto py-8">
-
-          {/* Mobile logo */}
-          <div className="flex items-center gap-2.5 mb-8 lg:hidden">
-            <div className="flex size-9 items-center justify-center">
-              <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-7 object-contain" />
-            </div>
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <span className="block font-bold text-xl text-[--color-text-primary] tracking-tight leading-none">PRimeSys</span>
-              <span className="block text-xs text-[--color-text-muted] mt-0.5">NEMSU-Cantilan</span>
-            </div>
-          </div>
-
-          <h1 className="font-bold text-[--color-text-primary] mb-1 text-2xl tracking-tight"
-            style={{ animation: 'fade-in-up 0.35s 0.2s ease-out both' }}>
-            Create Account
-          </h1>
-          <p className="text-[--color-text-secondary] mb-8 text-sm"
-            style={{ animation: 'fade-in-up 0.35s 0.27s ease-out both' }}>
-            Fill in your details to get started
-          </p>
-
-          <form onSubmit={submit} className="space-y-4" style={{ animation: 'fade-in-up 0.35s 0.34s ease-out both' }}>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="first_name">First Name</Label>
-                <div className="relative">
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-[--color-text-muted]" />
-                  <Input
-                    id="first_name"
-                    type="text"
-                    placeholder="Juan"
-                    value={form.first_name}
-                    onChange={e => set('first_name', e.target.value)}
-                    required autoFocus maxLength={50}
-                    autoComplete="given-name"
-                    className="pl-9"
-                  />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="last_name">Last Name</Label>
-                <Input
-                  id="last_name"
-                  type="text"
-                  placeholder="dela Cruz"
-                  value={form.last_name}
-                  onChange={e => set('last_name', e.target.value)}
-                  required maxLength={50}
-                  autoComplete="family-name"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="username">Username</Label>
-              <div className="relative">
-                <AtSign className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-[--color-text-muted]" />
-                <Input
-                  id="username"
-                  type="text"
-                  placeholder="juan_delacruz"
-                  value={form.username}
-                  onChange={e => set('username', e.target.value)}
-                  required maxLength={30}
-                  autoComplete="username"
-                  className="pl-9"
-                />
-              </div>
-              <p className="text-xs text-[--color-text-muted]">3 to 30 letters, numbers, or underscores. You can sign in with it.</p>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="email">Email</Label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-[--color-text-muted]" />
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder={`you@${domains[0] || 'nemsu.edu.ph'}`}
-                  value={form.email}
-                  onChange={e => set('email', e.target.value)}
-                  required maxLength={150}
-                  autoComplete="email"
-                  className="pl-9"
-                />
-              </div>
-              <p className="text-xs text-[--color-text-muted]">
-                {domains.length
-                  ? `Use an email address ending in ${domainList}. You will be emailed there once your account is approved.`
-                  : 'You will be emailed here once your account is approved'}
-              </p>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="office">Office</Label>
-              <Select value={form.office} onValueChange={v => set('office', v)}>
-                <SelectTrigger id="office" className="relative pl-9">
-                  <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-[--color-text-muted]" />
-                  <SelectValue placeholder="The office you handle" />
-                </SelectTrigger>
-                <SelectContent>
-                  {offices.map(o => (
-                    <SelectItem key={o.id} value={String(o.id)}>{o.code} - {o.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="password">Password</Label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-[--color-text-muted]" />
-                <Input
-                  id="password"
-                  type={show.pw ? 'text' : 'password'}
-                  placeholder="At least 8 characters"
-                  value={form.password}
-                  onChange={e => set('password', e.target.value)}
-                  required minLength={8} maxLength={72}
-                  autoComplete="new-password"
-                  className="pl-9 pr-10"
-                />
-                <button
-                  type="button"
-                  tabIndex={-1}
-                  onClick={() => setShow(p => ({ ...p, pw: !p.pw }))}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[--color-text-muted] hover:text-[--color-text-primary] transition-colors"
-                >
-                  {show.pw ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="confirm">Confirm Password</Label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-[--color-text-muted]" />
-                <Input
-                  id="confirm"
-                  type={show.confirm ? 'text' : 'password'}
-                  placeholder="Re-enter your password"
-                  value={form.confirm}
-                  onChange={e => set('confirm', e.target.value)}
-                  required maxLength={72}
-                  autoComplete="new-password"
-                  className={`pl-9 pr-10 ${pwNoMatch ? 'border-red-400 focus-visible:ring-red-300' : pwMatch ? 'border-blue-400 focus-visible:ring-blue-200' : ''}`}
-                />
-                <button
-                  type="button"
-                  tabIndex={-1}
-                  onClick={() => setShow(p => ({ ...p, confirm: !p.confirm }))}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[--color-text-muted] hover:text-[--color-text-primary] transition-colors"
-                >
-                  {show.confirm ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                </button>
-              </div>
-              {pwNoMatch && (
-                <p className="flex items-center gap-1.5 text-xs text-red-600 font-medium">
-                  <XCircle className="size-3.5 shrink-0" /> Passwords do not match
-                </p>
-              )}
-              {pwMatch && (
-                <p className="flex items-center gap-1.5 text-xs text-blue-600 font-medium">
-                  <CheckCircle className="size-3.5 shrink-0" /> Passwords match
-                </p>
-              )}
-            </div>
-
-            {/* Honeypot: invisible to people and screen readers, so only a bot fills it in. */}
-            <div aria-hidden="true" className="absolute -left-[10000px] top-auto size-px overflow-hidden">
-              <label htmlFor="website">Website</label>
-              <input
-                id="website" name="website" type="text" tabIndex={-1} autoComplete="off"
-                value={form.website} onChange={e => set('website', e.target.value)}
+              <Label htmlFor="first_name">First Name</Label>
+              <Input
+                id="first_name"
+                type="text"
+                placeholder="Juan"
+                value={form.first_name}
+                onChange={e => set('first_name', e.target.value)}
+                required autoFocus maxLength={50}
+                autoComplete="given-name"
               />
             </div>
-
-            <CaptchaField key={captchaKey} onToken={onCaptcha} />
-
-            <Button
-              type="submit"
-              className="w-full mt-2"
-              disabled={loading || pwNoMatch}
-              size="lg"
-            >
-              {loading ? 'Creating account…' : 'Create Account'}
-            </Button>
-
-            <div className="flex items-start gap-2 rounded-lg border border-[--color-border] bg-[--color-surface] px-3 py-2.5 text-xs text-[--color-text-secondary] leading-snug">
-              <Info className="size-3.5 shrink-0 mt-0.5 text-[--color-text-muted]" />
-              <div className="space-y-1">
-                <p>New accounts are End Users of the office picked. An administrator reviews each sign-up before it can sign in; other roles are assigned by the administrator.</p>
-                <p>Accounts are for NEMSU faculty and staff. Students and outside partners can ask their adviser or the office concerned to file a request for them.</p>
-              </div>
+            <div>
+              <Label htmlFor="last_name">Last Name</Label>
+              <Input
+                id="last_name"
+                type="text"
+                placeholder="dela Cruz"
+                value={form.last_name}
+                onChange={e => set('last_name', e.target.value)}
+                required maxLength={50}
+                autoComplete="family-name"
+              />
             </div>
-          </form>
+          </div>
 
-          <div className="mt-6 pt-6 border-t border-[--color-border] text-center space-y-2">
-            <p className="text-[--color-text-secondary] text-sm">
-              Already have an account?{' '}
-              <Link to="/login" className="text-[--color-brand] font-semibold hover:underline">
-                Sign In
-              </Link>
-            </p>
-            <p>
-              <Link to="/" className="text-[--color-text-muted] hover:text-[--color-brand] text-xs transition-colors">
-                Back to home
-              </Link>
+          <div>
+            <Label htmlFor="email">Email</Label>
+            <div className="relative">
+              <Mail className={ICON} />
+              <Input
+                id="email"
+                type="email"
+                placeholder={`you@${domains[0] || 'nemsu.edu.ph'}`}
+                value={form.email}
+                onChange={e => set('email', e.target.value)}
+                required maxLength={150}
+                autoComplete="email"
+                className="pl-10"
+              />
+            </div>
+            <p className="mt-1.5 text-ui-xs text-[--color-text-muted]">
+              {domains.length
+                ? `Use an email address ending in ${domainList}. You will be emailed there once your account is approved.`
+                : 'You will be emailed here once your account is approved'}
             </p>
           </div>
+
+          <div>
+            <Label htmlFor="office">Office</Label>
+            <Select value={form.office} onValueChange={v => set('office', v)}>
+              <SelectTrigger id="office" className="relative pl-10">
+                <Building2 className={ICON} />
+                <SelectValue placeholder="The office you handle" />
+              </SelectTrigger>
+              <SelectContent>
+                {offices.map(o => (
+                  <SelectItem key={o.id} value={String(o.id)}>{o.code} - {o.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </section>
+
+        <section className={`space-y-4 border-t border-[--color-border] pt-7 ${ENTER}`} style={{ animationDelay: '180ms' }}>
+          <p className="text-ui-xs font-semibold uppercase tracking-[0.12em] text-[--color-text-muted]">Sign-in details</p>
+
+          <div>
+            <Label htmlFor="username">Username</Label>
+            <div className="relative">
+              <AtSign className={ICON} />
+              <Input
+                id="username"
+                type="text"
+                placeholder="juan_delacruz"
+                value={form.username}
+                onChange={e => set('username', e.target.value)}
+                required maxLength={30}
+                autoComplete="username"
+                className="pl-10"
+              />
+            </div>
+            <p className="mt-1.5 text-ui-xs text-[--color-text-muted]">3 to 30 letters, numbers, or underscores. You can sign in with it.</p>
+          </div>
+
+          <div>
+            <Label htmlFor="password">Password</Label>
+            <div className="relative">
+              <Lock className={ICON} />
+              <Input
+                id="password"
+                type={show.pw ? 'text' : 'password'}
+                placeholder="At least 8 characters"
+                value={form.password}
+                onChange={e => set('password', e.target.value)}
+                required minLength={8} maxLength={72}
+                autoComplete="new-password"
+                className="pl-10 pr-11"
+              />
+              <button type="button" tabIndex={-1} className={EYE}
+                aria-label={show.pw ? 'Hide password' : 'Show password'}
+                onClick={() => setShow(p => ({ ...p, pw: !p.pw }))}>
+                {show.pw ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </button>
+            </div>
+            <p className={`mt-1.5 flex items-center gap-1.5 text-ui-xs font-medium transition-colors duration-200 ${pwLong ? 'text-emerald-600' : 'text-[--color-text-muted]'}`}>
+              {pwLong ? <CheckCircle className="size-3.5 shrink-0" /> : <Circle className="size-3.5 shrink-0" />}
+              At least 8 characters
+            </p>
+          </div>
+
+          <div>
+            <Label htmlFor="confirm">Confirm Password</Label>
+            <div className="relative">
+              <Lock className={ICON} />
+              <Input
+                id="confirm"
+                type={show.confirm ? 'text' : 'password'}
+                placeholder="Re-enter your password"
+                value={form.confirm}
+                onChange={e => set('confirm', e.target.value)}
+                required maxLength={72}
+                autoComplete="new-password"
+                className={`pl-10 pr-11 ${pwNoMatch ? 'border-red-400 focus:border-red-400 focus:ring-red-200' : pwMatch ? 'border-emerald-500 focus:border-emerald-500 focus:ring-emerald-200' : ''}`}
+              />
+              <button type="button" tabIndex={-1} className={EYE}
+                aria-label={show.confirm ? 'Hide password' : 'Show password'}
+                onClick={() => setShow(p => ({ ...p, confirm: !p.confirm }))}>
+                {show.confirm ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </button>
+            </div>
+            {pwNoMatch && (
+              <p className="mt-1.5 flex items-center gap-1.5 text-ui-xs font-medium text-red-600 motion-safe:animate-fade-in">
+                <XCircle className="size-3.5 shrink-0" /> Passwords do not match
+              </p>
+            )}
+            {pwMatch && (
+              <p className="mt-1.5 flex items-center gap-1.5 text-ui-xs font-medium text-emerald-600 motion-safe:animate-fade-in">
+                <CheckCircle className="size-3.5 shrink-0" /> Passwords match
+              </p>
+            )}
+          </div>
+        </section>
+
+        {/* Honeypot: invisible to people and screen readers, so only a bot fills it in. */}
+        <div aria-hidden="true" className="absolute -left-[10000px] top-auto size-px overflow-hidden">
+          <label htmlFor="website">Website</label>
+          <input
+            id="website" name="website" type="text" tabIndex={-1} autoComplete="off"
+            value={form.website} onChange={e => set('website', e.target.value)}
+          />
         </div>
+
+        <div className={`space-y-4 ${ENTER}`} style={{ animationDelay: '240ms' }}>
+          <CaptchaField key={captchaKey} onToken={onCaptcha} />
+
+          <Button type="submit" size="lg" className="w-full" disabled={loading || pwNoMatch}>
+            {loading && <Loader2 className="size-4 animate-spin" />}
+            {loading ? 'Creating account' : 'Create account'}
+          </Button>
+
+          <div className="flex items-start gap-2.5 rounded-md border border-[--color-border-strong] bg-[--color-surface] px-4 py-3 text-ui-xs leading-snug text-[--color-text-secondary]">
+            <Info className="mt-0.5 size-3.5 shrink-0 text-[--color-text-muted]" />
+            <div className="space-y-1">
+              <p>New accounts are End Users of the office picked. An administrator reviews each sign-up before it can sign in; other roles are assigned by the administrator.</p>
+              <p>Accounts are for NEMSU faculty and staff. Students and outside partners can ask their adviser or the office concerned to file a request for them.</p>
+            </div>
+          </div>
         </div>
-      </div>
+      </form>
 
       {/* Waiting for approval dialog */}
       <Dialog open={!!done} onOpenChange={(open) => { if (!open) setDone(null) }}>
         <DialogContent className="max-w-sm text-center">
-          <div className="flex size-14 items-center justify-center rounded-2xl bg-blue-50 border border-blue-200 mx-auto mb-1">
+          <div className="flex size-14 items-center justify-center rounded-2xl bg-blue-50 border border-blue-300 mx-auto mb-1">
             <Clock className="size-7 text-blue-600" />
           </div>
           <h2 className="text-lg font-bold text-[--color-text-primary]">Waiting for approval</h2>
@@ -389,7 +310,6 @@ export default function Register() {
           </Link>
         </DialogContent>
       </Dialog>
-
-    </div>
+    </AuthLayout>
   )
 }
