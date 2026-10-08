@@ -6,7 +6,7 @@ import {
   ClipboardCheck, BarChart3, Scale, FilePlus, PackageCheck, Building2, ListChecks, FileBadge,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
-import { useNavigate } from 'react-router-dom'
+import useSignOut from '@/hooks/useSignOut'
 import { cn } from '@/lib/utils'
 
 // One menu per role. Every role starts on its Dashboard; "My Work" holds what it
@@ -69,8 +69,8 @@ function isCurrent(item, items, { pathname, search }) {
 const ROLE_LABELS = { admin: 'Administrator', procurement: 'Procurement', requestor: 'End User', supply: 'Supply Officer', twg: 'Technical Working Group', bac: 'Bids and Awards Committee' }
 
 export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }) {
-  const { user, logout } = useAuth()
-  const navigate = useNavigate()
+  const { user } = useAuth()
+  const signOut = useSignOut()
   const groups = menuFor(user?.role)
   const location = useLocation()
   const allItems = groups.flatMap(g => g.items)
@@ -178,7 +178,7 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
               </div>
             </Link>
             <button
-              onClick={() => { logout(); navigate('/login') }}
+              onClick={signOut}
               className="text-[#ECB22E] hover:text-white transition-colors p-2 rounded-lg hover:bg-white/10"
               title="Sign out"
             >

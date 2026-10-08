@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
+import useSignOut from '@/hooks/useSignOut'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu'
 import { NotificationBell } from '@/components/shared/NotificationBell'
@@ -16,7 +17,8 @@ const ROLE_COLORS = {
 }
 
 export default function Header({ title, onMobileMenu }) {
-  const { user, logout } = useAuth()
+  const { user } = useAuth()
+  const signOut = useSignOut()
   const navigate = useNavigate()
   const initials = user?.name?.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'U'
 
@@ -77,7 +79,7 @@ export default function Header({ title, onMobileMenu }) {
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                onClick={() => { logout(); navigate('/login') }}
+                onClick={signOut}
                 className="text-red-600 hover:text-red-700 hover:bg-red-50 gap-2"
               >
                 <LogOut className="size-4" />
