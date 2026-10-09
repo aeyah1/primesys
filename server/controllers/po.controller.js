@@ -303,7 +303,7 @@ exports.cancel = asyncHandler(async (req, res) => {
       "UPDATE lots SET status = 'cancelled', notes = CONCAT_WS('\\n', notes, ?) WHERE po_id = ? AND status = 'awarded'",
       [note, rows[0].id]
     )
-    const status = await syncPRProgress(conn, pr.id, { user: req.user, note })
+    const status = await syncPRProgress(conn, pr.id, { user: req.user, note, notice: false })   // told below
     return { ...rows[0], pr, status }
   })
 

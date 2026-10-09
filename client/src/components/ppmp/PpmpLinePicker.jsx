@@ -32,14 +32,8 @@ export function takenByKey(items, lineById, exceptIndex = -1) {
   return taken
 }
 
-// The month checked against the schedule: the date needed's, or this month's when none is given.
-function checkedMonth(line, dateNeeded) {
-  if (dateNeeded) {
-    const [y, m] = String(dateNeeded).split('-').map(Number)
-    return y === line.fiscal_year ? m : null
-  }
-  return line.fiscal_year === new Date().getFullYear() ? new Date().getMonth() + 1 : null
-}
+// The month checked against the schedule: this month, for this year's plan (as on the server).
+const checkedMonth = (line) => (line.fiscal_year === new Date().getFullYear() ? new Date().getMonth() + 1 : null)
 
 // The quarter (1 to 4) a request filed under `quarter` ({ label, year }) draws on, or null when it is not a quarter of
 // one of the plans' years (the year's total then applies, as on the server: utils/ppmpUse.js).
@@ -53,12 +47,12 @@ export const inQuarter = (line, q) => (line.quarters ? line.quarters[q - 1] > 0 
 export const leftFor = (line, quarter) => (quarter ? line.quarter_left[quarter - 1] : line.remaining)
 
 // An item against its line: what is left for it, a block when it asks for more, and warnings that don't block.
-export function lineChecks(line, { quantity, price, dateNeeded, taken = 0, quarter = null }) {
+export function lineChecks(line, { quantity, price, taken = 0, quarter = null }) {
   const left = Math.round((leftFor(line, quarter) - taken) * 100) / 100
   const qty = parseFloat(quantity) || 0
   const warnings = []
   if (parseFloat(price) > line.unit_cost) warnings.push(`Above the PPMP's ${fmtCurrency(line.unit_cost)} each. Adjust it, or be ready to explain the difference.`)
-  const month = checkedMonth(line, dateNeeded)
+  const month = checkedMonth(line)
   if (month && line.months.length && !line.months.includes(month)) {
     warnings.push(`The PPMP doesn't schedule it for ${MONTHS[month - 1]} (planned: ${line.months.map(m => MONTHS[m - 1]).join(', ')}).`)
   }

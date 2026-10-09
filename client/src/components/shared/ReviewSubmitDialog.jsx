@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
 import { PURPOSE_TYPE_LABELS } from '@/components/shared/RequestContextForm'
-import { fmtCurrency, fmtDate, localToday, groupItemsBySection } from '@/lib/utils'
+import { fmtCurrency, fmtDate, groupItemsBySection } from '@/lib/utils'
 import api from '@/lib/axios'
 import { useAuth } from '@/context/AuthContext'
 
@@ -36,6 +36,12 @@ export default function ReviewSubmitDialog({ request, items, requestedBy, open, 
     queryFn:  () => api.get('/departments').then(r => r.data),
     enabled:  open,
   })
+  // A saved request's documents are already on the server; a new one's wait in request.files.
+  const { data: saved = [] } = useQuery({
+    queryKey: [`pr-attachments-${request?.id}`],
+    queryFn:  () => api.get(`/pr/${request.id}/attachments`).then(r => r.data),
+    enabled:  open && !!request?.id,
+  })
   if (!open) return null
   const r = request || {}
   // A Fund Administrator's office is always their own; its Office/Section prints as they typed it, else the office code.
@@ -51,8 +57,7 @@ export default function ReviewSubmitDialog({ request, items, requestedBy, open, 
   const head = typed || requestedBy || (dept?.head_name ? `${dept.head_name}${dept.head_designation ? `, ${dept.head_designation}` : ''}` : filer)
   const list = items || []
   const total = list.reduce((s, i) => s + lineTotal(i), 0)
-  const today = localToday()
-  const needed = r.date_needed ? String(r.date_needed).slice(0, 10) : ''
+  const docs = r.id ? saved.map(a => a.original_name) : (r.files || []).map(f => f.name)
 
   // What looks missing or wrong: pointed out, never blocking.
   const checks = [
@@ -60,8 +65,7 @@ export default function ReviewSubmitDialog({ request, items, requestedBy, open, 
     !typed && !requestedBy && dept && !dept.head_name && 'This office has no head on record, so the form names you as the requesting party.',
     !head && '"Requested by" prints a blank line to sign by hand.',
     head && !signed && 'Not signed yet: the form prints a blank line for the signature.',
-    !needed && 'No date needed is given.',
-    needed && needed < today && 'The date needed has already passed.',
+    ['event', 'project'].includes(r.purpose_type) && !docs.length && `No proposal is attached for the ${r.purpose_type}.`,
     r.purpose_type === 'event' && !r.event_name?.trim() && 'The event has no name.',
     r.purpose_type === 'project' && !r.project_name?.trim() && 'The project has no name.',
     list.some(i => !(parseFloat(i.estimated_cost) > 0)) && 'Some items have no estimated price.',
@@ -85,7 +89,7 @@ export default function ReviewSubmitDialog({ request, items, requestedBy, open, 
             )}
             {r.purpose_type === 'project' && <Row label="Project" missing={!r.project_name?.trim()}>{r.project_name?.trim() || 'No name'}</Row>}
             {r.purpose?.trim() && <Row label="Justification"><span className="whitespace-pre-wrap">{r.purpose}</span></Row>}
-            <Row label="Date needed" missing={!needed || needed < today}>{needed ? fmtDate(needed) : 'Not given'}</Row>
+            <Row label="Documents">{docs.length ? docs.join(', ') : 'None attached'}</Row>
             {r.quarter_label && <Row label="Quarter">{r.quarter_label}</Row>}
             {r.fund_source && <Row label="Fund source">{r.fund_source}</Row>}
           </dl>

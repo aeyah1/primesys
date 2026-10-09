@@ -143,8 +143,9 @@ CREATE TABLE `purchase_requests` (
   `event_date`                 DATE         NULL,
   `project_name`               VARCHAR(200) NULL,
   `category`                   ENUM('hardware','office_supplies','lab_educational','furniture','food_catering','event_supplies') NOT NULL DEFAULT 'office_supplies',
-  -- bidding is the canvass (done outside the system); bac_review and twg_certification follow it.
-  `status`                     ENUM('draft','submitted','twg_review','revision_requested','rejected','bidding','bac_review','twg_certification','for_po','completed','cancelled') NOT NULL DEFAULT 'draft',
+  -- bidding is the canvass (done outside the system); bac_review and twg_certification follow it; re_pr waits for
+  -- the BAC to send a Re-PR to the End User (appended last, as TiDB only appends ENUM members).
+  `status`                     ENUM('draft','submitted','twg_review','revision_requested','rejected','bidding','bac_review','twg_certification','for_po','completed','cancelled','re_pr') NOT NULL DEFAULT 'draft',
   `notes`                      TEXT         NULL,
   `created_by`                 INT UNSIGNED NOT NULL,
   -- Who requested it, as the form's "Requested by" prints them: typed by the
@@ -159,11 +160,19 @@ CREATE TABLE `purchase_requests` (
   `twg_reviewed_by`            INT UNSIGNED NULL,
   `twg_reviewed_at`            TIMESTAMP    NULL DEFAULT NULL,
   `twg_comment`                TEXT         NULL,
-  -- The TWG's second review, after the BAC's: its certification, or why it returned the request to the BAC.
+  -- The TWG's second review, after the BAC's: its certification, or why it returned the request to the BAC or ordered a re-canvass.
   `twg_certified_by`           INT UNSIGNED NULL,
   `twg_certified_at`           DATETIME     NULL,
   `twg_certification_note`     TEXT         NULL,
   `certification_return_reason` VARCHAR(500) NULL,
+  `recanvass_reason`           TEXT         NULL,
+  `recanvass_count`            TINYINT UNSIGNED NOT NULL DEFAULT 0,   -- times the TWG ordered a re-canvass
+  -- A Re-PR: why the TWG sent the request back to its End User (the kind, raise_budget / change_specs / revise_specs,
+  -- and the details), the BAC's note when it sent it on, and how many times it went back.
+  `re_pr_type`                 VARCHAR(30)  NULL,
+  `re_pr_reason`               TEXT         NULL,
+  `re_pr_note`                 TEXT         NULL,
+  `re_pr_count`                TINYINT UNSIGNED NOT NULL DEFAULT 0,
   `deleted_at`                 TIMESTAMP    NULL DEFAULT NULL,
   `deleted_by`                 INT UNSIGNED NULL,
   `delete_reason`              VARCHAR(500) NULL,   -- why it was deleted (none when its filer deleted their own draft)
@@ -340,6 +349,30 @@ CREATE TABLE `lot_items` (
   CONSTRAINT `fk_lot_items_pr_item` FOREIGN KEY (`pr_item_id`) REFERENCES `pr_items` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- The supplier profiles Procurement and Admin keep. A quotation the BAC enters
+-- is linked to the profile of the same name (canvass_bidders.supplier_id), so a
+-- profile shows every request it quoted on, its awards and its DQs.
+CREATE TABLE `suppliers` (
+  `id`             INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `name`           VARCHAR(200) NOT NULL,
+  `name_key`       VARCHAR(200) NOT NULL,   -- the name in lower case with single spaces
+  `address`        VARCHAR(500) NULL,
+  `tin`            VARCHAR(50)  NULL,
+  `philgeps_no`    VARCHAR(50)  NULL,
+  `contact_person` VARCHAR(100) NULL,
+  `designation`    VARCHAR(150) NULL,
+  `phone`          VARCHAR(50)  NULL,
+  `email`          VARCHAR(150) NULL,
+  `status`         ENUM('active','blacklisted') NOT NULL DEFAULT 'active',
+  `status_note`    VARCHAR(500) NULL,
+  `created_by`     INT UNSIGNED NULL,
+  `created_at`     TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at`     TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_suppliers_name_key` (`name_key`),
+  CONSTRAINT `fk_suppliers_user` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- BAC resolutions
 -- The canvass bids the BAC enters from the canvasser's returned RFQs, one
 -- quotation at a time: each bidder (a supplier, by name, with its RFQ No. and
@@ -353,14 +386,18 @@ CREATE TABLE `canvass_bidders` (
   `name`       VARCHAR(200)      NOT NULL,
   `rfq_no`     VARCHAR(50)       NULL,       -- the number on the supplier's returned RFQ
   `attachment_id` INT UNSIGNED   NULL,       -- the supplier's returned RFQ, attached to the PR
+  `dq_remarks` VARCHAR(500)      NULL,       -- the TWG's remark on a supplier it found DQ
+  `supplier_id` INT UNSIGNED     NULL,       -- the supplier's profile, by name
   `position`   SMALLINT UNSIGNED NOT NULL DEFAULT 0,
   `created_by` INT UNSIGNED      NULL,
   `created_at` TIMESTAMP         NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_canvass_bidders_pr` (`pr_id`),
+  KEY `idx_canvass_bidders_supplier` (`supplier_id`),
   CONSTRAINT `fk_canvass_bidders_pr` FOREIGN KEY (`pr_id`)      REFERENCES `purchase_requests` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_canvass_bidders_by` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `fk_canvass_bidders_file` FOREIGN KEY (`attachment_id`) REFERENCES `pr_attachments` (`id`) ON DELETE SET NULL
+  CONSTRAINT `fk_canvass_bidders_file` FOREIGN KEY (`attachment_id`) REFERENCES `pr_attachments` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_canvass_bidders_supplier` FOREIGN KEY (`supplier_id`) REFERENCES `suppliers` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE `canvass_bids` (

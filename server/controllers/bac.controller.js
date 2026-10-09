@@ -32,20 +32,20 @@ exports.queue = asyncHandler(async (req, res) => {
   if (search) { where.push('(pr.pr_number LIKE ? OR pr.title LIKE ?)'); params.push(search, search) }
 
   const [[counts]] = await pool.execute(`
-    SELECT (SELECT COUNT(*) FROM purchase_requests pr WHERE ${where.join(' AND ')} AND pr.status IN ('bidding', 'bac_review')) AS pending,
+    SELECT (SELECT COUNT(*) FROM purchase_requests pr WHERE ${where.join(' AND ')} AND pr.status IN ('bidding', 'bac_review', 're_pr')) AS pending,
            (SELECT COUNT(*) FROM bac_resolutions r JOIN purchase_requests pr ON pr.id = r.purchase_request_id WHERE ${where.join(' AND ')}) AS approved`,
     [...params, ...params])
 
   let rows
   if (view === 'pending') {
     [rows] = await pool.execute(`
-      SELECT pr.id, pr.pr_number, pr.title, pr.status, pr.department, pr.mode_of_procurement, pr.certification_return_reason,
+      SELECT pr.id, pr.pr_number, pr.title, pr.status, pr.department, pr.mode_of_procurement, pr.certification_return_reason, pr.recanvass_reason, pr.recanvass_count, pr.re_pr_count, pr.re_pr_type, pr.re_pr_reason,
              COALESCE((SELECT MAX(sl.created_at) FROM pr_status_logs sl WHERE sl.pr_id = pr.id AND sl.to_status = pr.status), pr.created_at) AS since,
              (SELECT COUNT(*) FROM canvass_bidders d WHERE d.pr_id = pr.id) AS bidders,
              (SELECT COUNT(*) FROM pr_items i WHERE i.pr_id = pr.id AND i.dropped_at IS NULL) AS items,
              (SELECT COALESCE(SUM(i.quantity * i.estimated_cost), 0) FROM pr_items i WHERE i.pr_id = pr.id AND i.dropped_at IS NULL) AS total
         FROM purchase_requests pr
-       WHERE ${where.join(' AND ')} AND pr.status IN ('bidding', 'bac_review')
+       WHERE ${where.join(' AND ')} AND pr.status IN ('bidding', 'bac_review', 're_pr')
        ORDER BY since ASC, pr.id ASC
        LIMIT ${limit} OFFSET ${offset}`, params)
   } else {
@@ -72,7 +72,7 @@ exports.queue = asyncHandler(async (req, res) => {
 // its awards), and what this user may do.
 exports.summary = asyncHandler(async (req, res) => {
   const pr = await loadPR(pool, req.params.prId)
-  const [[extra]] = await pool.execute('SELECT certification_return_reason FROM purchase_requests WHERE id = ?', [pr.id])
+  const [[extra]] = await pool.execute('SELECT certification_return_reason, recanvass_reason FROM purchase_requests WHERE id = ?', [pr.id])
   const [resolutions] = await pool.execute(`
     SELECT r.id, r.resolution_number, r.resolved_on, r.notes, r.created_at, u.name AS approved_by_name
       FROM bac_resolutions r JOIN users u ON u.id = r.approved_by
@@ -86,8 +86,9 @@ exports.summary = asyncHandler(async (req, res) => {
   const live = !pr.deleted_at
   res.json({
     status: pr.status,
-    // Why the TWG returned the canvass, while the BAC has it again.
+    // Why the TWG returned the canvass or ordered a re-canvass, while the BAC has it again.
     certification_return_reason: live && pr.status === 'bidding' ? extra.certification_return_reason : null,
+    recanvass_reason: live && pr.status === 'bidding' ? extra.recanvass_reason : null,
     resolutions: resolutions.map(r => {
       const theirs = lots.filter(l => l.resolution_id === r.id)
       return {

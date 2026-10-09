@@ -4,6 +4,7 @@ const { rateLimit } = require('express-rate-limit')
 const c           = require('../controllers/pr.controller')
 const items       = require('../controllers/prItems.controller')
 const files       = require('../controllers/prAttachments.controller')
+const suppliers   = require('../controllers/suppliers.controller')
 const auth        = require('../middleware/auth.middleware')
 const authorize   = require('../middleware/authorize.middleware')
 const { handle, textRule, moneyRule, quantityRule, dateRule, idRule, oneOfRule } = require('../middleware/validate')
@@ -35,7 +36,6 @@ const prFields = (titleRequired) => [
   textRule('event_name', 'Event name', 200),
   textRule('project_name', 'Project name', 200),
   textRule('notes', 'Notes', 2000),
-  dateRule('date_needed', 'Date needed'),
   dateRule('event_date', 'Event date'),
 ]
 // Item fields; `name` words each message ("Quantity ..." or "Item 2 quantity ...").
@@ -93,6 +93,8 @@ router.get('/:id/rfq',   authorize('procurement', 'admin'), prRead, c.generateRF
 router.get('/:id/rfq/docx', authorize('procurement', 'admin'), prRead, c.generateRFQDocx)
 router.get('/:id',       prRead, c.getById)
 router.get('/:id/requester-signature', prRead, c.requesterSignature)
+// The profiles of the suppliers that quoted, once the quotations are sent.
+router.get('/:id/suppliers', prRead, suppliers.forPr)
 // Its items against the office's PPMP.
 router.get('/:id/ppmp',  prRead, c.ppmpReview)
 

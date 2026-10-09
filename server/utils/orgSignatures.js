@@ -31,7 +31,7 @@ function signatoriesOf(org) {
 }
 
 // A request's form is signed once its PR number is assigned (the canvass started) and while it goes on.
-const SIGNED_STAGES = ['bidding', 'twg_certification', 'bac_review', 'for_po', 'completed']
+const SIGNED_STAGES = ['bidding', 'twg_certification', 'bac_review', 're_pr', 'for_po', 'completed']
 // Whether this copy carries the saved signatures: staff copies only (an End User's prints blank lines), at `ready`.
 const signedCopy = (user, ready) => user.role !== 'requestor' && !!ready
 const prSigned = (user, pr) => signedCopy(user, !pr.deleted_at && SIGNED_STAGES.includes(pr.status))

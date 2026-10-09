@@ -9,9 +9,9 @@ import DeletePRDialog from '@/components/shared/DeletePRDialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableEmpty } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
-import { PRStatusBadge, DeliveryStatusBadge, CategoryBadge } from '@/components/shared/StatusBadge'
+import { PRStatusBadge, DeliveryStatusBadge, CategoryBadge, MarkerBadges } from '@/components/shared/StatusBadge'
 import { FilterChip, Tab, Pager } from '@/components/shared/ListParts'
-import { fmtDate, fmtCurrency, localToday, daysSince, CATEGORY_LABELS } from '@/lib/utils'
+import { fmtDate, fmtCurrency, daysSince, CATEGORY_LABELS } from '@/lib/utils'
 import { useAuth } from '@/context/AuthContext'
 import useUrlParams from '@/hooks/useUrlParams'
 import api from '@/lib/axios'
@@ -25,6 +25,7 @@ const TABS = [
   { key: 'twg_review',         label: 'Approved by TWG' },
   { key: 'bidding',            label: 'Canvass' },
   { key: 'twg_certification',  label: 'TWG certification' },
+  { key: 're_pr',              label: 'Re-PR' },
   { key: 'bac_review',         label: 'BAC award' },
   { key: 'for_po',             label: 'Ready for PO' },
   { key: 'completed',          label: 'Completed' },
@@ -35,11 +36,9 @@ const TABS = [
 const SORTS = [
   { key: 'newest',          label: 'Newest first' },
   { key: 'oldest_approval', label: 'Oldest TWG approval first' },
-  { key: 'date_needed',     label: 'Date needed, soonest' },
   { key: 'total',           label: 'Largest estimated total' },
 ]
 const CATEGORIES = Object.keys(CATEGORY_LABELS)
-const FINAL      = ['completed', 'cancelled', 'rejected']
 
 // Amount: the PO total once there is a PO, before that the items' estimate.
 function Amount({ pr }) {
@@ -106,10 +105,9 @@ export default function PRList() {
   }
 
   const canCreate = ['admin', 'procurement', 'requestor'].includes(user?.role)
-  const today     = localToday()
 
   // column count for empty/skeleton states
-  const colCount = isStaff ? 11 : isRequestor ? 8 : 7
+  const colCount = isStaff ? 10 : isRequestor ? 8 : 7
 
   return (
     <div className="space-y-4">
@@ -170,7 +168,6 @@ export default function PRList() {
                 <TableHead>Category</TableHead>
                 <TableHead>{isStaff ? 'Request' : 'Title'}</TableHead>
                 {isStaff && <TableHead>TWG Review</TableHead>}
-                {isStaff && <TableHead>Needed By</TableHead>}
                 <TableHead className="text-right">Amount</TableHead>
                 <TableHead>PR Status</TableHead>
                 <TableHead>Delivery</TableHead>
@@ -206,7 +203,6 @@ export default function PRList() {
                       const isNew    = isStaff && pr.status === 'twg_review' && !readSet.has(String(pr.id))
                       const isOpened = isStaff && pr.status === 'twg_review' && readSet.has(String(pr.id))
                       const waiting  = pr.status === 'twg_review' && pr.twg_reviewed_at ? daysSince(pr.twg_reviewed_at) : null
-                      const neededLate = pr.date_needed && pr.date_needed < today && !FINAL.includes(pr.status)
                       return (
                         <TableRow
                           key={pr.id}
@@ -255,13 +251,8 @@ export default function PRList() {
                               ) : <span className="text-[--color-text-muted]">—</span>}
                             </TableCell>
                           )}
-                          {isStaff && (
-                            <TableCell className={`text-sm whitespace-nowrap ${neededLate ? 'text-red-600 font-medium' : 'text-[--color-text-secondary]'}`}>
-                              {pr.date_needed ? fmtDate(pr.date_needed) : <span className="text-[--color-text-muted]">—</span>}
-                            </TableCell>
-                          )}
                           <TableCell className="text-right text-sm whitespace-nowrap"><Amount pr={pr} /></TableCell>
-                          <TableCell><PRStatusBadge status={pr.status} /></TableCell>
+                          <TableCell><div className="flex flex-wrap items-center gap-1.5"><PRStatusBadge status={pr.status} /><MarkerBadges pr={pr} /></div></TableCell>
                           <TableCell>
                             {pr.po_id
                               ? <DeliveryStatusBadge status={pr.delivery_status} />

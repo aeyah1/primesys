@@ -69,10 +69,17 @@ export default function BacPanel({ prId, part = 'status' }) {
         </p>
       )}
 
+      {data.recanvass_reason && (
+        <p className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <AlertTriangle className="size-4 shrink-0 mt-0.5" />
+          <span><span className="font-semibold">Re-canvass ordered by the TWG:</span> {data.recanvass_reason}. The canvasser gets new quotations; the BAC enters them and sends the canvass again.</span>
+        </p>
+      )}
+
       {data.status === 'twg_certification' && (
         <p className="flex items-center gap-2 rounded-xl border border-teal-300 bg-teal-50 px-4 py-3 text-sm text-teal-900">
           <ShieldCheck className="size-4 shrink-0" />
-          <span><span className="font-semibold">With the TWG.</span> It checks every bid against the required specifications, marks each compliant or not, and certifies them.</span>
+          <span><span className="font-semibold">With the TWG.</span> It checks every bid against the required specifications, marks each compliant or not, and certifies them or orders a re-canvass.</span>
         </p>
       )}
 

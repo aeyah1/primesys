@@ -5,27 +5,31 @@ const { failedSuppliers, failedBlock } = require('./shortDelivery')
 const { adoptResolution } = require('./bacWorkflow')
 const { issueCertificate } = require('./twgCertificate')
 const { normalise, sectionsOf } = require('./itemSections')
+const { prName } = require('./requesterNotice')
 
 // The canvass bids of a PR
 // The canvasser canvasses the suppliers on paper and gives the returned RFQs
 // to the BAC, which types in each supplier's quotation, one at a time (its
-// name, the RFQ No., the RFQ file attached to the PR, and its unit price for
-// each item it offered), and sends the canvass to the TWG (TWG
-// certification). The TWG marks each bid compliant or non-compliant, with the
-// offered specification and the reason, and certifies them in a certificate
-// that lists every bid (BAC award). The BAC then picks the winner of each lot
-// (a section of the PR's items; a PR without lots is one lot) among the bidders
-// compliant on all of it; the system recommends the lowest total. Awarding records one
-// award per lot in a BAC Resolution (Ready for PO). Bids are only entered and
-// changed in canvass, on the items still needing an award.
+// name, the RFQ No., the RFQ file attached to the PR, and for each item it
+// offered its unit price and what it offered), and sends the canvass to the TWG
+// (TWG certification). The TWG marks each bid compliant or non-compliant, with
+// the offered specification (correcting the BAC's if need be) and the reason,
+// and certifies them in a certificate that lists every bid (BAC award), or
+// orders a re-canvass when no offer for a lot is compliant (twg.controller). A
+// supplier non-compliant on every item it offered is DQ (disqualified). The BAC
+// then picks the winner of each lot (a section of the PR's items; a PR without
+// lots is one lot) among the bidders compliant on all of it; the system
+// recommends the lowest total. Awarding records one award per lot in a BAC
+// Resolution (Ready for PO). Bids are only entered and changed in canvass, on
+// the items still needing an award.
 
 const ref = (b) => `${b.bidder_id}:${b.pr_item_id}`
 
 // The PR's bidders in their order, each with its RFQ file, its price for each item and the TWG's evaluation of that bid:
-// [{ id, name, rfq_no, attachment_id, attachment_name, prices: { [pr_item_id]: unit_price }, evaluation: { [pr_item_id]: { compliant, offered_spec, remarks } } }].
+// [{ id, name, rfq_no, attachment_id, attachment_name, dq_remarks, supplier_id, prices: { [pr_item_id]: unit_price }, evaluation: { [pr_item_id]: { compliant, offered_spec, remarks } } }].
 async function biddersOf(db, prId) {
   const [bidders] = await db.execute(
-    `SELECT d.id, d.name, d.rfq_no, d.attachment_id, a.original_name AS attachment_name
+    `SELECT d.id, d.name, d.rfq_no, d.attachment_id, a.original_name AS attachment_name, d.dq_remarks, d.supplier_id
        FROM canvass_bidders d LEFT JOIN pr_attachments a ON a.id = d.attachment_id
       WHERE d.pr_id = ? ORDER BY d.position, d.id`, [prId])
   if (!bidders.length) return []
@@ -82,11 +86,11 @@ async function canvassDocuments(db, prId) {
 }
 
 // Saves quotations on a PR in canvass the caller locked, inside its transaction:
-// { bidders: [{ id, name, rfq_no, attachment_id, prices: [{ pr_item_id, unit_price }] }] }.
-// Each is the bidder with that id, else the one of that name, else a new one;
-// the PR's other bidders stay as they are. Only the bids on items still needing
-// an award change; a bid whose price changed loses the TWG's evaluation, and a
-// bidder left with no bid is removed.
+// { bidders: [{ id, name, rfq_no, attachment_id, prices: [{ pr_item_id, unit_price, offered_spec }] }] }.
+// Each is the bidder with that id, else the one of that name, else a new one,
+// linked to the supplier profile of its name; the PR's other bidders stay as they are. Only the bids on items still needing
+// an award change; a bid whose price or offered specification changed loses the
+// TWG's evaluation (and its DQ remark), and a bidder left with no bid is removed.
 async function saveBids(conn, pr, { bidders = [] }, user) {
   if (pr.deleted_at || pr.status !== 'bidding') throw httpError(409, 'The bids are entered while the PR is in canvass')
   const { items } = await itemStates(conn, pr.id)
@@ -110,6 +114,8 @@ async function saveBids(conn, pr, { bidders = [] }, user) {
   }
 
   const [existing] = await conn.execute('SELECT id, name, rfq_no, attachment_id, position FROM canvass_bidders WHERE pr_id = ?', [pr.id])
+  const [profiles] = keys.length
+    ? await conn.execute(`SELECT id, name_key FROM suppliers WHERE name_key IN (${keys.map(() => '?').join(', ')})`, keys) : [[]]
   let position = existing.reduce((max, e) => Math.max(max, e.position + 1), 0)
   const ids = []
   for (const b of bidders) {
@@ -119,37 +125,44 @@ async function saveBids(conn, pr, { bidders = [] }, user) {
     const other = existing.find(e => e.id !== own?.id && supplierKey(e.name) === supplierKey(name))
     if (other) throw httpError(400, `${other.name} is already entered`)
     const rfq = String(b.rfq_no ?? '').trim()
+    const supplierId = profiles.find(x => x.name_key === supplierKey(name))?.id ?? null
     if (own) {
-      await conn.execute('UPDATE canvass_bidders SET name = ?, rfq_no = ?, attachment_id = ? WHERE id = ?',
-        [name, rfq || own.rfq_no || String(own.position + 1), b.attachment_id !== undefined ? b.attachment_id : own.attachment_id, own.id])
+      await conn.execute('UPDATE canvass_bidders SET name = ?, rfq_no = ?, attachment_id = ?, supplier_id = ? WHERE id = ?',
+        [name, rfq || own.rfq_no || String(own.position + 1), b.attachment_id !== undefined ? b.attachment_id : own.attachment_id, supplierId, own.id])
       ids.push(own.id)
     } else {
-      const [r] = await conn.execute('INSERT INTO canvass_bidders (pr_id, name, rfq_no, attachment_id, position, created_by) VALUES (?, ?, ?, ?, ?, ?)',
-        [pr.id, name, rfq || String(position + 1), b.attachment_id ?? null, position, user.id])
+      const [r] = await conn.execute('INSERT INTO canvass_bidders (pr_id, name, rfq_no, attachment_id, supplier_id, position, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [pr.id, name, rfq || String(position + 1), b.attachment_id ?? null, supplierId, position, user.id])
       position++
       ids.push(r.insertId)
     }
   }
 
-  // Each saved bidder's bids on open items: kept when unchanged, repriced (and evaluated again) when changed, removed when left out.
+  // Each saved bidder's bids on open items, with what it offered as written on its RFQ: kept when
+  // unchanged, updated (and evaluated again) when its price or offer changed, removed when left out.
   const saved = new Set(ids)
   const wanted = new Map(bidders.flatMap((b, n) => (b.prices || []).filter(p => open.has(p.pr_item_id))
-    .map(p => [ref({ bidder_id: ids[n], pr_item_id: p.pr_item_id }), { bidder_id: ids[n], pr_item_id: p.pr_item_id, unit_price: p.unit_price }])))
+    .map(p => [ref({ bidder_id: ids[n], pr_item_id: p.pr_item_id }),
+      { bidder_id: ids[n], pr_item_id: p.pr_item_id, unit_price: p.unit_price, offered_spec: p.offered_spec?.trim() || null }])))
   const [stored] = await conn.execute(
-    `SELECT b.id, b.bidder_id, b.pr_item_id, b.unit_price FROM canvass_bids b
+    `SELECT b.id, b.bidder_id, b.pr_item_id, b.unit_price, b.offered_spec FROM canvass_bids b
        JOIN canvass_bidders d ON d.id = b.bidder_id WHERE d.pr_id = ?`, [pr.id])
+  const changed = new Set()
   for (const b of stored.filter(x => saved.has(x.bidder_id) && open.has(x.pr_item_id))) {
     const want = wanted.get(ref(b))
     if (!want) await conn.execute('DELETE FROM canvass_bids WHERE id = ?', [b.id])
-    else if (cents(want.unit_price) !== cents(b.unit_price)) {
-      await conn.execute('UPDATE canvass_bids SET unit_price = ?, compliant = NULL, offered_spec = NULL, remarks = NULL, certificate_id = NULL WHERE id = ?', [want.unit_price, b.id])
+    else if (cents(want.unit_price) !== cents(b.unit_price) || (want.offered_spec || 'As specified') !== (b.offered_spec || 'As specified')) {
+      await conn.execute('UPDATE canvass_bids SET unit_price = ?, offered_spec = ?, compliant = NULL, remarks = NULL, certificate_id = NULL WHERE id = ?',
+        [want.unit_price, want.offered_spec, b.id])
+      changed.add(b.bidder_id)
     }
     wanted.delete(ref(b))
   }
+  for (const id of changed) await conn.execute('UPDATE canvass_bidders SET dq_remarks = NULL WHERE id = ?', [id])
   const rows = [...wanted.values()]
   if (rows.length) {
-    await conn.execute(`INSERT INTO canvass_bids (bidder_id, pr_item_id, unit_price) VALUES ${rows.map(() => '(?, ?, ?)').join(', ')}`,
-      rows.flatMap(r => [r.bidder_id, r.pr_item_id, r.unit_price]))
+    await conn.execute(`INSERT INTO canvass_bids (bidder_id, pr_item_id, unit_price, offered_spec) VALUES ${rows.map(() => '(?, ?, ?, ?)').join(', ')}`,
+      rows.flatMap(r => [r.bidder_id, r.pr_item_id, r.unit_price, r.offered_spec]))
   }
   await afterBidsChange(conn, pr.id, open)
 }
@@ -212,8 +225,9 @@ async function openBids(db, prId) {
 }
 
 // Saves the TWG's evaluation of bids, on a PR with the TWG the caller locked:
-// [{ bidder_id, pr_item_id, compliant (true, false or null), offered_spec, remarks }].
-async function saveEvaluation(conn, pr, evaluations = []) {
+// [{ bidder_id, pr_item_id, compliant (true, false or null), offered_spec, remarks }],
+// and its remark on each supplier it found DQ: [{ bidder_id, remarks }].
+async function saveEvaluation(conn, pr, evaluations = [], dq = []) {
   if (pr.deleted_at || pr.status !== 'twg_certification') throw httpError(409, 'The bids are evaluated while the TWG has the canvass')
   const { bids } = await openBids(conn, pr.id)
   for (const e of evaluations) {
@@ -223,25 +237,43 @@ async function saveEvaluation(conn, pr, evaluations = []) {
     await conn.execute('UPDATE canvass_bids SET compliant = ?, offered_spec = ?, remarks = ? WHERE id = ?',
       [compliant, e.offered_spec?.trim() || null, e.remarks?.trim() || null, bid.id])
   }
+  for (const d of dq) {
+    if (!bids.some(b => b.bidder_id === d.bidder_id)) throw httpError(400, 'Some of the DQ remarks are for suppliers not in this canvass')
+    await conn.execute('UPDATE canvass_bidders SET dq_remarks = ? WHERE id = ?', [d.remarks?.trim() || null, d.bidder_id])
+  }
 }
 
 // The TWG certifies its evaluation of every open bid, on a PR the caller
-// locked: each bid is marked, a non-compliant one with its reason. Issues the
-// certificate and sends the PR to the BAC for the award. Resolves with { id, cert_no }.
+// locked: each bid is marked, a non-compliant one with its reason, and every
+// lot has an offer compliant on all of it (else the TWG orders a re-canvass).
+// Issues the certificate and sends the PR to the BAC for the award; the End
+// User hears how many suppliers were DQ. Resolves with { id, cert_no }.
 async function certifyBids(conn, pr, user, { certNo, signature, comment }) {
   if (pr.deleted_at || pr.status !== 'twg_certification') throw httpError(409, 'This PR is not with the TWG for certification')
-  const { bids } = await openBids(conn, pr.id)
+  const { open, bids } = await openBids(conn, pr.id)
   if (!bids.length) throw httpError(409, 'No bid waits for the TWG\'s evaluation')
   const unmarked = bids.find(b => b.compliant === null)
   if (unmarked) throw httpError(409, `Mark every bid compliant or non-compliant first (${unmarked.name}'s is not marked)`)
   const unexplained = bids.find(b => b.compliant === 0 && !b.remarks)
   if (unexplained) throw httpError(409, `State why ${unexplained.name}'s bid is non-compliant`)
+  const lots = lotsOf(open)
+  const bidders = await biddersOf(conn, pr.id)
+  const bare = lots.find(l => !recommendedOf(l.items, bidders))
+  if (bare) throw httpError(409, `No offer ${lots.length > 1 ? `for ${bare.name} ` : ''}is compliant. Choose Re-canvass and give the reason.`)
   const certificate = await issueCertificate(conn, { prId: pr.id, user, certNo, signature })
   await conn.execute(
     `UPDATE canvass_bids SET certificate_id = ?, offered_spec = COALESCE(NULLIF(TRIM(offered_spec), ''), 'As specified')
       WHERE id IN (${bids.map(() => '?').join(', ')})`, [certificate.id, ...bids.map(b => b.id)])
+  // DQ: a supplier non-compliant on every item it offered.
+  const dqs = new Set(bids.map(b => b.bidder_id))
+  for (const b of bids) if (b.compliant !== 0) dqs.delete(b.bidder_id)
+  const dq = dqs.size
+  // A DQ remark stays only on a supplier still DQ.
+  const kept = [...new Set(bids.map(b => b.bidder_id))].filter(id => !dqs.has(id))
+  if (kept.length) await conn.execute(`UPDATE canvass_bidders SET dq_remarks = NULL WHERE id IN (${kept.map(() => '?').join(', ')})`, kept)
   await changePRStatus(pr.id, 'bac_review', {
     user, via: 'twg', conn, note: comment || `Bids evaluated and certified by the TWG (Cert. No. ${certificate.cert_no})`,
+    notice: `The TWG checked the offers for ${prName(pr)}${dq ? `; ${dq} supplier${dq === 1 ? ' was' : 's were'} DQ, offering nothing that meets your specifications` : ''}. The BAC chooses the suppliers next.`,
   })
   await conn.execute(
     'UPDATE purchase_requests SET twg_certified_by = ?, twg_certified_at = NOW(), twg_certification_note = ?, certification_return_reason = NULL WHERE id = ?',
@@ -249,10 +281,17 @@ async function certifyBids(conn, pr, user, { certNo, signature, comment }) {
   return certificate
 }
 
+// The details a supplier's profile gives its award and PO (lots' supplier columns), none without a profile.
+async function profileDetails(db, supplierId) {
+  if (!supplierId) return {}
+  const [[s]] = await db.execute('SELECT contact_person, address, phone, email, tin FROM suppliers WHERE id = ?', [supplierId])
+  return s ? { supplier_contact: s.contact_person, supplier_address: s.address, supplier_phone: s.phone, supplier_email: s.email, supplier_tin: s.tin } : {}
+}
+
 // Records one lot's winner on `pr` (locked by the caller), inside its
 // transaction: the supplier, the lot's items and each one's winning unit
-// price, the total within those items' approved budget.
-// w: { awarded_to, title, what, notes, items: [{ item, unit_price }] }.
+// price, the total within those items' approved budget, with the supplier's details for its PO.
+// w: { awarded_to, title, what, notes, details, items: [{ item, unit_price }] }.
 async function recordWinner(conn, pr, w, user) {
   const amount = w.items.reduce((s, x) => s + lineCents(x.item.quantity, x.unit_price), 0)
   const estimate = w.items.reduce((s, x) => s + lineCents(x.item.quantity, x.item.estimated_cost), 0)
@@ -271,7 +310,7 @@ async function recordWinner(conn, pr, w, user) {
     if (failed) throw httpError(failed.status, failed.message)
   }
   const lot = await recordAward(conn, {
-    prId: pr.id, supplier, amount: (amount / 100).toFixed(2), title: w.title, notes: w.notes || null,
+    prId: pr.id, supplier, amount: (amount / 100).toFixed(2), title: w.title, notes: w.notes || null, details: w.details,
     userId: user.id, items: w.items.map(x => x.item), prices: w.items.map(x => x.unit_price),
   })
   return { ...lot, awarded_to: supplier, awarded_amount: (amount / 100).toFixed(2), items: w.items.length }
@@ -282,7 +321,7 @@ async function recordWinner(conn, pr, w, user) {
 // one for every lot with an item still needing an award (or its items are
 // dropped). Any bidder that bid on every such item of the lot, none of them found
 // non-compliant by the TWG, may win it; a pick other than the recommended one is noted on its award, with the BAC's
-// reason if given. Records an award per lot, certified by the TWG's latest
+// reason if given. Records an award per lot, with the details from the winner's supplier profile, certified by the TWG's latest
 // certificate, adopts a BAC Resolution for them, and makes the PR Ready for PO. Resolves with { resolution, lots }.
 async function awardBids(conn, pr, user, { winners = [], notes = null }) {
   if (pr.deleted_at || pr.status !== 'bac_review') throw httpError(409, 'The BAC awards once the TWG has certified the bids')
@@ -311,7 +350,7 @@ async function awardBids(conn, pr, user, { winners = [], notes = null }) {
     await conn.execute(`UPDATE pr_items SET winner_bidder_id = ?, winner_reason = ? WHERE id IN (${lot.items.map(() => '?').join(', ')})`,
       [bidder.id, reason, ...lot.items.map(i => i.id)])
     lots.push(await recordWinner(conn, pr, {
-      awarded_to: bidder.name, title: lot.label || null, what: `The award of ${lot.name} to ${bidder.name}`, notes: why,
+      awarded_to: bidder.name, title: lot.label || null, what: `The award of ${lot.name} to ${bidder.name}`, notes: why, details: await profileDetails(conn, bidder.supplier_id),
       items: lot.items.map(item => ({ item, unit_price: bidder.prices[item.id] })),
     }, user))
   }
@@ -335,10 +374,13 @@ async function awardBids(conn, pr, user, { winners = [], notes = null }) {
 // locked; it goes to the TWG again (unchanged bids keep their evaluation).
 async function reopenCanvass(conn, pr, user, reason) {
   if (pr.deleted_at || pr.status !== 'bac_review') throw httpError(409, 'Only a canvass waiting for the BAC\'s award can be taken back')
-  await changePRStatus(pr.id, 'bidding', { user, via: 'bac', note: `Taken back to the canvass by the BAC: ${reason}`, conn })
+  await changePRStatus(pr.id, 'bidding', {
+    user, via: 'bac', note: `Taken back to the canvass by the BAC: ${reason}`, conn,
+    notice: `The BAC took ${prName(pr)} back to the canvass to check the offers again: ${reason}.`,
+  })
 }
 
 module.exports = {
   biddersOf, lotsOf, recommendedOf, canvassDocuments, saveBids, removeBidder, sendBlock, sendToTwg,
-  saveEvaluation, certifyBids, awardBids, reopenCanvass,
+  openBids, saveEvaluation, certifyBids, awardBids, reopenCanvass,
 }

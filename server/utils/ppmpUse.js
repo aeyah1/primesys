@@ -7,7 +7,7 @@ const { norm, lineKey, QUARTER_COLUMNS, splitOf, quarterLeft } = require('./ppmp
 // cancelled, or deleted; an item dropped from the procurement gives its back.
 // A line keeps its identity across the PPMP's versions by description and unit,
 // so an amended PPMP carries over what earlier requests already used.
-const HOLDING = ['submitted', 'revision_requested', 'twg_review', 'bidding', 'bac_review', 'twg_certification', 'for_po', 'completed']
+const HOLDING = ['submitted', 'revision_requested', 'twg_review', 'bidding', 'bac_review', 'twg_certification', 're_pr', 'for_po', 'completed']
 const MONTHS  = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 
 const round2  = (n) => Math.round(n * 100) / 100
@@ -27,6 +27,56 @@ async function usablePlans(db, deptId, { anyYear = false } = {}) {
 
 // The quarter of the plan's year a request is filed under (1 to 4), or null when it is filed under another year's.
 const quarterIn = (plan, label, year) => (Number(year) === plan.fiscal_year && /^Q[1-4]$/.test(label || '') ? Number(label[1]) : null)
+
+// What a Re-PR'd request may spend past its office's PPMP (utils/rePr.js): an item above its line's planned cost,
+// or an item not in the PPMP at all. That extra comes out of the office's PPMP budget for the year, so every
+// submission is checked against the budget left once any extra is held (`budgetOf`).
+// Each item's extra over the plan: its whole amount when it is not in the PPMP, else what it costs above the line's planned cost.
+const extraOf = (it, plannedCost) => {
+  const amount = Number(it.quantity) * Number(it.estimated_cost || 0)
+  return plannedCost == null ? amount : Math.max(0, amount - Number(it.quantity) * plannedCost)
+}
+
+// The office's PPMP budget for the plan's year against what requests take of it: planned (every line's quantity at
+// its cost), held by the other requests (their in-plan quantities at the planned cost of the line, plus the extras of
+// Re-PR'd ones), this request's (`mine`, `mineExtra`) and what is left. A line's planned cost is the average of the
+// lines sharing its key, so lines repeated with different costs add up to the budget.
+async function budgetOf(db, plan, lines, prId, items, rePr) {
+  const cost = new Map()
+  for (const l of lines) {
+    const c = cost.get(l.key) || { qty: 0, value: 0 }
+    cost.set(l.key, { qty: c.qty + l.quantity, value: c.value + l.quantity * l.unit_cost })
+  }
+  const plannedCost = (key) => { const c = cost.get(key); return c && c.qty > 0 ? c.value / c.qty : null }
+  const planned = [...cost.values()].reduce((s, c) => s + c.value, 0)
+  // Items not in the PPMP count against the year of the quarter their request is filed under.
+  const [others] = await db.execute(
+    `SELECT i.quantity, i.estimated_cost, li.description, li.unit, i.ppmp_item_id, pr.re_pr_count
+       FROM pr_items i JOIN purchase_requests pr ON pr.id = i.pr_id
+       LEFT JOIN quarters q ON q.id = pr.quarter_id
+       LEFT JOIN ppmp_items li ON li.id = i.ppmp_item_id LEFT JOIN ppmps p ON p.id = li.ppmp_id
+      WHERE pr.department_id = ? AND pr.id <> ? AND pr.deleted_at IS NULL AND i.dropped_at IS NULL
+        AND pr.status IN (${HOLDING.map(() => '?').join(', ')})
+        AND (p.fiscal_year = ? OR (i.ppmp_item_id IS NULL AND pr.re_pr_count > 0 AND q.year = ?))`,
+    [plan.department_id, prId, ...HOLDING, plan.fiscal_year, plan.fiscal_year])
+  let held = 0, heldExtra = 0
+  for (const o of others) {
+    const pc = o.ppmp_item_id ? plannedCost(lineKey(o)) : null
+    if (o.ppmp_item_id) held += Number(o.quantity) * (pc ?? 0)
+    if (o.re_pr_count > 0) heldExtra += extraOf(o, o.ppmp_item_id ? pc ?? 0 : null)
+  }
+  let mine = 0, mineExtra = 0
+  for (const it of items) {
+    const pc = it.ppmp_item_id ? plannedCost(lineKey({ description: it.line_description, unit: it.line_unit })) : null
+    if (it.ppmp_item_id) mine += Number(it.quantity) * (pc ?? 0)
+    if (rePr) mineExtra += extraOf(it, it.ppmp_item_id ? pc ?? 0 : null)
+  }
+  const left = planned - held - heldExtra
+  return {
+    planned: round2(planned), held: round2(held), held_extra: round2(heldExtra), mine: round2(mine + mineExtra), mine_extra: round2(mineExtra),
+    left: round2(left), over: heldExtra + mineExtra > 0 && mine + mineExtra > left + 0.005,
+  }
+}
 
 // The request items holding lines of the office's PPMP for that year, with their requests and the quarter each is filed under.
 // With `lock` it is a locking read, so a submission sees holds committed after its transaction began.
@@ -166,7 +216,7 @@ async function linesForItems(db, deptId, items, { prId, exceptItemId } = {}) {
 // without it (viewing), a past year's plan still shows.
 async function reviewPr(db, prId, { link = false } = {}) {
   const [[pr]] = await db.execute(
-    `SELECT pr.id, pr.department_id, pr.date_needed, d.code AS office_code, q.label AS quarter_label, q.year AS quarter_year
+    `SELECT pr.id, pr.department_id, pr.re_pr_count, d.code AS office_code, q.label AS quarter_label, q.year AS quarter_year
        FROM purchase_requests pr LEFT JOIN departments d ON d.id = pr.department_id LEFT JOIN quarters q ON q.id = pr.quarter_id
       WHERE pr.id = ?`, [prId])
   const [items] = await db.execute(
@@ -226,16 +276,18 @@ async function reviewPr(db, prId, { link = false } = {}) {
     const key = lineKey({ description: it.line_description, unit: it.line_unit })
     mine.set(key, (mine.get(key) || 0) + Number(it.quantity))
   }
-  // The month checked against the schedule: the date needed's, or this month's when no date is given.
-  const [neededYear, neededMonth] = pr.date_needed ? String(pr.date_needed).split('-').map(Number) : []
-  const month = neededYear ? (neededYear === plan.fiscal_year ? neededMonth : null)
-    : plan.fiscal_year === thisYear ? new Date().getMonth() + 1 : null
+  // The month checked against the schedule: this month, for this year's plan.
+  const month = plan.fiscal_year === thisYear ? new Date().getMonth() + 1 : null
 
+  // A Re-PR'd request may go past the plan; the extra comes out of the office's PPMP budget (budgetOf).
+  const rePr = pr.re_pr_count > 0
   for (const it of items) {
     const row = { id: it.id, line: null, warnings: [], problem: null }
     out.items.push(row)
     if (!it.ppmp_item_id) {
-      row.problem = `"${it.item_name}" is not in the ${plan.office_code} PPMP for ${plan.fiscal_year}. Pick it from the PPMP, or remove it.`
+      if (!rePr) row.problem = `"${it.item_name}" is not in the ${plan.office_code} PPMP for ${plan.fiscal_year}. Pick it from the PPMP, or remove it.`
+      else if (!(Number(it.estimated_cost) > 0)) row.problem = `Give the estimated cost of "${it.item_name}": it is not in the PPMP, so its cost comes out of the office's PPMP budget.`
+      else row.warnings.push(`Not in the PPMP: its ${peso(Number(it.quantity) * Number(it.estimated_cost))} comes out of the office's PPMP budget (Re-PR).`)
       continue
     }
     const key = lineKey({ description: it.line_description, unit: it.line_unit })
@@ -258,17 +310,28 @@ async function reviewPr(db, prId, { link = false } = {}) {
         : `Nothing of "${line.description}" is left for Q${quarter} in the PPMP (${plannedFor}). Remove it, or request it under its own quarter.`
     }
     if (it.estimated_cost != null && Number(it.estimated_cost) > line.unit_cost) {
-      row.warnings.push(`${peso(it.estimated_cost)} each is above the PPMP's ${peso(line.unit_cost)}. Adjust it, or be ready to explain the difference.`)
+      row.warnings.push(rePr
+        ? `${peso(it.estimated_cost)} each is above the PPMP's ${peso(line.unit_cost)}: the ${peso(Number(it.quantity) * (Number(it.estimated_cost) - line.unit_cost))} more comes out of the office's PPMP budget (Re-PR).`
+        : `${peso(it.estimated_cost)} each is above the PPMP's ${peso(line.unit_cost)}. Adjust it, or be ready to explain the difference.`)
     }
     if (month && line.months.length && !line.months.includes(month)) {
       row.warnings.push(`The PPMP doesn't schedule it for ${MONTHS[month - 1]} (planned: ${line.months.map(m => MONTHS[m - 1].slice(0, 3)).join(', ')}).`)
     }
   }
   out.problems.push(...new Set(out.items.map(r => r.problem).filter(Boolean)))
+
+  // The office's PPMP budget: once any extra past the plan is held, the request must fit what is left of it.
+  const budget = out.budget = { ...(await budgetOf(db, plan, lines, prId, items, rePr)), re_pr: rePr }
+  if (budget.over) {
+    out.problems.push(`This request takes ${peso(budget.mine)} of the ${plan.office_code} PPMP budget for ${plan.fiscal_year}`
+      + `${budget.mine_extra > 0 ? `, ${peso(budget.mine_extra)} of it past the plan,` : ''} but only ${peso(Math.max(budget.left, 0))} is left`
+      + ` (${peso(budget.planned)} planned; other requests hold ${peso(budget.held + budget.held_extra)}). Lower the prices or quantities, or remove an item.`)
+  }
   return out
 }
 
-// Before a request goes to the TWG: every item from its office's PPMP within what is left, or 409 saying what to fix.
+// Before a request goes to the TWG: every item from its office's PPMP within what is left (a Re-PR'd one may go past
+// it within the office's budget), or 409 saying what to fix.
 // The request is funded from the PPMP's source, so its fund follows the plan's.
 async function assertFollowsPpmp(db, prId) {
   const review = await reviewPr(db, prId, { link: true })

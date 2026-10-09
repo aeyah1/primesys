@@ -4,7 +4,7 @@ import { FileText, Plus, ChevronRight } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { PRStatusBadge } from '@/components/shared/StatusBadge'
+import { PRStatusBadge, MarkerBadges } from '@/components/shared/StatusBadge'
 import { FilterChip, Pager } from '@/components/shared/ListParts'
 import { useAuth } from '@/context/AuthContext'
 import { REQUEST_STEPS, requestProgress } from '@/lib/requestProgress'
@@ -12,10 +12,12 @@ import api from '@/lib/axios'
 
 // One line per step of REQUEST_STEPS, for the "How it works" panel.
 const STEP_HELP = [
-  'You describe what you need and submit it.',
-  'The Technical Working Group checks the details and may ask for changes.',
-  'The canvasser asks suppliers for prices; the BAC and the TWG review the chosen ones.',
-  'A purchase order is sent to the supplier.',
+  'You describe what you need and submit it to the TWG.',
+  'The Technical Working Group checks the specifications and may ask for changes.',
+  'Procurement gives the Request for Quotation (RFQ) to the canvasser, who collects suppliers\' prices; the BAC enters them.',
+  'The TWG checks every offer against your specifications. If none fits, it orders a re-canvass or a Re-PR.',
+  'The Bids and Awards Committee chooses the supplier of each lot.',
+  'Procurement issues the purchase order to the supplier.',
   'The Supply Office receives the items, and your request is done.',
 ]
 
@@ -23,7 +25,7 @@ const STEP_HELP = [
 const TABS = [
   { key: 'needs_me',    label: 'Needs me',    statuses: ['draft', 'revision_requested'],
     empty: 'Nothing waits for you. Drafts and requests sent back for changes appear here.' },
-  { key: 'in_progress', label: 'In progress', statuses: ['submitted', 'twg_review', 'bidding', 'bac_review', 'twg_certification', 'for_po'],
+  { key: 'in_progress', label: 'In progress', statuses: ['submitted', 'twg_review', 'bidding', 'bac_review', 'twg_certification', 're_pr', 'for_po'],
     empty: 'No request is moving right now.' },
   { key: 'done',        label: 'Done',        statuses: ['completed', 'rejected', 'cancelled'],
     empty: 'Finished, rejected and cancelled requests appear here.' },
@@ -96,6 +98,7 @@ export default function MyRequests() {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
+                      <MarkerBadges pr={pr} />
                       <PRStatusBadge status={pr.status} />
                       <ChevronRight className="size-4 text-[--color-text-muted]" />
                     </div>

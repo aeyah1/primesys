@@ -121,7 +121,7 @@ const SLIDES = {
       Icon:  ClipboardCheck,
       color: 'from-amber-400 to-orange-400',
       title: 'Your Review Queue',
-      body:  'When an End User submits a PR, it lands in your To Review list. Open it to see every item, quantity, unit cost, and attachment.',
+      body:  'When an End User submits a PR, it lands under To review in Review & Certify. Open it to see every item, quantity, unit cost, and attachment.',
     },
     {
       Icon:  CheckCircle,
@@ -139,7 +139,7 @@ const SLIDES = {
       Icon:  CheckCircle,
       color: 'from-cyan-500 to-blue-500',
       title: 'You\'re all set!',
-      body:  'Open To Review to start. Your dashboard shows pending count, weekly activity, and your recent decisions. The User Guide has more details.',
+      body:  'Open Review & Certify to start: it opens on whichever has work waiting. Your dashboard shows pending count, weekly activity, and your recent decisions. The User Guide has more details.',
     },
   ],
 
