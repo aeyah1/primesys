@@ -30,7 +30,7 @@ function menuFor(role) {
       return [{ label: 'My Work', items: [HOME, { to: '/my-requests', label: 'My Requests', icon: FileText }, { to: '/pr/create', label: 'New Request', icon: FilePlus }] },
               records(PPMP, ARCHIVE), { label: 'Help', items: [NOTIFICATIONS, GUIDE] }, ACCOUNT]
     case 'twg':
-      return [{ label: 'My Work', items: [HOME, { to: '/twg/reviews', label: 'To Review', icon: ClipboardCheck }] },
+      return [{ label: 'My Work', items: [HOME, { to: '/twg/reviews', label: 'Review & Certify', icon: ClipboardCheck }] },
               records(CERTIFICATES, PPMP, ARCHIVE), { label: 'Help', items: [NOTIFICATIONS, GUIDE] }, ACCOUNT]
     case 'procurement':
       return [{ label: 'My Work', items: [HOME, { to: '/bidding', label: 'Work Queue', icon: Gavel }, ALL_REQUESTS, ORDERS] },
