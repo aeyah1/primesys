@@ -15,6 +15,8 @@ import CancelPODialog from '@/components/delivery/CancelPODialog'
 import CloseBalanceDialog from '@/components/delivery/CloseBalanceDialog'
 import { receivedText } from '@/components/delivery/shared'
 import { PoDeliveries } from '@/components/delivery/DeliveryRow'
+import PODetailDialog from '@/components/delivery/PODetailDialog'
+import { useAuth } from '@/context/AuthContext'
 import { fmtDate, fmtCurrency, localToday, plural } from '@/lib/utils'
 import { openPdf, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
@@ -96,6 +98,8 @@ export default function PurchaseOrders({ pr, canManage }) {
   const prId  = String(pr.id)
   const today = localToday()
   const [action, setAction] = useState(null)   // { kind: 'receive' | 'reschedule' | 'cancel' | 'close', po }
+  const [viewing, setViewing] = useState(null) // the PO an End User opened in place
+  const { user } = useAuth()
   const { data: lots = [] } = useQuery({
     queryKey: ['lots', prId],
     queryFn:  () => api.get(`/lots/pr/${prId}`).then(r => r.data),
@@ -128,9 +132,16 @@ export default function PurchaseOrders({ pr, canManage }) {
           <div key={po.id} className="rounded-xl border border-[--color-border] bg-[--color-surface] p-4 space-y-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <Link to={`/po?po=${po.id}`} className="inline-flex items-center gap-1 font-mono text-ui-sm font-bold text-[--color-brand] hover:underline">
-                  {po.po_number} <ExternalLink className="size-3" />
-                </Link>
+                {/* End Users open the PO in place; the Purchase Orders page is for staff. */}
+                {user?.role === 'requestor' ? (
+                  <button type="button" onClick={() => setViewing(po.id)} className="font-mono text-ui-sm font-bold text-[--color-brand] hover:underline">
+                    {po.po_number}
+                  </button>
+                ) : (
+                  <Link to={`/po?po=${po.id}`} className="inline-flex items-center gap-1 font-mono text-ui-sm font-bold text-[--color-brand] hover:underline">
+                    {po.po_number} <ExternalLink className="size-3" />
+                  </Link>
+                )}
                 <p className="text-sm font-semibold text-[--color-text-primary]">{po.supplier_name}</p>
                 {po.lot_numbers && <p className="text-xs text-[--color-text-muted]">Covers {po.lot_numbers}</p>}
               </div>
@@ -246,6 +257,7 @@ export default function PurchaseOrders({ pr, canManage }) {
       {action?.kind === 'reschedule' && <RescheduleDialog po={action.po} onClose={() => setAction(null)} />}
       {action?.kind === 'cancel' && <CancelPODialog po={action.po} onClose={() => setAction(null)} />}
       {action?.kind === 'close' && <CloseBalanceDialog poId={action.po.id} onClose={() => setAction(null)} />}
+      <PODetailDialog poId={viewing} onClose={() => setViewing(null)} />
     </Card>
   )
 }
