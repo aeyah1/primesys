@@ -70,7 +70,7 @@ exports.list = asyncHandler(async (req, res) => {
   const [rows] = await pool.execute(`
     SELECT pr.id, pr.pr_number, pr.title, pr.status, pr.fund_cluster, pr.category,
            pr.department, pr.purpose_type, pr.date_needed, pr.created_at,
-           pr.created_by, pr.deleted_at, pr.delete_reason,
+           pr.created_by, pr.deleted_at, pr.delete_reason, pr.recanvass_reason,
            u.name AS created_by_name, du.name AS deleted_by_name,
            q.label AS quarter_label, q.year AS quarter_year,
            ${ACTIVE('MIN(px.id)')} AS po_id,
@@ -365,27 +365,12 @@ exports.updateStatus = asyncHandler(async (req, res) => {
   if (!PR_STATUSES.includes(status)) return res.status(400).json({ message: 'Invalid status' })
 
   // Move + audit log (+ the note on the PR) in one transaction. Which moves are
-  // allowed, and for whom, is decided in prWorkflow.
+  // allowed, and for whom, is decided in prWorkflow, which also tells the requestor.
   const { pr } = await withTransaction(async (conn) => {
     const result = await changePRStatus(req.params.id, status, { user: req.user, note: notes || null, conn })
     if (notes) await conn.execute('UPDATE purchase_requests SET notes = ? WHERE id = ?', [notes, req.params.id])
     return result
   })
-
-  const { pr_number, title, created_by } = pr
-  const prLabel = title ? `${pr_number} — ${title}` : pr_number
-
-  if (created_by !== req.user.id) {
-    const statusLabels = {
-      bidding:   'is now in canvass',
-      cancelled: 'has been cancelled',
-      draft:     'has been returned to draft',
-      submitted: 'has been submitted',
-      revision_requested: `was returned to you for revision: ${notes}. Make the changes, then submit it to the TWG again.`,
-    }
-    const label = statusLabels[status] || `status changed to ${status}`
-    await notify(req.io, created_by, `PR ${prLabel} ${label}`, status === 'revision_requested' ? 'warning' : 'info', pr.id, 'pr')
-  }
 
   // Entering the review queue: tell the reviewers of its area (utils/twgAreas.js).
   // `pr` holds the facts from before the move, so its status says whether this is a resubmission.

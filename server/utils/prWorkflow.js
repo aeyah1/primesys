@@ -3,6 +3,8 @@ const httpError       = require('./httpError')
 const { assertNoBrands } = require('./brandNames')
 const { assertFollowsPpmp, lockOfficePlans } = require('./ppmpUse')
 const { cancelAwards, awardProgress, statusFromAwards } = require('./awardWorkflow')
+const notify          = require('./notify')
+const { requesterNotice } = require('./requesterNotice')
 
 // Purchase request workflow rules
 // The one place that decides which status moves, edits, and deletions a user
@@ -215,7 +217,11 @@ async function editDenied(db, user, prId) {
 // cancelling the PR: its awarded lots are cancelled in the same transaction,
 // so a PO can only be issued on a new award. (Neither is allowed while a PO
 // is active.) The award workflow reopening the canvass keeps the others.
-async function changePRStatus(prId, to, { user, via = 'manual', note = null, ifAllowed = false, conn } = {}) {
+//
+// Whoever filed the PR is told of the move once the transaction commits
+// (utils/requesterNotice.js): `notice` gives the words instead of the default,
+// or is false when the caller tells them itself.
+async function changePRStatus(prId, to, { user, via = 'manual', note = null, notice, ifAllowed = false, conn } = {}) {
   const run = async (db) => {
     // A submission queues on its office's PPMP before it locks the request (utils/ppmpUse.js).
     if (to === 'submitted') await lockOfficePlans(db, { prId })
@@ -241,7 +247,9 @@ async function changePRStatus(prId, to, { user, via = 'manual', note = null, ifA
       // Every item from the office's verified Final PPMP, within what is left of its line.
       await assertFollowsPpmp(db, pr.id)
     }
-    await db.execute('UPDATE purchase_requests SET status = ? WHERE id = ?', [to, pr.id])
+    // Why the TWG sent it back to canvass holds only while it is there.
+    const leaving = pr.status === 'bidding' ? ', certification_return_reason = NULL, recanvass_reason = NULL' : ''
+    await db.execute(`UPDATE purchase_requests SET status = ?${leaving} WHERE id = ?`, [to, pr.id])
     let logNote = note
     const voids = (pr.status === 'for_po' && to === 'bidding' && via === 'manual') ? 'Recanvassed'
                 : to === 'cancelled' ? 'The PR was cancelled' : null
@@ -253,6 +261,8 @@ async function changePRStatus(prId, to, { user, via = 'manual', note = null, ifA
       'INSERT INTO pr_status_logs (pr_id, changed_by, from_status, to_status, note) VALUES (?, ?, ?, ?, ?)',
       [pr.id, user.id, pr.status, to, logNote]
     )
+    const told = notice !== false && pr.created_by !== user.id && requesterNotice(pr, pr.status, to, { note, message: notice })
+    if (told) notify.afterCommit(db, pr.created_by, told.message, told.type, pr.id, 'pr')
     return { changed: true, pr }
   }
   return conn ? run(conn) : withTransaction(run)
@@ -261,16 +271,17 @@ async function changePRStatus(prId, to, { user, via = 'manual', note = null, ifA
 // Moves a PR in canvass or Ready for PO to where its awards put it
 // (statusFromAwards), logging each step with `note`. Call inside the
 // transaction that changed its awards, items, POs, or deliveries. While the
-// BAC or the TWG reviews it, it is left alone. Resolves with the PR's status.
-async function syncPRProgress(conn, prId, { user, note = null }) {
+// BAC or the TWG reviews it, it is left alone. `notice` as changePRStatus's.
+// Resolves with the PR's status.
+async function syncPRProgress(conn, prId, { user, note = null, notice }) {
   const pr = await loadPR(conn, prId, { lock: true })
   if (!pr || pr.deleted_at || !['bidding', 'for_po'].includes(pr.status)) return pr?.status
   const to = statusFromAwards(await awardProgress(conn, prId))
   if (to === pr.status) return to
   if (to === 'completed' && pr.status === 'bidding') {
-    await changePRStatus(prId, 'for_po', { user, via: 'award', note, conn })
+    await changePRStatus(prId, 'for_po', { user, via: 'award', note, notice, conn })
   }
-  await changePRStatus(prId, to, { user, via: to === 'completed' ? 'delivery' : 'award', note, conn })
+  await changePRStatus(prId, to, { user, via: to === 'completed' ? 'delivery' : 'award', note, notice, conn })
   return to
 }
 

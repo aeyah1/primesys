@@ -10,6 +10,7 @@ import api from '@/lib/axios'
 
 // What the BAC does next with a request in its queue.
 const nextStep = (row) => row.status === 'bac_review' ? 'Certified by the TWG: pick the winners'
+  : row.recanvass_reason ? 'Re-canvass ordered by the TWG: enter the new quotations'
   : row.certification_return_reason ? 'Returned by the TWG: correct the bids'
   : 'Enter the bids'
 
@@ -62,7 +63,7 @@ export default function BacDashboard() {
                         <span className="font-mono text-[--color-brand]">{row.pr_number}</span> {row.title}
                       </p>
                       <p className="text-ui-xs mt-0.5 truncate">
-                        <span className={`font-semibold ${row.certification_return_reason && row.status === 'bidding' ? 'text-amber-700' : 'text-[--color-brand]'}`}>{nextStep(row)}</span>
+                        <span className={`font-semibold ${(row.recanvass_reason || row.certification_return_reason) && row.status === 'bidding' ? 'text-amber-700' : 'text-[--color-brand]'}`}>{nextStep(row)}</span>
                         <span className="text-[--color-text-muted]"> · {Number(row.bidders) ? plural(Number(row.bidders), 'bidder') : 'No bids yet'}</span>
                       </p>
                     </div>

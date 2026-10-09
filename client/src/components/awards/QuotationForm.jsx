@@ -14,8 +14,9 @@ const FILES = '.pdf,.jpg,.jpeg,.png,.webp,.xlsx,.docx,.csv'
 
 /* One supplier's quotation, typed by the BAC from its returned RFQ: the RFQ
    file (attached to the request, or one already attached), the supplier, the
-   RFQ No., and the unit price of each item still to award it offered (blank
-   for no bid), lot by lot. The file opens beside the form (onFile).
+   RFQ No., and for each item still to award it offered what it offered (blank
+   for as specified, for the TWG to check) and its unit price (blank for no
+   bid), lot by lot. The file opens beside the form (onFile).
    quotation: a bidder of GET /canvass/:prId, or null for a new one. */
 export default function QuotationForm({ prId, canvass, quotation, onFile, onClose }) {
   const qc = useQueryClient()
@@ -24,6 +25,7 @@ export default function QuotationForm({ prId, canvass, quotation, onFile, onClos
   const [rfqNo, setRfqNo] = useState(quotation?.rfq_no || '')
   const [fileId, setFileId] = useState(quotation?.attachment_id ?? null)
   const [prices, setPrices] = useState(() => Object.fromEntries(Object.entries(quotation?.prices || {}).map(([item, p]) => [item, String(Number(p))])))
+  const [specs, setSpecs] = useState(() => Object.fromEntries(Object.entries(quotation?.evaluation || {}).map(([item, e]) => [item, e.offered_spec || ''])))
   const [uploading, setUploading] = useState(false)
   const { data: files = [] } = useQuery({
     queryKey: [`pr-attachments-${prId}`],
@@ -63,7 +65,7 @@ export default function QuotationForm({ prId, canvass, quotation, onFile, onClos
     mutationFn: () => api.put(`/canvass/${prId}/bids`, {
       bidders: [{
         id: quotation?.id, name: name.trim(), rfq_no: rfqNo.trim() || undefined, attachment_id: fileId,
-        prices: quoted.map(i => ({ pr_item_id: i.id, unit_price: priceOf(i.id) })),
+        prices: quoted.map(i => ({ pr_item_id: i.id, unit_price: priceOf(i.id), offered_spec: specs[i.id]?.trim() || undefined })),
       }],
     }),
     onSuccess: () => { toast.success('Quotation saved', { description: name.trim() }); qc.invalidateQueries({ queryKey: ['canvass', prId] }); onClose() },
@@ -106,6 +108,7 @@ export default function QuotationForm({ prId, canvass, quotation, onFile, onClos
           <thead>
             <tr className="bg-[--color-canvas] text-left text-xs font-bold uppercase tracking-wider text-[--color-text-secondary]">
               <th className="px-3 py-2.5 min-w-40">Item</th>
+              <th className="px-3 py-2.5 min-w-48">Offered specification</th>
               <th className="px-3 py-2.5 text-right whitespace-nowrap">Budget each</th>
               <th className="px-3 py-2.5 w-40">Unit price</th>
               <th className="px-3 py-2.5 text-right">Amount</th>
@@ -115,7 +118,7 @@ export default function QuotationForm({ prId, canvass, quotation, onFile, onClos
             <tbody key={lot.label || '-'}>
               {(lots.length > 1 || lot.label) && (
                 <tr className="border-t border-[--color-border] bg-[--color-canvas]">
-                  <td colSpan={4} className="px-3 py-2 text-xs font-bold uppercase tracking-wider text-[--color-text-primary]">{lot.name}</td>
+                  <td colSpan={5} className="px-3 py-2 text-xs font-bold uppercase tracking-wider text-[--color-text-primary]">{lot.name}</td>
                 </tr>
               )}
               {lot.items.map(i => {
@@ -126,6 +129,10 @@ export default function QuotationForm({ prId, canvass, quotation, onFile, onClos
                     <td className="px-3 py-2.5">
                       <span className="text-[--color-text-primary]">{i.item_name}</span>
                       <span className="block text-[11px] text-[--color-text-muted]">{Number(i.quantity)} {i.unit || ''}</span>
+                    </td>
+                    <td className="px-3 py-1.5">
+                      <Input value={specs[i.id] ?? ''} maxLength={1000} placeholder="As specified" aria-label={`What the supplier offered for ${i.item_name}`}
+                        onChange={e => setSpecs(x => ({ ...x, [i.id]: e.target.value }))} className="text-xs" />
                     </td>
                     <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap text-[--color-text-secondary]">{Number(i.estimated_cost) > 0 ? fmtCurrency(i.estimated_cost) : 'None'}</td>
                     <td className="px-3 py-1.5">

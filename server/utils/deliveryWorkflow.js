@@ -102,8 +102,9 @@ const QTY_RECEIVED = `(SELECT COALESCE(SUM(di.quantity), 0) FROM delivery_items 
 // Recalculates the PO's delivery summary from its records and, when it is now
 // delivered, completes the PR if nothing else is outstanding (audit-logged).
 // Call inside the transaction that changed the records, after lockPO /
-// lockDelivery. `note` goes on the PR's log when it moves. Resolves with { status, prCompleted }.
-async function syncPODelivery(conn, po, user, note = `${po.po_number} fully delivered`) {
+// lockDelivery. `note` goes on the PR's log when it moves; `notice` as
+// changePRStatus's. Resolves with { status, prCompleted }.
+async function syncPODelivery(conn, po, user, note = `${po.po_number} fully delivered`, notice) {
   const lines = await poLines(conn, po.id)
   if (lines.length) {
     const all = lines.every(l => hundredths(l.received) + hundredths(l.short) >= hundredths(l.ordered))
@@ -134,7 +135,7 @@ async function syncPODelivery(conn, po, user, note = `${po.po_number} fully deli
   let prCompleted = false
   if (status === 'delivered') {
     const [[before]] = await conn.execute('SELECT status FROM purchase_requests WHERE id = ?', [po.purchase_request_id])
-    const after = await syncPRProgress(conn, po.purchase_request_id, { user, note })
+    const after = await syncPRProgress(conn, po.purchase_request_id, { user, note, notice })
     prCompleted = before.status !== 'completed' && after === 'completed'
   }
   return { status, prCompleted }

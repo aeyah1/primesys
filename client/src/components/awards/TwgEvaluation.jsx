@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { fmtCurrency } from '@/lib/utils'
 import api from '@/lib/axios'
-import { cents } from './supplier'
+import { cents, DQBadge } from './supplier'
 import CanvassFiles from './CanvassFiles'
 
 const key = (bidderId, itemId) => `${bidderId}:${itemId}`
@@ -34,19 +34,25 @@ export const evaluationPayload = (marks) => ({
     offered_spec: m.offered_spec.trim() || undefined, remarks: m.compliant === false ? m.remarks.trim() || undefined : undefined,
   })),
 })
-// Why the evaluation can't be certified yet (null when it can).
-export function evaluationBlock(marks) {
+// Why the evaluation can't be certified yet (null when it can): every lot needs an offer compliant on all of it.
+export function evaluationBlock(marks, canvass) {
   const list = Object.values(marks)
   if (!list.length) return 'No bid waits for the evaluation.'
   const unmarked = list.filter(m => m.compliant === null).length
   if (unmarked) return `${unmarked} bid${unmarked === 1 ? ' is' : 's are'} not marked yet.`
   if (list.some(m => m.compliant === false && !m.remarks.trim())) return 'State the reason for every non-compliant bid.'
+  const open = new Set((canvass?.items || []).filter(i => i.state === 'pending').map(i => i.id))
+  const lots = (canvass?.lots || []).map(l => ({ name: l.name, ids: l.item_ids.filter(id => open.has(id)) })).filter(l => l.ids.length)
+  const bare = lots.find(l => !canvass.bidders.some(b => l.ids.every(id => marks[key(b.id, id)]?.compliant === true)))
+  if (bare) return `No offer ${lots.length > 1 ? `for ${bare.name} ` : ''}is compliant. Choose Re-canvass.`
   return null
 }
 
 /* The TWG's evaluation of a canvass: every bid the BAC entered, under its item,
-   with what the bidder offered, marked Compliant or Non-Compliant (with the
-   reason), and the canvasser's files beside it. The marks are reported to the
+   with what the bidder offered (as the BAC typed it from the RFQ; the TWG may
+   correct it), marked Compliant or Non-Compliant (with the reason), a bidder
+   non-compliant on everything it offered marked DQ, and the canvasser's files
+   beside it. The marks are reported to the
    page with onChange(marks) for its Certify; Save keeps them to finish later.
    prId: the PR; canvass: GET /canvass/:prId; canEdit: this member may mark them. */
 export default function TwgEvaluation({ prId, canvass, canEdit, onChange }) {
@@ -65,6 +71,8 @@ export default function TwgEvaluation({ prId, canvass, canEdit, onChange }) {
   const list = Object.values(marks)
   const done = list.filter(m => m.compliant !== null).length
   const bidderOf = (id) => canvass.bidders.find(b => b.id === id)
+  // DQ as marked so far: non-compliant on every item it offered.
+  const dq = (id) => list.filter(m => m.bidder_id === id).every(m => m.compliant === false)
 
   return (
     <div className="grid grid-cols-1 gap-4 2xl:grid-cols-5">
@@ -103,6 +111,7 @@ export default function TwgEvaluation({ prId, canvass, canEdit, onChange }) {
                       <tr key={k} className="border-t border-[--color-border] align-top">
                         <td className="px-3 py-2">
                           <span className="font-medium text-[--color-text-primary]">{b.name}</span>
+                          {dq(b.id) && <DQBadge />}
                           {b.rfq_no && <span className="block text-[11px] text-[--color-text-muted]">RFQ No. {b.rfq_no}</span>}
                         </td>
                         <td className={`px-3 py-2 text-right tabular-nums whitespace-nowrap ${above ? 'text-amber-800' : ''}`}>{fmtCurrency(b.prices[i.id])}</td>

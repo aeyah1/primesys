@@ -159,11 +159,12 @@ CREATE TABLE `purchase_requests` (
   `twg_reviewed_by`            INT UNSIGNED NULL,
   `twg_reviewed_at`            TIMESTAMP    NULL DEFAULT NULL,
   `twg_comment`                TEXT         NULL,
-  -- The TWG's second review, after the BAC's: its certification, or why it returned the request to the BAC.
+  -- The TWG's second review, after the BAC's: its certification, or why it returned the request to the BAC or ordered a re-canvass.
   `twg_certified_by`           INT UNSIGNED NULL,
   `twg_certified_at`           DATETIME     NULL,
   `twg_certification_note`     TEXT         NULL,
   `certification_return_reason` VARCHAR(500) NULL,
+  `recanvass_reason`           TEXT         NULL,
   `deleted_at`                 TIMESTAMP    NULL DEFAULT NULL,
   `deleted_by`                 INT UNSIGNED NULL,
   `delete_reason`              VARCHAR(500) NULL,   -- why it was deleted (none when its filer deleted their own draft)

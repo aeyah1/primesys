@@ -49,6 +49,10 @@ export function requestProgress(pr) {
         return { step: 2, title: 'Choosing the suppliers', who: 'Bids and Awards Committee (BAC)',
           next: 'The TWG has checked the offers. Once the BAC chooses the winners, Procurement prepares the purchase order.' }
       }
+      if (pr.recanvass_reason) {
+        return { step: 2, title: 'Canvassed again', who: 'Bids and Awards Committee (BAC)',
+          next: `The TWG found no offer that meets your specifications: ${pr.recanvass_reason}. The canvasser asks suppliers for new prices.` }
+      }
       return { step: 2, title: 'Finding a supplier', who: 'Bids and Awards Committee (BAC)',
         next: 'The canvasser asks suppliers for prices and gives them to the BAC. The TWG checks the offers, then the BAC chooses the winners.' }
     }

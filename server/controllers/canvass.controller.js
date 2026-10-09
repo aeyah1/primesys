@@ -8,6 +8,7 @@ const { short, itemStates, announceAwards } = require('../utils/awardWorkflow')
 const { isTemporary, suggestPrNumber, assignPrNumber } = require('../utils/prNumber')
 const { notifyBac } = require('../utils/bacWorkflow')
 const { notifyAreaReviewers } = require('../utils/twgAreas')
+const { prName } = require('../utils/requesterNotice')
 const { biddersOf, lotsOf, recommendedOf, saveBids, removeBidder, sendBlock, sendToTwg, awardBids, reopenCanvass } = require('../utils/canvassBids')
 
 // The canvass of one PR
@@ -16,9 +17,10 @@ const { biddersOf, lotsOf, recommendedOf, saveBids, removeBidder, sendBlock, sen
 // the RFQ for the campus canvasser, who canvasses the suppliers on paper and
 // gives the returned RFQs to the BAC. The BAC types in each supplier's
 // quotation with its RFQ file (utils/canvassBids.js) and sends them to the
-// TWG, which marks each bid compliant or not and certifies them; the BAC then
-// picks each lot's winner and awards. An item no supplier offers is dropped
-// from the procurement.
+// TWG, which marks each bid compliant or not and certifies them, or orders
+// a re-canvass when no offer for a lot is compliant; the BAC then picks
+// each lot's winner and awards. An item no supplier offers is dropped from
+// the procurement.
 
 const STAFF = ['procurement', 'admin']
 const BAC   = ['bac']
@@ -81,7 +83,8 @@ exports.start = asyncHandler(async (req, res) => {
     const unnumbered = isTemporary(current.pr_number)
     const number = current.status === 'twg_review' ? await assignPrNumber(conn, current, req.body.pr_number) : current.pr_number
     const note = `Canvass started (${mode})${unnumbered ? `; PR number ${number} assigned` : ''}`
-    await changePRStatus(current.id, 'bidding', { user: req.user, via: 'canvass', note, conn })
+    // The End User is told below, with the temporary reference they know it by.
+    await changePRStatus(current.id, 'bidding', { user: req.user, via: 'canvass', note, notice: false, conn })
     await conn.execute('UPDATE purchase_requests SET mode_of_procurement = ? WHERE id = ?', [mode, current.id])
     return { pr: current, number }
   })
@@ -99,7 +102,7 @@ exports.start = asyncHandler(async (req, res) => {
 exports.dropItem = asyncHandler(async (req, res) => {
   const reason = req.body.reason?.trim()
   if (!reason) return res.status(400).json({ message: 'Give a reason for dropping this item' })
-  const status = await withTransaction(async (conn) => {
+  const { pr, item, status } = await withTransaction(async (conn) => {
     const pr = await loadPR(conn, req.params.prId, { lock: true })
     if (pr.deleted_at || !['bidding', 'bac_review'].includes(pr.status)) throw httpError(409, 'Items are dropped while the BAC has the canvass')
     const { items } = await itemStates(conn, pr.id)
@@ -110,14 +113,15 @@ exports.dropItem = asyncHandler(async (req, res) => {
       throw httpError(409, 'This is the last item left. Cancel the PR instead of dropping every item.')
     }
     await conn.execute('UPDATE pr_items SET dropped_at = NOW(), dropped_by = ?, drop_reason = ? WHERE id = ?', [req.user.id, reason, item.id])
-    return syncPRProgress(conn, pr.id, { user: req.user, note: `"${short(item.item_name)}" dropped: ${reason}` })
+    return { pr, item, status: await syncPRProgress(conn, pr.id, { user: req.user, note: `"${short(item.item_name)}" dropped: ${reason}` }) }
   })
+  await notify(req.io, pr.created_by, `"${short(item.item_name)}" was dropped from ${prName(pr)}: ${reason}. It will not be bought.`, 'warning', pr.id, 'pr')
   res.json({ message: 'Item dropped', status })
 })
 
 // POST /canvass/:prId/items/:itemId/restore - a dropped item needs an award again.
 exports.restoreItem = asyncHandler(async (req, res) => {
-  const status = await withTransaction(async (conn) => {
+  const { pr, item, status } = await withTransaction(async (conn) => {
     const pr = await loadPR(conn, req.params.prId, { lock: true })
     const allowed = BAC.includes(req.user.role) ? ['bidding'] : ['for_po']
     if (pr.deleted_at || !allowed.includes(pr.status)) {
@@ -129,8 +133,10 @@ exports.restoreItem = asyncHandler(async (req, res) => {
     if (!item) throw httpError(404, 'Item not found')
     if (!item.dropped_at) throw httpError(409, 'This item is not dropped')
     await conn.execute('UPDATE pr_items SET dropped_at = NULL, dropped_by = NULL, drop_reason = NULL WHERE id = ?', [item.id])
-    return syncPRProgress(conn, pr.id, { user: req.user, note: `"${short(item.item_name)}" brought back to canvass` })
+    const note = `"${short(item.item_name)}" brought back to canvass`
+    return { pr, item, status: await syncPRProgress(conn, pr.id, { user: req.user, note, notice: false }) }   // told below
   })
+  await notify(req.io, pr.created_by, `"${short(item.item_name)}" is back on ${prName(pr)} and will be canvassed again.`, 'info', pr.id, 'pr')
   res.json({ message: 'Item brought back', status })
 })
 

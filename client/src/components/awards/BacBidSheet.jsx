@@ -49,7 +49,7 @@ export default function BacBidSheet({ pr, canvass }) {
   }
   const { mutate: send, isPending: sending } = useMutation({
     mutationFn: () => api.post(`/canvass/${prId}/send`),
-    onSuccess: ({ data }) => { toast.success(data.message, { description: 'The TWG marks each bid compliant or not and certifies them; then you pick the winners.' }); refresh() },
+    onSuccess: ({ data }) => { toast.success(data.message, { description: 'The TWG marks each bid compliant or not, then certifies them or orders a re-canvass; then you pick the winners.' }); refresh() },
     onError: (err) => { toast.error(err.response?.data?.message || 'The canvass could not be sent'); qc.invalidateQueries({ queryKey: ['canvass', prId] }) },
   })
 
