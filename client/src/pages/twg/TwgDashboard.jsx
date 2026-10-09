@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { StatsCard } from '@/components/shared/StatsCard'
-import { PRStatusBadge, CategoryBadge } from '@/components/shared/StatusBadge'
+import { PRStatusBadge, CategoryBadge, MarkerBadges } from '@/components/shared/StatusBadge'
 import { EmptyState } from '@/components/shared/ListParts'
 import { fmtDatetime, CATEGORY_LABELS } from '@/lib/utils'
 import { useTwgAreas, areasText } from './TwgReviewList'
@@ -128,6 +128,7 @@ export default function TwgDashboard() {
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-mono text-ui-sm font-bold text-[--color-brand]">{pr.pr_number}</span>
                           <PRStatusBadge status={pr.status} />
+                          <MarkerBadges pr={pr} />
                           <CategoryBadge category={pr.category} />
                         </div>
                         {pr.title && (
@@ -175,7 +176,10 @@ export default function TwgDashboard() {
                             <span className="inline-flex items-center gap-1 rounded-full bg-teal-50 border border-teal-200 px-2 py-0.5 text-[10px] text-teal-700 font-semibold"><CheckCircle2 className="size-2.5" /> Certified</span>
                           )}
                           {log.from_status === 'twg_certification' && log.to_status === 'bidding' && (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] text-amber-700 font-semibold"><RotateCcw className="size-2.5" /> Returned to the BAC</span>
+                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] text-amber-700 font-semibold"><RotateCcw className="size-2.5" /> {/^Re-canvass/.test(log.note || '') ? 'Re-canvass' : 'Returned to the BAC'}</span>
+                          )}
+                          {log.from_status === 'twg_certification' && log.to_status === 're_pr' && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-red-50 border border-red-300 px-2 py-0.5 text-[10px] text-red-700 font-semibold"><RotateCcw className="size-2.5" /> Re-PR</span>
                           )}
                           {log.to_status === 'rejected' && (
                             <span className="inline-flex items-center gap-1 rounded-full bg-red-50 border border-red-200 px-2 py-0.5 text-[10px] text-red-700 font-semibold"><XCircle className="size-2.5" /> Rejected</span>

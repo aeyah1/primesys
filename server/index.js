@@ -23,6 +23,8 @@ const server = http.createServer(app)
 const io     = new Server(server, {
   cors: { origin: config.clientUrl, credentials: true }
 })
+// Notices sent after a transaction commits reach the open pages through it.
+require('./utils/notify').attach(io)
 
 app.use(helmet())
 // Content-Disposition is exposed so the browser can save a file under the name the server gives it.
@@ -85,6 +87,7 @@ app.use('/api/settings',      require('./routes/settings.routes'))
 app.use('/api/pr',            require('./routes/pr.routes'))
 app.use('/api/lots',          require('./routes/lots.routes'))
 app.use('/api/canvass',       require('./routes/canvass.routes'))
+app.use('/api/suppliers',     require('./routes/suppliers.routes'))
 app.use('/api/po',            require('./routes/po.routes'))
 app.use('/api/delivery',      require('./routes/delivery.routes'))
 app.use('/api/notifications', require('./routes/notifications.routes'))

@@ -8,6 +8,8 @@ const { short, itemStates, announceAwards } = require('../utils/awardWorkflow')
 const { isTemporary, suggestPrNumber, assignPrNumber } = require('../utils/prNumber')
 const { notifyBac } = require('../utils/bacWorkflow')
 const { notifyAreaReviewers } = require('../utils/twgAreas')
+const { prName } = require('../utils/requesterNotice')
+const { RE_PR_TYPES, sendRePr, returnRePr } = require('../utils/rePr')
 const { biddersOf, lotsOf, recommendedOf, saveBids, removeBidder, sendBlock, sendToTwg, awardBids, reopenCanvass } = require('../utils/canvassBids')
 
 // The canvass of one PR
@@ -16,9 +18,10 @@ const { biddersOf, lotsOf, recommendedOf, saveBids, removeBidder, sendBlock, sen
 // the RFQ for the campus canvasser, who canvasses the suppliers on paper and
 // gives the returned RFQs to the BAC. The BAC types in each supplier's
 // quotation with its RFQ file (utils/canvassBids.js) and sends them to the
-// TWG, which marks each bid compliant or not and certifies them; the BAC then
-// picks each lot's winner and awards. An item no supplier offers is dropped
-// from the procurement.
+// TWG, which marks each bid compliant or not and certifies them, or orders
+// a re-canvass when no offer for a lot is compliant; the BAC then picks
+// each lot's winner and awards. An item no supplier offers is dropped from
+// the procurement.
 
 const STAFF = ['procurement', 'admin']
 const BAC   = ['bac']
@@ -36,6 +39,7 @@ exports.summary = asyncHandler(async (req, res) => {
   const bidders = await biddersOf(pool, pr.id)
   const blocked = bidding ? await sendBlock(pool, pr) : null
   const [picks] = await pool.execute('SELECT id, winner_bidder_id, winner_reason FROM pr_items WHERE pr_id = ?', [pr.id])
+  const [[rePr]] = await pool.execute('SELECT re_pr_type, re_pr_reason, re_pr_note FROM purchase_requests WHERE id = ?', [pr.id])
   res.json({
     status: pr.status,
     mode_of_procurement: pr.mode_of_procurement,
@@ -52,6 +56,8 @@ exports.summary = asyncHandler(async (req, res) => {
     // Why the canvass can't go to the TWG yet, for the BAC while it is in canvass.
     send_blocked: blocked?.message ?? null,
     whole_award: wholeAward,
+    // The TWG's latest Re-PR, for the bids' remarks.
+    re_pr: rePr.re_pr_reason ? { type: RE_PR_TYPES[rePr.re_pr_type] || null, reason: rePr.re_pr_reason, note: rePr.re_pr_note } : null,
     items: items.map(({ award, ...i }) => ({
       ...i,
       lot_id: award?.lot_id ?? null, lot_number: award?.lot_number ?? null,
@@ -66,6 +72,7 @@ exports.summary = asyncHandler(async (req, res) => {
       award:   awarding,                     // picking each lot's winner, or taking the canvass back
       drop:    bidding || awarding,
       restore: bidding || (staff && pr.status === 'for_po'),
+      re_pr:   bac && pr.status === 're_pr',  // sending a proposed Re-PR to the End User, or returning it to the TWG
     },
   })
 })
@@ -81,7 +88,8 @@ exports.start = asyncHandler(async (req, res) => {
     const unnumbered = isTemporary(current.pr_number)
     const number = current.status === 'twg_review' ? await assignPrNumber(conn, current, req.body.pr_number) : current.pr_number
     const note = `Canvass started (${mode})${unnumbered ? `; PR number ${number} assigned` : ''}`
-    await changePRStatus(current.id, 'bidding', { user: req.user, via: 'canvass', note, conn })
+    // The End User is told below, with the temporary reference they know it by.
+    await changePRStatus(current.id, 'bidding', { user: req.user, via: 'canvass', note, notice: false, conn })
     await conn.execute('UPDATE purchase_requests SET mode_of_procurement = ? WHERE id = ?', [mode, current.id])
     return { pr: current, number }
   })
@@ -99,7 +107,7 @@ exports.start = asyncHandler(async (req, res) => {
 exports.dropItem = asyncHandler(async (req, res) => {
   const reason = req.body.reason?.trim()
   if (!reason) return res.status(400).json({ message: 'Give a reason for dropping this item' })
-  const status = await withTransaction(async (conn) => {
+  const { pr, item, status } = await withTransaction(async (conn) => {
     const pr = await loadPR(conn, req.params.prId, { lock: true })
     if (pr.deleted_at || !['bidding', 'bac_review'].includes(pr.status)) throw httpError(409, 'Items are dropped while the BAC has the canvass')
     const { items } = await itemStates(conn, pr.id)
@@ -110,14 +118,15 @@ exports.dropItem = asyncHandler(async (req, res) => {
       throw httpError(409, 'This is the last item left. Cancel the PR instead of dropping every item.')
     }
     await conn.execute('UPDATE pr_items SET dropped_at = NOW(), dropped_by = ?, drop_reason = ? WHERE id = ?', [req.user.id, reason, item.id])
-    return syncPRProgress(conn, pr.id, { user: req.user, note: `"${short(item.item_name)}" dropped: ${reason}` })
+    return { pr, item, status: await syncPRProgress(conn, pr.id, { user: req.user, note: `"${short(item.item_name)}" dropped: ${reason}` }) }
   })
+  await notify(req.io, pr.created_by, `"${short(item.item_name)}" was dropped from ${prName(pr)}: ${reason}. It will not be bought.`, 'warning', pr.id, 'pr')
   res.json({ message: 'Item dropped', status })
 })
 
 // POST /canvass/:prId/items/:itemId/restore - a dropped item needs an award again.
 exports.restoreItem = asyncHandler(async (req, res) => {
-  const status = await withTransaction(async (conn) => {
+  const { pr, item, status } = await withTransaction(async (conn) => {
     const pr = await loadPR(conn, req.params.prId, { lock: true })
     const allowed = BAC.includes(req.user.role) ? ['bidding'] : ['for_po']
     if (pr.deleted_at || !allowed.includes(pr.status)) {
@@ -129,8 +138,10 @@ exports.restoreItem = asyncHandler(async (req, res) => {
     if (!item) throw httpError(404, 'Item not found')
     if (!item.dropped_at) throw httpError(409, 'This item is not dropped')
     await conn.execute('UPDATE pr_items SET dropped_at = NULL, dropped_by = NULL, drop_reason = NULL WHERE id = ?', [item.id])
-    return syncPRProgress(conn, pr.id, { user: req.user, note: `"${short(item.item_name)}" brought back to canvass` })
+    const note = `"${short(item.item_name)}" brought back to canvass`
+    return { pr, item, status: await syncPRProgress(conn, pr.id, { user: req.user, note, notice: false }) }   // told below
   })
+  await notify(req.io, pr.created_by, `"${short(item.item_name)}" is back on ${prName(pr)} and will be canvassed again.`, 'info', pr.id, 'pr')
   res.json({ message: 'Item brought back', status })
 })
 
@@ -176,6 +187,26 @@ exports.award = asyncHandler(async (req, res) => {
   const [procs] = await pool.execute("SELECT id FROM users WHERE role = 'procurement' AND is_active = 1")
   await Promise.all(procs.map(p => notify(req.io, p.id, `PR ${pr.pr_number} was awarded by the BAC${by}. The purchase orders can be issued.`, 'success', pr.id, 'pr')))
   res.json({ message: `Awarded${by}. Procurement issues the purchase orders.`, resolution, awards: lots.length })
+})
+
+// POST /canvass/:prId/re-pr - { action: 'send' | 'return', note }: the BAC checks a Re-PR the TWG
+// proposed, and sends it to the End User (note optional) or returns it to the TWG (note required).
+exports.settleRePr = asyncHandler(async (req, res) => {
+  const { action } = req.body   // checked in the route
+  const note = req.body.note?.trim() || null
+  const pr = await withTransaction(async (conn) => {
+    const pr = await loadPR(conn, req.params.prId, { lock: true })
+    await (action === 'send' ? sendRePr : returnRePr)(conn, pr, req.user, note)
+    return pr
+  })
+  const label = prName(pr)
+  if (action === 'return') {
+    await notifyAreaReviewers(req.io, pr, { message: `The BAC returned the Re-PR of ${label} to the TWG: ${note}. Check the offers again.` })
+    return res.json({ message: 'Returned to the TWG' })
+  }
+  const [procs] = await pool.execute("SELECT id FROM users WHERE role = 'procurement' AND is_active = 1")
+  await Promise.all(procs.map(p => notify(req.io, p.id, `${label} went back to its End User for a Re-PR. It comes back through the TWG.`, 'info', pr.id, 'pr')))
+  res.json({ message: 'Sent to the End User for the Re-PR' })
 })
 
 // POST /canvass/:prId/reopen - { reason }: the BAC takes a certified canvass back to correct its bids.

@@ -6,7 +6,7 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { CategoryBadge, DeliveryStatusBadge, PRStatusBadge } from '@/components/shared/StatusBadge'
+import { CategoryBadge, DeliveryStatusBadge, PRStatusBadge, MarkerBadges } from '@/components/shared/StatusBadge'
 import StartCanvassDialog from '@/components/awards/StartCanvassDialog'
 import { FilterChip, Tab, Pager } from '@/components/shared/ListParts'
 import { fmtCurrency, daysSince, plural, CATEGORY_LABELS } from '@/lib/utils'
@@ -44,6 +44,7 @@ function AwardRow({ row, stage, canManage, onOpen, onStart }) {
           <Link to={`/pr/${row.id}`} onClick={e => e.stopPropagation()} title="Open the PR"
             className="font-mono text-sm font-bold text-[--color-brand] hover:underline">{row.pr_number}</Link>
           <CategoryBadge category={row.category} />
+          <MarkerBadges pr={row} />
         </div>
         <button type="button" onClick={e => { e.stopPropagation(); onOpen() }}
           className="block max-w-full truncate text-left text-sm font-semibold text-[--color-text-primary] hover:underline mt-0.5">
@@ -75,9 +76,9 @@ function AwardRow({ row, stage, canManage, onOpen, onStart }) {
         {['to_canvass', 'needs_award', 'with_twg', 'awaiting_po'].includes(stage) && (
           <p className={days > 3 ? 'font-semibold text-amber-700' : 'text-[--color-text-muted]'}>Waiting {plural(days, 'day')}</p>
         )}
-        {stage === 'needs_award' && row.certification_return_reason && (
-          <p className="flex items-center gap-1 font-semibold text-amber-700" title={row.certification_return_reason}>
-            <AlertTriangle className="size-3 shrink-0" /> Returned by the TWG
+        {stage === 'needs_award' && (row.recanvass_reason || row.certification_return_reason) && (
+          <p className="flex items-center gap-1 font-semibold text-amber-700" title={row.recanvass_reason || row.certification_return_reason}>
+            <AlertTriangle className="size-3 shrink-0" /> {row.recanvass_reason ? 'Re-canvass ordered by the TWG' : 'Returned by the TWG'}
           </p>
         )}
         {row.po_count > 0 && (stage === 'po_issued' || stage === 'awaiting_po') && (

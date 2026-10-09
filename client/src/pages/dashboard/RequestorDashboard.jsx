@@ -3,20 +3,20 @@ import { Link } from 'react-router-dom'
 import { Plus, ChevronRight, AlertCircle, Clock, CheckCircle2, Wallet } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { PRStatusBadge } from '@/components/shared/StatusBadge'
+import { PRStatusBadge, MarkerBadges } from '@/components/shared/StatusBadge'
 import { EmptyState } from '@/components/shared/ListParts'
 import { DashboardHeader, StatLink, ListSkeleton, WaitingCard, useDashboard } from '@/components/dashboard/DashboardParts'
 import { useAuth } from '@/context/AuthContext'
 import { fmtCurrency } from '@/lib/utils'
 import api from '@/lib/axios'
 
-const IN_PROGRESS = ['submitted', 'twg_review', 'bidding', 'twg_certification', 'bac_review', 'for_po']
+const IN_PROGRESS = ['submitted', 'twg_review', 'bidding', 'twg_certification', 'bac_review', 're_pr', 'for_po']
 // Where the requests are, in the order they move; "sent back" waits on the Fund Administrator.
 const PIPELINE = [
   { label: 'Not sent yet',       statuses: ['draft'] },
   { label: 'Sent back to you',   statuses: ['revision_requested'], action: true },
   { label: 'With the TWG',       statuses: ['submitted'] },
-  { label: 'Finding a supplier', statuses: ['twg_review', 'bidding', 'twg_certification', 'bac_review'] },
+  { label: 'Finding a supplier', statuses: ['twg_review', 'bidding', 'twg_certification', 'bac_review', 're_pr'] },
   { label: 'Being ordered',      statuses: ['for_po'] },
   { label: 'Delivered',          statuses: ['completed'] },
 ]
@@ -75,6 +75,7 @@ export default function RequestorDashboard() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
+                    <MarkerBadges pr={pr} />
                     <PRStatusBadge status={pr.status} />
                     <ChevronRight className="size-4 text-[--color-text-muted]" />
                   </div>

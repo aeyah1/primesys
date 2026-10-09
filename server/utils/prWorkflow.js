@@ -3,6 +3,8 @@ const httpError       = require('./httpError')
 const { assertNoBrands } = require('./brandNames')
 const { assertFollowsPpmp, lockOfficePlans } = require('./ppmpUse')
 const { cancelAwards, awardProgress, statusFromAwards } = require('./awardWorkflow')
+const notify          = require('./notify')
+const { requesterNotice } = require('./requesterNotice')
 
 // Purchase request workflow rules
 // The one place that decides which status moves, edits, and deletions a user
@@ -19,7 +21,7 @@ const { cancelAwards, awardProgress, statusFromAwards } = require('./awardWorkfl
 const STATUS_LABELS = {
   draft: 'Draft', submitted: 'Submitted', twg_review: 'Approved by TWG',
   revision_requested: 'Revision Requested', rejected: 'Rejected by TWG', bidding: 'Canvass',
-  bac_review: 'BAC award', twg_certification: 'TWG certification',
+  bac_review: 'BAC award', twg_certification: 'TWG certification', re_pr: 'Re-PR (BAC check)',
   for_po: 'Ready for PO', completed: 'Completed', cancelled: 'Cancelled',
 }
 
@@ -29,7 +31,7 @@ const STAFF   = ['procurement', 'admin']
 const ADMIN      = ['admin']
 const TWG_STAGES = ['submitted', 'revision_requested', 'twg_certification']
 // From the start of the canvass to the BAC's award: the request has its PR number and a paper trail.
-const CANVASS_STAGES = ['bidding', 'twg_certification', 'bac_review']
+const CANVASS_STAGES = ['bidding', 'twg_certification', 'bac_review', 're_pr']
 
 // from -> to -> rule. A rule either lists the roles that may make the move through
 // the status endpoint (`roles`; `owner`: only the PR's creator or an admin;
@@ -48,6 +50,9 @@ const CANVASS_STAGES = ['bidding', 'twg_certification', 'bac_review']
 // certification); the TWG marks each bid compliant or not and certifies them
 // (BAC award) or returns them to the BAC's canvass; the BAC picks the winners
 // and awards (Ready for PO), or takes the canvass back to correct it (utils/canvassBids.js).
+// When every supplier is DQ the TWG may instead propose a Re-PR (re_pr): the
+// BAC sends it to the End User to change the request (revision_requested) or
+// returns it to the TWG (utils/rePr.js).
 // From then on the awards decide
 // (syncPRProgress): an item needing an award again (an award or PO cancelled,
 // a PO closed short) puts the request back in canvass, to be reviewed again,
@@ -63,8 +68,9 @@ const TRANSITIONS = {
   bidding:            { twg_certification: { via: 'bac' }, for_po: { via: 'award' },
                         revision_requested: { roles: STAFF, reason: true, noAward: true },
                         cancelled: { roles: STAFF, noPO: true } },
-  twg_certification:  { bac_review: { via: 'twg' }, bidding: { via: 'twg' }, cancelled: { roles: ADMIN, noPO: true } },
+  twg_certification:  { bac_review: { via: 'twg' }, bidding: { via: 'twg' }, re_pr: { via: 'twg' }, cancelled: { roles: ADMIN, noPO: true } },
   bac_review:         { for_po: { via: 'bac' }, bidding: { via: 'bac' }, cancelled: { roles: STAFF, noPO: true } },
+  re_pr:              { revision_requested: { via: 'bac' }, twg_certification: { via: 'bac' }, cancelled: { roles: STAFF, noPO: true } },
   for_po:             { bidding: { roles: STAFF, noPO: true, alsoVia: 'award' }, completed: { via: 'delivery' },
                         cancelled: { roles: STAFF, noPO: true } },
   rejected:  {},
@@ -215,7 +221,11 @@ async function editDenied(db, user, prId) {
 // cancelling the PR: its awarded lots are cancelled in the same transaction,
 // so a PO can only be issued on a new award. (Neither is allowed while a PO
 // is active.) The award workflow reopening the canvass keeps the others.
-async function changePRStatus(prId, to, { user, via = 'manual', note = null, ifAllowed = false, conn } = {}) {
+//
+// Whoever filed the PR is told of the move once the transaction commits
+// (utils/requesterNotice.js): `notice` gives the words instead of the default,
+// or is false when the caller tells them itself.
+async function changePRStatus(prId, to, { user, via = 'manual', note = null, notice, ifAllowed = false, conn } = {}) {
   const run = async (db) => {
     // A submission queues on its office's PPMP before it locks the request (utils/ppmpUse.js).
     if (to === 'submitted') await lockOfficePlans(db, { prId })
@@ -241,7 +251,9 @@ async function changePRStatus(prId, to, { user, via = 'manual', note = null, ifA
       // Every item from the office's verified Final PPMP, within what is left of its line.
       await assertFollowsPpmp(db, pr.id)
     }
-    await db.execute('UPDATE purchase_requests SET status = ? WHERE id = ?', [to, pr.id])
+    // Why the TWG sent it back to canvass holds only while it is there.
+    const leaving = pr.status === 'bidding' ? ', certification_return_reason = NULL, recanvass_reason = NULL' : ''
+    await db.execute(`UPDATE purchase_requests SET status = ?${leaving} WHERE id = ?`, [to, pr.id])
     let logNote = note
     const voids = (pr.status === 'for_po' && to === 'bidding' && via === 'manual') ? 'Recanvassed'
                 : to === 'cancelled' ? 'The PR was cancelled' : null
@@ -253,6 +265,8 @@ async function changePRStatus(prId, to, { user, via = 'manual', note = null, ifA
       'INSERT INTO pr_status_logs (pr_id, changed_by, from_status, to_status, note) VALUES (?, ?, ?, ?, ?)',
       [pr.id, user.id, pr.status, to, logNote]
     )
+    const told = notice !== false && pr.created_by !== user.id && requesterNotice(pr, pr.status, to, { note, message: notice })
+    if (told) notify.afterCommit(db, pr.created_by, told.message, told.type, pr.id, 'pr')
     return { changed: true, pr }
   }
   return conn ? run(conn) : withTransaction(run)
@@ -261,16 +275,17 @@ async function changePRStatus(prId, to, { user, via = 'manual', note = null, ifA
 // Moves a PR in canvass or Ready for PO to where its awards put it
 // (statusFromAwards), logging each step with `note`. Call inside the
 // transaction that changed its awards, items, POs, or deliveries. While the
-// BAC or the TWG reviews it, it is left alone. Resolves with the PR's status.
-async function syncPRProgress(conn, prId, { user, note = null }) {
+// BAC or the TWG reviews it, it is left alone. `notice` as changePRStatus's.
+// Resolves with the PR's status.
+async function syncPRProgress(conn, prId, { user, note = null, notice }) {
   const pr = await loadPR(conn, prId, { lock: true })
   if (!pr || pr.deleted_at || !['bidding', 'for_po'].includes(pr.status)) return pr?.status
   const to = statusFromAwards(await awardProgress(conn, prId))
   if (to === pr.status) return to
   if (to === 'completed' && pr.status === 'bidding') {
-    await changePRStatus(prId, 'for_po', { user, via: 'award', note, conn })
+    await changePRStatus(prId, 'for_po', { user, via: 'award', note, notice, conn })
   }
-  await changePRStatus(prId, to, { user, via: to === 'completed' ? 'delivery' : 'award', note, conn })
+  await changePRStatus(prId, to, { user, via: to === 'completed' ? 'delivery' : 'award', note, notice, conn })
   return to
 }
 

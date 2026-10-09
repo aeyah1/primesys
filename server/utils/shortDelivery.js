@@ -146,7 +146,8 @@ async function closeShort(conn, poId, user, { reason, shortAmount = null }) {
   await conn.execute(
     `UPDATE purchase_orders SET closed_at = NOW(), closed_by = ?, close_reason = ?, short_amount = ?, penalty_amount = ? WHERE id = ?`,
     [user.id, reason, (shortCents / 100).toFixed(2), late.amount == null ? null : late.amount.toFixed(2), po.id])
-  await syncPODelivery(conn, po, user, note)
+  // The End User hears of the closed PO from po.controller, so not of the move too.
+  await syncPODelivery(conn, po, user, note, false)
   const [[{ status }]] = await conn.execute('SELECT status FROM purchase_requests WHERE id = ?', [pr.id])
   return { po, pr, balances, short_amount: shortCents / 100, penalty: late, pr_status: status }
 }

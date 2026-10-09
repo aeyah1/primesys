@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { FilterChip, Pager } from '@/components/shared/ListParts'
+import { MarkerBadges } from '@/components/shared/StatusBadge'
 import { fmtCurrency, fmtDate, fmtDatetime } from '@/lib/utils'
 import { openPdf, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
@@ -80,11 +81,12 @@ export default function BacApprovals() {
                         <span className="text-ui-sm font-bold text-[--color-text-primary]">Resolution No. {row.resolution_number}</span>
                       )}
                       <span className="font-mono text-ui-sm font-bold text-[--color-brand]">{row.pr_number}</span>
+                      {view === 'pending' && <MarkerBadges pr={row} />}
                     </div>
                     {row.title && <p className="text-ui-sm text-[--color-text-primary] mt-1 line-clamp-2">{row.title}</p>}
                     <p className="text-[10px] text-[--color-text-muted] mt-1.5">
                       {view === 'pending'
-                        ? <><span className="font-semibold text-[--color-brand]">{row.status === 'bac_review' ? 'Certified by the TWG: pick the winners' : 'Enter the bids'}</span>{' · '}{Number(row.bidders) ? `${row.bidders} bidder${Number(row.bidders) === 1 ? '' : 's'}` : 'No bids yet'} · {row.items} item{Number(row.items) === 1 ? '' : 's'}, budget <span className="font-semibold text-[--color-text-secondary]">{fmtCurrency(row.total)}</span>{' · '}{row.mode_of_procurement || 'No mode set'}{' · '}Since {fmtDatetime(row.since)}{row.status === 'bidding' && row.certification_return_reason ? ' · Returned by the TWG' : ''}</>
+                        ? <><span className={`font-semibold ${row.status === 're_pr' ? 'text-red-700' : 'text-[--color-brand]'}`}>{row.status === 'bac_review' ? 'Certified by the TWG: pick the winners' : row.status === 're_pr' ? 'Re-PR proposed by the TWG: check it' : 'Enter the bids'}</span>{' · '}{Number(row.bidders) ? `${row.bidders} bidder${Number(row.bidders) === 1 ? '' : 's'}` : 'No bids yet'} · {row.items} item{Number(row.items) === 1 ? '' : 's'}, budget <span className="font-semibold text-[--color-text-secondary]">{fmtCurrency(row.total)}</span>{' · '}{row.mode_of_procurement || 'No mode set'}{' · '}Since {fmtDatetime(row.since)}{row.status === 'bidding' && row.recanvass_reason ? ' · Re-canvass ordered by the TWG' : row.status === 'bidding' && row.certification_return_reason ? ' · Returned by the TWG' : ''}</>
                         : <>{row.suppliers}{' · '}<span className="font-semibold text-[--color-text-secondary]">{fmtCurrency(row.total)}</span>{' · '}Approved {fmtDate(row.resolved_on)} by {row.approved_by_name}</>}
                     </p>
                   </Link>

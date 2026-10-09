@@ -32,6 +32,8 @@ export default function HeroPreview({ compact = false }) {
   const frame = FRAMES[i]
   const p = requestProgress(frame)
   const last = REQUEST_STEPS.length - 1
+  // The line runs between the first and last steps' centres: half a column in from each side.
+  const edge = 50 / REQUEST_STEPS.length
   const recent = FRAMES.slice(0, i + 1).reverse().slice(0, 3)
 
   return (
@@ -70,10 +72,10 @@ export default function HeroPreview({ compact = false }) {
 
       {/* tracker */}
       <div className="border-t border-[--color-border] px-6 py-5">
-        <ol className="relative grid grid-cols-5">
-          <span className="absolute left-[10%] right-[10%] top-4 h-0.5 bg-[--color-border]" />
-          <span className="absolute left-[10%] top-4 h-0.5 bg-[--color-brand] transition-[width] duration-700 ease-out motion-reduce:transition-none"
-            style={{ width: `${(Math.min(p.step, last) / last) * 80}%` }} />
+        <ol className="relative grid" style={{ gridTemplateColumns: `repeat(${REQUEST_STEPS.length}, minmax(0, 1fr))` }}>
+          <span className="absolute top-4 h-0.5 bg-[--color-border]" style={{ left: `${edge}%`, right: `${edge}%` }} />
+          <span className="absolute top-4 h-0.5 bg-[--color-brand] transition-[width] duration-700 ease-out motion-reduce:transition-none"
+            style={{ left: `${edge}%`, width: `${(Math.min(p.step, last) / last) * (100 - 2 * edge)}%` }} />
           {REQUEST_STEPS.map((label, s) => {
             const done = s < p.step
             const current = s === p.step

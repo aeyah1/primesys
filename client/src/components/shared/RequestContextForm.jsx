@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import api from '@/lib/axios'
 import { useAuth } from '@/context/AuthContext'
 import RequesterFields from './RequesterFields'
+import SupportingFiles from './SupportingFiles'
 
 // Single source of truth for the four purpose_type options.
 // To add/edit a purpose type: update this array AND the ENUM in the DB.
@@ -21,11 +22,12 @@ export const PURPOSE_TYPES = [
 export const PURPOSE_TYPE_LABELS = Object.fromEntries(PURPOSE_TYPES.map(t => [t.value, t.label]))
 
 // Renders the Request Context section: department, who requested it and their
-// signature, purpose type cards (with conditional event/project fields), date needed.
+// signature, purpose type cards (with conditional event/project fields), and its supporting documents.
 //
-// `value` is the full context sub-object on the parent's form state.
+// `value` is the full context sub-object on the parent's form state (a new request's waiting files in `files`).
 // `onChange(nextValue)` is called with the merged object whenever any field changes.
 // `followOffice`: a new request, whose Office / Section follows an office reassigned while it is open.
+// `prId`: a saved request, whose documents upload at once.
 
 // What Office / Section becomes when the office code is `code` and was `was`: the code while the field is blank, and
 // on a new request (`follow`) the new code in place of the old one still shown; null leaves it (typed, or unchanged).
@@ -35,7 +37,7 @@ export function sectionFor(value, code, was, follow) {
   return null
 }
 
-export default function RequestContextForm({ value = {}, onChange, followOffice = false }) {
+export default function RequestContextForm({ value = {}, onChange, followOffice = false, prId = null }) {
   const set = (k, v) => onChange({ ...value, [k]: v })
   // A Fund Administrator files only for their own office, whose PPMP the request draws on.
   const { user } = useAuth()
@@ -198,20 +200,7 @@ export default function RequestContextForm({ value = {}, onChange, followOffice 
           gone; purchase_requests.purpose only carries what was written before
           it was removed. */}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="space-y-1.5">
-          <Label htmlFor="ctx-date-needed">
-            Date needed by
-            <span className="ml-1 font-normal text-[--color-text-muted] text-xs">(when you need it)</span>
-          </Label>
-          <Input
-            id="ctx-date-needed"
-            type="date"
-            value={value.date_needed || ''}
-            onChange={(e) => set('date_needed', e.target.value)}
-          />
-        </div>
-      </div>
+      <SupportingFiles prId={prId} files={value.files || []} onFiles={(files) => set('files', files)} />
     </div>
   )
 }

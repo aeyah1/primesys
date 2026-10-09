@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { fmtCurrency } from '@/lib/utils'
 import api from '@/lib/axios'
-import { cents } from './supplier'
+import { cents, DQBadge } from './supplier'
 import CanvassFiles from './CanvassFiles'
 
 const key = (bidderId, itemId) => `${bidderId}:${itemId}`
@@ -27,36 +27,51 @@ function fromServer(canvass) {
   }
   return marks
 }
-// What the server takes: each bid's mark, the reason only for a non-compliant one.
-export const evaluationPayload = (marks) => ({
+// The bidders DQ as marked so far: non-compliant on every bid they made.
+const dqIds = (marks) => {
+  const list = Object.values(marks)
+  return [...new Set(list.map(m => m.bidder_id))].filter(id => list.filter(m => m.bidder_id === id).every(m => m.compliant === false))
+}
+// What the server takes: each bid's mark, the reason only for a non-compliant one, and the remark on each DQ bidder.
+export const evaluationPayload = (marks, dqRemarks = {}) => ({
   bids: Object.values(marks).map(m => ({
     bidder_id: m.bidder_id, pr_item_id: m.pr_item_id, compliant: m.compliant,
     offered_spec: m.offered_spec.trim() || undefined, remarks: m.compliant === false ? m.remarks.trim() || undefined : undefined,
   })),
+  dq: dqIds(marks).map(id => ({ bidder_id: id, remarks: dqRemarks[id]?.trim() || undefined })),
 })
-// Why the evaluation can't be certified yet (null when it can).
-export function evaluationBlock(marks) {
+// Why the evaluation can't be certified yet (null when it can): every lot needs an offer compliant on all of it.
+export function evaluationBlock(marks, canvass) {
   const list = Object.values(marks)
   if (!list.length) return 'No bid waits for the evaluation.'
   const unmarked = list.filter(m => m.compliant === null).length
   if (unmarked) return `${unmarked} bid${unmarked === 1 ? ' is' : 's are'} not marked yet.`
   if (list.some(m => m.compliant === false && !m.remarks.trim())) return 'State the reason for every non-compliant bid.'
+  const open = new Set((canvass?.items || []).filter(i => i.state === 'pending').map(i => i.id))
+  const lots = (canvass?.lots || []).map(l => ({ name: l.name, ids: l.item_ids.filter(id => open.has(id)) })).filter(l => l.ids.length)
+  const bare = lots.find(l => !canvass.bidders.some(b => l.ids.every(id => marks[key(b.id, id)]?.compliant === true)))
+  if (bare) return `No offer ${lots.length > 1 ? `for ${bare.name} ` : ''}is compliant. Choose Re-canvass.`
   return null
 }
 
 /* The TWG's evaluation of a canvass: every bid the BAC entered, under its item,
-   with what the bidder offered, marked Compliant or Non-Compliant (with the
-   reason), and the canvasser's files beside it. The marks are reported to the
-   page with onChange(marks) for its Certify; Save keeps them to finish later.
+   with what the bidder offered (as the BAC typed it from the RFQ; the TWG may
+   correct it), marked Compliant or Non-Compliant (with the reason), a bidder
+   non-compliant on everything it offered marked DQ, and the canvasser's files
+   beside it, with a remark on each DQ bidder. The marks are reported to the
+   page with onChange(marks) and the DQ remarks with onDq(remarks) for its
+   Certify; Save keeps them to finish later.
    prId: the PR; canvass: GET /canvass/:prId; canEdit: this member may mark them. */
-export default function TwgEvaluation({ prId, canvass, canEdit, onChange }) {
+export default function TwgEvaluation({ prId, canvass, canEdit, onChange, onDq }) {
   const qc = useQueryClient()
   const [marks, setMarks] = useState(() => fromServer(canvass))
+  const [dqRemarks, setDqRemarks] = useState(() => Object.fromEntries(canvass.bidders.map(b => [b.id, b.dq_remarks || ''])))
   useEffect(() => { onChange?.(marks) }, [marks, onChange])
+  useEffect(() => { onDq?.(dqRemarks) }, [dqRemarks, onDq])
   const set = (k, change) => setMarks(m => ({ ...m, [k]: { ...m[k], ...change } }))
 
   const { mutate: save, isPending } = useMutation({
-    mutationFn: () => api.put(`/twg/${prId}/evaluation`, evaluationPayload(marks)),
+    mutationFn: () => api.put(`/twg/${prId}/evaluation`, evaluationPayload(marks, dqRemarks)),
     onSuccess: () => { toast.success('Evaluation saved'); qc.invalidateQueries({ queryKey: ['canvass', String(prId)] }) },
     onError: (err) => toast.error(err.response?.data?.message || 'The evaluation could not be saved'),
   })
@@ -65,6 +80,9 @@ export default function TwgEvaluation({ prId, canvass, canEdit, onChange }) {
   const list = Object.values(marks)
   const done = list.filter(m => m.compliant !== null).length
   const bidderOf = (id) => canvass.bidders.find(b => b.id === id)
+  // DQ as marked so far: non-compliant on every item it offered.
+  const dqs = dqIds(marks)
+  const dq = (id) => dqs.includes(id)
 
   return (
     <div className="grid grid-cols-1 gap-4 2xl:grid-cols-5">
@@ -103,6 +121,7 @@ export default function TwgEvaluation({ prId, canvass, canEdit, onChange }) {
                       <tr key={k} className="border-t border-[--color-border] align-top">
                         <td className="px-3 py-2">
                           <span className="font-medium text-[--color-text-primary]">{b.name}</span>
+                          {dq(b.id) && <DQBadge />}
                           {b.rfq_no && <span className="block text-[11px] text-[--color-text-muted]">RFQ No. {b.rfq_no}</span>}
                         </td>
                         <td className={`px-3 py-2 text-right tabular-nums whitespace-nowrap ${above ? 'text-amber-800' : ''}`}>{fmtCurrency(b.prices[i.id])}</td>
@@ -135,6 +154,21 @@ export default function TwgEvaluation({ prId, canvass, canEdit, onChange }) {
             </tbody>
           </table>
         </div>
+        {dqs.length > 0 && (
+          <div className="space-y-2 rounded-xl border border-red-200 bg-red-50/60 px-4 py-3">
+            <p className="text-xs font-bold uppercase tracking-wider text-red-800">DQ remarks <span className="font-normal normal-case tracking-normal text-red-700">(optional, shown under the supplier in the bids)</span></p>
+            {dqs.map(id => {
+              const b = bidderOf(id)
+              return (
+                <div key={id} className="grid gap-1.5 sm:grid-cols-[12rem_1fr] sm:items-center">
+                  <span className="text-sm font-medium text-[--color-text-primary]">{b.name} <DQBadge /></span>
+                  <Input value={dqRemarks[id] || ''} maxLength={500} disabled={!canEdit} placeholder="e.g. Offered lower specifications on every item"
+                    aria-label={`Why ${b.name} is DQ`} onChange={e => setDqRemarks(r => ({ ...r, [id]: e.target.value }))} className="h-8 bg-white text-xs" />
+                </div>
+              )
+            })}
+          </div>
+        )}
         {canEdit && (
           <div className="flex justify-end">
             <Button size="sm" variant="secondary" className="gap-1.5" disabled={isPending} onClick={() => save()}>

@@ -6,10 +6,13 @@ import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/shared/ListParts'
 import { DashboardHeader, StatLink, ListSkeleton } from '@/components/dashboard/DashboardParts'
 import { fmtCurrency, fmtDate, daysSince, plural } from '@/lib/utils'
+import { MarkerBadges } from '@/components/shared/StatusBadge'
 import api from '@/lib/axios'
 
 // What the BAC does next with a request in its queue.
 const nextStep = (row) => row.status === 'bac_review' ? 'Certified by the TWG: pick the winners'
+  : row.status === 're_pr' ? 'Re-PR proposed by the TWG: check it'
+  : row.recanvass_reason ? 'Re-canvass ordered by the TWG: enter the new quotations'
   : row.certification_return_reason ? 'Returned by the TWG: correct the bids'
   : 'Enter the bids'
 
@@ -58,11 +61,13 @@ export default function BacDashboard() {
                   <Link key={row.id} to={`/pr/${row.id}/canvass`}
                     className="flex items-center justify-between gap-3 px-6 py-3.5 border-b border-[--color-border] last:border-0 hover:bg-overlay/60 transition-colors">
                     <div className="min-w-0">
-                      <p className="text-ui-sm font-semibold text-[--color-text-primary] truncate">
-                        <span className="font-mono text-[--color-brand]">{row.pr_number}</span> {row.title}
+                      <p className="flex items-center gap-1.5 text-ui-sm font-semibold text-[--color-text-primary] min-w-0">
+                        <span className="font-mono text-[--color-brand] shrink-0">{row.pr_number}</span>
+                        <span className="truncate">{row.title}</span>
+                        <MarkerBadges pr={row} />
                       </p>
                       <p className="text-ui-xs mt-0.5 truncate">
-                        <span className={`font-semibold ${row.certification_return_reason && row.status === 'bidding' ? 'text-amber-700' : 'text-[--color-brand]'}`}>{nextStep(row)}</span>
+                        <span className={`font-semibold ${row.status === 're_pr' ? 'text-red-700' : (row.recanvass_reason || row.certification_return_reason) && row.status === 'bidding' ? 'text-amber-700' : 'text-[--color-brand]'}`}>{nextStep(row)}</span>
                         <span className="text-[--color-text-muted]"> · {Number(row.bidders) ? plural(Number(row.bidders), 'bidder') : 'No bids yet'}</span>
                       </p>
                     </div>

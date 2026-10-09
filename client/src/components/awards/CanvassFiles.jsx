@@ -2,11 +2,12 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { FileText } from 'lucide-react'
 import api from '@/lib/axios'
-import ScanViewer, { previewable } from './ScanViewer'
+import { previewable } from './ScanViewer'
+import DocumentViewer from './DocumentViewer'
 
 /* The canvasser's files attached to a PR (the returned RFQs, the abstract),
-   the newest first, one opened in the page: the latest PDF or picture unless
-   another is picked. Shown beside the bid sheets and the TWG's evaluation.
+   the newest first, one opened whole in the page (DocumentViewer): the latest
+   PDF or picture unless another is picked. Shown beside the bid sheets and the TWG's evaluation.
    prId: the PR; shown / onShow (optional): the file opened, kept by the page. */
 export default function CanvassFiles({ prId, shown: kept, onShow }) {
   const [own, setOwn] = useState(null)
@@ -34,7 +35,7 @@ export default function CanvassFiles({ prId, shown: kept, onShow }) {
         </div>
       )}
       <div className="overflow-hidden rounded-xl border border-[--color-border] bg-white">
-        <ScanViewer prId={prId} file={current} />
+        <DocumentViewer prId={prId} file={current} />
       </div>
     </section>
   )

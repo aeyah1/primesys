@@ -15,9 +15,9 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
-import { PRStatusBadge, DeliveryStatusBadge, CategoryBadge } from '@/components/shared/StatusBadge'
+import { PRStatusBadge, DeliveryStatusBadge, CategoryBadge, MarkerBadges } from '@/components/shared/StatusBadge'
 import AttachmentsPanel from '@/components/shared/AttachmentsPanel'
-import { fmtDate, fmtCurrency, PR_STATUS_LABELS, CATEGORY_FORM, buildItemNotes, groupItemsBySection, PROCUREMENT_MODES, isTemporaryPrNumber } from '@/lib/utils'
+import { fmtDate, fmtCurrency, PR_STATUS_LABELS, RE_PR_TYPES, CATEGORY_FORM, buildItemNotes, groupItemsBySection, PROCUREMENT_MODES, isTemporaryPrNumber } from '@/lib/utils'
 import { SectionNameInput, SectionHeaderRow } from '@/components/shared/ItemSections'
 import RequestProgress from '@/components/shared/RequestProgress'
 import CategorySpecFields from '@/components/shared/CategorySpecFields'
@@ -29,6 +29,7 @@ import { useAuth } from '@/context/AuthContext'
 import { openPdf, downloadFile, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
 import ReviewSubmitDialog from '@/components/shared/ReviewSubmitDialog'
+import QuotedSuppliers from '@/components/suppliers/QuotedSuppliers'
 import DeletePRDialog from '@/components/shared/DeletePRDialog'
 import { usePpmpPlans, takenByKey, lineChecks, PpmpLineNote, PpmpItemField, NoPpmpNotice, quarterOf } from '@/components/ppmp/PpmpLinePicker'
 
@@ -43,7 +44,8 @@ const ITD = ({ children, className = '' }) => (
   </td>
 )
 
-const EMPTY_ITEM = { group_label: '', stock_property_no: '', category: '', ppmp_item_id: null, line: null, quantity: '1', estimated_cost: '', specs: {} }
+// off_plan: an item not in the PPMP, typed with its own name and unit (only on a Re-PR'd request).
+const EMPTY_ITEM = { group_label: '', stock_property_no: '', category: '', ppmp_item_id: null, line: null, quantity: '1', estimated_cost: '', specs: {}, off_plan: false, item_name: '', unit: '' }
 // Who may open the office's PPMP from a request (the PPMP pages' own roles).
 const PPMP_VIEWERS = ['requestor', 'admin', 'procurement', 'bac', 'twg']
 
@@ -68,6 +70,8 @@ function PRItemsSection({ prId, pr, canEdit, category }) {
     queryFn: () => api.get(`/pr/${prId}/ppmp`).then(r => r.data),
   })
   const reviewOf = new Map((review?.items || []).map(r => [r.id, r]))
+  // A Re-PR'd request may go past the PPMP (items not in it, prices above it); the extra comes out of the office's budget.
+  const rePr = pr.re_pr_count > 0
   // While it can be edited: the lines it may draw on, leaving out its own holds.
   const { plans, isLoading: plansLoading, lineById } = usePpmpPlans({ departmentId: canEdit && user?.role !== 'requestor' ? pr.department_id : null, prId: canEdit ? prId : null })
   const refresh = () => {
@@ -80,7 +84,7 @@ function PRItemsSection({ prId, pr, canEdit, category }) {
     mutationFn: (body) => api.post(`/pr/${prId}/items`, body),
     onSuccess: () => {
       refresh()
-      setDraft(p => ({ ...EMPTY_ITEM, group_label: p.group_label }))   // the section stays for the next item
+      setDraft(p => ({ ...EMPTY_ITEM, group_label: p.group_label, off_plan: p.off_plan }))   // the section stays for the next item
       toast.success('Item added')
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to add item'),
@@ -114,6 +118,7 @@ function PRItemsSection({ prId, pr, canEdit, category }) {
       category:          item.category          || '',
       ppmp_item_id:   item.ppmp_item_id,
       line:           lineById.get(Number(item.ppmp_item_id)) || null,
+      off_plan:       rePr && !item.ppmp_item_id,
       item_name:      item.item_name      || '',
       quantity:       String(item.quantity ?? '1'),
       unit:           item.unit           || '',
@@ -123,15 +128,22 @@ function PRItemsSection({ prId, pr, canEdit, category }) {
   }
 
   const handleSaveEdit = () => {
-    if (!editDraft.ppmp_item_id) return toast.error('Pick the item from the PPMP')
-    if (editCheck?.block) return toast.error(editCheck.block)
+    if (editDraft.off_plan) {
+      if (!editDraft.item_name.trim() || !editDraft.unit.trim()) return toast.error('Give the item\'s name and unit')
+    } else {
+      if (!editDraft.ppmp_item_id) return toast.error(rePr ? 'Pick the item from the PPMP, or tick Not in the PPMP' : 'Pick the item from the PPMP')
+      if (editCheck?.block) return toast.error(editCheck.block)
+    }
     updateItemReq({
       itemId: editingItem.id,
       body: {
         group_label:       editDraft.group_label?.trim() || null,
         stock_property_no: editDraft.stock_property_no?.trim() || null,
         category:          editDraft.category || undefined,
-        ...(editDraft.ppmp_item_id !== editingItem.ppmp_item_id ? { ppmp_item_id: editDraft.ppmp_item_id } : {}),
+        // An item not in the PPMP (Re-PR) is named and measured as typed, and loses any PPMP line it had.
+        ...(editDraft.off_plan
+          ? { ...(editingItem.ppmp_item_id ? { ppmp_item_id: null } : {}), item_name: editDraft.item_name.trim(), unit: editDraft.unit.trim() }
+          : editDraft.ppmp_item_id !== editingItem.ppmp_item_id ? { ppmp_item_id: editDraft.ppmp_item_id } : {}),
         quantity:       editDraft.quantity,
         estimated_cost: editDraft.estimated_cost,
         notes:          editDraft.notes?.trim() || null,
@@ -144,21 +156,22 @@ function PRItemsSection({ prId, pr, canEdit, category }) {
   // The quarter of the PPMP's year the request draws on (1 to 4), or null: the year's total applies.
   const quarter = quarterOf(plans, { label: pr.quarter_label, year: pr.quarter_year })
   const planYear = items.map(i => lineById.get(Number(i.ppmp_item_id))?.fiscal_year).find(Boolean) ?? (quarter ? Number(pr.quarter_year) : undefined)
-  const checkAgainst = (line, item, exceptIndex) => line && lineChecks(line, { quantity: item.quantity, price: item.estimated_cost, dateNeeded: pr.date_needed, quarter, taken: takenByKey(items, lineById, exceptIndex).get(line.key) || 0 })
+  const checkAgainst = (line, item, exceptIndex) => line && lineChecks(line, { quantity: item.quantity, price: item.estimated_cost, quarter, taken: takenByKey(items, lineById, exceptIndex).get(line.key) || 0 })
   const draftCheck = draft.line ? { line: draft.line, ...checkAgainst(draft.line, draft, -1) } : null
   const editCheck = editDraft?.line ? { line: editDraft.line, ...checkAgainst(editDraft.line, editDraft, items.findIndex(i => i.id === editingItem?.id)) } : null
   // A picked line brings its price; typing over it clears the pick.
   const pickLine = (line) => setDraft(p => (line ? { ...p, ppmp_item_id: line.id, line, estimated_cost: String(line.unit_cost) } : { ...p, ppmp_item_id: null, line: null }))
 
+  const offPlanReady = draft.item_name.trim() && draft.unit.trim() && parseFloat(draft.estimated_cost) > 0
   const handleAdd = () => {
-    if (!draft.line) return toast.error('Pick the item from the PPMP')
-    if (draftCheck?.block) return toast.error(draftCheck.block)
+    if (draft.off_plan ? !offPlanReady : !draft.line) return toast.error(draft.off_plan ? 'Give the item\'s name, unit and price' : 'Pick the item from the PPMP')
+    if (!draft.off_plan && draftCheck?.block) return toast.error(draftCheck.block)
     const notes = buildItemNotes(category, draft.specs)
     addItem({
       group_label:       draft.group_label       || undefined,
       stock_property_no: draft.stock_property_no?.trim() || undefined,
       category:          draft.category || category || undefined,
-      ppmp_item_id:   draft.line.id,
+      ...(draft.off_plan ? { item_name: draft.item_name.trim(), unit: draft.unit.trim() } : { ppmp_item_id: draft.line.id }),
       quantity:       parseFloat(draft.quantity)       || 1,
       estimated_cost: draft.estimated_cost ? parseFloat(draft.estimated_cost) : undefined,
       notes:          notes || undefined,
@@ -211,6 +224,17 @@ function PRItemsSection({ prId, pr, canEdit, category }) {
             </ul>
           </div>
         )}
+        {canEdit && rePr && review?.budget && (
+          <div className="mx-4 mb-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-amber-900">
+            <p className="text-ui-sm font-semibold">Re-PR: this request may go past the PPMP</p>
+            <p className="text-xs mt-1 tabular-nums">
+              An item may cost more than its PPMP line, or not be in the PPMP at all (Not in the PPMP, below); the extra comes out of your office's PPMP budget.
+              Left in the {review.plan?.office_code} PPMP budget: <span className="font-bold">{fmtCurrency(review.budget.left)}</span>.
+              This request takes <span className="font-bold">{fmtCurrency(review.budget.mine)}</span>
+              {review.budget.mine_extra > 0 ? `, ${fmtCurrency(review.budget.mine_extra)} of it past the plan` : ''}.
+            </p>
+          </div>
+        )}
         {isLoading ? (
           <div className="p-4 space-y-2">{Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-9" />)}</div>
         ) : (
@@ -259,6 +283,12 @@ function PRItemsSection({ prId, pr, canEdit, category }) {
                                 {reviewOf.get(item.id)?.line && (
                                   <PpmpLineNote line={reviewOf.get(item.id).line} planned={reviewOf.get(item.id).line.planned}
                                     warnings={reviewOf.get(item.id).warnings} block={canEdit ? reviewOf.get(item.id).problem : null} className="mt-2 font-normal" />
+                                )}
+                                {/* An item not in the PPMP: on a Re-PR its cost comes out of the office's budget; otherwise it can't be submitted. */}
+                                {!item.ppmp_item_id && reviewOf.get(item.id) && (
+                                  <p className={`mt-2 text-[11px] font-semibold ${reviewOf.get(item.id).problem ? 'text-red-700' : 'text-amber-700'}`}>
+                                    {(canEdit && reviewOf.get(item.id).problem) || reviewOf.get(item.id).warnings.join(' ') || (rePr ? 'Not in the PPMP (Re-PR).' : '')}
+                                  </p>
                                 )}
                               </ITD>
                               <ITD className="text-center tabular-nums font-medium">{item.quantity}</ITD>
@@ -324,6 +354,13 @@ function PRItemsSection({ prId, pr, canEdit, category }) {
             {canEdit && (plansLoading || plans.length > 0) && (
               <div className="bg-[--color-canvas] px-4 py-4 space-y-3">
                 <p className="text-xs font-semibold text-[--color-text-muted] uppercase tracking-wide">Add Item</p>
+                {rePr && (
+                  <label className="flex items-center gap-2 text-xs font-medium text-[--color-text-secondary]">
+                    <input type="checkbox" checked={draft.off_plan} className="accent-amber-600"
+                      onChange={e => setDraft(p => ({ ...p, off_plan: e.target.checked, ppmp_item_id: null, line: null }))} />
+                    Not in the PPMP: type the item yourself (Re-PR; its cost comes out of the office's PPMP budget)
+                  </label>
+                )}
                 <div className="space-y-1.5">
                   <Label className="text-xs">
                     {categoryForm.sectionLabel}
@@ -350,14 +387,25 @@ function PRItemsSection({ prId, pr, canEdit, category }) {
                   </div>
                   {/* The item, picked from the PPMP: its description and unit are the line's */}
                   <div className="col-span-4">
-                    <PpmpItemField id="pr-detail-ppmp-item" plans={plans} isLoading={plansLoading} value={draft.line} onPick={pickLine} taken={taken} year={planYear} quarter={quarter}
-                      kind={draft.category || category} />
+                    {draft.off_plan ? (
+                      <div className="space-y-1">
+                        <Label htmlFor="pr-detail-off-plan-item" className="text-xs">Item (not in the PPMP)</Label>
+                        <Input id="pr-detail-off-plan-item" maxLength={500} placeholder="What it is, without a brand" value={draft.item_name} onChange={e => setD('item_name', e.target.value)} />
+                      </div>
+                    ) : (
+                      <PpmpItemField id="pr-detail-ppmp-item" plans={plans} isLoading={plansLoading} value={draft.line} onPick={pickLine} taken={taken} year={planYear} quarter={quarter}
+                        kind={draft.category || category} />
+                    )}
                   </div>
                   <div className="col-span-2 space-y-1">
                     <Label className="text-xs">Unit</Label>
-                    <div className="flex h-10 items-center rounded-lg border border-[--color-border] bg-[--color-surface] px-3 text-sm text-[--color-text-secondary]">
-                      {draft.line?.unit || '—'}
-                    </div>
+                    {draft.off_plan ? (
+                      <Input maxLength={50} placeholder="pc, set, ream" aria-label="Unit of the item not in the PPMP" value={draft.unit} onChange={e => setD('unit', e.target.value)} />
+                    ) : (
+                      <div className="flex h-10 items-center rounded-lg border border-[--color-border] bg-[--color-surface] px-3 text-sm text-[--color-text-secondary]">
+                        {draft.line?.unit || '—'}
+                      </div>
+                    )}
                   </div>
                   <div className="col-span-1 space-y-1">
                     <Label className="text-xs">Qty</Label>
@@ -386,7 +434,7 @@ function PRItemsSection({ prId, pr, canEdit, category }) {
                   <div className="col-span-1 self-end">
                     <Button
                       className="w-full px-0"
-                      disabled={adding || !draft.line || !!draftCheck?.block}
+                      disabled={adding || (draft.off_plan ? !offPlanReady : !draft.line || !!draftCheck?.block)}
                       onClick={handleAdd}
                     >
                       <Plus className="size-4" />
@@ -394,7 +442,7 @@ function PRItemsSection({ prId, pr, canEdit, category }) {
                   </div>
                 </div>
 
-                {draftCheck && <PpmpLineNote {...draftCheck} />}
+                {!draft.off_plan && draftCheck && <PpmpLineNote {...draftCheck} />}
 
                 {/* Per-category structured spec fields */}
                 <CategorySpecFields
@@ -459,18 +507,36 @@ function PRItemsSection({ prId, pr, canEdit, category }) {
                 />
               </div>
 
-              <PpmpItemField id="pr-edit-ppmp-item" plans={plans} isLoading={plansLoading}
-                value={editDraft.line || (editDraft.ppmp_item_id ? { description: editDraft.item_name } : null)}
-                onPick={line => setEditDraft(p => (line ? { ...p, ppmp_item_id: line.id, line, item_name: line.description, unit: line.unit } : { ...p, ppmp_item_id: null, line: null }))}
-                taken={takenByKey(items, lineById, items.findIndex(i => i.id === editingItem?.id))} year={planYear} quarter={quarter}
-                kind={editDraft.category || category} />
+              {rePr && (
+                <label className="flex items-center gap-2 text-xs font-medium text-[--color-text-secondary]">
+                  <input type="checkbox" checked={editDraft.off_plan} className="accent-amber-600"
+                    onChange={e => setEditDraft(p => ({ ...p, off_plan: e.target.checked, ...(e.target.checked ? { ppmp_item_id: null, line: null } : {}) }))} />
+                  Not in the PPMP: type the item yourself (Re-PR; its cost comes out of the office's PPMP budget)
+                </label>
+              )}
+              {editDraft.off_plan ? (
+                <div className="space-y-1">
+                  <Label htmlFor="pr-edit-off-plan-item" className="text-xs">Item (not in the PPMP)</Label>
+                  <Input id="pr-edit-off-plan-item" maxLength={500} placeholder="What it is, without a brand" value={editDraft.item_name} onChange={e => setED('item_name', e.target.value)} />
+                </div>
+              ) : (
+                <PpmpItemField id="pr-edit-ppmp-item" plans={plans} isLoading={plansLoading}
+                  value={editDraft.line || (editDraft.ppmp_item_id ? { description: editDraft.item_name } : null)}
+                  onPick={line => setEditDraft(p => (line ? { ...p, ppmp_item_id: line.id, line, item_name: line.description, unit: line.unit } : { ...p, ppmp_item_id: null, line: null }))}
+                  taken={takenByKey(items, lineById, items.findIndex(i => i.id === editingItem?.id))} year={planYear} quarter={quarter}
+                  kind={editDraft.category || category} />
+              )}
 
               <div className="grid grid-cols-12 gap-2 items-end">
                 <div className="col-span-3 space-y-1">
                   <Label className="text-xs">Unit</Label>
-                  <div className="flex h-10 items-center rounded-lg border border-[--color-border] bg-[--color-canvas] px-3 text-sm text-[--color-text-secondary]">
-                    {editDraft.line?.unit || editDraft.unit || '—'}
-                  </div>
+                  {editDraft.off_plan ? (
+                    <Input maxLength={50} placeholder="pc, set, ream" aria-label="Unit of the item not in the PPMP" value={editDraft.unit} onChange={e => setED('unit', e.target.value)} />
+                  ) : (
+                    <div className="flex h-10 items-center rounded-lg border border-[--color-border] bg-[--color-canvas] px-3 text-sm text-[--color-text-secondary]">
+                      {editDraft.line?.unit || editDraft.unit || '—'}
+                    </div>
+                  )}
                 </div>
                 <div className="col-span-3 space-y-1">
                   <Label className="text-xs">Qty</Label>
@@ -490,7 +556,7 @@ function PRItemsSection({ prId, pr, canEdit, category }) {
                   />
                 </div>
               </div>
-              {editCheck && <PpmpLineNote {...editCheck} />}
+              {!editDraft.off_plan && editCheck && <PpmpLineNote {...editCheck} />}
 
               <div className="space-y-1">
                 <Label className="text-xs">
@@ -559,7 +625,7 @@ export default function PRDetail() {
   const isSupply    = user?.role === 'supply'
   const isBac       = user?.role === 'bac'
   // The canvass and awards: Procurement's work, and the BAC's to review (supply sees only the POs).
-  const showCanvass = (canManage || isBac) && !!pr && ['bidding', 'bac_review', 'twg_certification', 'for_po', 'completed', 'cancelled'].includes(pr.status)
+  const showCanvass = (canManage || isBac) && !!pr && ['bidding', 'bac_review', 'twg_certification', 're_pr', 'for_po', 'completed', 'cancelled'].includes(pr.status)
   // One delivery status over every PO: delivered once all are, partial once any delivery is in.
   const pos = pr?.pos || []
   const deliveryStatus = !pos.length ? null
@@ -709,7 +775,32 @@ export default function PRDetail() {
       {/* Revision-requested notice: who sent it back (the TWG, or Procurement
           returning an approved PR) and why. Owner (or admin) also gets a
           Resubmit button so they can send it back once they're done editing. */}
-      {pr.status === 'revision_requested' && (
+      {pr.status === 'revision_requested' && pr.revision?.from_status === 're_pr' && (
+        <div className="rounded-xl border border-red-300 bg-red-50 px-5 py-4">
+          <div className="flex items-start gap-3">
+            <Undo2 className="size-4 text-red-700 mt-0.5 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-red-900">Re-PR: no supplier's offer met the specifications</p>
+              <p className="text-ui-sm text-red-900 mt-1.5">
+                <span className="font-semibold">{RE_PR_TYPES[pr.re_pr_type] || 'Change the specifications'}.</span>
+                {pr.re_pr_reason && <span className="whitespace-pre-wrap"> {pr.re_pr_reason}</span>}
+              </p>
+              {pr.re_pr_note && <p className="text-ui-sm text-red-900/90 mt-1 whitespace-pre-wrap"><span className="font-semibold">The BAC adds:</span> {pr.re_pr_note}</p>}
+              <p className="text-[10px] text-red-800 mt-2">
+                Click Edit PR to change the specifications or prices. As a Re-PR, an item may cost more than its PPMP line, and you may add an item that is
+                not in the PPMP; the extra comes out of your office's PPMP budget, and the edit page shows how much is left. Then resubmit it to the TWG.
+              </p>
+              {pr.permissions?.next_statuses?.includes('submitted') && (
+                <Button size="sm" className="mt-3 gap-1.5 bg-red-600 hover:bg-red-700 text-white border-0" onClick={() => setReviewing(true)} disabled={isPending}>
+                  <Send className="size-4" />
+                  {isPending ? 'Resubmitting…' : 'Resubmit to TWG'}
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      {pr.status === 'revision_requested' && pr.revision?.from_status !== 're_pr' && (
         <div className="rounded-xl border border-amber-300 bg-amber-50 px-5 py-4">
           <div className="flex items-start gap-3">
             <RotateCcw className="size-4 text-amber-700 mt-0.5 shrink-0" />
@@ -788,6 +879,7 @@ export default function PRDetail() {
               {pr.pr_number}
             </h2>
             <PRStatusBadge status={pr.status} />
+            <MarkerBadges pr={pr} />
             <CategoryBadge category={pr.category} />
             {deliveryStatus && <DeliveryStatusBadge status={deliveryStatus} />}
           </div>
@@ -935,6 +1027,7 @@ export default function PRDetail() {
                   {pr.status === 'bidding' ? 'In canvass: the BAC enters the bids from the canvasser\'s returned RFQs.'
                     : pr.status === 'twg_certification' ? 'With the TWG, which checks every bid and certifies them.'
                     : pr.status === 'bac_review' ? 'Certified by the TWG; the BAC picks the winners.'
+                    : pr.status === 're_pr' ? 'Every supplier was DQ. The TWG proposed a Re-PR; the BAC checks it on the canvass page.'
                     : pr.status === 'cancelled' ? 'The canvass record is kept.'
                     : 'Certified. The winners and the BAC Resolution are on the canvass page.'}
                 </p>
@@ -946,6 +1039,9 @@ export default function PRDetail() {
           </CardContent>
         </Card>
       )}
+
+      {/* The suppliers that quoted, with their profiles, once the BAC has sent the quotations (everyone on the request) */}
+      <QuotedSuppliers pr={pr} />
 
       {/* Purchase orders: one per supplier awarded */}
       {(canManage || isRequestor || isSupply) && <PurchaseOrders pr={pr} canManage={canManage} />}

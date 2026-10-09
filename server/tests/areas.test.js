@@ -18,16 +18,16 @@ function fixtures() {
   const hash = serverReq('bcryptjs').hashSync('Test@1234', 4)
   const U = (id, name, active = 1) => `(${id}, '${name}', '${name.toLowerCase().replace(/\W/g, '')}', 'u${id}@areas.invalid', '${hash}', '${ROLE[id]}', ${active}, 1)`
   const P = (id, status, owner, category, extra = {}) =>
-    `(${id}, 'PR-A-${id}', 'Areas ${id}', '${status}', ${owner}, '${category}', ${extra.reviewer ?? 'NULL'}, ${extra.at ? `'${extra.at}'` : 'NULL'}, ${extra.needed ? `'${extra.needed}'` : 'NULL'})`
+    `(${id}, 'PR-A-${id}', 'Areas ${id}', '${status}', ${owner}, '${category}', ${extra.reviewer ?? 'NULL'}, ${extra.at ? `'${extra.at}'` : 'NULL'})`
   return `
     SET FOREIGN_KEY_CHECKS = 0;
     INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified) VALUES
       ${U(1, 'Admin One')}, ${U(2, 'Proc One')}, ${U(3, 'Req A')}, ${U(4, 'Req B')}, ${U(5, 'Engr Santos')},
       ${U(6, 'Ms Reyes')}, ${U(7, 'Dr Cruz')}, ${U(8, 'New Member')}, ${U(9, 'Gone Reviewer', 0)}, ${U(10, 'Sup One')};
-    INSERT INTO purchase_requests (id, pr_number, title, status, created_by, category, twg_reviewed_by, twg_reviewed_at, date_needed) VALUES
+    INSERT INTO purchase_requests (id, pr_number, title, status, created_by, category, twg_reviewed_by, twg_reviewed_at) VALUES
       ${P(60, 'submitted', 3, 'hardware')}, ${P(61, 'submitted', 4, 'event_supplies')},
-      ${P(63, 'twg_review', 4, 'hardware',       { reviewer: 5, at: '2026-09-10 09:00:00', needed: '2026-10-30' })},
-      ${P(64, 'twg_review', 3, 'event_supplies', { reviewer: 6, at: '2026-09-08 09:00:00', needed: '2026-09-20' })},
+      ${P(63, 'twg_review', 4, 'hardware',       { reviewer: 5, at: '2026-09-10 09:00:00' })},
+      ${P(64, 'twg_review', 3, 'event_supplies', { reviewer: 6, at: '2026-09-08 09:00:00' })},
       ${P(65, 'twg_review', 4, 'hardware',       { reviewer: 5, at: '2026-09-05 09:00:00' })},
       ${P(66, 'bidding',    3, 'hardware',       { reviewer: 5, at: '2026-09-01 09:00:00' })},
       ${P(67, 'draft',      4, 'hardware')},
@@ -153,8 +153,6 @@ async function run() {
     (r) => r.status === 200 && sorted(ids(r)) === '60,63,65')
   await is(G5, 'oldest approval first', 2, 'GET', '/pr?status=twg_review&sort=oldest_approval&limit=100', undefined,
     (r) => r.status === 200 && ids(r).slice(0, 3).join() === '65,64,63')
-  await is(G5, 'date needed soonest (no date last)', 2, 'GET', '/pr?status=twg_review&sort=date_needed&limit=100', undefined,
-    (r) => r.status === 200 && ids(r)[0] === 64 && ids(r)[1] === 63)
   await is(G5, 'largest estimated total first', 2, 'GET', '/pr?status=twg_review&sort=total&limit=100', undefined,
     (r) => r.status === 200 && ids(r)[0] === 60 && Number(r.data.data[0].estimated_total) === 45000)
   await is(G5, 'rows name the TWG reviewer and approval time', 2, 'GET', '/pr?status=twg_review&category=hardware&sort=oldest_approval&limit=100', undefined,

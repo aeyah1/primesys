@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableEmpty } from '@/components/ui/table'
-import { PRStatusBadge } from '@/components/shared/StatusBadge'
+import { PRStatusBadge, MarkerBadges } from '@/components/shared/StatusBadge'
 import { Tab, Pager } from '@/components/shared/ListParts'
 import useUrlParams from '@/hooks/useUrlParams'
 import { fmtDate, fmtCurrency, CATEGORY_LABELS, PR_STATUS_LABELS } from '@/lib/utils'
@@ -23,7 +23,9 @@ import api from '@/lib/axios'
 const VIEWS = [
   { key: 'all',         label: 'All',         count: 'prs' },
   { key: 'completed',   label: 'Completed',   count: 'completed',   params: { status: 'completed' } },
-  { key: 'in_progress', label: 'In progress', count: 'in_progress', params: { status: 'draft,submitted,revision_requested,twg_review,bidding,twg_certification,bac_review,for_po' } },
+  { key: 'in_progress', label: 'In progress', count: 'in_progress', params: { status: 'draft,submitted,revision_requested,twg_review,bidding,twg_certification,bac_review,re_pr,for_po' } },
+  // Requests sent back to their End User at least once, whatever they are now.
+  { key: 're_pr',       label: 'Re-PR',       count: 're_pr',       params: { re_pr: '1' } },
   { key: 'cancelled',   label: 'Cancelled',   count: 'cancelled',   params: { status: 'cancelled' } },
   { key: 'rejected',    label: 'Rejected',    count: 'rejected',    params: { status: 'rejected' } },
   { key: 'deleted',     label: 'Deleted',     count: 'deleted',     params: { deleted: 'only' } },
@@ -287,7 +289,7 @@ export default function ArchivePage() {
                         </TableCell>
                         <TableCell className={`text-right tabular-nums text-sm whitespace-nowrap ${['cancelled', 'rejected'].includes(pr.status) ? 'text-[--color-text-muted] line-through' : ''}`}
                           title={['cancelled', 'rejected'].includes(pr.status) ? 'Not counted in the budget' : undefined}>{fmtCurrency(pr.estimated_total)}</TableCell>
-                        <TableCell><PRStatusBadge status={pr.status} /></TableCell>
+                        <TableCell><div className="flex flex-wrap items-center gap-1.5"><PRStatusBadge status={pr.status} /><MarkerBadges pr={pr} /></div></TableCell>
                         <TableCell className="text-sm">
                           {pr.po_count > 0 ? (
                             <>

@@ -3,7 +3,7 @@ import {
   LayoutDashboard, FileText, ShoppingCart,
   Users, ChevronRight, Bell, Archive,
   LogOut, Settings as SettingsIcon, Gavel, AlarmClock, BookOpen,
-  ClipboardCheck, BarChart3, Scale, FilePlus, PackageCheck, Building2, ListChecks, FileBadge,
+  ClipboardCheck, BarChart3, Scale, FilePlus, PackageCheck, Building2, ListChecks, FileBadge, Store,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import useSignOut from '@/hooks/useSignOut'
@@ -21,6 +21,7 @@ const PPMP          = { to: '/ppmp',          label: 'PPMP',            icon: Li
 const REPORTS       = { to: '/reports',       label: 'Reports',         icon: BarChart3 }
 const ARCHIVE       = { to: '/archive',       label: 'Archive',         icon: Archive }
 const CERTIFICATES  = { to: '/certificates',  label: 'Certificates',    icon: FileBadge }
+const SUPPLIERS     = { to: '/suppliers',     label: 'Suppliers',       icon: Store }
 const ACCOUNT       = { label: 'Account', items: [{ to: '/settings', label: 'Settings', icon: SettingsIcon }] }
 const records       = (...items) => ({ label: 'Records', items })
 
@@ -30,11 +31,11 @@ function menuFor(role) {
       return [{ label: 'My Work', items: [HOME, { to: '/my-requests', label: 'My Requests', icon: FileText }, { to: '/pr/create', label: 'New Request', icon: FilePlus }] },
               records(PPMP, ARCHIVE), { label: 'Help', items: [NOTIFICATIONS, GUIDE] }, ACCOUNT]
     case 'twg':
-      return [{ label: 'My Work', items: [HOME, { to: '/twg/reviews', label: 'To Review', icon: ClipboardCheck }] },
+      return [{ label: 'My Work', items: [HOME, { to: '/twg/reviews', label: 'Review & Certify', icon: ClipboardCheck }] },
               records(CERTIFICATES, PPMP, ARCHIVE), { label: 'Help', items: [NOTIFICATIONS, GUIDE] }, ACCOUNT]
     case 'procurement':
       return [{ label: 'My Work', items: [HOME, { to: '/bidding', label: 'Work Queue', icon: Gavel }, ALL_REQUESTS, ORDERS] },
-              records(CERTIFICATES, PPMP, REPORTS, ARCHIVE), { label: 'Help', items: [NOTIFICATIONS, REMINDERS, GUIDE] }, ACCOUNT]
+              records(SUPPLIERS, CERTIFICATES, PPMP, REPORTS, ARCHIVE), { label: 'Help', items: [NOTIFICATIONS, REMINDERS, GUIDE] }, ACCOUNT]
     case 'bac':
       return [{ label: 'My Work', items: [HOME, { to: '/bac', label: 'For Evaluation', icon: Scale }] },
               records(CERTIFICATES, PPMP, ARCHIVE), { label: 'Help', items: [NOTIFICATIONS, GUIDE] }, ACCOUNT]
@@ -42,7 +43,7 @@ function menuFor(role) {
       return [{ label: 'My Work', items: [HOME, ORDERS, { to: '/delivery', label: 'Received', icon: PackageCheck }] },
               records(ARCHIVE), { label: 'Help', items: [NOTIFICATIONS, GUIDE] }, ACCOUNT]
     case 'admin':
-      return [{ label: 'Overview', items: [HOME, ALL_REQUESTS] }, records(CERTIFICATES, PPMP, REPORTS, ARCHIVE),
+      return [{ label: 'Overview', items: [HOME, ALL_REQUESTS] }, records(SUPPLIERS, CERTIFICATES, PPMP, REPORTS, ARCHIVE),
               { label: 'Administration', items: [
                 { to: '/users', label: 'User Management', icon: Users },
                 { to: '/settings?tab=organization', label: 'Organization', icon: Building2 },

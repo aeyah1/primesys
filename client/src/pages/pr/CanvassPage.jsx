@@ -5,7 +5,7 @@ import { toast } from '@/lib/toast'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { PRStatusBadge, CategoryBadge } from '@/components/shared/StatusBadge'
+import { PRStatusBadge, CategoryBadge, MarkerBadges } from '@/components/shared/StatusBadge'
 import AttachmentsPanel from '@/components/shared/AttachmentsPanel'
 import { useAuth } from '@/context/AuthContext'
 import { openPdf, downloadFile, blobErrorMessage } from '@/lib/download'
@@ -15,6 +15,7 @@ import BacPanel from '@/components/awards/BacPanel'
 import BacBidSheet from '@/components/awards/BacBidSheet'
 import BacAwardSheet from '@/components/awards/BacAwardSheet'
 import TwgCertificates from '@/components/awards/TwgCertificates'
+import RePrPanel from '@/components/awards/RePrPanel'
 import ProcurementActions from './ProcurementActions'
 
 // The steps of a canvass, from the bids to the purchase orders.
@@ -126,6 +127,7 @@ export default function CanvassPage() {
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="font-mono text-ui-xl font-bold text-[--color-text-primary]">{pr.pr_number}</h2>
             <PRStatusBadge status={pr.status} />
+            <MarkerBadges pr={pr} />
             <CategoryBadge category={pr.category} />
           </div>
           {pr.title && <p className="text-ui-sm text-[--color-text-secondary] mt-0.5">{pr.title}</p>}
@@ -151,6 +153,7 @@ export default function CanvassPage() {
       ) : (
         <>
           {canManage && canvass && ['bidding', 'twg_certification', 'bac_review'].includes(pr.status) && <ProcurementPart canvass={canvass} onPrintRfq={printRfq} onWordRfq={wordRfq} />}
+          {pr.status === 're_pr' && <RePrPanel pr={pr} canAct={!!canvass?.permissions?.re_pr} />}
           <BacPanel prId={String(pr.id)} part="status" />
 
           {bidding ? <BacBidSheet key={pr.id} pr={pr} canvass={canvass} />
