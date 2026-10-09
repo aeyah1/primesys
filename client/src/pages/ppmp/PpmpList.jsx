@@ -1,25 +1,28 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Upload, ShieldCheck, AlertTriangle, Info } from 'lucide-react'
+import { Upload, ShieldCheck, AlertTriangle, Info, CalendarClock } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableEmpty } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tab } from '@/components/shared/ListParts'
-import { PpmpStatusBadge } from '@/components/ppmp/PpmpStatusBadge'
+import { PpmpStatusBadge, shownStatus } from '@/components/ppmp/PpmpStatusBadge'
 import PpmpUploadDialog from '@/components/ppmp/PpmpUploadDialog'
 import Notice from '@/components/ppmp/PpmpNotice'
 import { useAuth } from '@/context/AuthContext'
-import { fmtCurrency, fmtDate } from '@/lib/utils'
+import { fmtCurrency, fmtDate, plural } from '@/lib/utils'
 import api from '@/lib/axios'
 
 const THIS_YEAR = new Date().getFullYear()
+// October to December: next year's PPMP is due before January 1.
+const YEAR_END_NEAR = new Date().getMonth() >= 9
 // The list's status filter.
 const STATUS_FILTERS = [
   { value: 'all', label: 'All statuses' },
   { value: 'approved', label: 'In effect' },
+  { value: 'ended', label: 'Ended' },
   { value: 'draft', label: 'Not in effect' },
   { value: 'withdrawn', label: 'Withdrawn' },
 ]
@@ -47,7 +50,7 @@ export default function PpmpList() {
     queryFn: () => api.get('/ppmp').then(r => r.data),
   })
   const years = [...new Set(rows.map(r => r.fiscal_year))]
-  const shown = rows.filter(r => (year === 'all' || String(r.fiscal_year) === year) && (status === 'all' || r.status === status))
+  const shown = rows.filter(r => (year === 'all' || String(r.fiscal_year) === year) && (status === 'all' || shownStatus(r.status, r.fiscal_year) === status))
   const cols = keeper ? 8 : 9
 
   return (
@@ -58,13 +61,13 @@ export default function PpmpList() {
           <p className="text-ui-sm text-[--color-text-secondary] mt-0.5">
             {keeper
               ? 'Your office\'s PPMP, uploaded as its softcopy. Once it is complete, it is in effect and your purchase requests draw on it.'
-              : 'Each office\'s PPMP, uploaded as its softcopy. You can view it, open the original file, and print it.'}
+              : 'Each office\'s PPMP, uploaded by its End User as a softcopy. You can view it, open the original file, and print it.'}
           </p>
         </div>
         {keeper && <Button onClick={() => setOpen(true)} className="gap-2"><Upload className="size-4" /> Upload PPMP</Button>}
       </div>
 
-      {keeper && !isLoading && <OwnStanding rows={rows} />}
+      {keeper && !isLoading && <><OwnStanding rows={rows} /><NextYearDue rows={rows} /></>}
 
       <Card>
         {!keeper && (
@@ -133,7 +136,7 @@ export default function PpmpList() {
                           <TableCell className="text-right tabular-nums">{r.item_count}</TableCell>
                           <TableCell className="text-right tabular-nums">{fmtCurrency(r.total)}</TableCell>
                           <TableCell>
-                            <PpmpStatusBadge status={r.status} />
+                            <PpmpStatusBadge status={r.status} year={r.fiscal_year} />
                             {r.status === 'draft' && r.problems[0] && <p className="mt-1 max-w-56 text-[10px] leading-snug text-amber-800">{r.problems[0]}</p>}
                             {r.pending && (
                               <p className="mt-1 max-w-56 text-[10px] leading-snug text-amber-800">
@@ -178,9 +181,24 @@ function OwnStanding({ rows }) {
   return <Notice tone="red" icon={AlertTriangle} title="No PPMP yet">Upload your office's Final PPMP. Requests can't be submitted until it is in effect.</Notice>
 }
 
+// From October, a reminder that next year's Final PPMP must be in effect by January 1 or requests stop.
+function NextYearDue({ rows }) {
+  const next = rows.filter(r => r.fiscal_year === THIS_YEAR + 1)
+  if (!YEAR_END_NEAR || next.some(r => r.status === 'approved' && r.kind === 'final')) return null
+  const days = Math.ceil((new Date(THIS_YEAR + 1, 0, 1) - new Date()) / 86400000)
+  const uploaded = next.some(r => r.status === 'draft' || r.pending)
+  return (
+    <Notice tone="amber" icon={CalendarClock} title={`FY ${THIS_YEAR + 1} starts in ${plural(days, 'day')}`}>
+      {uploaded
+        ? `Your FY ${THIS_YEAR + 1} PPMP is uploaded but not in effect yet. Finish it before January 1, or your requests can't be submitted until it is.`
+        : `Upload your office's FY ${THIS_YEAR + 1} Final PPMP before January 1, or your requests can't be submitted until it is in effect.`}
+    </Notice>
+  )
+}
+
 // Every office's PPMP standing for a year: who can submit requests, and who is still waiting on theirs.
 function Coverage() {
-  const [year, setYear] = useState(THIS_YEAR)
+  const [year, setYear] = useState(YEAR_END_NEAR ? THIS_YEAR + 1 : THIS_YEAR)
   const { data, isLoading } = useQuery({
     queryKey: ['ppmp-coverage', year],
     queryFn: () => api.get('/ppmp/coverage', { params: { year } }).then(r => r.data),
