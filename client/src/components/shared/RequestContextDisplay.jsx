@@ -2,7 +2,7 @@ import { User, Calendar, Briefcase, Building2, ClipboardList, UserCheck } from '
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { PURPOSE_TYPES, PURPOSE_TYPE_LABELS } from '@/components/shared/RequestContextForm'
-import { fmtDate } from '@/lib/utils'
+import { fmtDate, fmtCurrency } from '@/lib/utils'
 
 const PURPOSE_TYPE_COLORS = {
   personal: 'bg-blue-50 text-blue-700 border-blue-300',
@@ -48,17 +48,21 @@ export function hasRequestContext(pr) {
 
 // The context fields alone, for a card that holds other details too.
 export function RequestContextFields({ pr, className = '' }) {
+  const fixed = pr.signatories?.requested?.fixed ? pr.signatories.requested : null
   return (
     <div className={`grid sm:grid-cols-2 lg:grid-cols-3 gap-4 ${className}`}>
       <Field icon={Building2}    label="Office / Section" value={pr.department} />
       {/* Who the printed form names as the requesting party: as the Fund
-          Administrator typed it, or the office head when it was filed. */}
+          Administrator typed it, or the office head when it was filed; above
+          the threshold, the Campus Director (the campus rule, server signatories). */}
       <Field
         icon={UserCheck}
         label="Requested by"
-        value={pr.requested_by_name
-          ? `${pr.requested_by_name}${pr.requested_by_designation ? ` — ${pr.requested_by_designation}` : ''}${pr.requested_by_signed ? ' (signed)' : ''}`
-          : null}
+        value={fixed
+          ? `${fixed.name}${fixed.designation ? ` — ${fixed.designation}` : ''} (fixed above ${fmtCurrency(pr.signatories.threshold)})`
+          : pr.requested_by_name
+            ? `${pr.requested_by_name}${pr.requested_by_designation ? ` — ${pr.requested_by_designation}` : ''}${pr.requested_by_signed ? ' (signed)' : ''}`
+            : null}
       />
 
       {pr.purpose_type === 'event' && (

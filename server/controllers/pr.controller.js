@@ -13,7 +13,7 @@ const { orderBySection } = require('../utils/itemSections')
 const { currentQuarter } = require('../utils/quarters')
 const { CATEGORIES, isCategory, syncPRCategory } = require('../utils/categories')
 const crypto          = require('crypto')
-const { loadOrgSettings, fundCodeFor, FUND_SOURCE_VALUES } = require('../utils/orgSettings')
+const { loadOrgSettings, fundCodeFor, approverFor, requesterFor, FUND_SOURCE_VALUES } = require('../utils/orgSettings')
 const { withSignatures, prSigned } = require('../utils/orgSignatures')
 const { temporaryRef, isTemporary } = require('../utils/prNumber')
 const { requestedBy, requesterOf, resolveDepartment } = require('../utils/departments')
@@ -163,7 +163,9 @@ exports.getById = asyncHandler(async (req, res) => {
            -- For the requestor's progress box: when the latest canvass (its RFQ) started, and how many quotations are in.
            (SELECT MAX(sl.created_at) FROM pr_status_logs sl WHERE sl.pr_id = pr.id AND sl.to_status = 'bidding'
               AND sl.from_status IN ('twg_review', 'for_po')) AS rfq_at,
-           (SELECT COUNT(*) FROM canvass_bidders cb WHERE cb.pr_id = pr.id) AS quotes
+           (SELECT COUNT(*) FROM canvass_bidders cb WHERE cb.pr_id = pr.id) AS quotes,
+           u.designation AS created_by_designation,
+           (SELECT COALESCE(SUM(i.quantity * i.estimated_cost), 0) FROM pr_items i WHERE i.pr_id = pr.id) AS items_total
     FROM purchase_requests pr
     JOIN users u ON pr.created_by = u.id
     LEFT JOIN users du   ON du.id = pr.deleted_by
@@ -201,7 +203,10 @@ exports.getById = asyncHandler(async (req, res) => {
     WHERE psl.pr_id = ? AND psl.to_status = 'revision_requested'
     ORDER BY psl.id DESC LIMIT 1
   `, [req.params.id])
-  const { requested_by_signature, ...pr } = rows[0]
+  const { requested_by_signature, items_total, ...pr } = rows[0]
+  // Who the printed form names as requesting and approving (above the threshold, the Campus Director and the SUC President).
+  const org = await loadOrgSettings(pool)
+  const approver = approverFor(org, items_total)
   // No itemCount here: Submit stays offered on an empty draft, and the move
   // itself (changePRStatus) answers "Add at least one item before submitting".
   const facts = { ...pr, hasPO: active.length > 0, hasAnyPO: pos.length > 0, hasLot: !!has_lot, hasAward: !!has_award }
@@ -211,6 +216,7 @@ exports.getById = asyncHandler(async (req, res) => {
   res.json({
     ...pr,
     requested_by_signed: !!requested_by_signature,
+    signatories: { threshold: approver.threshold, requested: requesterFor(org, items_total, pr), approved: { name: approver.name, designation: approver.designation } },
     // Each active PO with what this user may do with it.
     pos: active.map(({ has_deliveries, ...po }) => ({
       ...po,

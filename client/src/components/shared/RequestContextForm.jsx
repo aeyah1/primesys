@@ -37,7 +37,7 @@ export function sectionFor(value, code, was, follow) {
   return null
 }
 
-export default function RequestContextForm({ value = {}, onChange, followOffice = false, prId = null }) {
+export default function RequestContextForm({ value = {}, onChange, followOffice = false, prId = null, total = 0 }) {
   const set = (k, v) => onChange({ ...value, [k]: v })
   // A Fund Administrator files only for their own office, whose PPMP the request draws on.
   const { user } = useAuth()
@@ -123,7 +123,7 @@ export default function RequestContextForm({ value = {}, onChange, followOffice 
       </div>
 
       {(ownOffice || value.department_id) && (
-        <RequesterFields value={value} onChange={(next) => onChange({ ...value, ...next })} departmentId={ownOffice ? null : value.department_id} />
+        <RequesterFields value={value} onChange={(next) => onChange({ ...value, ...next })} departmentId={ownOffice ? null : value.department_id} total={total} />
       )}
 
       <div className="space-y-2">

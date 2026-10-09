@@ -8,6 +8,7 @@ import { PURPOSE_TYPE_LABELS } from '@/components/shared/RequestContextForm'
 import { fmtCurrency, fmtDate, groupItemsBySection } from '@/lib/utils'
 import api from '@/lib/axios'
 import { useAuth } from '@/context/AuthContext'
+import { signatoriesFor, signerLine, useOrgSettings } from '@/lib/signatories'
 
 // A last look before a PR goes to the TWG: everything that will be sent, as
 // it will be read, with anything that looks missing pointed out. Used on the
@@ -16,7 +17,7 @@ import { useAuth } from '@/context/AuthContext'
 // items, or null while they load. requestedBy: the name already on the PR, if any.
 // A name typed on the form wins; without either, the office and signer are worked out as the server will
 // (server/utils/departments.js): the filer's own office when none is chosen,
-// and the filer when the office has no head.
+// and the filer when the office has no head. Above the threshold the campus rule fixes both signatories.
 
 const lineTotal = (i) => (parseFloat(i.estimated_cost) || 0) * (parseFloat(i.quantity) || 0)
 
@@ -42,6 +43,7 @@ export default function ReviewSubmitDialog({ request, items, requestedBy, open, 
     queryFn:  () => api.get(`/pr/${request.id}/attachments`).then(r => r.data),
     enabled:  open && !!request?.id,
   })
+  const { data: settings } = useOrgSettings()
   if (!open) return null
   const r = request || {}
   // A Fund Administrator's office is always their own; its Office/Section prints as they typed it, else the office code.
@@ -53,18 +55,19 @@ export default function ReviewSubmitDialog({ request, items, requestedBy, open, 
     : dept ? `${dept.code}: ${dept.name}` : section || null
   const filer = user?.name ? `${user.name}${user.designation ? `, ${user.designation}` : ''}` : null
   const typed = r.requested_by_name?.trim() ? `${r.requested_by_name.trim()}${r.requested_by_designation?.trim() ? `, ${r.requested_by_designation.trim()}` : ''}` : null
-  const signed = !!(r.signature || r.requested_by_signed)
-  const head = typed || requestedBy || (dept?.head_name ? `${dept.head_name}${dept.head_designation ? `, ${dept.head_designation}` : ''}` : filer)
   const list = items || []
   const total = list.reduce((s, i) => s + lineTotal(i), 0)
+  const rule = signatoriesFor(settings, total)
+  const signed = !rule.above && !!(r.signature || r.requested_by_signed)
+  const head = rule.above ? signerLine(rule.requested) : typed || requestedBy || (dept?.head_name ? `${dept.head_name}${dept.head_designation ? `, ${dept.head_designation}` : ''}` : filer)
   const docs = r.id ? saved.map(a => a.original_name) : (r.files || []).map(f => f.name)
 
   // What looks missing or wrong: pointed out, never blocking.
   const checks = [
     !office && 'No office is chosen, so the form prints no Office/Section.',
-    !typed && !requestedBy && dept && !dept.head_name && 'This office has no head on record, so the form names you as the requesting party.',
+    !rule.above && !typed && !requestedBy && dept && !dept.head_name && 'This office has no head on record, so the form names you as the requesting party.',
     !head && '"Requested by" prints a blank line to sign by hand.',
-    head && !signed && 'Not signed yet: the form prints a blank line for the signature.',
+    !rule.above && head && !signed && 'Not signed yet: the form prints a blank line for the signature.',
     ['event', 'project'].includes(r.purpose_type) && !docs.length && `No proposal is attached for the ${r.purpose_type}.`,
     r.purpose_type === 'event' && !r.event_name?.trim() && 'The event has no name.',
     r.purpose_type === 'project' && !r.project_name?.trim() && 'The project has no name.',
@@ -81,6 +84,10 @@ export default function ReviewSubmitDialog({ request, items, requestedBy, open, 
             <Row label="Purpose">{r.title?.trim() || 'Not given'}</Row>
             <Row label="Office" missing={!office}>{office || 'Not chosen'}</Row>
             <Row label="Requested by" missing={!head}>{head ? `${head}${signed ? ' (signed)' : ''}` : 'Blank line to sign by hand'}</Row>
+            <Row label="Approved by">
+              {signerLine(rule.approved) || 'Blank line to sign by hand'}
+              {rule.above && <span className="block text-xs text-[--color-text-secondary]">Above {fmtCurrency(rule.threshold)}, the Campus Director requests and the SUC President approves (the campus rule).</span>}
+            </Row>
             <Row label="Type of use">{PURPOSE_TYPE_LABELS[r.purpose_type] || 'Not given'}</Row>
             {r.purpose_type === 'event' && (
               <Row label="Event" missing={!r.event_name?.trim()}>
