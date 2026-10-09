@@ -181,8 +181,8 @@ async function run() {
   for (const [label, value] of [
     ['requested by', 'Requested by:'], ['approved by', 'Approved by:'],
     ['signature row', 'Signature'], ['printed name row', 'Printed'], ['designation row', 'Designation'],
-    ['office head, not the encoder', 'JUAN A. DELA CRUZ, Ph. D.'], ['head designation', 'Department Chair, DCS'],
-    // The window-blinds request totals 70,000, so its approver is the one above the threshold.
+    // The window-blinds request totals 70,000, above the 50,000 threshold: the Campus Director requests, the President approves.
+    ['above the threshold the Campus Director requests', 'MARIA S. SANTOS, Ph. D.'], ['her designation', 'Campus Director'],
     ['approver above the threshold', 'ROBERTO D. LIM, Ph. D.'], ['their designation', 'University President'],
     ['allotment box', 'Allotment/Appropriation Available'], ['budget officer', 'PEDRO B. REYES'],
     ['app box', 'INCLUDED IN THE APP'], ['bac secretariat', 'ANA C. GARCIA, Ph.D.'],
@@ -193,36 +193,49 @@ async function run() {
     !has(p1, 'Felix Miguel Atenin'),
     p1.texts.map(x => x.str).filter(s => s.includes('Felix')).join(','))
 
+  t.check('Signatories', 'above the threshold the office head is not named', !has(p1, 'JUAN A. DELA CRUZ'))
+
+  // At or below the threshold the office head the End User named requests, and the Campus Director approves.
+  const WITHIN = { ...ORG, approver_threshold: '100000' }
+  const small = parse(await render({ pr: PR, orgSettings: WITHIN, items: BLINDS }))[0]
+  t.check('Signatories', 'within the threshold: the office head, not the encoder', has(small, 'JUAN A. DELA CRUZ, Ph. D.') && !has(small, 'Felix Miguel Atenin'))
+  t.check('Signatories', '…with the head\'s designation', has(small, 'Department Chair, DCS'))
+  t.check('Signatories', '…and the Campus Director approves', has(small, 'MARIA S. SANTOS, Ph. D.') && !has(small, 'ROBERTO D. LIM'))
+
   // An older PR, filed before offices carried a head, still names its creator.
   const legacy = parse(await render({
     pr: { ...PR, requested_by_name: null, requested_by_designation: null, created_by_designation: 'Administrative Aide IV' },
-    orgSettings: ORG, items: BLINDS,
+    orgSettings: WITHIN, items: BLINDS,
   }))
   t.check('Signatories', 'a PR with no office head falls back to its creator', has(legacy[0], 'Felix Miguel Atenin'))
   t.check('Signatories', '…with the creator\'s own designation', has(legacy[0], 'Administrative Aide IV'))
 
   // ── Who approves depends on the amount ──────────────────────────────
-  // The campus rule: at or below the threshold the Campus Director signs,
-  // above it the University President does.
+  // The campus rule: at or below the threshold the office head requests and
+  // the Campus Director approves; above it the Campus Director requests and
+  // the President approves. Requested by is the left column, Approved by the right.
   const money = (n) => ({ group_label: 'LOT A', item_name: 'Thing', quantity: 1, unit: 'pc', estimated_cost: n })
-  const approverOn = async (total) => {
-    const p = parse(await render({ pr: PR, orgSettings: ORG, items: [money(total)] }))[0]
-    return { director: has(p, 'MARIA S. SANTOS'), president: has(p, 'ROBERTO D. LIM') }
+  const side = (p, s) => { const x = find(p, s)?.x; return x == null ? null : x > PAGE_W / 2 ? 'approves' : 'requests' }
+  const signersOn = async (total, org = ORG) => {
+    const p = parse(await render({ pr: PR, orgSettings: org, items: [money(total)] }))[0]
+    return { head: side(p, 'JUAN A. DELA CRUZ'), director: side(p, 'MARIA S. SANTOS'), president: side(p, 'ROBERTO D. LIM') }
   }
-  let a = await approverOn(49999)
-  t.check('Approver', 'below the threshold the Campus Director signs', a.director && !a.president, JSON.stringify(a))
-  a = await approverOn(50000)
-  t.check('Approver', 'exactly at the threshold it is still the Campus Director', a.director && !a.president, JSON.stringify(a))
-  a = await approverOn(50001)
-  t.check('Approver', 'above it the University President signs', a.president && !a.director, JSON.stringify(a))
-  a = await approverOn(168030)
-  t.check('Approver', 'and on a large request too', a.president && !a.director, JSON.stringify(a))
+  const within = (a) => a.head === 'requests' && a.director === 'approves' && a.president === null
+  const above = (a) => a.head === null && a.director === 'requests' && a.president === 'approves'
+  let a = await signersOn(49999)
+  t.check('Approver', 'below the threshold: the office head requests, the Campus Director approves', within(a), JSON.stringify(a))
+  a = await signersOn(50000)
+  t.check('Approver', 'exactly at the threshold it is still so', within(a), JSON.stringify(a))
+  a = await signersOn(50001)
+  t.check('Approver', 'above it the Campus Director requests and the President approves', above(a), JSON.stringify(a))
+  a = await signersOn(168030)
+  t.check('Approver', 'and on a large request too', above(a), JSON.stringify(a))
 
-  const noThreshold = parse(await render({
-    pr: PR, orgSettings: { ...ORG, approver_threshold: '' }, items: [money(60000)],
-  }))[0]
-  t.check('Approver', 'with no threshold set it falls back to 50,000',
-    has(noThreshold, 'ROBERTO D. LIM'), 'the president for 60,000')
+  const blank = { ...ORG, approver_threshold: '' }
+  a = await signersOn(200000, blank)
+  t.check('Approver', 'with no threshold set it falls back to 200,000: at it, the office head and the Campus Director', within(a), JSON.stringify(a))
+  a = await signersOn(200001, blank)
+  t.check('Approver', '…above it, the Campus Director and the President', above(a), JSON.stringify(a))
 
   // ── Section subtotals, as the campus's filled forms carry them ──────
   const lots = parse(await render({

@@ -127,7 +127,7 @@ export default function BacBidSheet({ pr, canvass }) {
           )}
         </section>
 
-        <div className="2xl:col-span-2"><CanvassFiles prId={prId} shown={shown} onShow={setShown} /></div>
+        <div className="2xl:col-span-2"><CanvassFiles prId={prId} shown={shown} onShow={setShown} canRemove={canvass.permissions?.bid} /></div>
       </div>
 
       <section className="flex flex-wrap items-center justify-end gap-2 rounded-xl border border-[--color-border] bg-[--color-surface] px-4 py-4 shadow-sm">

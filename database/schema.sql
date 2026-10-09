@@ -740,7 +740,7 @@ INSERT INTO `org_settings` (`setting_key`, `setting_value`) VALUES
   ('fund_code_igp',                 '05-206441-IGP'),
   -- At or below this amount the Campus Director approves; above it the
   -- University President does.
-  ('approver_threshold',            '50000'),
+  ('approver_threshold',            '200000'),
   ('approved_above_name',           NULL),
   ('approved_above_designation',    'University President'),
   -- Request for Quotation signatories.

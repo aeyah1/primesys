@@ -112,7 +112,7 @@ export default function QuotationForm({ prId, canvass, quotation, onFile, onClos
   }
 
   const twin = canvass.bidders.find(b => b.id !== quotation?.id && nameKey(b.name) === nameKey(name))
-  const block = (!fileId ? 'Attach the supplier\'s RFQ file.' : null)
+  const block = (!fileId || !files.some(f => f.id === fileId) ? 'Attach the supplier\'s RFQ file.' : null)
     || (!name.trim() ? 'Type the supplier\'s name.' : null)
     || (twin ? `${twin.name} is already entered. Edit that quotation instead.` : null)
     || (!quoted.length ? 'Type the price of at least one item.' : null)

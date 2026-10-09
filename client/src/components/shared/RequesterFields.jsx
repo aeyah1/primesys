@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { PenLine, Trash2 } from 'lucide-react'
+import { PenLine, Trash2, Lock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import SignatureDialog from './SignatureDialog'
 import api from '@/lib/axios'
+import { fmtCurrency } from '@/lib/utils'
+import { signatoriesFor, signerLine, useOrgSettings } from '@/lib/signatories'
 
 // What a PR form sends about who requested it: the name and designation typed,
 // and the signature only when it was signed or removed here.
@@ -22,9 +24,13 @@ export const requesterPayload = (f) => ({
    requested_by_designation, requested_by_touched (someone was typed, or the
    request already names someone), signature ({ image, method } or null) and
    signature_changed; onChange(next) merges into it. departmentId: the office,
-   for staff (a Fund Administrator's own office is used for them). */
-export default function RequesterFields({ value, onChange, departmentId }) {
+   for staff (a Fund Administrator's own office is used for them). total: the
+   items' estimated total; above the threshold the campus rule fixes who
+   requests and approves, so the fields give way to a note (what was typed is kept). */
+export default function RequesterFields({ value, onChange, departmentId, total = 0 }) {
   const [signing, setSigning] = useState(false)
+  const { data: settings } = useOrgSettings()
+  const fixed = signatoriesFor(settings, total)
   const { data: people = [] } = useQuery({
     queryKey: ['pr-requesters', departmentId || 'own'],
     queryFn: () => api.get(`/pr/requesters${departmentId ? `?department_id=${departmentId}` : ''}`).then(r => r.data),
@@ -49,6 +55,24 @@ export default function RequesterFields({ value, onChange, departmentId }) {
     })
   }
   const name = value.requested_by_name?.trim()
+
+  if (fixed.above) {
+    return (
+      <div className="flex items-start gap-3 rounded-xl border border-[--color-brand] bg-[--color-brand-light] p-3">
+        <Lock className="mt-0.5 size-4 shrink-0 text-[--color-brand]" />
+        <div className="space-y-1 text-xs text-[--color-text-primary]">
+          <p className="font-semibold">Above {fmtCurrency(fixed.threshold)}, the signatories are fixed</p>
+          <p>
+            Requested by: <span className="font-semibold">{signerLine(fixed.requested) || 'the Campus Director'}</span>.
+            Approved by: <span className="font-semibold">{signerLine(fixed.approved) || 'the SUC President'}</span>.
+          </p>
+          <p className="text-[11px] text-[--color-text-secondary]">
+            The campus rule for requests above {fmtCurrency(fixed.threshold)}.{name ? ` If the total comes back to ${fmtCurrency(fixed.threshold)} or less, the form names ${name} again.` : ''}
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-3 rounded-xl border border-[--color-border] p-3">

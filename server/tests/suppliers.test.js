@@ -81,6 +81,15 @@ async function run() {
   await is(Q, 'a profile added later for Delta links its quotation', 2, 'POST', '/suppliers', { name: 'Delta Store' }, code(201))
   await is(Q, '…so', 6, 'GET', '/canvass/90', undefined, (r) => r.status === 200 && r.data.bidders.every(b => b.supplier_id))
 
+  const F = 'A file attached by mistake'
+  const wrong = await is(F, 'the BAC attaches a wrong file', 6, 'POST', '/pr/90/attachments', H.canvassScan(), code(201))
+  await is(F, '…and removes it', 6, 'DELETE', `/pr/90/attachments/${wrong.data?.id}`, undefined, code(200))
+  await is(F, '…gone from the request', 6, 'GET', '/pr/90/attachments', undefined, (r) => r.status === 200 && !r.data.some(a => a.id === wrong.data?.id))
+  const rfq = await is(F, 'Delta\'s RFQ attached', 6, 'POST', '/pr/90/attachments', H.canvassScan(), code(201))
+  await is(F, '…and set on its quotation', 6, 'PUT', '/canvass/90/bids',
+    { bidders: [{ name: 'Delta Store', attachment_id: rfq.data?.id, prices: [{ pr_item_id: 901, unit_price: 230 }] }] }, code(200))
+  await is(F, 'a quotation\'s RFQ file can\'t be removed → 409', 6, 'DELETE', `/pr/90/attachments/${rfq.data?.id}`, undefined, code(409, /RFQ file of Delta Store's quotation/))
+
   const V = 'Inside the request'
   await is(V, 'while the BAC enters the quotations, its End User sees no supplier profile', 3, 'GET', '/pr/90/suppliers', undefined,
     (r) => r.status === 200 && r.data.visible === false && r.data.suppliers.length === 0)

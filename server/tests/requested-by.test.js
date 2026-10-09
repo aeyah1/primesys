@@ -26,6 +26,9 @@ function fixtures() {
       (2, 'DOE', 'Department of Engineering', NULL, NULL);
     INSERT INTO users (id, name, username, email, password_hash, role, department_id, is_active, is_verified) VALUES
       ${U(1, 'Admin One', 'NULL')}, ${U(2, 'Proc One', 'NULL')}, ${U(3, 'Maria Santos', 1)}, ${U(4, 'Ben Ramos', 2)};
+    INSERT INTO org_settings (setting_key, setting_value) VALUES ('approver_threshold', '200000'),
+      ('approved_by_name', 'JUANCHO A. INTANO, Ph. D.'), ('approved_by_designation', 'Campus Director'),
+      ('approved_above_name', 'NEMESIO G. LOAYON, Ph. D.'), ('approved_above_designation', 'SUC President III'), ('bac_members', 'A MEMBER');
     SET FOREIGN_KEY_CHECKS = 1;
   `
 }
@@ -120,6 +123,22 @@ async function run() {
   const staff = await is(G4, 'staff file one, picking the office from the list', 1, 'POST', '/pr', { title: 'Staff filed', department_id: 1, department: 'Anything' }, code(201))
   await is(G4, '…which still prints the office code (their form has no typed section)', 1, 'GET', `/pr/${staff.data?.id}`, undefined,
     (r) => r.data.department === 'DCS' && r.data.department_id === 1)
+
+  const G5 = 'Above the threshold'
+  await is(G5, 'an End User reads the threshold and the two approvers, not the other signatories', 3, 'GET', '/settings', undefined,
+    (r) => r.status === 200 && r.data.approver_threshold === '200000' && r.data.approved_by_name === 'JUANCHO A. INTANO, Ph. D.'
+           && r.data.approved_above_designation === 'SUC President III' && !('bac_members' in r.data))
+  const big = await is(G5, 'a request of exactly 200,000', 3, 'POST', '/pr', { title: 'Laptops for the lab' }, code(201))
+  await H.sql(TEST_DB, `INSERT INTO pr_items (pr_id, item_name, quantity, estimated_cost) VALUES (${big.data?.id}, 'Laptop', 4, 50000)`)
+  await is(G5, '…the office head requests, the Campus Director approves', 3, 'GET', `/pr/${big.data?.id}`, undefined,
+    (r) => r.data.signatories?.requested.name === 'JUAN DELA CRUZ' && r.data.signatories.requested.fixed === false
+           && r.data.signatories.approved.name === 'JUANCHO A. INTANO, Ph. D.' && r.data.signatories.threshold === 200000)
+  await H.sql(TEST_DB, `INSERT INTO pr_items (pr_id, item_name, quantity, estimated_cost) VALUES (${big.data?.id}, 'Mouse', 1, 0.01)`)
+  await is(G5, 'one centavo above: the Campus Director requests, the SUC President approves, fixed', 3, 'GET', `/pr/${big.data?.id}`, undefined,
+    (r) => r.data.signatories?.requested.name === 'JUANCHO A. INTANO, Ph. D.' && r.data.signatories.requested.designation === 'Campus Director'
+           && r.data.signatories.requested.fixed === true && r.data.signatories.approved.name === 'NEMESIO G. LOAYON, Ph. D.'
+           && r.data.requested_by_name === 'JUAN DELA CRUZ')
+  await is(G5, '…and its form prints', 3, 'GET', `/pr/${big.data?.id}/pdf`, undefined, (r) => r.status === 200 && Buffer.isBuffer(r.data))
 
   return t.summary()
 }
