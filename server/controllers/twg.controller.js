@@ -48,7 +48,7 @@ exports.listPending = asyncHandler(async (req, res) => {
   // last_reviewer_name: the TWG member who last decided on it, if any.
   // uncovered: no active TWG member reviews its area (shown to admins).
   const [rows] = await pool.execute(`
-    SELECT pr.id, pr.pr_number, pr.title, pr.status, pr.category, pr.created_at,
+    SELECT pr.id, pr.pr_number, pr.title, pr.status, pr.category, pr.created_at, pr.recanvass_count,
            u.name AS created_by_name,
            q.label AS quarter_label, q.year AS quarter_year,
            (SELECT COUNT(*) FROM pr_items WHERE pr_id = pr.id) AS item_count,
@@ -195,7 +195,8 @@ exports.certifyPR = asyncHandler(async (req, res) => {
         ? `The TWG found no offer for ${prName(pr)} that meets your specifications: ${comment}. It goes back to canvass for new quotations.`
         : `The TWG returned the offers for ${prName(pr)} to the BAC to correct: ${comment}.`,
     })
-    await conn.execute('UPDATE purchase_requests SET certification_return_reason = ?, recanvass_reason = ? WHERE id = ?',
+    // A re-canvass stays counted on the request for good (its "Re-canvassed" marker).
+    await conn.execute(`UPDATE purchase_requests SET certification_return_reason = ?, recanvass_reason = ?${recanvass ? ', recanvass_count = LEAST(recanvass_count + 1, 255)' : ''} WHERE id = ?`,
       [recanvass ? null : comment, recanvass ? comment : null, pr.id])
     return { pr }
   })

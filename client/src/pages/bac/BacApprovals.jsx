@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { FilterChip, Pager } from '@/components/shared/ListParts'
+import { RecanvassBadge } from '@/components/shared/StatusBadge'
 import { fmtCurrency, fmtDate, fmtDatetime } from '@/lib/utils'
 import { openPdf, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
@@ -80,6 +81,7 @@ export default function BacApprovals() {
                         <span className="text-ui-sm font-bold text-[--color-text-primary]">Resolution No. {row.resolution_number}</span>
                       )}
                       <span className="font-mono text-ui-sm font-bold text-[--color-brand]">{row.pr_number}</span>
+                      {view === 'pending' && <RecanvassBadge count={row.recanvass_count} />}
                     </div>
                     {row.title && <p className="text-ui-sm text-[--color-text-primary] mt-1 line-clamp-2">{row.title}</p>}
                     <p className="text-[10px] text-[--color-text-muted] mt-1.5">

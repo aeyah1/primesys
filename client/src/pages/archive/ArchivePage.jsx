@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableEmpty } from '@/components/ui/table'
-import { PRStatusBadge } from '@/components/shared/StatusBadge'
+import { PRStatusBadge, RecanvassBadge } from '@/components/shared/StatusBadge'
 import { Tab, Pager } from '@/components/shared/ListParts'
 import useUrlParams from '@/hooks/useUrlParams'
 import { fmtDate, fmtCurrency, CATEGORY_LABELS, PR_STATUS_LABELS } from '@/lib/utils'
@@ -287,7 +287,7 @@ export default function ArchivePage() {
                         </TableCell>
                         <TableCell className={`text-right tabular-nums text-sm whitespace-nowrap ${['cancelled', 'rejected'].includes(pr.status) ? 'text-[--color-text-muted] line-through' : ''}`}
                           title={['cancelled', 'rejected'].includes(pr.status) ? 'Not counted in the budget' : undefined}>{fmtCurrency(pr.estimated_total)}</TableCell>
-                        <TableCell><PRStatusBadge status={pr.status} /></TableCell>
+                        <TableCell><div className="flex flex-wrap items-center gap-1.5"><PRStatusBadge status={pr.status} /><RecanvassBadge count={pr.recanvass_count} /></div></TableCell>
                         <TableCell className="text-sm">
                           {pr.po_count > 0 ? (
                             <>

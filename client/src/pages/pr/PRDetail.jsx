@@ -15,7 +15,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
-import { PRStatusBadge, DeliveryStatusBadge, CategoryBadge } from '@/components/shared/StatusBadge'
+import { PRStatusBadge, DeliveryStatusBadge, CategoryBadge, RecanvassBadge } from '@/components/shared/StatusBadge'
 import AttachmentsPanel from '@/components/shared/AttachmentsPanel'
 import { fmtDate, fmtCurrency, PR_STATUS_LABELS, CATEGORY_FORM, buildItemNotes, groupItemsBySection, PROCUREMENT_MODES, isTemporaryPrNumber } from '@/lib/utils'
 import { SectionNameInput, SectionHeaderRow } from '@/components/shared/ItemSections'
@@ -788,6 +788,7 @@ export default function PRDetail() {
               {pr.pr_number}
             </h2>
             <PRStatusBadge status={pr.status} />
+            <RecanvassBadge count={pr.recanvass_count} />
             <CategoryBadge category={pr.category} />
             {deliveryStatus && <DeliveryStatusBadge status={deliveryStatus} />}
           </div>

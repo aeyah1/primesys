@@ -39,7 +39,7 @@ exports.queue = asyncHandler(async (req, res) => {
   let rows
   if (view === 'pending') {
     [rows] = await pool.execute(`
-      SELECT pr.id, pr.pr_number, pr.title, pr.status, pr.department, pr.mode_of_procurement, pr.certification_return_reason, pr.recanvass_reason,
+      SELECT pr.id, pr.pr_number, pr.title, pr.status, pr.department, pr.mode_of_procurement, pr.certification_return_reason, pr.recanvass_reason, pr.recanvass_count,
              COALESCE((SELECT MAX(sl.created_at) FROM pr_status_logs sl WHERE sl.pr_id = pr.id AND sl.to_status = pr.status), pr.created_at) AS since,
              (SELECT COUNT(*) FROM canvass_bidders d WHERE d.pr_id = pr.id) AS bidders,
              (SELECT COUNT(*) FROM pr_items i WHERE i.pr_id = pr.id AND i.dropped_at IS NULL) AS items,

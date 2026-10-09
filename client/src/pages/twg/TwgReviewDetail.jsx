@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
-import { PRStatusBadge, CategoryBadge } from '@/components/shared/StatusBadge'
+import { PRStatusBadge, CategoryBadge, RecanvassBadge } from '@/components/shared/StatusBadge'
 import { fmtCurrency, fmtDatetime, CATEGORY_LABELS, PR_STATUS_LABELS, groupItemsBySection } from '@/lib/utils'
 import RequestContextDisplay from '@/components/shared/RequestContextDisplay'
 import AttachmentsPanel from '@/components/shared/AttachmentsPanel'
@@ -155,6 +155,7 @@ export default function TwgReviewDetail() {
           <div className="flex items-center gap-2 flex-wrap">
             <h2 className="font-mono text-ui-xl font-bold text-[--color-brand]">{pr.pr_number}</h2>
             <PRStatusBadge status={pr.status} />
+            <RecanvassBadge count={pr.recanvass_count} />
             <CategoryBadge category={pr.category} />
           </div>
           {pr.title && (

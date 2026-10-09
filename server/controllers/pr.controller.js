@@ -70,7 +70,7 @@ exports.list = asyncHandler(async (req, res) => {
   const [rows] = await pool.execute(`
     SELECT pr.id, pr.pr_number, pr.title, pr.status, pr.fund_cluster, pr.category,
            pr.department, pr.purpose_type, pr.date_needed, pr.created_at,
-           pr.created_by, pr.deleted_at, pr.delete_reason, pr.recanvass_reason,
+           pr.created_by, pr.deleted_at, pr.delete_reason, pr.recanvass_reason, pr.recanvass_count,
            u.name AS created_by_name, du.name AS deleted_by_name,
            q.label AS quarter_label, q.year AS quarter_year,
            ${ACTIVE('MIN(px.id)')} AS po_id,

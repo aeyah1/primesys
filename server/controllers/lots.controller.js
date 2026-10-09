@@ -200,7 +200,7 @@ exports.queue = asyncHandler(async (req, res) => {
                               WHEN SUM(px.delivery_status = 'delivered') = COUNT(*) THEN 'delivered'
                               WHEN SUM(px.delivery_status <> 'pending') > 0 THEN 'partial'
                               ELSE 'pending' END`)} AS delivery_status,
-           pr.mode_of_procurement, pr.certification_return_reason, pr.recanvass_reason,
+           pr.mode_of_procurement, pr.certification_return_reason, pr.recanvass_reason, pr.recanvass_count,
            COALESCE((SELECT MAX(sl.created_at) FROM pr_status_logs sl WHERE sl.pr_id = pr.id AND sl.to_status = pr.status), pr.created_at) AS stage_since
       FROM purchase_requests pr
       JOIN users u ON u.id = pr.created_by

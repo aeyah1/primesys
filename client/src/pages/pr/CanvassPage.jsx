@@ -5,7 +5,7 @@ import { toast } from '@/lib/toast'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { PRStatusBadge, CategoryBadge } from '@/components/shared/StatusBadge'
+import { PRStatusBadge, CategoryBadge, RecanvassBadge } from '@/components/shared/StatusBadge'
 import AttachmentsPanel from '@/components/shared/AttachmentsPanel'
 import { useAuth } from '@/context/AuthContext'
 import { openPdf, downloadFile, blobErrorMessage } from '@/lib/download'
@@ -126,6 +126,7 @@ export default function CanvassPage() {
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="font-mono text-ui-xl font-bold text-[--color-text-primary]">{pr.pr_number}</h2>
             <PRStatusBadge status={pr.status} />
+            <RecanvassBadge count={pr.recanvass_count} />
             <CategoryBadge category={pr.category} />
           </div>
           {pr.title && <p className="text-ui-sm text-[--color-text-secondary] mt-0.5">{pr.title}</p>}

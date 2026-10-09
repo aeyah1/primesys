@@ -1,3 +1,4 @@
+import { RefreshCcw } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import {
   PR_STATUS_LABELS, PR_STATUS_COLORS, PR_STATUS_HELP,
@@ -10,6 +11,18 @@ export function PRStatusBadge({ status }) {
   return (
     <Badge className={PR_STATUS_COLORS[status] || 'bg-slate-50 text-slate-600 border-slate-300'} title={PR_STATUS_HELP[status]}>
       {PR_STATUS_LABELS[status] || status}
+    </Badge>
+  )
+}
+
+// A request the TWG sent back to canvass for new quotations keeps this mark, with the count when more than once.
+export function RecanvassBadge({ count }) {
+  const n = Number(count) || 0
+  if (!n) return null
+  return (
+    <Badge className="gap-1 whitespace-nowrap bg-amber-50 text-amber-800 border-amber-300"
+      title={`The TWG ordered a re-canvass ${n === 1 ? 'once' : `${n} times`}: no offer met the specifications`}>
+      <RefreshCcw className="size-3" /> {n === 1 ? 'Re-canvassed' : `Re-canvassed ${n} times`}
     </Badge>
   )
 }
