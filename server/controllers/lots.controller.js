@@ -144,7 +144,7 @@ exports.update = asyncHandler(async (req, res) => {
 const HAS_LOTS  = 'EXISTS (SELECT 1 FROM lots hl WHERE hl.purchase_request_id = pr.id)'
 const STAGES = {
   to_canvass:  "pr.status = 'twg_review'",
-  needs_award: "pr.status IN ('bidding', 'bac_review')",
+  needs_award: "pr.status IN ('bidding', 'bac_review', 're_pr')",
   with_twg:    "pr.status = 'twg_certification'",
   awaiting_po: "(pr.status IN ('bidding', 'bac_review', 'twg_certification', 'for_po') AND EXISTS (SELECT 1 FROM lots wl WHERE wl.purchase_request_id = pr.id AND wl.status = 'awarded' AND wl.po_id IS NULL AND wl.certified_at IS NOT NULL))",
   po_issued:   "EXISTS (SELECT 1 FROM purchase_orders apo WHERE apo.purchase_request_id = pr.id AND apo.po_status = 'active')",
@@ -180,7 +180,7 @@ exports.queue = asyncHandler(async (req, res) => {
   const inCategoryParams = category ? [...params, category] : params
 
   const [rows] = await pool.execute(`
-    SELECT pr.id, pr.pr_number, pr.title, pr.category, pr.status, pr.department, pr.date_needed,
+    SELECT pr.id, pr.pr_number, pr.title, pr.category, pr.status, pr.department,
            u.name AS created_by_name,
            (SELECT COALESCE(SUM(i.quantity * i.estimated_cost), 0) FROM pr_items i WHERE i.pr_id = pr.id) AS estimated_total,
            (SELECT COUNT(*) FROM pr_items i WHERE i.pr_id = pr.id) AS item_count,
@@ -200,7 +200,7 @@ exports.queue = asyncHandler(async (req, res) => {
                               WHEN SUM(px.delivery_status = 'delivered') = COUNT(*) THEN 'delivered'
                               WHEN SUM(px.delivery_status <> 'pending') > 0 THEN 'partial'
                               ELSE 'pending' END`)} AS delivery_status,
-           pr.mode_of_procurement, pr.certification_return_reason, pr.recanvass_reason, pr.recanvass_count,
+           pr.mode_of_procurement, pr.certification_return_reason, pr.recanvass_reason, pr.recanvass_count, pr.re_pr_count,
            COALESCE((SELECT MAX(sl.created_at) FROM pr_status_logs sl WHERE sl.pr_id = pr.id AND sl.to_status = pr.status), pr.created_at) AS stage_since
       FROM purchase_requests pr
       JOIN users u ON u.id = pr.created_by

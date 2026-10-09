@@ -1,29 +1,33 @@
 import { Check, UserRound, ArrowRight } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
+import { MarkerBadges } from '@/components/shared/StatusBadge'
 import { REQUEST_STEPS, requestProgress } from '@/lib/requestProgress'
 import { fmtDate } from '@/lib/utils'
 
 const TONE = {
   action:  'border-amber-300 bg-amber-50',
+  rework:  'border-amber-300 bg-amber-50',
   stopped: 'border-red-300 bg-red-50',
   done:    'border-blue-300 bg-blue-50',
 }
 
-// "Where is my request?" for the person who filed the PR: five plain steps,
-// the current state in one line, who has it now, and what happens next.
+// "Where is my request?" for the person who filed the PR: its real stages, the
+// current state in one line (amber when it was sent back: a re-canvass, a
+// Re-PR, a correction), who has it now, and what happens next.
 export default function RequestProgress({ pr }) {
   const p = requestProgress(pr)
   // The soonest expected date among its POs not yet delivered.
   const next = (pr.pos || []).filter(po => po.delivery_status !== 'delivered' && po.expected_delivery_date)
     .map(po => String(po.expected_delivery_date).slice(0, 10)).sort()[0]
   const expected = ['for_po', 'bidding', 'bac_review', 'twg_certification'].includes(pr.status) && next ? ` Expected by ${fmtDate(next)}.` : ''
+  const rework = p.tone === 'rework'
 
   return (
     <Card>
       <CardContent className="py-5 space-y-5">
         <div>
           <p className="text-ui-xs font-semibold uppercase tracking-wide text-[--color-text-muted]">Where your request is</p>
-          <ol className="mt-3 grid grid-cols-5 gap-2">
+          <ol className="mt-3 grid gap-1 sm:gap-2" style={{ gridTemplateColumns: `repeat(${REQUEST_STEPS.length}, minmax(0, 1fr))` }}>
             {REQUEST_STEPS.map((label, i) => {
               const done    = p.step !== null && i < p.step
               const current = p.step === i && p.tone !== 'stopped'
@@ -33,6 +37,7 @@ export default function RequestProgress({ pr }) {
                   <div className={`flex size-8 items-center justify-center rounded-full border-2 text-xs font-bold ${
                     done    ? 'border-blue-600 bg-blue-600 text-white'
                     : stopped ? 'border-red-500 bg-red-50 text-red-600'
+                    : current && rework ? 'border-amber-500 bg-amber-50 text-amber-700'
                     : current ? 'border-blue-600 bg-white text-blue-700'
                     : 'border-[--color-border] bg-[--color-canvas] text-[--color-text-muted]'
                   }`}>
@@ -50,7 +55,10 @@ export default function RequestProgress({ pr }) {
         </div>
 
         <div className={`rounded-lg border px-4 py-3 space-y-2 ${TONE[p.tone] || 'border-[--color-border] bg-[--color-canvas]'}`}>
-          <p className="text-sm font-semibold text-[--color-text-primary]">{p.title}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-semibold text-[--color-text-primary]">{p.title}</p>
+            <MarkerBadges pr={pr} />
+          </div>
           <p className="flex items-start gap-2 text-ui-xs text-[--color-text-secondary]">
             <UserRound className="size-3.5 shrink-0 mt-0.5 text-[--color-text-muted]" />
             <span><span className="font-semibold">Who has it now:</span> {p.who}</span>

@@ -61,7 +61,7 @@ exports.summary = async (req, res) => {
       SELECT
         SUM(pr.status != 'cancelled')          AS total_prs,
         SUM(pr.status = 'completed')           AS completed,
-        SUM(pr.status IN ('bidding','bac_review','twg_certification','for_po')) AS in_progress
+        SUM(pr.status IN ('bidding','bac_review','twg_certification','re_pr','for_po')) AS in_progress
       FROM purchase_requests pr
       WHERE ${scope.sql}
     `, scope.params)

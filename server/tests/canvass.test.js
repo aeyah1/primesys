@@ -31,14 +31,16 @@ function fixtures() {
       ${U(1, 'Admin One')}, ${U(2, 'Proc One')}, ${U(3, 'Req A')}, ${U(4, 'Sup One')}, ${U(5, 'Twg One')}, ${U(6, 'Bac One')};
     ${H.twgAreas([5])}
     INSERT INTO purchase_requests (id, pr_number, title, status, created_by, category, mode_of_procurement) VALUES
-      ${P(80, 'bidding')}, ${P(81, 'twg_review')}, ${P(82, 'bidding', "'Shopping'")}, ${P(83, 'bidding', "'Shopping'")}, ${P(84, 'bidding', "'Shopping'")};
+      ${P(80, 'bidding')}, ${P(81, 'twg_review')}, ${P(82, 'bidding', "'Shopping'")}, ${P(83, 'bidding', "'Shopping'")}, ${P(84, 'bidding', "'Shopping'")},
+      ${P(85, 'bidding', "'Shopping'")};
     INSERT INTO pr_items (id, pr_id, group_label, item_name, quantity, unit, estimated_cost) VALUES
       (801, 80, 'LOT 1', 'Laptop', 2, 'unit', 45000), (802, 80, 'Lot 1 ', 'Mouse', 4, 'pc', 500),
       (803, 80, 'LOT 2', 'Printer', 1, 'unit', 12000), (804, 80, 'LOT 3', 'Projector', 1, 'unit', 30000),
       (811, 81, NULL, 'Router', 1, 'unit', 3000),
       (821, 82, NULL, 'Chair', 10, 'pc', 2500), (822, 82, NULL, 'Table', 2, 'pc', 8000),
       (831, 83, NULL, 'Cabinet', 1, 'unit', 9000),
-      (841, 84, NULL, 'Speaker', 1, 'unit', 2000), (842, 84, NULL, 'Microphone', 1, 'unit', 1000);
+      (841, 84, NULL, 'Speaker', 1, 'unit', 2000), (842, 84, NULL, 'Microphone', 1, 'unit', 1000),
+      (851, 85, NULL, 'Bond paper', 10, 'ream', 250), (852, 85, NULL, 'Specialty paper', 5, 'ream', 400);
     SET FOREIGN_KEY_CHECKS = 1;
   `
 }
@@ -395,8 +397,14 @@ async function run() {
   const cv84 = (await http(5, 'GET', '/canvass/84')).data
   const G = Object.fromEntries((cv84?.bidders || []).map(b => [b.name.split(' ')[0], b.id]))
   const no = (who, item, remarks) => ({ bidder_id: G[who], pr_item_id: item, compliant: false, remarks })
-  await is(G10, 'the TWG finds every bid non-compliant', 5, 'PUT', '/twg/84/evaluation',
-    { bids: [no('Golf', 841, 'Not 50 W'), no('Golf', 842, 'Wired, not wireless'), no('Hotel', 841, 'Not 50 W'), no('Hotel', 842, 'Wired, not wireless')] }, code(200))
+  const all84 = [no('Golf', 841, 'Not 50 W'), no('Golf', 842, 'Wired, not wireless'), no('Hotel', 841, 'Not 50 W'), no('Hotel', 842, 'Wired, not wireless')]
+  await is(G10, 'a DQ remark for a supplier not in the canvass → 400', 5, 'PUT', '/twg/84/evaluation',
+    { bids: all84, dq: [{ bidder_id: 999999, remarks: 'x' }] }, code(400, /not in this canvass/))
+  await is(G10, 'the TWG finds every bid non-compliant, with a DQ remark on Golf', 5, 'PUT', '/twg/84/evaluation',
+    { bids: all84, dq: [{ bidder_id: G.Golf, remarks: 'Only a wired 30 W set offered' }] }, code(200))
+  await is(G10, '…the remark is on Golf\'s quotation', 6, 'GET', '/canvass/84', undefined,
+    (r) => r.status === 200 && r.data.bidders.find(b => b.id === G.Golf)?.dq_remarks === 'Only a wired 30 W set offered'
+           && r.data.bidders.find(b => b.id === G.Hotel)?.dq_remarks === null)
   await is(G10, '…so it can\'t certify: no offer is compliant → 409', 5, 'POST', '/twg/84/certify', { action: 'certify' },
     code(409, /^No offer is compliant\. Choose Re-canvass/))
   await is(G10, 'the BAC can\'t order a re-canvass (403)', 6, 'POST', '/twg/84/certify', { action: 'recanvass', comment: 'x' }, code(403))
@@ -425,17 +433,82 @@ async function run() {
     (r) => r.status === 200 && r.data.status === 'twg_certification' && r.data.recanvass_reason === null)
   await is(G10, 'the TWG must mark the new bids first → 409', 5, 'POST', '/twg/84/certify', { action: 'certify' }, code(409, /India Electronics's is not marked/))
   const I = (await http(5, 'GET', '/canvass/84')).data?.bidders?.[2]?.id
-  await is(G10, '…marks only the new supplier\'s, compliant', 5, 'PUT', '/twg/84/evaluation',
-    { bids: [{ bidder_id: I, pr_item_id: 841, compliant: true }, { bidder_id: I, pr_item_id: 842, compliant: true }] }, code(200))
+  await is(G10, '…marks only the new supplier\'s, compliant (a stray DQ remark on it)', 5, 'PUT', '/twg/84/evaluation',
+    { bids: [{ bidder_id: I, pr_item_id: 841, compliant: true }, { bidder_id: I, pr_item_id: 842, compliant: true }], dq: [{ bidder_id: I, remarks: 'stale' }] }, code(200))
   await is(G10, '…and certifies, a new certificate', 5, 'POST', '/twg/84/certify', { action: 'certify' }, code(200))
   await is(G10, '…the requestor hears that the two first suppliers were DQ', 3, 'GET', '/notifications', undefined,
     (r) => r.status === 200 && r.data.some(n => n.message === 'The TWG checked the offers for PR PR-C-84 — Canvass 84; 2 suppliers were DQ, offering nothing that meets your specifications. The BAC chooses the suppliers next.'))
-  await is(G10, 'the new supplier is recommended', 6, 'GET', '/canvass/84', undefined, (r) => r.status === 200 && r.data.lots[0].recommended_bidder_id === I)
-  await is(G10, '…and awarded', 6, 'POST', '/canvass/84/award', { winners: [{ lot: '', bidder_id: I }] }, (r) => r.status === 200 && r.data.awards === 1)
+  await is(G10, 'the new supplier is recommended; a DQ remark stays only on a supplier still DQ', 6, 'GET', '/canvass/84', undefined,
+    (r) => r.status === 200 && r.data.lots[0].recommended_bidder_id === I
+           && r.data.bidders.find(b => b.id === I)?.dq_remarks === null && r.data.bidders.find(b => b.id === G.Golf)?.dq_remarks === 'Only a wired 30 W set offered')
+  await is(G10, '…and awarded, with the BAC\'s remark', 6, 'POST', '/canvass/84/award', { winners: [{ lot: '', bidder_id: I, reason: 'Only compliant quotation' }] },
+    (r) => r.status === 200 && r.data.awards === 1)
+  await is(G10, '…the remark is on the awarded items', 6, 'GET', '/canvass/84', undefined,
+    (r) => r.status === 200 && r.data.items.every(i => i.winner_bidder_id === I && i.winner_reason === 'Only compliant quotation'))
   await is(G10, '…at its prices, with the one certificate on record', 2, 'GET', '/bac/84', undefined,
     (r) => r.status === 200 && r.data.status === 'for_po' && r.data.certificates.length === 1 && num(r.data.resolutions[0].lots[0].awarded_amount) === 2880)
   await is(G10, 'awarded, it stays marked re-canvassed in the requestor\'s list', 3, 'GET', '/pr?limit=100', undefined,
     (r) => r.status === 200 && r.data.data.find(p => p.id === 84)?.recanvass_count === 1 && r.data.data.find(p => p.id === 80)?.recanvass_count === 0)
+
+  // Every supplier DQ: the TWG proposes a Re-PR, the BAC returns it once, then sends it to the End User
+  const G11 = 'Re-PR'
+  const ok = (r) => r.status === 200
+  await is(G11, 'two quotations, sent to the TWG', 6, 'PUT', '/canvass/85/bids',
+    sheet([['Juliet Paper', { 851: 260, 852: 400 }], ['Kilo Office', { 851: 255, 852: 390 }]]), code(200))
+  await is(G11, '…the returned RFQs attached', 6, 'POST', '/pr/85/attachments', H.canvassScan(), code(201))
+  await is(G11, '…sent', 6, 'POST', '/canvass/85/send', {}, code(200))
+  const J = Object.fromEntries(((await http(5, 'GET', '/canvass/85')).data?.bidders || []).map(b => [b.name.split(' ')[0], b.id]))
+  const mk = (who, item, compliant, remarks) => ({ bidder_id: J[who], pr_item_id: item, compliant, ...(remarks ? { remarks } : {}) })
+  const NOT = 'Only 100 gsm offered'
+  const repr = (extra = {}) => ({ action: 'repr', re_pr_type: 'raise_budget', comment: 'x', ...extra })
+  await is(G11, 'the TWG finds one offer compliant', 5, 'PUT', '/twg/85/evaluation',
+    { bids: [mk('Juliet', 851, true), mk('Juliet', 852, false, NOT), mk('Kilo', 851, false, NOT), mk('Kilo', 852, false, NOT)] }, code(200))
+  await is(G11, '…so no Re-PR while an offer is compliant → 409', 5, 'POST', '/twg/85/certify', repr(), code(409, /only for when every supplier is DQ/))
+  await is(G11, 'every offer non-compliant: both suppliers DQ', 5, 'PUT', '/twg/85/evaluation', { bids: [mk('Juliet', 851, false, NOT)] }, code(200))
+  await is(G11, 'a Re-PR needs its kind → 400', 5, 'POST', '/twg/85/certify', repr({ re_pr_type: 'cheaper' }), code(400, /Pick why the request goes back/))
+  await is(G11, '…and its details → 400', 5, 'POST', '/twg/85/certify', repr({ comment: '' }), code(400, /details of the Re-PR/))
+  await is(G11, 'the BAC can\'t propose it (403)', 6, 'POST', '/twg/85/certify', repr(), code(403))
+  await H.sql(TEST_DB, "INSERT INTO lots (id, purchase_request_id, lot_number, status, awarded_to, awarded_amount, created_by) VALUES (8501, 85, 'LOT-T85', 'awarded', 'Juliet Paper', 1, 2)")
+  await is(G11, 'not once an item is awarded → 409', 5, 'POST', '/twg/85/certify', repr(), code(409, /already awarded/))
+  await H.sql(TEST_DB, 'DELETE FROM lots WHERE id = 8501')
+  const WHY = 'Both suppliers offer only 100 gsm paper, above the budget'
+  await is(G11, 'the TWG proposes a Re-PR to raise the budget', 5, 'POST', '/twg/85/certify', repr({ comment: WHY }), code(200))
+  await is(G11, '…with the BAC to check, the reason kept, not counted yet', 6, 'GET', '/pr/85', undefined,
+    (r) => ok(r) && r.data.status === 're_pr' && r.data.re_pr_type === 'raise_budget' && r.data.re_pr_reason === WHY && r.data.re_pr_count === 0)
+  await is(G11, '…logged', 2, 'GET', '/pr/85/logs', undefined,
+    (r) => ok(r) && r.data.some(l => l.from_status === 'twg_certification' && l.to_status === 're_pr' && l.note.endsWith(WHY)))
+  await is(G11, '…the BAC is told', 6, 'GET', '/notifications', undefined,
+    (r) => ok(r) && r.data.some(n => /^The TWG proposed a Re-PR of PR PR-C-85 .*Check it, then send it to the End User/.test(n.message)))
+  await is(G11, '…and the requestor', 3, 'GET', '/notifications', undefined,
+    (r) => ok(r) && r.data.some(n => n.message.startsWith('No supplier\'s offer for PR PR-C-85 — Canvass 85 meets your specifications, so the TWG proposed a Re-PR')))
+  await is(G11, '…in the BAC\'s queue', 6, 'GET', '/bac/queue', undefined, (r) => ok(r) && r.data.data.some(p => p.id === 85 && p.status === 're_pr'))
+  await is(G11, '…its reason with the bids, for their remarks', 6, 'GET', '/canvass/85', undefined,
+    (r) => ok(r) && r.data.re_pr?.reason === WHY && r.data.re_pr.type === 'Only higher-end specifications were offered: raise the budget (ABC)' && r.data.re_pr.note === null)
+  await is(G11, '…the BAC may check it', 6, 'GET', '/canvass/85', undefined, (r) => ok(r) && r.data.permissions.re_pr === true)
+  await is(G11, 'Procurement can\'t check it (403)', 2, 'POST', '/canvass/85/re-pr', { action: 'send' }, code(403))
+  await is(G11, 'an unknown action → 400', 6, 'POST', '/canvass/85/re-pr', { action: 'approve' }, code(400))
+  await is(G11, 'returning it needs a reason → 400', 6, 'POST', '/canvass/85/re-pr', { action: 'return' }, code(400, /reason for returning/))
+  await is(G11, 'the BAC returns it to the TWG', 6, 'POST', '/canvass/85/re-pr', { action: 'return', note: 'Kilo also quoted 80 gsm on page 2' }, code(200))
+  await is(G11, '…back with the TWG, the proposal cleared', 5, 'GET', '/pr/85', undefined,
+    (r) => ok(r) && r.data.status === 'twg_certification' && r.data.re_pr_type === null && r.data.re_pr_count === 0)
+  await is(G11, '…and gone from the bids', 5, 'GET', '/canvass/85', undefined, (r) => ok(r) && r.data.re_pr === null)
+  await is(G11, '…the TWG is told', 5, 'GET', '/notifications', undefined,
+    (r) => ok(r) && r.data.some(n => /^The BAC returned the Re-PR of PR PR-C-85 .*Kilo also quoted 80 gsm/.test(n.message)))
+  await is(G11, 'the TWG proposes it again', 5, 'POST', '/twg/85/certify', repr({ comment: WHY }), code(200))
+  await is(G11, 'the BAC sends it to the End User with a note', 6, 'POST', '/canvass/85/re-pr', { action: 'send', note: 'Raise the paper to 320 per ream' }, code(200))
+  await is(G11, '…back with the End User, counted as a Re-PR', 3, 'GET', '/pr/85', undefined,
+    (r) => ok(r) && r.data.status === 'revision_requested' && r.data.re_pr_count === 1 && r.data.re_pr_note === 'Raise the paper to 320 per ream'
+           && r.data.revision?.from_status === 're_pr')
+  await is(G11, '…the End User is told why and what to do', 3, 'GET', '/notifications', undefined,
+    (r) => ok(r) && r.data.some(n => n.type === 'warning' && n.message.startsWith(
+      `PR PR-C-85 — Canvass 85 needs a Re-PR. Only higher-end specifications were offered: raise the budget (ABC): ${WHY}. The BAC adds: Raise the paper to 320 per ream. Edit the request`)))
+  await is(G11, '…Procurement is told', 2, 'GET', '/notifications', undefined, (r) => ok(r) && r.data.some(n => /PR-C-85 .*went back to its End User for a Re-PR/.test(n.message)))
+  await is(G11, '…the BAC still follows it, its quotations on record, the Re-PR with its note', 6, 'GET', '/canvass/85', undefined,
+    (r) => ok(r) && r.data.bidders.length === 2 && r.data.re_pr?.note === 'Raise the paper to 320 per ream')
+  await is(G11, '…nothing left for the BAC to send → 409', 6, 'POST', '/canvass/85/re-pr', { action: 'send' }, code(409, /No Re-PR waits/))
+  await is(G11, 'the Archive\'s Re-PR tab lists it alone', 3, 'GET', '/pr?re_pr=1&limit=100', undefined,
+    (r) => ok(r) && r.data.data.map(p => p.id).join() === '85' && r.data.data[0].re_pr_count === 1)
+
   // A cancelled PR
   const G8 = 'Cancelling'
   await is(G8, 'the cabinet\'s bids', 6, 'PUT', '/canvass/83/bids', sheet([['Delta Office', { 831: 9000 }]]), code(200))

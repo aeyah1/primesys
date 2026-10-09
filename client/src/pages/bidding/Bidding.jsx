@@ -6,7 +6,7 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { CategoryBadge, DeliveryStatusBadge, PRStatusBadge, RecanvassBadge } from '@/components/shared/StatusBadge'
+import { CategoryBadge, DeliveryStatusBadge, PRStatusBadge, MarkerBadges } from '@/components/shared/StatusBadge'
 import StartCanvassDialog from '@/components/awards/StartCanvassDialog'
 import { FilterChip, Tab, Pager } from '@/components/shared/ListParts'
 import { fmtCurrency, daysSince, plural, CATEGORY_LABELS } from '@/lib/utils'
@@ -44,7 +44,7 @@ function AwardRow({ row, stage, canManage, onOpen, onStart }) {
           <Link to={`/pr/${row.id}`} onClick={e => e.stopPropagation()} title="Open the PR"
             className="font-mono text-sm font-bold text-[--color-brand] hover:underline">{row.pr_number}</Link>
           <CategoryBadge category={row.category} />
-          <RecanvassBadge count={row.recanvass_count} />
+          <MarkerBadges pr={row} />
         </div>
         <button type="button" onClick={e => { e.stopPropagation(); onOpen() }}
           className="block max-w-full truncate text-left text-sm font-semibold text-[--color-text-primary] hover:underline mt-0.5">

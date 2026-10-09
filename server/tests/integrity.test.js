@@ -29,7 +29,7 @@ function fixtures() {
       ${P(44, 'for_po', 4)}, ${P(45, 'for_po', 4)}, ${P(46, 'for_po', 4)}, ${P(47, 'for_po', 4)},
       ${P(48, 'for_po', 4)}, ${P(49, 'for_po', 4)}, ${P(50, 'completed', 4)}, ${P(51, 'for_po', 4)},
       ${P(52, 'for_po', 3)}, ${P(53, 'revision_requested', 3)};
-    INSERT INTO purchase_requests (id, pr_number, title, status, created_by, created_at, date_needed) VALUES
+    INSERT INTO purchase_requests (id, pr_number, title, status, created_by, created_at, event_date) VALUES
       (54, 'PR-I-54', 'Filed after 4 PM', 'draft', 3, '2026-09-12 17:30:00', '2026-09-20');
     INSERT INTO pr_items (id, pr_id, item_name, quantity, estimated_cost) VALUES
       (1, 40, 'Bond paper', 2, 250), (2, 41, 'Laptop', 1, 45000), (3, 53, 'Chair', 4, 1500), (4, 52, 'Toner', 1, 500);
@@ -177,12 +177,12 @@ async function run() {
   const G6 = 'Times and dates (DB-1)'
   await is(G6, 'a PR filed at 5:30 PM keeps its time (was shown 8 h late)', 3, 'GET', '/pr/54', undefined,
     (r) => r.status === 200 && new Date(r.data.created_at).getTime() === new Date(2026, 8, 12, 17, 30).getTime())
-  await is(G6, 'a DATE stays the same calendar day, as YYYY-MM-DD', 3, 'GET', '/pr/54', undefined, (r) => r.status === 200 && r.data.date_needed === '2026-09-20')
+  await is(G6, 'a DATE stays the same calendar day, as YYYY-MM-DD', 3, 'GET', '/pr/54', undefined, (r) => r.status === 200 && r.data.event_date === '2026-09-20')
   const pool = require(path.join(H.SERVER, 'db', 'pool.js'))
   const { fmtDate } = require(path.join(H.SERVER, 'utils', 'pdfHelpers.js'))
-  const [[row54]] = await pool.execute('SELECT created_at, date_needed FROM purchase_requests WHERE id = 54')
+  const [[row54]] = await pool.execute('SELECT created_at, event_date FROM purchase_requests WHERE id = 54')
   t.check(G6, 'PDF date of a PR filed after 4 PM is that day (was the next day)', fmtDate(row54.created_at) === 'September 12, 2026', fmtDate(row54.created_at))
-  t.check(G6, 'PDF date of a DATE column', fmtDate(row54.date_needed) === 'September 20, 2026', fmtDate(row54.date_needed))
+  t.check(G6, 'PDF date of a DATE column', fmtDate(row54.event_date) === 'September 20, 2026', fmtDate(row54.event_date))
   await is(G6, 'PR Form PDF still renders', 3, 'GET', '/pr/54/pdf', undefined, (r) => r.status === 200)
   const newest = notices.data?.[0]?.created_at
   t.check(G6, 'a notification made just now reads as just now', Math.abs(Date.now() - new Date(newest).getTime()) < 5 * 60e3, newest)
@@ -213,7 +213,7 @@ async function run() {
   await is(G7, '…cost cleared, name and notes kept', 3, 'GET', '/pr/53/items', undefined,
     (r) => { const i = cableRow(r); return r.status === 200 && i?.estimated_cost === null && i?.item_name === 'Cable' && i?.notes === 'Cat6' })
   await is(G7, 'PR: title over 200 characters → 400', 3, 'POST', '/pr', { title: 'x'.repeat(201) }, code(400))
-  await is(G7, 'PR: date the calendar lacks → 400', 3, 'POST', '/pr', { title: 'x', date_needed: '2026-02-30' }, code(400))
+  await is(G7, 'PR: date the calendar lacks → 400', 3, 'POST', '/pr', { title: 'x', event_date: '2026-02-30' }, code(400))
   await is(G7, 'PR: bad quantity names the item', 3, 'POST', '/pr', { title: 'x', items: [{ item_name: 'a' }, { item_name: 'b', quantity: 'x' }] }, code(400, /Item 2 quantity/))
   await is(G7, 'PR edit: department over 150 characters → 400', 3, 'PATCH', '/pr/53', { title: 't', department: 'd'.repeat(151) }, code(400))
   const one = [{ pr_item_id: 1, unit_price: 5 }]

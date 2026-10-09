@@ -9,11 +9,22 @@ function Verdict({ ev }) {
   return null
 }
 
+// A bidder's remarks: each lot it was awarded with the BAC's remark, or DQ with the TWG's.
+function remarksOf(b, lots, headed, wonBy, items) {
+  const won = lots.map(lot => ({ lot, items: lot.items.filter(i => wonBy(i, b)) })).filter(x => x.items.length)
+  const list = won.map(({ lot, items: own }) => ({
+    tone: 'text-emerald-700', label: headed ? `Awarded ${lot.name}` : 'Awarded', text: own.find(i => i.winner_reason)?.winner_reason,
+  }))
+  if (isDQ(b, items)) list.push({ tone: 'text-red-700', label: 'DQ', text: b.dq_remarks })
+  return list
+}
+
 /* Every bid the BAC entered, compared lot by lot: items down, the bidders
    across (with their RFQ No.), each bid with the TWG's verdict, and each
    bidder's total for the lot (only a bidder that bid on all of it can win it).
    The lot's recommended bidder (the lowest compliant total) is starred while
-   it waits for the award, and its winner checked once awarded.
+   it waits for the award, and its winner checked once awarded. Under them,
+   each bidder's remarks (Awarded, DQ) and the TWG's Re-PR reason when every bidder was DQ.
    canvass: GET /canvass/:prId. Optional: pick ({ [lot label]: bidder id }) with
    onPick(lot, bidderId) to choose each lot's winner; lotNote(lot) for a line
    under a lot; action(item) for a last cell on each item. */
@@ -24,6 +35,8 @@ export default function BidsTable({ canvass, pick, onPick, lotNote, action }) {
   const headed = lots.length > 1 || lots.some(l => l.label)
   const cols = 2 + bidders.length + (action ? 1 : 0)
   const wonBy = (i, b) => i.state === 'awarded' && nameKey(b.name) === nameKey(i.awarded_to)
+  const remarks = bidders.map(b => remarksOf(b, lots, headed, wonBy, canvass.items))
+  const rePr = canvass.re_pr && bidders.every(b => isDQ(b, canvass.items)) ? canvass.re_pr : null
   return (
     <div className="rounded-xl border border-[--color-border] overflow-x-auto">
       <table className="w-full text-sm">
@@ -129,6 +142,34 @@ export default function BidsTable({ canvass, pick, onPick, lotNote, action }) {
             </tbody>
           )
         })}
+        {(remarks.some(r => r.length) || rePr) && (
+          <tbody className="border-t-2 border-[--color-border]">
+            {remarks.some(r => r.length) && (
+              <tr className="align-top">
+                <td colSpan={2} className="px-3 py-2.5 text-xs font-bold uppercase tracking-wider text-[--color-text-secondary]">Remarks</td>
+                {bidders.map((b, n) => (
+                  <td key={b.id} className="px-3 py-2.5 text-right text-[11px] leading-snug">
+                    {remarks[n].map(r => (
+                      <span key={r.label} className="block">
+                        <span className={`font-semibold ${r.tone}`}>{r.label}</span>
+                        {r.text && <span className="block text-[--color-text-secondary]">{r.text}</span>}
+                      </span>
+                    ))}
+                  </td>
+                ))}
+                {action && <td />}
+              </tr>
+            )}
+            {rePr && (
+              <tr className="border-t border-[--color-border] bg-amber-50">
+                <td colSpan={cols} className="px-3 py-2.5 text-xs text-amber-900">
+                  <span className="font-semibold">Re-PR:</span> {rePr.type ? `${rePr.type}. ` : ''}{rePr.reason}
+                  {rePr.note && <span className="block">The BAC adds: {rePr.note}</span>}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        )}
       </table>
     </div>
   )

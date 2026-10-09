@@ -10,9 +10,10 @@ const serverReq = (m) => require(require.resolve(m, { paths: [H.SERVER] }))
 const config = require(path.join(H.SERVER, 'config.js'))
 const jwt    = serverReq('jsonwebtoken')
 
-// 3 = ICT's Fund Administrator, 4 = DCS's, 7 = HR's (no PPMP yet), 8 = BIO's (next year's PPMP, split by quarter)
-const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 4: 'requestor', 5: 'twg', 7: 'requestor', 8: 'requestor' }
-const OFFICE = { 3: 1, 4: 2, 7: 3, 8: 4 }
+// 3 = ICT's Fund Administrator, 4 = DCS's, 7 = HR's (no PPMP yet), 8 = BIO's (next year's PPMP, split by quarter),
+// 9 = REG's (a P85,000 PPMP: 2 laptops at 40,000 and 10 mice at 500, for the Re-PR budget)
+const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 4: 'requestor', 5: 'twg', 7: 'requestor', 8: 'requestor', 9: 'requestor' }
+const OFFICE = { 3: 1, 4: 2, 7: 3, 8: 4, 9: 5 }
 const tok  = (id) => jwt.sign({ id, tv: 0 }, config.jwt.secret, { expiresIn: '1h' })
 const YEAR = new Date().getFullYear()
 
@@ -25,7 +26,11 @@ function fixtures() {
     `(${id}, ${ppmp}, '${description}', '${unit}', ${quantity}, ${cost}, '${months}', ${id})`
   return `
     SET FOREIGN_KEY_CHECKS = 0;
-    INSERT INTO departments (id, code, name) VALUES (1, 'ICT', 'ICT Office'), (2, 'DCS', 'Department of Computer Studies'), (3, 'HR', 'Human Resources Office'), (4, 'BIO', 'Biology Department');
+    INSERT INTO departments (id, code, name) VALUES (1, 'ICT', 'ICT Office'), (2, 'DCS', 'Department of Computer Studies'), (3, 'HR', 'Human Resources Office'), (4, 'BIO', 'Biology Department'),
+      (5, 'REG', 'Registrar');
+    INSERT INTO ppmps (id, department_id, fiscal_year, version_no, kind, fund_source, status) VALUES (50, 5, ${YEAR}, 1, 'final', 'GAA', 'approved');
+    INSERT INTO ppmp_items (id, ppmp_id, description, unit, quantity, unit_cost, months, sort_order) VALUES
+      (5001, 50, 'Laptop', 'unit', 2, 40000, '1,2,3,4,5,6,7,8,9,10,11,12', 1), (5002, 50, 'Mouse', 'pc', 10, 500, '1,2,3,4,5,6,7,8,9,10,11,12', 2);
     INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified, department_id) VALUES ${Object.keys(ROLE).map(U).join(', ')};
     INSERT INTO quarters (id, label, year, start_date, end_date, is_active) VALUES (1, 'Q1', ${YEAR}, '${YEAR}-01-01', '${YEAR}-12-31', 1);
     INSERT INTO org_settings (setting_key, setting_value) VALUES ('fund_code_stf', 'STF-01'), ('fund_code_gaa', 'GAA-01');
@@ -163,13 +168,16 @@ async function run() {
 
   // ── Warnings ────────────────────────────────────────────────────────
   const W = 'Warnings'
-  const pricey = await file(3, [{ ppmp_item_id: 1002, quantity: 1, estimated_cost: 4200 }], { date_needed: `${YEAR}-03-15` })
+  const pricey = await file(3, [{ ppmp_item_id: 1002, quantity: 1, estimated_cost: 4200 }])
   await is(W, 'a price above the PPMP is warned about', 3, 'GET', `/pr/${pricey}/ppmp`, undefined,
     r => r.status === 200 && r.data.items[0].warnings.some(w => /₱4,200\.00 each is above the PPMP's ₱3,500\.00/.test(w)), 'warning')
   await is(W, '…without blocking it', 3, 'PATCH', `/pr/${pricey}/status`, { status: 'submitted' }, r => r.status === 200)
-  const early = await file(3, [{ ppmp_item_id: 1001, quantity: 1, estimated_cost: 250 }], { date_needed: `${YEAR}-03-15` })
-  await is(W, 'a month the PPMP doesn\'t schedule is warned about', 3, 'GET', `/pr/${early}/ppmp`, undefined,
-    r => r.data.items[0].warnings.some(w => /doesn't schedule it for March \(planned: Jan, Jun\)/.test(w)), 'warning')
+  // The schedule is checked against this month (the paper is planned for January and June).
+  const early = await file(3, [{ ppmp_item_id: 1001, quantity: 1, estimated_cost: 250 }])
+  const thisMonth = new Date().toLocaleString('en-US', { month: 'long' })
+  const scheduled = [1, 6].includes(new Date().getMonth() + 1)
+  await is(W, scheduled ? 'a month the PPMP schedules is not warned about' : 'a month the PPMP doesn\'t schedule is warned about', 3, 'GET', `/pr/${early}/ppmp`, undefined,
+    r => r.data.items[0].warnings.some(w => new RegExp(`doesn't schedule it for ${thisMonth} \\(planned: Jan, Jun\\)`).test(w)) === !scheduled, 'warning')
   await is(W, '…and the line it uses is shown', 3, 'GET', `/pr/${early}/ppmp`, undefined,
     r => r.data.plan.id === 10 && r.data.items[0].line.id === 1001 && r.data.items[0].line.unit_cost === 250 && r.data.problems.length === 0, 'line 1001')
   await is(W, 'Procurement sees it too', 2, 'GET', `/pr/${pricey}/ppmp`, undefined, r => r.status === 200 && r.data.items[0].line.id === 1002, '200')
@@ -257,6 +265,35 @@ async function run() {
   await is(Q, 'the PPMP shows what is requested and left of each quarter', 8, 'GET', '/ppmp/40', undefined,
     r => { const ink = r.data.items.find(i => i.id === 4001); return ink.requested === 9 && ink.quarter_requested.join() === '3,3,0,0' && ink.quarter_left.join() === '0,0,3,3' },
     'ink 9 requested: Q1 3, Q2 3; 3 left in Q3 and Q4')
+
+  // ── A Re-PR'd request may go past the PPMP; the extra comes out of the office's budget ──
+  const R = 'Re-PR budget'
+  const laptop = (cost, quantity = 1) => ({ ppmp_item_id: 5001, quantity, estimated_cost: cost })
+  const mice = { ppmp_item_id: 5002, quantity: 10, estimated_cost: 500 }
+  const overPlan = await file(9, [laptop(60000), { item_name: 'Laptop bag', unit: 'pc', quantity: 1, estimated_cost: 2000 }])
+  await is(R, 'an item not in the PPMP still blocks an ordinary request', 9, 'PATCH', `/pr/${overPlan}/status`, { status: 'submitted' },
+    r => r.status === 409 && /"Laptop bag" is not in the REG PPMP/.test(r.data.message), '409')
+  await H.sql(TEST_DB, 'UPDATE purchase_requests SET re_pr_count = 1 WHERE id = ?', [overPlan])
+  await is(R, 'a Re-PR\'d one: the price above the plan and the item not in it are its extra', 9, 'GET', `/pr/${overPlan}/ppmp`, undefined,
+    r => r.status === 200 && r.data.problems.length === 0 && r.data.budget?.re_pr === true
+      && r.data.budget.planned === 85000 && r.data.budget.mine === 62000 && r.data.budget.mine_extra === 22000 && r.data.budget.left === 85000
+      && r.data.items.some(i => i.warnings.some(w => /^Not in the PPMP: its ₱2,000\.00 comes out of the office's PPMP budget/.test(w)))
+      && r.data.items.some(i => i.warnings.some(w => /the ₱20,000\.00 more comes out of the office's PPMP budget/.test(w))),
+    'planned 85,000; this one 62,000, 22,000 of it past the plan')
+  await is(R, '…goes to the TWG within the budget', 9, 'PATCH', `/pr/${overPlan}/status`, { status: 'submitted' }, r => r.status === 200)
+  const rest = await file(9, [laptop(40000), mice])
+  await is(R, 'its extra came out of the budget: the rest of the plan no longer fits', 9, 'PATCH', `/pr/${rest}/status`, { status: 'submitted' },
+    r => r.status === 409 && /This request takes ₱45,000\.00 of the REG PPMP budget for \d{4} but only ₱23,000\.00 is left \(₱85,000\.00 planned; other requests hold ₱62,000\.00\)/.test(r.data.message), '409')
+  const within = await file(9, [mice])
+  await is(R, '…a request within what is left still goes', 9, 'PATCH', `/pr/${within}/status`, { status: 'submitted' }, r => r.status === 200)
+  const unplanned = await file(9, [{ item_name: 'Docking station', unit: 'pc', quantity: 1 }])
+  await H.sql(TEST_DB, 'UPDATE purchase_requests SET re_pr_count = 1 WHERE id = ?', [unplanned])
+  await is(R, 'an item not in the PPMP needs its cost', 9, 'PATCH', `/pr/${unplanned}/status`, { status: 'submitted' },
+    r => r.status === 409 && /Give the estimated cost of "Docking station"/.test(r.data.message), '409')
+  const dock = (await http(9, 'GET', `/pr/${unplanned}/items`)).data[0]
+  await http(9, 'PATCH', `/pr/${unplanned}/items/${dock.id}`, { estimated_cost: 30000 })
+  await is(R, '…and must fit what is left of the budget', 9, 'PATCH', `/pr/${unplanned}/status`, { status: 'submitted' },
+    r => r.status === 409 && /takes ₱30,000\.00 .*₱30,000\.00 of it past the plan, but only ₱18,000\.00 is left/.test(r.data.message), '409')
 
   return t.summary()
 }

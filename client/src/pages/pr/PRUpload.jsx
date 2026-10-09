@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Package, Plus, Trash2, Info, ListPlus } from 'lucide-react'
 import ItemCategorySelector from '@/components/shared/ItemCategorySelector'
 import RequestContextForm from '@/components/shared/RequestContextForm'
+import { uploadPendingFiles } from '@/components/shared/SupportingFiles'
 import { requesterPayload } from '@/components/shared/RequesterFields'
 import { toast } from '@/lib/toast'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -69,7 +70,7 @@ export default function PRCreate() {
     department: '',
     department_id: fromPpmp?.departmentId || '',
     purpose_type: 'personal',
-    date_needed: '',
+    files: [],            // supporting documents, uploaded once the request is saved
     event_name: '',
     event_date: '',
     project_name: '',
@@ -119,11 +120,16 @@ export default function PRCreate() {
   })
 
   const { mutate: create, isPending } = useMutation({
-    mutationFn: (body) => api.post('/pr', body),
-    onSuccess: ({ data }, body) => {
+    // The request is saved first, then its supporting documents are attached to it.
+    mutationFn: async (body) => {
+      const res = await api.post('/pr', body)
+      return { ...res, failed: await uploadPendingFiles(res.data.id, form.files) }
+    },
+    onSuccess: ({ data, failed }, body) => {
       toast.success(body.status === 'submitted'
         ? `${data.pr_number} sent to the TWG`
         : `${data.pr_number} saved as a draft. Submit it when it's ready.`)
+      if (failed.length) toast.error(`${failed.join(', ')} could not be attached. Add ${failed.length === 1 ? 'it' : 'them'} on the request page.`)
       qc.invalidateQueries({ queryKey: ['pr-list'] })
       qc.invalidateQueries({ queryKey: ['pr-stats'] })
       navigate(`/pr/${data.id}`)
@@ -141,7 +147,7 @@ export default function PRCreate() {
   const planYear = items.map(i => lineById.get(Number(i.ppmp_item_id))?.fiscal_year).find(Boolean) ?? (quarter ? Number(chosenQuarter.year) : undefined)
   const checkItem = (item, exceptIndex) => {
     const line = item.line || lineById.get(Number(item.ppmp_item_id))
-    return line ? { line, ...lineChecks(line, { quantity: item.quantity, price: item.estimated_cost, dateNeeded: form.date_needed, quarter, taken: takenByKey(items, lineById, exceptIndex).get(line.key) || 0 }) } : null
+    return line ? { line, ...lineChecks(line, { quantity: item.quantity, price: item.estimated_cost, quarter, taken: takenByKey(items, lineById, exceptIndex).get(line.key) || 0 }) } : null
   }
   const draftCheck = draft.line ? checkItem(draft, -1) : null
   // A picked line brings its price; typing over it clears the pick.
@@ -289,7 +295,6 @@ export default function PRCreate() {
       department:                 form.department?.trim()     || undefined,
       department_id:              form.department_id          || undefined,
       purpose_type:               form.purpose_type,
-      date_needed:                form.date_needed            || undefined,
       event_name:                 form.purpose_type === 'event'   ? (form.event_name?.trim() || undefined) : undefined,
       event_date:                 form.purpose_type === 'event'   ? (form.event_date || undefined)        : undefined,
       project_name:               form.purpose_type === 'project' ? (form.project_name?.trim() || undefined) : undefined,

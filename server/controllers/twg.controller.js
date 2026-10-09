@@ -10,6 +10,7 @@ const withTransaction    = require('../db/transaction')
 const { loadPR, changePRStatus } = require('../utils/prWorkflow')
 const { notifyBac }      = require('../utils/bacWorkflow')
 const { prName }         = require('../utils/requesterNotice')
+const { RE_PR_TYPES, proposeRePr } = require('../utils/rePr')
 const { saveEvaluation, certifyBids } = require('../utils/canvassBids')
 const { checkSignature, METHODS } = require('../utils/signature')
 const { issueCertificate } = require('../utils/twgCertificate')
@@ -48,7 +49,7 @@ exports.listPending = asyncHandler(async (req, res) => {
   // last_reviewer_name: the TWG member who last decided on it, if any.
   // uncovered: no active TWG member reviews its area (shown to admins).
   const [rows] = await pool.execute(`
-    SELECT pr.id, pr.pr_number, pr.title, pr.status, pr.category, pr.created_at, pr.recanvass_count,
+    SELECT pr.id, pr.pr_number, pr.title, pr.status, pr.category, pr.created_at, pr.recanvass_count, pr.re_pr_count,
            u.name AS created_by_name,
            q.label AS quarter_label, q.year AS quarter_year,
            (SELECT COUNT(*) FROM pr_items WHERE pr_id = pr.id) AS item_count,
@@ -152,28 +153,29 @@ exports.reviewPR = asyncHandler(async (req, res) => {
   res.json({ message: certificate ? `PR approved; certified in Cert. No. ${certificate.cert_no}` : `PR ${resultLabel}`, certificate })
 })
 
-// PUT /twg/:prId/evaluation - { bids: [{ bidder_id, pr_item_id, compliant, offered_spec, remarks }] }:
+// PUT /twg/:prId/evaluation - { bids: [{ bidder_id, pr_item_id, compliant, offered_spec, remarks }], dq: [{ bidder_id, remarks }] }:
 // the TWG's evaluation of the canvass's bids so far (utils/canvassBids.js saveEvaluation).
 exports.saveEvaluation = asyncHandler(async (req, res) => {
   const denied = await notReviewer(req.user, req.params.prId)
   if (denied) return res.status(denied.status).json({ message: denied.message })
   await withTransaction(async (conn) => {
     const pr = await loadPR(conn, req.params.prId, { lock: true })
-    await saveEvaluation(conn, pr, req.body.bids)
+    await saveEvaluation(conn, pr, req.body.bids, req.body.dq)
   })
   res.json({ message: 'Evaluation saved' })
 })
 
-// POST /twg/:prId/certify - body: { action: 'certify' | 'recanvass' | 'return', comment, cert_no, signature, sign_method }
+// POST /twg/:prId/certify - body: { action: 'certify' | 'recanvass' | 'return' | 'repr', comment, re_pr_type, cert_no, signature, sign_method }
 // The TWG decides the canvass result. Certifying (every bid marked compliant
 // or not) issues the certificate and the BAC picks the winners next;
 // a re-canvass (no offer for a lot is compliant) sends it back to canvass
 // for new quotations; returning gives the canvass back to the BAC to correct
-// its entries. Both need a comment.
+// its entries; a Re-PR (every supplier DQ, utils/rePr.js) sends it to the BAC
+// to go back to the End User. All but certifying need a comment.
 exports.certifyPR = asyncHandler(async (req, res) => {
   const { action } = req.body
   const comment = req.body.comment?.trim() || null
-  if (!['certify', 'recanvass', 'return'].includes(action)) return res.status(400).json({ message: 'Action must be "certify", "recanvass" or "return"' })
+  if (!['certify', 'recanvass', 'return', 'repr'].includes(action)) return res.status(400).json({ message: 'Action must be "certify", "recanvass", "return" or "repr"' })
   if (action === 'return' && !comment) return res.status(400).json({ message: 'A comment is required when returning it to the BAC' })
   if (action === 'recanvass' && !comment) return res.status(400).json({ message: 'Give the reason for the re-canvass' })
   const denied = await notReviewer(req.user, req.params.prId)
@@ -187,6 +189,7 @@ exports.certifyPR = asyncHandler(async (req, res) => {
     const pr = await loadPR(conn, req.params.prId, { lock: true })
     if (!pr || pr.deleted_at) throw httpError(404, 'PR not found')
     if (action === 'certify') return { pr, certificate: await certifyBids(conn, pr, req.user, { certNo: req.body.cert_no, signature, comment }) }
+    if (action === 'repr') { await proposeRePr(conn, pr, req.user, { type: req.body.re_pr_type, reason: comment }); return { pr } }
     const recanvass = action === 'recanvass'
     await changePRStatus(pr.id, 'bidding', {
       user: req.user, via: 'twg', conn,
@@ -214,6 +217,11 @@ exports.certifyPR = asyncHandler(async (req, res) => {
     await notifyBac(req.io, pr.id, pr.pr_number,
       `The TWG ordered a re-canvass of PR ${prLabel}: ${comment}. Enter the new quotations, then send the canvass again.`)
     return res.json({ message: 'Sent back to canvass for new quotations. The End User, Procurement and the BAC are told.' })
+  }
+  if (action === 'repr') {
+    await notifyBac(req.io, pr.id, pr.pr_number,
+      `The TWG proposed a Re-PR of PR ${prLabel} (${RE_PR_TYPES[req.body.re_pr_type]}): ${comment}. Check it, then send it to the End User or return it to the TWG.`)
+    return res.json({ message: 'Re-PR proposed. The BAC checks it, then sends it to the End User.' })
   }
   await notifyBac(req.io, pr.id, pr.pr_number, `The TWG certified the bids of PR ${prLabel} (Cert. No. ${certificate.cert_no}). Pick the winners and award.`)
   res.json({ message: `Certified in Cert. No. ${certificate.cert_no}. The BAC picks the winners next.`, certificate })

@@ -7,6 +7,15 @@ import { useQueryClient } from '@tanstack/react-query'
 // (server: awardWorkflow.supplierKey).
 export const nameKey = (name) => String(name || '').trim().replace(/\s+/g, ' ').toLowerCase()
 
+// A supplier profile the RFQ's supplier matches: the same name (ignoring case, spacing,
+// punctuation and "&" for "and"), else the same email, else the same phone number.
+const looseKey = (s) => String(s || '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim()
+const digits = (s) => String(s || '').replace(/\D/g, '').replace(/^63/, '0')
+export const findProfile = (profiles, { name, email, phone } = {}) => (name && profiles.find(p => looseKey(p.name) === looseKey(name)))
+  || (email && profiles.find(p => p.email?.toLowerCase() === email.toLowerCase()))
+  || (phone && profiles.find(p => p.phone && digits(p.phone) === digits(phone)))
+  || null
+
 // Money in whole centavos, so sums and comparisons are exact (as on the server).
 export const cents     = (v) => Math.round(Number(v || 0) * 100)
 export const lineCents = (quantity, price) => Math.round(Number(quantity || 0) * Number(price || 0) * 100)

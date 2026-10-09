@@ -13,7 +13,7 @@ const { STATUS_LABELS } = require('../utils/prWorkflow')
 // quarter's year. Nothing is moved or locked here; the list itself is
 // GET /pr?quarter_id= (or ?year=). Every role, within its usual scope (C2).
 
-const IN_PROGRESS = ['draft', 'submitted', 'revision_requested', 'twg_review', 'bidding', 'bac_review', 'twg_certification', 'for_po']
+const IN_PROGRESS = ['draft', 'submitted', 'revision_requested', 'twg_review', 'bidding', 'bac_review', 'twg_certification', 're_pr', 'for_po']
 const inList = (list) => list.map(s => `'${s}'`).join(', ')
 
 // A request's estimated budget (dropped items left out) and what its active POs are worth, less any undelivered balance.
@@ -51,6 +51,7 @@ async function totalsFor(user, period) {
            COALESCE(SUM(pr.status IN (${inList(IN_PROGRESS)})), 0) AS in_progress,
            COALESCE(SUM(pr.status = 'cancelled'), 0) AS cancelled,
            COALESCE(SUM(pr.status = 'rejected'), 0) AS rejected,
+           COALESCE(SUM(pr.re_pr_count > 0), 0) AS re_pr,
            COALESCE(SUM(IF(${LIVE}, ${BUDGET}, 0)), 0) AS budget,
            COALESCE(SUM(${PAID}), 0) AS paid,
            COALESCE(SUM((SELECT COUNT(*) FROM purchase_orders po WHERE po.purchase_request_id = pr.id AND po.po_status = 'active')), 0) AS pos
@@ -60,7 +61,7 @@ async function totalsFor(user, period) {
     `SELECT COUNT(*) AS n FROM purchase_requests pr WHERE ${period.sql} AND pr.deleted_at IS NOT NULL AND ${deleted.sql}`,
     [...period.params, ...deleted.params])
   return {
-    ...Object.fromEntries(['prs', 'completed', 'in_progress', 'cancelled', 'rejected', 'pos'].map(k => [k, Number(t[k])])),
+    ...Object.fromEntries(['prs', 'completed', 'in_progress', 're_pr', 'cancelled', 'rejected', 'pos'].map(k => [k, Number(t[k])])),
     budget: Number(t.budget), paid: Number(t.paid), deleted: Number(n),
   }
 }

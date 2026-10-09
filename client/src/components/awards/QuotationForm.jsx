@@ -1,20 +1,62 @@
 import { useRef, useState } from 'react'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
-import { Upload, Save, AlertTriangle } from 'lucide-react'
+import { Upload, Save, AlertTriangle, Store, Ban } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { fmtCurrency } from '@/lib/utils'
+import { pdfLines, readRfq } from '@/lib/pdf'
 import api from '@/lib/axios'
-import { nameKey, cents, lineCents, lotsWithItems } from './supplier'
+import { nameKey, cents, lineCents, lotsWithItems, findProfile } from './supplier'
+
+/* Under the supplier's name: the supplier read from its RFQ file and whether
+   it is in the supplier list, so the BAC picks the profile in one click; once
+   the name is a profile's, its details (and a warning when it is blacklisted). */
+function SupplierMatch({ name, read, reading, profiles, onUse }) {
+  const profile = profiles.find(p => nameKey(p.name) === nameKey(name))
+  if (profile) {
+    return (
+      <div className={`rounded-lg border px-3 py-2 text-xs ${profile.status === 'blacklisted' ? 'border-red-300 bg-red-50 text-red-800' : 'border-emerald-200 bg-emerald-50 text-emerald-900'}`}>
+        <p className="flex items-center gap-1.5 font-semibold">
+          {profile.status === 'blacklisted' ? <Ban className="size-3.5 shrink-0" /> : <Store className="size-3.5 shrink-0" />}
+          {profile.status === 'blacklisted' ? `Blacklisted in the supplier list${profile.status_note ? `: ${profile.status_note}` : ''}` : 'In the supplier list'}
+        </p>
+        <p className="mt-0.5 text-[11px] opacity-90">
+          {[profile.address, profile.contact_person, profile.phone, profile.tin && `TIN ${profile.tin}`].filter(Boolean).join(' · ') || 'No details on its profile yet'}
+        </p>
+      </div>
+    )
+  }
+  if (reading) return <p className="text-[11px] text-[--color-text-muted]">Reading the supplier from the RFQ file…</p>
+  if (!read) return null
+  if (!read.name) return <p className="text-[11px] text-[--color-text-muted]">The supplier's name could not be read from this file (a scan or a photo). Type it as written on the RFQ.</p>
+  const match = findProfile(profiles, read)
+  const same = nameKey(name) === nameKey((match || read).name)
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[--color-brand] bg-[--color-brand-light] px-3 py-2 text-xs text-[--color-text-primary]">
+      <Store className="size-3.5 shrink-0 text-[--color-brand]" />
+      <p className="min-w-0 flex-1">
+        This RFQ is from <span className="font-semibold">{read.name}</span>.{' '}
+        {match
+          ? nameKey(match.name) === nameKey(read.name) ? 'It is already in the supplier list.' : <><span className="font-semibold">{match.name}</span> is already in the supplier list.</>
+          : 'It is not in the supplier list yet; Procurement can add it.'}
+      </p>
+      {!same && (
+        <Button type="button" size="sm" className="h-7 text-xs" onClick={() => onUse((match || read).name)}>
+          {match ? 'Use this supplier' : 'Use this name'}
+        </Button>
+      )}
+    </div>
+  )
+}
 
 const SELECT = 'w-full h-10 rounded-md border border-[--color-border] bg-[--color-surface] px-3 text-sm text-[--color-text-primary] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent'
 const FILES = '.pdf,.jpg,.jpeg,.png,.webp,.xlsx,.docx,.csv'
 
 /* One supplier's quotation, typed by the BAC from its returned RFQ: the RFQ
-   file (attached to the request, or one already attached), the supplier, the
-   RFQ No., and for each item still to award it offered what it offered (blank
+   file (attached to the request, or one already attached), the supplier (read
+   from a PDF RFQ and matched to the supplier list, SupplierMatch), the RFQ No., and for each item still to award it offered what it offered (blank
    for as specified, for the TWG to check) and its unit price (blank for no
    bid), lot by lot. The file opens beside the form (onFile).
    quotation: a bidder of GET /canvass/:prId, or null for a new one. */
@@ -30,6 +72,20 @@ export default function QuotationForm({ prId, canvass, quotation, onFile, onClos
   const { data: files = [] } = useQuery({
     queryKey: [`pr-attachments-${prId}`],
     queryFn: () => api.get(`/pr/${prId}/attachments`).then(r => r.data),
+  })
+  const { data: profiles = [] } = useQuery({
+    queryKey: ['suppliers', 'pick'],
+    queryFn: () => api.get('/suppliers?limit=200').then(r => r.data.data),
+    staleTime: 60_000,
+  })
+  // The supplier as typed on its RFQ, read from a PDF file.
+  const pdf = files.find(f => f.id === fileId)?.mimetype === 'application/pdf'
+  const { data: read, isFetching: reading } = useQuery({
+    queryKey: ['rfq-read', prId, fileId],
+    queryFn: async () => readRfq(await pdfLines((await api.get(`/pr/${prId}/attachments/${fileId}/download`, { responseType: 'arraybuffer' })).data)),
+    enabled: pdf,
+    staleTime: Infinity,
+    retry: false,
   })
 
   const lots = lotsWithItems(canvass).map(l => ({ ...l, items: l.items.filter(i => i.state === 'pending') })).filter(l => l.items.length)
@@ -95,13 +151,15 @@ export default function QuotationForm({ prId, canvass, quotation, onFile, onClos
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div className="space-y-1.5 sm:col-span-2">
           <Label htmlFor="quote-name">Supplier <span className="text-red-600 text-xs">*</span></Label>
-          <Input id="quote-name" value={name} maxLength={200} placeholder="As written on the RFQ" onChange={e => setName(e.target.value)} />
+          <Input id="quote-name" value={name} maxLength={200} placeholder="As written on the RFQ" list="quote-suppliers" onChange={e => setName(e.target.value)} />
+          <datalist id="quote-suppliers">{profiles.map(p => <option key={p.id} value={p.name} />)}</datalist>
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="quote-rfq">RFQ No.</Label>
           <Input id="quote-rfq" value={rfqNo} maxLength={50} placeholder={quotation ? '' : String(canvass.bidders.length + 1)} onChange={e => setRfqNo(e.target.value)} />
         </div>
       </div>
+      <SupplierMatch name={name} read={pdf ? read : null} reading={pdf && reading} profiles={profiles} onUse={setName} />
 
       <div className="rounded-xl border border-[--color-border] overflow-x-auto">
         <table className="w-full text-sm">

@@ -91,7 +91,7 @@ export default function BacAwardSheet({ pr, canvass }) {
   const budget = chosen.reduce((s, c) => s + c.budget, 0)
 
   // Under a lot: a pick the TWG found non-compliant, or above its budget, can't be awarded, so it says so
-  // instead of asking for a reason; a pick other than the recommended one says why it stands out, with the BAC's reason.
+  // instead of asking for a remark; any other pick takes the BAC's remark, and one other than the recommended says so.
   const lotNote = (lot) => {
     const c = chosen.find(x => x.lot.label === lot.label)
     if (c?.failed) {
@@ -111,14 +111,18 @@ export default function BacAwardSheet({ pr, canvass }) {
         </p>
       )
     }
-    if (!c?.bidder || c.bidder.id === lot.recommended_bidder_id) return null
+    if (!c?.bidder) return null
+    const recommended = c.bidder.id === lot.recommended_bidder_id
     return (
       <div className="flex flex-wrap items-center gap-2">
-        <p className="flex items-center gap-1 text-[11px] text-amber-700">
-          <AlertTriangle className="size-3 shrink-0" />
-          Not the recommended bid.
-        </p>
-        <Input value={reasons[lot.label] || ''} maxLength={500} placeholder="Reason (optional)" aria-label={`Why ${lot.name} goes to ${c.bidder.name}`}
+        {!recommended && (
+          <p className="flex items-center gap-1 text-[11px] text-amber-700">
+            <AlertTriangle className="size-3 shrink-0" />
+            Not the recommended bid.
+          </p>
+        )}
+        <Input value={reasons[lot.label] || ''} maxLength={500} aria-label={`Remarks on awarding ${lot.name} to ${c.bidder.name}`}
+          placeholder={recommended ? 'Remarks (optional), e.g. Lowest compliant quotation' : 'Remarks (optional): why this supplier'}
           onChange={e => setReasons(r => ({ ...r, [lot.label]: e.target.value }))} className="h-8 max-w-md flex-1 text-xs" />
       </div>
     )
