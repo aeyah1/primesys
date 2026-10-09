@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { StatsCard } from '@/components/shared/StatsCard'
-import { PRStatusBadge, CategoryBadge } from '@/components/shared/StatusBadge'
+import { PRStatusBadge, CategoryBadge, RecanvassBadge } from '@/components/shared/StatusBadge'
 import { EmptyState } from '@/components/shared/ListParts'
 import { fmtDatetime, CATEGORY_LABELS } from '@/lib/utils'
 import { useTwgAreas, areasText } from './TwgReviewList'
@@ -128,6 +128,7 @@ export default function TwgDashboard() {
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-mono text-ui-sm font-bold text-[--color-brand]">{pr.pr_number}</span>
                           <PRStatusBadge status={pr.status} />
+                          <RecanvassBadge count={pr.recanvass_count} />
                           <CategoryBadge category={pr.category} />
                         </div>
                         {pr.title && (

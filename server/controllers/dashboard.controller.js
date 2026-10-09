@@ -31,7 +31,7 @@ exports.summary = asyncHandler(async (req, res) => {
                              WHERE po.purchase_request_id = pr.id AND po.po_status = 'active')), 0) AS ordered
         FROM purchase_requests pr WHERE ${scope.sql} AND ${YEAR} = ?`, [...scope.params, year]),
     pool.execute(`
-      SELECT pr.id, pr.pr_number, pr.title, pr.status, pr.department, ${SINCE} AS since, DATEDIFF(NOW(), ${SINCE}) AS days
+      SELECT pr.id, pr.pr_number, pr.title, pr.status, pr.department, pr.recanvass_count, ${SINCE} AS since, DATEDIFF(NOW(), ${SINCE}) AS days
         FROM purchase_requests pr
        WHERE ${scope.sql} AND pr.status IN (${marks})
        ORDER BY since ASC, pr.id ASC LIMIT 8`, [...scope.params, ...stages]),

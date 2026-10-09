@@ -165,6 +165,7 @@ CREATE TABLE `purchase_requests` (
   `twg_certification_note`     TEXT         NULL,
   `certification_return_reason` VARCHAR(500) NULL,
   `recanvass_reason`           TEXT         NULL,
+  `recanvass_count`            TINYINT UNSIGNED NOT NULL DEFAULT 0,   -- times the TWG ordered a re-canvass
   `deleted_at`                 TIMESTAMP    NULL DEFAULT NULL,
   `deleted_by`                 INT UNSIGNED NULL,
   `delete_reason`              VARCHAR(500) NULL,   -- why it was deleted (none when its filer deleted their own draft)

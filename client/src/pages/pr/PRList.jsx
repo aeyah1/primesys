@@ -9,7 +9,7 @@ import DeletePRDialog from '@/components/shared/DeletePRDialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableEmpty } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
-import { PRStatusBadge, DeliveryStatusBadge, CategoryBadge } from '@/components/shared/StatusBadge'
+import { PRStatusBadge, DeliveryStatusBadge, CategoryBadge, RecanvassBadge } from '@/components/shared/StatusBadge'
 import { FilterChip, Tab, Pager } from '@/components/shared/ListParts'
 import { fmtDate, fmtCurrency, localToday, daysSince, CATEGORY_LABELS } from '@/lib/utils'
 import { useAuth } from '@/context/AuthContext'
@@ -261,7 +261,7 @@ export default function PRList() {
                             </TableCell>
                           )}
                           <TableCell className="text-right text-sm whitespace-nowrap"><Amount pr={pr} /></TableCell>
-                          <TableCell><PRStatusBadge status={pr.status} /></TableCell>
+                          <TableCell><div className="flex flex-wrap items-center gap-1.5"><PRStatusBadge status={pr.status} /><RecanvassBadge count={pr.recanvass_count} /></div></TableCell>
                           <TableCell>
                             {pr.po_id
                               ? <DeliveryStatusBadge status={pr.delivery_status} />

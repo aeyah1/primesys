@@ -4,7 +4,7 @@ import { FileText, Plus, ChevronRight } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { PRStatusBadge } from '@/components/shared/StatusBadge'
+import { PRStatusBadge, RecanvassBadge } from '@/components/shared/StatusBadge'
 import { FilterChip, Pager } from '@/components/shared/ListParts'
 import { useAuth } from '@/context/AuthContext'
 import { REQUEST_STEPS, requestProgress } from '@/lib/requestProgress'
@@ -96,6 +96,7 @@ export default function MyRequests() {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
+                      <RecanvassBadge count={pr.recanvass_count} />
                       <PRStatusBadge status={pr.status} />
                       <ChevronRight className="size-4 text-[--color-text-muted]" />
                     </div>

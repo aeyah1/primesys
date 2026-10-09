@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { Plus, ChevronRight, AlertCircle, Clock, CheckCircle2, Wallet } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { PRStatusBadge } from '@/components/shared/StatusBadge'
+import { PRStatusBadge, RecanvassBadge } from '@/components/shared/StatusBadge'
 import { EmptyState } from '@/components/shared/ListParts'
 import { DashboardHeader, StatLink, ListSkeleton, WaitingCard, useDashboard } from '@/components/dashboard/DashboardParts'
 import { useAuth } from '@/context/AuthContext'
@@ -75,6 +75,7 @@ export default function RequestorDashboard() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
+                    <RecanvassBadge count={pr.recanvass_count} />
                     <PRStatusBadge status={pr.status} />
                     <ChevronRight className="size-4 text-[--color-text-muted]" />
                   </div>

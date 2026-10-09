@@ -195,6 +195,7 @@ async function run() {
   await is(G3, 'the TWG returns it: a price was misread', 5, 'POST', '/twg/80/certify', { action: 'return', comment: 'Beta\'s mouse is 400.00 on its RFQ' }, code(200))
   await is(G3, '…back with the BAC in canvass, with the reason', 6, 'GET', '/bac/80', undefined,
     (r) => r.status === 200 && r.data.status === 'bidding' && r.data.certification_return_reason === 'Beta\'s mouse is 400.00 on its RFQ')
+  await is(G3, '…a correction is not counted as a re-canvass', 3, 'GET', '/pr/80', undefined, (r) => r.status === 200 && r.data.recanvass_count === 0)
   await is(G3, '…the BAC is told', 6, 'GET', '/notifications', undefined,
     (r) => r.status === 200 && r.data.some(n => /returned by the TWG: Beta's mouse is 400.00/.test(n.message)))
   await is(G3, '…and the requestor, with the reason', 3, 'GET', '/notifications', undefined,
@@ -409,7 +410,8 @@ async function run() {
   await is(G10, '…the requestor is told why', 3, 'GET', '/notifications', undefined,
     (r) => r.status === 200 && r.data.some(n => n.type === 'warning'
            && n.message === 'The TWG found no offer for PR PR-C-84 — Canvass 84 that meets your specifications: No 50 W wireless set offered. It goes back to canvass for new quotations.'))
-  await is(G10, '…and sees the reason on the request', 3, 'GET', '/pr/84', undefined, (r) => r.status === 200 && r.data.recanvass_reason === 'No 50 W wireless set offered')
+  await is(G10, '…and sees the reason on the request, marked re-canvassed once', 3, 'GET', '/pr/84', undefined,
+    (r) => r.status === 200 && r.data.recanvass_reason === 'No 50 W wireless set offered' && r.data.recanvass_count === 1)
   await is(G10, '…Procurement is told to give the canvasser the RFQ again', 2, 'GET', '/notifications', undefined,
     (r) => r.status === 200 && r.data.some(n => /^The TWG ordered a re-canvass of PR PR-C-84 .*Give the canvasser the RFQ again\.$/.test(n.message)))
   await is(G10, '…and the BAC, to enter the new quotations', 6, 'GET', '/notifications', undefined,
@@ -432,7 +434,8 @@ async function run() {
   await is(G10, '…and awarded', 6, 'POST', '/canvass/84/award', { winners: [{ lot: '', bidder_id: I }] }, (r) => r.status === 200 && r.data.awards === 1)
   await is(G10, '…at its prices, with the one certificate on record', 2, 'GET', '/bac/84', undefined,
     (r) => r.status === 200 && r.data.status === 'for_po' && r.data.certificates.length === 1 && num(r.data.resolutions[0].lots[0].awarded_amount) === 2880)
-
+  await is(G10, 'awarded, it stays marked re-canvassed in the requestor\'s list', 3, 'GET', '/pr?limit=100', undefined,
+    (r) => r.status === 200 && r.data.data.find(p => p.id === 84)?.recanvass_count === 1 && r.data.data.find(p => p.id === 80)?.recanvass_count === 0)
   // A cancelled PR
   const G8 = 'Cancelling'
   await is(G8, 'the cabinet\'s bids', 6, 'PUT', '/canvass/83/bids', sheet([['Delta Office', { 831: 9000 }]]), code(200))
