@@ -305,7 +305,7 @@ export default function PREdit() {
             <p className="text-ui-xs text-[--color-text-muted] mt-1">Who is asking, what it is for, and when it is needed.</p>
           </CardHeader>
           <CardContent>
-            <RequestContextForm value={form} onChange={setContext} prId={id} />
+            <RequestContextForm value={form} onChange={setContext} prId={id} total={grandTotal} />
           </CardContent>
         </Card>
 

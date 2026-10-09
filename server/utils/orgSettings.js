@@ -66,7 +66,7 @@ function fundCodeFor(org, source) {
 // its length drives a SUBSTRING, so wildcards (% _) must never reach it.
 const PR_PREFIX = /^[A-Za-z0-9][A-Za-z0-9 -]{0,14}$/
 const DEFAULT_PR_PREFIX = 'CSO'
-const DEFAULT_APPROVER_THRESHOLD = 50000
+const DEFAULT_APPROVER_THRESHOLD = 200000
 
 // Every key as a string, so a template never prints "null".
 async function loadOrgSettings(db) {
@@ -80,13 +80,21 @@ async function loadOrgSettings(db) {
 const prNumberPrefix = (value) => (PR_PREFIX.test(String(value || '').trim()) ? String(value).trim() : DEFAULT_PR_PREFIX)
 
 // Who signs "Approved by" for a request of this size. The campus rule: at or
-// below the threshold the Campus Director, above it the University President.
+// below the threshold the Campus Director, above it the SUC President.
 function approverFor(org, total) {
   const raw = Number(String(org.approver_threshold || '').trim())
   const threshold = Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_APPROVER_THRESHOLD
   return Number(total || 0) > threshold
     ? { name: org.approved_above_name || '', designation: org.approved_above_designation || '', threshold, above: true }
     : { name: org.approved_by_name    || '', designation: org.approved_by_designation    || '', threshold, above: false }
+}
+
+// Who signs "Requested by" for a request of this size: the person the End User
+// named (else whoever filed it), but above the threshold the Campus Director
+// (the at-or-below approver) requests and the SUC President approves; fixed.
+function requesterFor(org, total, pr) {
+  if (approverFor(org, total).above) return { name: org.approved_by_name || '', designation: org.approved_by_designation || '', fixed: true }
+  return { name: pr.requested_by_name || pr.created_by_name || '', designation: pr.requested_by_designation || pr.created_by_designation || '', fixed: false }
 }
 
 // The BAC members, one per line, blanks dropped.
@@ -106,5 +114,5 @@ function canvassersOf(org) {
 
 module.exports = {
   SETTING_KEYS, FUND_SOURCES, FUND_SOURCE_VALUES, PR_PREFIX, DEFAULT_PR_PREFIX, DEFAULT_APPROVER_THRESHOLD,
-  loadOrgSettings, prNumberPrefix, fundCodeFor, approverFor, bacMembers, MAX_CANVASSERS, canvassersOf,
+  loadOrgSettings, prNumberPrefix, fundCodeFor, approverFor, requesterFor, bacMembers, MAX_CANVASSERS, canvassersOf,
 }

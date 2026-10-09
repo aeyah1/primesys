@@ -1,7 +1,7 @@
 const { M } = require('../utils/pdfHelpers')
 const { isTemporary } = require('../utils/prNumber')
 const { signatureBuffer, drawSignature } = require('../utils/signature')
-const { approverFor } = require('../utils/orgSettings')
+const { approverFor, requesterFor } = require('../utils/orgSettings')
 const { signatureOf } = require('../utils/orgSignatures')
 
 // Purchase Request, drawn as the government form the campus files on paper
@@ -236,20 +236,19 @@ module.exports = function drawPRForm(doc, { pr, orgSettings = {}, items = [] }) 
     put(right, rightX, top, HALF, height, { font, size, align: font === 'Times-Roman' ? 'left' : 'center' })
   }
 
-  // "Requested by" names the head of the requesting office as they stood when
-  // the PR was filed (utils/departments.js), not whoever encoded it. Older PRs
-  // carry no frozen head, so they still name their creator.
-  const requestedName = pr.requested_by_name || pr.created_by_name || ''
-  const requestedTitle = pr.requested_by_designation || pr.created_by_designation || ''
-
-  // Who approves depends on the amount: at or below the campus threshold the
-  // Campus Director, above it the University President (utils/orgSettings.js).
+  // "Requested by" names the person the End User typed (the office head by
+  // default), else whoever filed it; who approves depends on the amount. Above
+  // the campus threshold the Campus Director requests and the SUC President approves (utils/orgSettings.js).
+  const requester = requesterFor(orgSettings, grandTotal, pr)
+  const requestedName = requester.name
+  const requestedTitle = requester.designation
   const approver = approverFor(orgSettings, grandTotal)
 
   signRow(y, ROW_H, '', 'Requested by:', 'Approved by:'); y += ROW_H
   signRow(y, 30,    'Signature', '', '')
-  // The requester's signature, drawn on the screen or uploaded, on their line; a blank line to sign by hand otherwise.
-  const signature = signatureBuffer(pr.requested_by_signature)
+  // The requester's signature, drawn on the screen or uploaded, on their line; above the threshold the
+  // Campus Director's saved one, on a signed copy; a blank line to sign by hand otherwise.
+  const signature = requester.fixed ? signatureOf(orgSettings, requester.name) : signatureBuffer(pr.requested_by_signature)
   if (signature) drawSignature(doc, signature, leftX + 4, y + 2, HALF - 8, 26, { valign: 'center' })
   // The approving official's saved signature, on a signed copy (utils/orgSignatures.js).
   const approverSignature = signatureOf(orgSettings, approver.name)

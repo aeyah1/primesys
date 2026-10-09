@@ -3,8 +3,10 @@ const asyncHandler = require('../utils/asyncHandler')
 const { SETTING_KEYS, loadOrgSettings } = require('../utils/orgSettings')
 const signatures   = require('../utils/orgSignatures')
 
-// What the PR form shows to everyone else; signatories and numbering are the admin's to see.
-const FORM_KEYS = ['fund_cluster', 'fund_code_stf', 'fund_code_gaa', 'fund_code_igp', 'responsibility_center_code']
+// What the PR form shows to everyone else, with the threshold and the two approvers it prints (the
+// campus rule on who requests and approves); the other signatories and numbering are the admin's to see.
+const FORM_KEYS = ['fund_cluster', 'fund_code_stf', 'fund_code_gaa', 'fund_code_igp', 'responsibility_center_code',
+  'approver_threshold', 'approved_by_name', 'approved_by_designation', 'approved_above_name', 'approved_above_designation']
 
 exports.get = asyncHandler(async (req, res) => {
   const [rows] = await pool.execute('SELECT setting_key, setting_value FROM org_settings')

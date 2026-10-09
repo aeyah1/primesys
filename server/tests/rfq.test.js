@@ -14,7 +14,7 @@ const H    = require('./harness')
 const PDFDocument = require(require.resolve('pdfkit', { paths: [H.SERVER] }))
 const drawRFQ     = require(path.join(H.SERVER, 'pdf', 'requestForQuotation'))
 const { M }       = require(path.join(H.SERVER, 'utils', 'pdfHelpers'))
-const { fundCodeFor, approverFor, FUND_SOURCES, canvassersOf } = require(path.join(H.SERVER, 'utils', 'orgSettings'))
+const { fundCodeFor, approverFor, requesterFor, FUND_SOURCES, canvassersOf } = require(path.join(H.SERVER, 'utils', 'orgSettings'))
 
 const PAGE_H = 792
 
@@ -228,8 +228,12 @@ async function run() {
   t.check('Approver rule', 'below the threshold', approverFor(org, 49999).name === 'CD')
   t.check('Approver rule', 'exactly at it', approverFor(org, 50000).name === 'CD')
   t.check('Approver rule', 'above it', approverFor(org, 50001).name === 'PRES')
-  t.check('Approver rule', 'a blank threshold defaults to 50,000',
-    approverFor({ ...org, approver_threshold: '' }, 50001).name === 'PRES')
+  t.check('Approver rule', 'a blank threshold defaults to 200,000',
+    approverFor({ ...org, approver_threshold: '' }, 200000).name === 'CD' && approverFor({ ...org, approver_threshold: '' }, 200001).name === 'PRES')
+  const pr = { requested_by_name: 'HEAD', requested_by_designation: 'Chair', created_by_name: 'FILER' }
+  t.check('Requester rule', 'at or below the threshold, the person named', requesterFor(org, 50000, pr).name === 'HEAD' && requesterFor(org, 50000, pr).fixed === false)
+  t.check('Requester rule', '…else whoever filed it', requesterFor(org, 50000, { created_by_name: 'FILER' }).name === 'FILER')
+  t.check('Requester rule', 'above it, the Campus Director, fixed', requesterFor(org, 50001, pr).name === 'CD' && requesterFor(org, 50001, pr).fixed === true)
   t.check('Approver rule', 'a nonsense threshold defaults too',
     approverFor({ ...org, approver_threshold: 'abc' }, 49999).name === 'CD')
 

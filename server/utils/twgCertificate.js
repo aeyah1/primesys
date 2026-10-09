@@ -1,6 +1,7 @@
 const httpError = require('./httpError')
 const { nextNumber } = require('./numberFormat')
 const { orderBySection } = require('./itemSections')
+const { loadOrgSettings, requesterFor } = require('./orgSettings')
 
 // The TWG's Certifications (Goods and services): of a request, when the TWG approves it (kind 'review': it
 // checked the market price and specifications of the items), and of a canvass's bids (kind 'bids': one per
@@ -48,8 +49,11 @@ async function certificateOf(db, prId, certId) {
        FROM purchase_requests pr JOIN users u ON u.id = pr.created_by WHERE pr.id = ?`, [prId])
   if (cert.kind === 'review') {
     const [items] = await db.execute(
-      'SELECT id, item_name, quantity, unit, notes, group_label FROM pr_items WHERE pr_id = ? AND dropped_at IS NULL ORDER BY id', [prId])
-    return { cert, pr, items: orderBySection(items) }
+      'SELECT id, item_name, quantity, unit, estimated_cost, notes, group_label FROM pr_items WHERE pr_id = ? AND dropped_at IS NULL ORDER BY id', [prId])
+    // The requesting officer as on the PR form: above the threshold, the Campus Director.
+    const total = items.reduce((s, i) => s + (Number(i.quantity) || 0) * (Number(i.estimated_cost) || 0), 0)
+    const requester = requesterFor(await loadOrgSettings(db), total, pr)
+    return { cert, pr: { ...pr, requested_by_name: requester.name, requested_by_designation: requester.designation }, items: orderBySection(items) }
   }
   const [bids] = await db.execute(`
     SELECT d.name AS bidder, d.rfq_no, i.id AS item_id, i.item_name, i.quantity, i.unit, i.notes,
