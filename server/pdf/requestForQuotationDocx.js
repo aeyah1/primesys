@@ -43,13 +43,16 @@ function lotBody({ pr, org, lot }) {
   out.push(gap(8))
 
   out.push(p(REQUEST_TEXT, { align: 'both', size: 8, after: 8 }))
-  out.push(p(s('bac_vice_chairman_name'), { align: 'center', b: true, size: 10 }))
-  out.push(p(s('bac_vice_chairman_designation', 'BAC Vice Chairman'), { align: 'center', size: 9, after: 8 }))
 
+  // The notes, with the vice chairman signing at the right beside them (as the PDF).
   out.push(table([{ cells: [
     { content: p('Note', { size: 8 }), vAlign: 'top' },
     { content: NOTES.map(n => p(n, { size: 8 })) },
-  ] }], { widths: [1800, FULL - 1800], borders: false }))
+    { content: [
+      p(s('bac_vice_chairman_name'), { align: 'center', b: true, size: 10 }),
+      p(s('bac_vice_chairman_designation', 'BAC Vice Chairman'), { align: 'center', size: 9 }),
+    ], vAlign: 'top' },
+  ] }], { widths: [1800, FULL - 4400, 2600], borders: false }))
   out.push(gap(8))
 
   // The items: section headings, then each item's name and specifications; the price columns stay empty.

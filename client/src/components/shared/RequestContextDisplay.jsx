@@ -42,7 +42,7 @@ function Field({ icon: Icon, label, value, multiline = false }) {
 
 // Whether the PR has any request context to show.
 export function hasRequestContext(pr) {
-  return !!pr && !!(pr.department || pr.purpose_type || pr.purpose || pr.date_needed ||
+  return !!pr && !!(pr.department || pr.purpose_type || pr.purpose ||
     pr.event_name || pr.project_name || pr.requested_by_name)
 }
 
@@ -60,7 +60,6 @@ export function RequestContextFields({ pr, className = '' }) {
           ? `${pr.requested_by_name}${pr.requested_by_designation ? ` — ${pr.requested_by_designation}` : ''}${pr.requested_by_signed ? ' (signed)' : ''}`
           : null}
       />
-      <Field icon={Calendar}     label="Date needed"     value={pr.date_needed ? fmtDate(pr.date_needed) : null} />
 
       {pr.purpose_type === 'event' && (
         <>

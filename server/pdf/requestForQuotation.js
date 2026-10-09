@@ -43,6 +43,9 @@ const BOTTOM = 792 - M
 // The room a saved signature takes above the vice chairman's name, and above each row of canvassers' names.
 const VICE_ROOM = 15
 const NAME_ROOM = 16
+// The vice chairman signs at the right, beside the notes; the longest note ends before this column.
+const SIGN_W = 130
+const SIGN_X = M + W - SIGN_W
 
 // Everything that must stay with a lot's last row: the ABC and purpose rows and a gap, the three terms the supplier
 // fills in, the acceptance sentence, their name and contact rules, and the canvassers' rows of `nameRowH` each.
@@ -150,13 +153,13 @@ function drawLot(doc, { pr, orgSettings: org, lot, first }) {
   const vice = signatureOf(org, s('bac_vice_chairman_name'))
   const nameRows = Math.ceil(signers.length / 3)
   const room = (vice ? VICE_ROOM : 0) + (signed.some(Boolean) ? NAME_ROOM * nameRows : 0)
-  const roomy = room > 0 && y + room + 26 + NOTES.length * 9 + 8 + HEAD_H + rows.reduce((t, r) => t + r.height, 0) + footerHeight(22, nameRows) <= BOTTOM
+  const roomy = room > 0 && y + room + NOTES.length * 9 + 8 + HEAD_H + rows.reduce((t, r) => t + r.height, 0) + footerHeight(22, nameRows) <= BOTTOM
 
-  if (vice && roomy) { y += VICE_ROOM; drawSignature(doc, vice, M + W / 2 - 90, y - 23, 180, 24) }
-  else if (vice) drawSignature(doc, vice, M + W / 2 - 90, y - 11, 180, 17)
-  doc.font('Times-Bold').fontSize(10).text(s('bac_vice_chairman_name'), M, y, { width: W, align: 'center' })
-  doc.font('Times-Roman').fontSize(9).text(s('bac_vice_chairman_designation', 'BAC Vice Chairman'), M, y + 12, { width: W, align: 'center' })
-  y += 26
+  // ── The vice chairman, at the right beside the notes ───────────────
+  if (vice && roomy) { y += VICE_ROOM; drawSignature(doc, vice, SIGN_X + 5, y - 23, SIGN_W - 10, 24) }
+  else if (vice) drawSignature(doc, vice, SIGN_X + 5, y - 11, SIGN_W - 10, 17)
+  doc.font('Times-Bold').fontSize(10).fillColor(BLACK).text(s('bac_vice_chairman_name'), SIGN_X, y, { width: SIGN_W, align: 'center' })
+  doc.font('Times-Roman').fontSize(9).text(s('bac_vice_chairman_designation', 'BAC Vice Chairman'), SIGN_X, doc.y + 1, { width: SIGN_W, align: 'center' })
 
   // ── Conditions ─────────────────────────────────────────────────────
   doc.font('Times-Roman').fontSize(8).text('Note', M, y, { width: 40, lineBreak: false })

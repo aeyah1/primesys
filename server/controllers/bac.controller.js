@@ -32,20 +32,20 @@ exports.queue = asyncHandler(async (req, res) => {
   if (search) { where.push('(pr.pr_number LIKE ? OR pr.title LIKE ?)'); params.push(search, search) }
 
   const [[counts]] = await pool.execute(`
-    SELECT (SELECT COUNT(*) FROM purchase_requests pr WHERE ${where.join(' AND ')} AND pr.status IN ('bidding', 'bac_review')) AS pending,
+    SELECT (SELECT COUNT(*) FROM purchase_requests pr WHERE ${where.join(' AND ')} AND pr.status IN ('bidding', 'bac_review', 're_pr')) AS pending,
            (SELECT COUNT(*) FROM bac_resolutions r JOIN purchase_requests pr ON pr.id = r.purchase_request_id WHERE ${where.join(' AND ')}) AS approved`,
     [...params, ...params])
 
   let rows
   if (view === 'pending') {
     [rows] = await pool.execute(`
-      SELECT pr.id, pr.pr_number, pr.title, pr.status, pr.department, pr.mode_of_procurement, pr.certification_return_reason, pr.recanvass_reason, pr.recanvass_count,
+      SELECT pr.id, pr.pr_number, pr.title, pr.status, pr.department, pr.mode_of_procurement, pr.certification_return_reason, pr.recanvass_reason, pr.recanvass_count, pr.re_pr_count, pr.re_pr_type, pr.re_pr_reason,
              COALESCE((SELECT MAX(sl.created_at) FROM pr_status_logs sl WHERE sl.pr_id = pr.id AND sl.to_status = pr.status), pr.created_at) AS since,
              (SELECT COUNT(*) FROM canvass_bidders d WHERE d.pr_id = pr.id) AS bidders,
              (SELECT COUNT(*) FROM pr_items i WHERE i.pr_id = pr.id AND i.dropped_at IS NULL) AS items,
              (SELECT COALESCE(SUM(i.quantity * i.estimated_cost), 0) FROM pr_items i WHERE i.pr_id = pr.id AND i.dropped_at IS NULL) AS total
         FROM purchase_requests pr
-       WHERE ${where.join(' AND ')} AND pr.status IN ('bidding', 'bac_review')
+       WHERE ${where.join(' AND ')} AND pr.status IN ('bidding', 'bac_review', 're_pr')
        ORDER BY since ASC, pr.id ASC
        LIMIT ${limit} OFFSET ${offset}`, params)
   } else {

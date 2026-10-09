@@ -43,10 +43,18 @@ export const PR_STATUS_LABELS = {
   bidding:            'Canvass',
   twg_certification:  'TWG certification',
   bac_review:         'BAC award',
+  re_pr:              'Re-PR (BAC check)',
   for_po:             'Ready for PO',
   completed:          'Completed',
   rejected:           'Rejected by TWG',
   cancelled:          'Cancelled',
+}
+
+// Why the TWG sends a request back to its End User (a Re-PR); keep in sync with server/utils/rePr.js.
+export const RE_PR_TYPES = {
+  raise_budget: 'Only higher-end specifications were offered: raise the budget (ABC)',
+  change_specs: 'The specifications are not available on the market: change them',
+  revise_specs: 'The specifications are unclear or too strict: revise them',
 }
 
 // One-line plain explanation of each status, shown when hovering a status badge.
@@ -59,6 +67,7 @@ export const PR_STATUS_HELP = {
   bidding:            'The canvasser is asking suppliers for prices; the BAC enters the bids for the TWG to check.',
   bac_review:         'The TWG checked the offers. The Bids and Awards Committee chooses the winners.',
   twg_certification:  'The TWG is checking every offer against the specifications.',
+  re_pr:              'No offer met the specifications. The TWG proposed a Re-PR; the BAC checks it, then the End User changes the request.',
   for_po:             'A supplier was chosen. The purchase order comes next, then delivery.',
   completed:          'Everything was delivered. Done.',
   cancelled:          'Stopped by the Procurement Office. It will not go further.',
@@ -73,6 +82,7 @@ export const PR_STATUS_COLORS = {
   bidding:            'bg-orange-50 text-orange-700 border-orange-300',
   bac_review:         'bg-indigo-50 text-indigo-700 border-indigo-300',
   twg_certification:  'bg-teal-50 text-teal-700 border-teal-300',
+  re_pr:              'bg-red-50 text-red-700 border-red-300',
   for_po:             'bg-violet-50 text-violet-700 border-violet-300',
   completed:          'bg-emerald-50 text-emerald-700 border-emerald-300',
   cancelled:          'bg-rose-50 text-rose-700 border-rose-300',

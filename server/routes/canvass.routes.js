@@ -35,6 +35,11 @@ router.put('/:prId/bids', bac, prAccess,
   handle,
   c.saveBids)
 router.delete('/:prId/bidders/:bidderId', bac, prAccess, c.removeBidder)
+router.post('/:prId/re-pr', bac, prAccess,
+  oneOfRule('action', 'Action must be "send" or "return"', ['send', 'return'], { required: true }),
+  textRule('note', 'Note', 2000),
+  handle,
+  c.settleRePr)
 router.post('/:prId/send', bac, prAccess, c.send)
 router.post('/:prId/award', bac, prAccess,
   body('winners').isArray({ max: 200 }).withMessage('Pick the winners'),

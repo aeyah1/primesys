@@ -19,7 +19,7 @@ const { IN_AREA } = require('../utils/twgAreas')
 // Everyone can also see PRs they created themselves. Deleted PRs are archived:
 // hidden everywhere except the read-only views that pass `includeDeleted`.
 
-const TWG_STAGES = "'submitted', 'twg_review', 'revision_requested', 'rejected', 'twg_certification'"
+const TWG_STAGES = "'submitted', 'twg_review', 'revision_requested', 'rejected', 'twg_certification', 're_pr'"
 
 // Which PRs each role may see (the table above), over the alias `pr`.
 function roleScope(user) {
@@ -42,7 +42,8 @@ function roleScope(user) {
     case 'bac':
       return {
         sql: `(pr.created_by = ?
-               OR pr.status IN ('twg_review', 'bidding', 'bac_review', 'twg_certification', 'for_po', 'completed')
+               OR pr.status IN ('twg_review', 'bidding', 'bac_review', 'twg_certification', 're_pr', 'for_po', 'completed')
+               OR (pr.re_pr_count > 0 AND pr.status <> 'draft')
                OR (pr.status = 'cancelled' AND EXISTS (SELECT 1 FROM pr_status_logs bl
                                                         WHERE bl.pr_id = pr.id AND bl.to_status = 'twg_review')))`,
         params: [user.id],

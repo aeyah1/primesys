@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { StatsCard } from '@/components/shared/StatsCard'
-import { PRStatusBadge, RecanvassBadge } from '@/components/shared/StatusBadge'
+import { PRStatusBadge, MarkerBadges } from '@/components/shared/StatusBadge'
 import { EmptyState } from '@/components/shared/ListParts'
 import { fmtCurrency, plural } from '@/lib/utils'
 import api from '@/lib/axios'
@@ -70,7 +70,7 @@ export function WaitingCard({ data, isLoading, title = 'Waiting longest', empty,
                 </p>
               </div>
               <div className="flex items-center gap-3 shrink-0">
-                <RecanvassBadge count={pr.recanvass_count} />
+                <MarkerBadges pr={pr} />
                 <PRStatusBadge status={pr.status} />
                 <span className={`w-14 text-right text-ui-xs tabular-nums ${pr.days > 3 ? 'font-semibold text-amber-700' : 'text-[--color-text-muted]'}`}>
                   {plural(pr.days, 'day')}

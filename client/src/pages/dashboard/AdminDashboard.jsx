@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { StatsCard } from '@/components/shared/StatsCard'
-import { PRStatusBadge, RecanvassBadge } from '@/components/shared/StatusBadge'
+import { PRStatusBadge, MarkerBadges } from '@/components/shared/StatusBadge'
 import { SpendingTrendCard, WaitingCard, useDashboard } from '@/components/dashboard/DashboardParts'
 import { fmtDate, fmtCurrency, PR_STATUS_LABELS } from '@/lib/utils'
 import api from '@/lib/axios'
@@ -288,7 +288,7 @@ export default function AdminDashboard() {
                       }
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] text-[--color-text-muted] hidden sm:block">{fmtDate(pr.created_at)}</span>
-                        <RecanvassBadge count={pr.recanvass_count} />
+                        <MarkerBadges pr={pr} />
                         <PRStatusBadge status={pr.status} />
                       </div>
                     </div>

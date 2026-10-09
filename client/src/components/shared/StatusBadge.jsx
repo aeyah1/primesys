@@ -1,4 +1,4 @@
-import { RefreshCcw } from 'lucide-react'
+import { RefreshCcw, Undo2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import {
   PR_STATUS_LABELS, PR_STATUS_COLORS, PR_STATUS_HELP,
@@ -25,6 +25,23 @@ export function RecanvassBadge({ count }) {
       <RefreshCcw className="size-3" /> {n === 1 ? 'Re-canvassed' : `Re-canvassed ${n} times`}
     </Badge>
   )
+}
+
+// A request the TWG sent back to its End User (a Re-PR) keeps this mark, with the count when more than once.
+export function RePrBadge({ count }) {
+  const n = Number(count) || 0
+  if (!n) return null
+  return (
+    <Badge className="gap-1 whitespace-nowrap bg-red-50 text-red-700 border-red-300"
+      title={`Sent back to its End User ${n === 1 ? 'once' : `${n} times`} (Re-PR): no supplier's offer met the specifications`}>
+      <Undo2 className="size-3" /> {n === 1 ? 'Re-PR' : `Re-PR ${n} times`}
+    </Badge>
+  )
+}
+
+// Both marks of a request's history: re-canvassed, and sent back to its End User.
+export function MarkerBadges({ pr }) {
+  return <><RecanvassBadge count={pr.recanvass_count} /><RePrBadge count={pr.re_pr_count} /></>
 }
 
 export function DeliveryStatusBadge({ status }) {

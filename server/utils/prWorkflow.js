@@ -21,7 +21,7 @@ const { requesterNotice } = require('./requesterNotice')
 const STATUS_LABELS = {
   draft: 'Draft', submitted: 'Submitted', twg_review: 'Approved by TWG',
   revision_requested: 'Revision Requested', rejected: 'Rejected by TWG', bidding: 'Canvass',
-  bac_review: 'BAC award', twg_certification: 'TWG certification',
+  bac_review: 'BAC award', twg_certification: 'TWG certification', re_pr: 'Re-PR (BAC check)',
   for_po: 'Ready for PO', completed: 'Completed', cancelled: 'Cancelled',
 }
 
@@ -31,7 +31,7 @@ const STAFF   = ['procurement', 'admin']
 const ADMIN      = ['admin']
 const TWG_STAGES = ['submitted', 'revision_requested', 'twg_certification']
 // From the start of the canvass to the BAC's award: the request has its PR number and a paper trail.
-const CANVASS_STAGES = ['bidding', 'twg_certification', 'bac_review']
+const CANVASS_STAGES = ['bidding', 'twg_certification', 'bac_review', 're_pr']
 
 // from -> to -> rule. A rule either lists the roles that may make the move through
 // the status endpoint (`roles`; `owner`: only the PR's creator or an admin;
@@ -50,6 +50,9 @@ const CANVASS_STAGES = ['bidding', 'twg_certification', 'bac_review']
 // certification); the TWG marks each bid compliant or not and certifies them
 // (BAC award) or returns them to the BAC's canvass; the BAC picks the winners
 // and awards (Ready for PO), or takes the canvass back to correct it (utils/canvassBids.js).
+// When every supplier is DQ the TWG may instead propose a Re-PR (re_pr): the
+// BAC sends it to the End User to change the request (revision_requested) or
+// returns it to the TWG (utils/rePr.js).
 // From then on the awards decide
 // (syncPRProgress): an item needing an award again (an award or PO cancelled,
 // a PO closed short) puts the request back in canvass, to be reviewed again,
@@ -65,8 +68,9 @@ const TRANSITIONS = {
   bidding:            { twg_certification: { via: 'bac' }, for_po: { via: 'award' },
                         revision_requested: { roles: STAFF, reason: true, noAward: true },
                         cancelled: { roles: STAFF, noPO: true } },
-  twg_certification:  { bac_review: { via: 'twg' }, bidding: { via: 'twg' }, cancelled: { roles: ADMIN, noPO: true } },
+  twg_certification:  { bac_review: { via: 'twg' }, bidding: { via: 'twg' }, re_pr: { via: 'twg' }, cancelled: { roles: ADMIN, noPO: true } },
   bac_review:         { for_po: { via: 'bac' }, bidding: { via: 'bac' }, cancelled: { roles: STAFF, noPO: true } },
+  re_pr:              { revision_requested: { via: 'bac' }, twg_certification: { via: 'bac' }, cancelled: { roles: STAFF, noPO: true } },
   for_po:             { bidding: { roles: STAFF, noPO: true, alsoVia: 'award' }, completed: { via: 'delivery' },
                         cancelled: { roles: STAFF, noPO: true } },
   rejected:  {},

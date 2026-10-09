@@ -5,7 +5,7 @@ import { Search, ClipboardCheck, ShieldCheck, ChevronRight, CheckCircle2, AlertT
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { PRStatusBadge, CategoryBadge, RecanvassBadge } from '@/components/shared/StatusBadge'
+import { PRStatusBadge, CategoryBadge, MarkerBadges } from '@/components/shared/StatusBadge'
 import { FilterChip } from '@/components/shared/ListParts'
 import { fmtDatetime, CATEGORY_LABELS, plural, daysSince } from '@/lib/utils'
 import api from '@/lib/axios'
@@ -183,7 +183,7 @@ export default function TwgReviewList() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-mono text-ui-sm font-bold text-[--color-brand]">{pr.pr_number}</span>
                         <PRStatusBadge status={pr.status} />
-                        <RecanvassBadge count={pr.recanvass_count} />
+                        <MarkerBadges pr={pr} />
                         <CategoryBadge category={pr.category} />
                         {pr.uncovered && (
                           <span className="inline-flex items-center gap-1 rounded-full border border-red-300 bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-red-700">

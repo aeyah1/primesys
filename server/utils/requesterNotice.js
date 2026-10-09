@@ -24,6 +24,7 @@ function requesterNotice(pr, from, to, { note = null, message = null } = {}) {
       : notice('warning', `${name} is back in canvass${why}.`)
     case 'twg_certification':  return notice('info', `The suppliers' offers for ${name} are in. The TWG is checking them against your specifications.`)
     case 'bac_review':         return notice('info', `The TWG checked the offers for ${name}. The BAC chooses the suppliers next.`)
+    case 're_pr':              return notice('warning', `The TWG proposed a Re-PR of ${name}${why}. The BAC checks it next.`)
     case 'for_po':             return notice('success', `The suppliers for ${name} are chosen. Procurement prepares the purchase orders.`)
     case 'cancelled':          return notice('warning', `${name} was cancelled${why}.`)
     // Completed: the delivery that completes it says so, after its own notice (delivery.controller).

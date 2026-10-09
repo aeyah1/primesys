@@ -19,8 +19,10 @@ import { useAuth } from '@/context/AuthContext'
 import api from '@/lib/axios'
 import ReviewSubmitDialog from '@/components/shared/ReviewSubmitDialog'
 import { usePpmpPlans, takenByKey, lineChecks, PpmpLineNote, PpmpItemField, NoPpmpNotice, quarterOf } from '@/components/ppmp/PpmpLinePicker'
+import { usePrPpmp } from '@/components/ppmp/PpmpComparison'
 
-const EMPTY_DRAFT = { group_label: '', stock_property_no: '', category: '', ppmp_item_id: null, line: null, quantity: '1', estimated_cost: '', specs: {} }
+// off_plan: an item not in the PPMP, typed with its own name and unit (only on a Re-PR'd request).
+const EMPTY_DRAFT = { group_label: '', stock_property_no: '', category: '', ppmp_item_id: null, line: null, quantity: '1', estimated_cost: '', specs: {}, off_plan: false, item_name: '', unit: '' }
 
 const TH = ({ children, className = '' }) => (
   <th className={`px-4 py-3 text-xs font-bold text-[--color-text-secondary] uppercase tracking-wider bg-[--color-canvas] ${className}`}>
@@ -40,7 +42,7 @@ export default function PREdit() {
 
   const [form, setForm]     = useState({
     title: '', fund_cluster: '', fund_source: 'STF', responsibility_center_code: '', category: 'office_supplies',
-    department: '', department_id: '', purpose_type: 'personal', purpose: '', date_needed: '', recommended_by: '',
+    department: '', department_id: '', purpose_type: 'personal', purpose: '', recommended_by: '',
     event_name: '', event_date: '', project_name: '',
     requested_by_name: '', requested_by_designation: '', signature: null, signature_changed: false,
   })
@@ -86,7 +88,6 @@ export default function PREdit() {
         purpose:                    pr.purpose                    || '',
         // MySQL DATE column comes back as 'YYYY-MM-DDTHH:mm:ss.sssZ' through
         // JSON serialization — slice to the date portion for <input type="date">.
-        date_needed:                pr.date_needed                ? String(pr.date_needed).slice(0, 10) : '',
         recommended_by:             pr.recommended_by             || '',   // carried, not asked
         event_name:                 pr.event_name                 || '',
         event_date:                 pr.event_date                 ? String(pr.event_date).slice(0, 10)  : '',
@@ -116,7 +117,7 @@ export default function PREdit() {
 
   useEffect(() => {
     if (existingItems.length > 0 && initialized && items.length === 0) {
-      setItems(existingItems.map(i => ({ ...i, _existing: true, _quantity: i.quantity })))
+      setItems(existingItems.map(i => ({ ...i, _existing: true, _quantity: i.quantity, _cost: i.estimated_cost })))
     }
   }, [existingItems, initialized])
 
@@ -138,30 +139,35 @@ export default function PREdit() {
   const planYear = items.map(i => lineById.get(Number(i.ppmp_item_id))?.fiscal_year).find(Boolean) ?? (quarter ? Number(pr.quarter_year) : undefined)
   const checkItem = (item, exceptIndex) => {
     const line = item.line || lineById.get(Number(item.ppmp_item_id))
-    return line ? { line, ...lineChecks(line, { quantity: item.quantity, price: item.estimated_cost, dateNeeded: form.date_needed, quarter, taken: takenByKey(items, lineById, exceptIndex).get(line.key) || 0 }) } : null
+    return line ? { line, ...lineChecks(line, { quantity: item.quantity, price: item.estimated_cost, quarter, taken: takenByKey(items, lineById, exceptIndex).get(line.key) || 0 }) } : null
   }
   const draftCheck = draft.line ? checkItem(draft, -1) : null
   // A picked line brings its price; typing over it clears the pick.
   const pickLine = (line) => setDraft(p => (line ? { ...p, ppmp_item_id: line.id, line, estimated_cost: String(line.unit_cost) } : { ...p, ppmp_item_id: null, line: null }))
 
+  // A Re-PR'd request may go past the PPMP: prices above a line, items not in it; the extra comes out of the office's budget.
+  const rePr = pr?.re_pr_count > 0
+  const { data: review } = usePrPpmp(rePr ? id : null)
+  const offPlanReady = draft.item_name.trim() && draft.unit.trim() && parseFloat(draft.estimated_cost) > 0
+
   const handleAddItem = () => {
-    if (!draft.line) { toast.error('Pick the item from the PPMP'); return }
-    if (draftCheck?.block) { toast.error(draftCheck.block); return }
+    if (draft.off_plan ? !offPlanReady : !draft.line) { toast.error(draft.off_plan ? 'Give the item\'s name, unit and price' : 'Pick the item from the PPMP'); return }
+    if (!draft.off_plan && draftCheck?.block) { toast.error(draftCheck.block); return }
     const notes = buildItemNotes(form.category, draft.specs)
     const newItem = {
       group_label:       draft.group_label,
       stock_property_no: draft.stock_property_no.trim(),
       category:          draft.category || form.category,
-      ppmp_item_id:      draft.line.id,
-      item_name:         draft.line.description,
+      ppmp_item_id:      draft.off_plan ? null : draft.line.id,
+      item_name:         draft.off_plan ? draft.item_name.trim() : draft.line.description,
       quantity:          draft.quantity,
-      unit:              draft.line.unit,
+      unit:              draft.off_plan ? draft.unit.trim() : draft.line.unit,
       estimated_cost:    draft.estimated_cost,
       notes,
       _new: true,
     }
     setItems(p => [...p, newItem])
-    setDraft(p => ({ ...EMPTY_DRAFT, group_label: p.group_label }))   // the section stays for the next item
+    setDraft(p => ({ ...EMPTY_DRAFT, group_label: p.group_label, off_plan: p.off_plan }))   // the section stays for the next item
   }
 
   // "Add item" on a section heading: point the add form at that section.
@@ -183,7 +189,7 @@ export default function PREdit() {
     if (!form.title.trim()) { toast.error('Give your request a purpose'); return }
     if (submit && items.length === 0) { toast.error('Add at least one item before submitting'); return }
     if (items.some(i => !(parseFloat(i.quantity) > 0))) { toast.error('Give every item a quantity above 0, or remove it'); return }
-    if (submit && processed.some(i => !i.ppmp_item_id || i.check?.block)) { toast.error('Pick every item from the PPMP, and lower the ones marked in red to what is left'); return }
+    if (submit && processed.some(i => (!i.ppmp_item_id && !rePr) || i.check?.block)) { toast.error('Pick every item from the PPMP, and lower the ones marked in red to what is left'); return }
     if (submit && !confirmed) { setReviewing(true); return }
     setSaving(true)
     try {
@@ -211,9 +217,12 @@ export default function PREdit() {
         })
       } catch { failed++ }
     }
-    // Saved items whose quantity was changed in the list.
-    for (const item of items.filter(i => i._existing && parseFloat(i.quantity) !== parseFloat(i._quantity))) {
-      try { await api.patch(`/pr/${id}/items/${item.id}`, { quantity: parseFloat(item.quantity) }) } catch { failed++ }
+    // Saved items whose quantity (or, on a Re-PR, price) was changed in the list.
+    const costChanged = (i) => (parseFloat(i.estimated_cost) || 0) !== (parseFloat(i._cost) || 0)
+    for (const item of items.filter(i => i._existing && (parseFloat(i.quantity) !== parseFloat(i._quantity) || costChanged(i)))) {
+      try {
+        await api.patch(`/pr/${id}/items/${item.id}`, { quantity: parseFloat(item.quantity), ...(costChanged(item) ? { estimated_cost: parseFloat(item.estimated_cost) || null } : {}) })
+      } catch { failed++ }
     }
     if (failed) toast.error(`${failed} item${failed === 1 ? '' : 's'} could not be saved, so the PR was not submitted`)
 
@@ -246,6 +255,15 @@ export default function PREdit() {
   }))
   const grouped    = groupItemsBySection(processed)
   const grandTotal = processed.reduce((s, it) => s + it.totalCost, 0)
+  // On a Re-PR: what this request takes of the office's PPMP budget as edited (in-plan quantities at the line's
+  // cost, plus everything past the plan), against what the other requests leave of it (from the server).
+  const budget = rePr && review?.budget ? processed.reduce((b, it) => {
+    const qty = parseFloat(it.quantity) || 0, cost = parseFloat(it.estimated_cost) || 0
+    const line = it.line || lineById.get(Number(it.ppmp_item_id))
+    if (it.ppmp_item_id && line) return { ...b, mine: b.mine + qty * Math.max(cost, line.unit_cost), extra: b.extra + Math.max(0, qty * (cost - line.unit_cost)) }
+    return it.ppmp_item_id ? b : { ...b, mine: b.mine + qty * cost, extra: b.extra + qty * cost }
+  }, { left: review.budget.left, mine: 0, extra: 0 }) : null
+  const overBudget = !!budget && budget.extra > 0 && budget.mine > budget.left + 0.005
   const draftTotal = draft.estimated_cost && draft.quantity
     ? parseFloat(draft.estimated_cost) * (parseFloat(draft.quantity) || 1)
     : 0
@@ -287,7 +305,7 @@ export default function PREdit() {
             <p className="text-ui-xs text-[--color-text-muted] mt-1">Who is asking, what it is for, and when it is needed.</p>
           </CardHeader>
           <CardContent>
-            <RequestContextForm value={form} onChange={setContext} />
+            <RequestContextForm value={form} onChange={setContext} prId={id} />
           </CardContent>
         </Card>
 
@@ -379,6 +397,22 @@ export default function PREdit() {
           </CardHeader>
 
           <CardContent className="p-0">
+            {rePr && (
+              <div className={`mx-4 my-3 rounded-lg border px-4 py-3 ${overBudget ? 'border-red-300 bg-red-50 text-red-900' : 'border-amber-300 bg-amber-50 text-amber-900'}`}>
+                <p className="text-sm font-semibold">Re-PR: this request may go past the PPMP</p>
+                <p className="text-xs mt-1">
+                  Raise an item's price above its PPMP line, or add an item that is not in the PPMP (Add Item, Not in the PPMP).
+                  What it costs past the plan comes out of your office's PPMP budget.
+                </p>
+                {budget && (
+                  <p className="text-xs mt-1.5 tabular-nums">
+                    Left in the {review.plan?.office_code} PPMP budget: <span className="font-bold">{fmtCurrency(budget.left)}</span>.
+                    This request takes <span className="font-bold">{fmtCurrency(budget.mine)}</span>{budget.extra > 0 ? `, ${fmtCurrency(budget.extra)} of it past the plan` : ''}.
+                    {overBudget && ' That is more than is left: lower the prices or quantities, or remove an item.'}
+                  </p>
+                )}
+              </div>
+            )}
             <div className="border-b border-[--color-border]">
               <table className="w-full border-separate border-spacing-0">
                 <thead>
@@ -422,6 +456,7 @@ export default function PREdit() {
                                 )}
                                 {item.check ? <PpmpLineNote {...item.check} left={null} planned={item.check.line.planned} className="mt-2 font-normal" />
                                   : item.ppmp_item_id ? <p className="mt-2 text-[11px] text-[--color-text-muted]">From an earlier version of the PPMP; checked against the current one when submitted.</p>
+                                  : rePr ? <p className="mt-2 text-[11px] font-semibold text-amber-700">Not in the PPMP (Re-PR): its cost comes out of the office's PPMP budget.</p>
                                   : <p className="mt-2 text-[11px] font-semibold text-red-700">Not from the PPMP. Remove it and pick it from the PPMP.</p>}
                               </TD>
                               <TD className="text-center">
@@ -430,7 +465,11 @@ export default function PREdit() {
                                   className={`h-9 w-20 px-2 text-center tabular-nums ${item.check?.block ? 'border-red-400 text-red-700' : ''}`} />
                               </TD>
                               <TD className="text-right tabular-nums text-[--color-text-secondary]">
-                                {item.estimated_cost ? fmtCurrency(parseFloat(item.estimated_cost)) : '—'}
+                                {rePr ? (
+                                  <Input type="number" min="0" step="any" aria-label={`Price each of ${item.item_name}`} value={item.estimated_cost ?? ''}
+                                    onChange={e => setItems(p => p.map((x, i) => (i === item.globalIdx ? { ...x, estimated_cost: e.target.value } : x)))}
+                                    className="ml-auto h-9 w-28 px-2 text-right tabular-nums" />
+                                ) : item.estimated_cost ? fmtCurrency(parseFloat(item.estimated_cost)) : '—'}
                               </TD>
                               <TD className="text-right tabular-nums font-bold text-[--color-text-primary]">
                                 {item.totalCost > 0 ? fmtCurrency(item.totalCost) : '—'}
@@ -482,6 +521,13 @@ export default function PREdit() {
             ) : (
             <div className="bg-[--color-canvas] px-4 py-4 space-y-3">
               <p className="text-xs font-semibold text-[--color-text-muted] uppercase tracking-wide">Add Item</p>
+              {rePr && (
+                <label className="flex items-center gap-2 text-xs font-medium text-[--color-text-secondary]">
+                  <input type="checkbox" checked={draft.off_plan} className="accent-amber-600"
+                    onChange={e => setDraft(p => ({ ...p, off_plan: e.target.checked, ppmp_item_id: null, line: null }))} />
+                  Not in the PPMP: type the item yourself (Re-PR; its cost comes out of the office's PPMP budget)
+                </label>
+              )}
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="space-y-1.5 sm:col-span-2">
@@ -525,14 +571,25 @@ export default function PREdit() {
                 </div>
                 {/* The item, picked from the PPMP: its description and unit are the line's */}
                 <div className="col-span-4">
-                  <PpmpItemField id="pr-ppmp-item" plans={plans} isLoading={plansLoading} value={draft.line} onPick={pickLine} taken={taken} year={planYear} quarter={quarter}
-                    kind={draft.category || form.category} />
+                  {draft.off_plan ? (
+                    <div className="space-y-1">
+                      <Label htmlFor="pr-off-plan-item" className="text-xs">Item (not in the PPMP)</Label>
+                      <Input id="pr-off-plan-item" maxLength={500} placeholder="What it is, without a brand" value={draft.item_name} onChange={e => setD('item_name', e.target.value)} />
+                    </div>
+                  ) : (
+                    <PpmpItemField id="pr-ppmp-item" plans={plans} isLoading={plansLoading} value={draft.line} onPick={pickLine} taken={taken} year={planYear} quarter={quarter}
+                      kind={draft.category || form.category} />
+                  )}
                 </div>
                 <div className="col-span-2 space-y-1">
                   <Label className="text-xs">Unit</Label>
-                  <div className="flex h-10 items-center rounded-lg border border-[--color-border] bg-[--color-canvas] px-3 text-sm text-[--color-text-secondary]">
-                    {draft.line?.unit || '—'}
-                  </div>
+                  {draft.off_plan ? (
+                    <Input maxLength={50} placeholder="pc, set, ream" aria-label="Unit of the item not in the PPMP" value={draft.unit} onChange={e => setD('unit', e.target.value)} />
+                  ) : (
+                    <div className="flex h-10 items-center rounded-lg border border-[--color-border] bg-[--color-canvas] px-3 text-sm text-[--color-text-secondary]">
+                      {draft.line?.unit || '—'}
+                    </div>
+                  )}
                 </div>
                 <div className="col-span-1 space-y-1">
                   <Label className="text-xs">Qty</Label>
@@ -561,7 +618,7 @@ export default function PREdit() {
                 <div className="col-span-1 self-end">
                   <Button
                     type="button" className="w-full px-0"
-                    disabled={!draft.line || !!draftCheck?.block}
+                    disabled={draft.off_plan ? !offPlanReady : !draft.line || !!draftCheck?.block}
                     onClick={handleAddItem}
                   >
                     <Plus className="size-4" />
@@ -569,7 +626,7 @@ export default function PREdit() {
                 </div>
               </div>
 
-              {draftCheck && <PpmpLineNote {...draftCheck} />}
+              {!draft.off_plan && draftCheck && <PpmpLineNote {...draftCheck} />}
 
               {/* Per-category structured spec fields */}
               <CategorySpecFields
@@ -599,7 +656,7 @@ export default function PREdit() {
       </form>
 
       <ReviewSubmitDialog open={reviewing} items={items} pending={saving}
-        request={{ ...form, pr_number: pr.pr_number, fund_source: pr.permissions?.edit && user?.role !== 'requestor' ? form.fund_source : null }}
+        request={{ ...form, id: pr.id, pr_number: pr.pr_number, fund_source: pr.permissions?.edit && user?.role !== 'requestor' ? form.fund_source : null }}
         requestedBy={pr.requested_by_name ? `${pr.requested_by_name}${pr.requested_by_designation ? `, ${pr.requested_by_designation}` : ''}` : null}
         confirmLabel={pr.status === 'revision_requested' ? 'Save and resubmit' : 'Save and submit'}
         onConfirm={() => handleSubmit(null, { submit: true, confirmed: true })}

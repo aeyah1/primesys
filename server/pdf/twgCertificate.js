@@ -75,7 +75,6 @@ function drawTwgCertificate(doc, { cert, bids, orgSettings = {} }) {
   const inner = (k) => COLS[k].width - PAD * 2
   const heightOf = (font, size, text, width) => { doc.font(font).fontSize(size); return doc.heightOfString(String(text ?? ''), { width }) }
   const box = (x, y, w, h) => doc.lineWidth(0.8).strokeColor('#000').rect(x, y, w, h).stroke()
-  const vline = (x, y1, y2) => doc.lineWidth(0.8).strokeColor('#000').moveTo(x, y1).lineTo(x, y2).stroke()
 
   const footerHere = () => footer(doc, orgSettings)
 
@@ -122,40 +121,36 @@ function drawTwgCertificate(doc, { cert, bids, orgSettings = {} }) {
     })
     return top + HEAD_H
   }
+  // An item's name and specification at its top, then each bid on its own lines beside them.
   const drawGroup = (top, g) => {
-    const h = groupH(g)
-    box(X[1], top, COLS[1].width, h)
-    box(X[2], top, COLS[2].width, h)
     doc.font('Helvetica-Bold').fontSize(FS).text(itemText(g.rows[0]), X[1] + PAD, top + PAD, { width: inner(1) })
     doc.font('Helvetica').fontSize(FS).text(specText(g.rows[0]), X[2] + PAD, top + PAD, { width: inner(2) })
     let ry = top
-    g.rows.forEach((b, k) => {
-      // The last bid's row takes up what the item's cells need beyond the bids.
-      const rh = k === g.rows.length - 1 ? top + h - ry : rowH(b)
-      for (const c of [0, 3, 4]) box(X[c], ry, COLS[c].width, rh)
+    for (const b of g.rows) {
       doc.font('Helvetica').fontSize(FS).text(b.rfq_no || '', X[0] + PAD, ry + PAD, { width: inner(0), align: 'center' })
       doc.font('Helvetica-Bold').fontSize(FS).text(b.bidder, X[3] + PAD, ry + PAD, { width: inner(3) })
       doc.font('Helvetica').fontSize(FS).text(b.offered_spec || 'As specified', X[3] + PAD, doc.y, { width: inner(3) })
       doc.font(b.compliant ? 'Helvetica' : 'Helvetica-Bold').fontSize(FS).text(verdict(b), X[4] + PAD, ry + PAD, { width: inner(4) })
-      ry += rh
-    })
-    return top + h
+      ry += rowH(b)
+    }
+    return top + groupH(g)
   }
 
+  // The body is one box per column, as on the review certificate: every bid listed down it, with no lines between.
+  const BOTTOM = FOOT - 24
+  const GAP = 8                    // the space between one item and the next
   y = header(y)
   const bodyTop = y
+  let top = y
+  const closeBody = (bottom) => COLS.forEach((c, k) => box(X[k], top, c.width, bottom - top))
   for (const g of groups) {
-    if (y + groupH(g) > FOOT - 12) { footerHere(); doc.addPage(); y = header(M) }
-    y = drawGroup(y, g)
+    if (y + groupH(g) > BOTTOM && y > top) { closeBody(BOTTOM); footerHere(); doc.addPage(); top = y = header(M) }
+    y = drawGroup(y, g) + GAP
   }
-  // The rest of the table stays ruled down to its usual size, as on the printed form.
-  if (y < bodyTop + MIN_BODY && bodyTop + MIN_BODY < FOOT - 150) {
-    const end = bodyTop + MIN_BODY
-    X.forEach(x => vline(x, y, end))
-    doc.moveTo(M, end).lineTo(M + W, end).stroke()
-    y = end
-  }
-  y += 16
+  // At least its usual size when it all fits on the first page, as on the printed form.
+  const end = top === bodyTop && bodyTop + MIN_BODY < FOOT - 150 ? Math.max(y, bodyTop + MIN_BODY) : Math.min(y, BOTTOM)
+  closeBody(end)
+  y = end + 16
 
   // ── Issued, and who checked it ─────────────────────────────────────────
   if (y + 140 > FOOT) { footerHere(); doc.addPage(); y = M }

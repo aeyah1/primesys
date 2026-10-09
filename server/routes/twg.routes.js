@@ -24,6 +24,9 @@ router.put('/:prId/evaluation', authorize('twg'), requireAccess('pr', 'prId'),
   body('bids.*.compliant').optional({ values: 'null' }).isBoolean({ strict: true }).withMessage('Mark each bid compliant or non-compliant'),
   textRule('bids.*.offered_spec', 'Offered specification', 1000),
   textRule('bids.*.remarks', 'Reason', 500),
+  body('dq').optional().isArray({ max: 200 }).withMessage('Send the DQ remarks as a list'),
+  body('dq.*.bidder_id').isInt({ min: 1 }).withMessage('Unknown bidder').toInt(),
+  textRule('dq.*.remarks', 'DQ remark', 500),
   handle, c.saveEvaluation)
 router.post('/:prId/certify', authorize('twg'), requireAccess('pr', 'prId'),
   textRule('comment', 'Comment', 2000), textRule('cert_no', 'Cert. No.', 30), handle, c.certifyPR)

@@ -31,7 +31,6 @@ const LIST_SORTS = {
   oldest:          'pr.created_at ASC, pr.id ASC',
   pr_number:       'pr.pr_number ASC, pr.id ASC',
   oldest_approval: 'pr.twg_reviewed_at IS NULL, pr.twg_reviewed_at ASC, pr.id ASC',
-  date_needed:     'pr.date_needed IS NULL, pr.date_needed ASC, pr.id ASC',
   total:           'estimated_total DESC, pr.id DESC',
 }
 
@@ -56,6 +55,8 @@ exports.list = asyncHandler(async (req, res) => {
   if (/^\d+$/.test(String(req.query.quarter_id ?? ''))) { where.push('pr.quarter_id = ?'); params.push(Number(req.query.quarter_id)) }
   if (/^\d{4}$/.test(String(req.query.year ?? ''))) { where.push('pr.quarter_id IN (SELECT id FROM quarters WHERE year = ?)'); params.push(Number(req.query.year)) }
   if (/^\d+$/.test(String(req.query.department_id ?? ''))) { where.push('pr.department_id = ?'); params.push(Number(req.query.department_id)) }
+  // Requests sent back to their End User at least once (a Re-PR): the Archive's Re-PR tab.
+  if (req.query.re_pr === '1') where.push('pr.re_pr_count > 0')
   if (search) {
     where.push('(pr.pr_number LIKE ? OR pr.title LIKE ?)')
     params.push(`%${search}%`, `%${search}%`)
@@ -69,8 +70,8 @@ exports.list = asyncHandler(async (req, res) => {
   const ACTIVE = (col) => `(SELECT ${col} FROM purchase_orders px WHERE px.purchase_request_id = pr.id AND px.po_status = 'active')`
   const [rows] = await pool.execute(`
     SELECT pr.id, pr.pr_number, pr.title, pr.status, pr.fund_cluster, pr.category,
-           pr.department, pr.purpose_type, pr.date_needed, pr.created_at,
-           pr.created_by, pr.deleted_at, pr.delete_reason, pr.recanvass_reason, pr.recanvass_count,
+           pr.department, pr.purpose_type, pr.created_at,
+           pr.created_by, pr.deleted_at, pr.delete_reason, pr.recanvass_reason, pr.recanvass_count, pr.re_pr_count,
            u.name AS created_by_name, du.name AS deleted_by_name,
            q.label AS quarter_label, q.year AS quarter_year,
            ${ACTIVE('MIN(px.id)')} AS po_id,
@@ -132,7 +133,7 @@ exports.stats = asyncHandler(async (req, res) => {
 
   const out = {
     total: 0, draft: 0, submitted: 0, twg_review: 0, revision_requested: 0, rejected: 0,
-    bidding: 0, bac_review: 0, twg_certification: 0, for_po: 0, completed: 0, cancelled: 0, deleted: Number(deleted),
+    bidding: 0, bac_review: 0, twg_certification: 0, re_pr: 0, for_po: 0, completed: 0, cancelled: 0, deleted: Number(deleted),
     pending_delivery: 0, partial_delivery: 0, delivered: 0,
   }
   for (const r of prRows) {
@@ -158,7 +159,11 @@ exports.stats = asyncHandler(async (req, res) => {
 exports.getById = asyncHandler(async (req, res) => {
   const [rows] = await pool.execute(`
     SELECT pr.*, u.name AS created_by_name, du.name AS deleted_by_name, tr.name AS twg_reviewer_name,
-           q.label AS quarter_label, q.year AS quarter_year
+           q.label AS quarter_label, q.year AS quarter_year,
+           -- For the requestor's progress box: when the latest canvass (its RFQ) started, and how many quotations are in.
+           (SELECT MAX(sl.created_at) FROM pr_status_logs sl WHERE sl.pr_id = pr.id AND sl.to_status = 'bidding'
+              AND sl.from_status IN ('twg_review', 'for_po')) AS rfq_at,
+           (SELECT COUNT(*) FROM canvass_bidders cb WHERE cb.pr_id = pr.id) AS quotes
     FROM purchase_requests pr
     JOIN users u ON pr.created_by = u.id
     LEFT JOIN users du   ON du.id = pr.deleted_by
@@ -241,7 +246,7 @@ const toSqlDate = (v) => {
 exports.create = asyncHandler(async (req, res) => {
   const {
     quarter_id, title, fund_cluster, fund_source, responsibility_center_code, status, category,
-    department, department_id, purpose_type, purpose, date_needed, recommended_by,
+    department, department_id, purpose_type, purpose, recommended_by,
     event_name, event_date, project_name, items,
   } = req.body
   const initialStatus = (status === 'submitted') ? 'submitted' : 'draft'
@@ -301,16 +306,15 @@ exports.create = asyncHandler(async (req, res) => {
     const [result] = await conn.execute(
       `INSERT INTO purchase_requests (
          pr_number, quarter_id, title, fund_cluster, fund_source, responsibility_center_code,
-         department, department_id, purpose_type, purpose, date_needed, recommended_by,
+         department, department_id, purpose_type, purpose, recommended_by,
          event_name, event_date, project_name, category, status, created_by,
          requested_by_name, requested_by_designation, requested_by_signature, requested_by_sign_method, requested_by_signed_at
-       ) VALUES (?, ?, ?, ?, ?, ?,  ?, ?, ?, ?, ?,  ?, ?, ?, ?, ?, 'draft', ?,  ?, ?, ?, ?, ?)`,
+       ) VALUES (?, ?, ?, ?, ?, ?,  ?, ?, ?, ?,  ?, ?, ?, ?, ?, 'draft', ?,  ?, ?, ?, ?, ?)`,
       [
         `REQ-NEW-${crypto.randomUUID()}`, quarterId, title || null, fundCluster, fundSource, rcCode,
         departmentText, dept?.id ?? null,
         prPurposeType,
         purpose?.trim() || null,
-        toSqlDate(date_needed),
         recommended_by?.trim() || null,
         event_name?.trim() || null,
         toSqlDate(event_date),
@@ -354,10 +358,11 @@ exports.create = asyncHandler(async (req, res) => {
   res.status(201).json({ id: prId, pr_number })
 })
 
-// The request's items against its office's PPMP: each item's line, what is left of it, warnings, and what blocks submitting.
+// The request's items against its office's PPMP: each item's line, what is left of it, warnings, what blocks
+// submitting, and the office's PPMP budget (what a Re-PR'd request's extra comes out of).
 exports.ppmpReview = asyncHandler(async (req, res) => {
-  const { plan, items, problems } = await reviewPr(pool, req.params.id)
-  res.json({ plan, items, problems })
+  const { plan, items, problems, budget = null } = await reviewPr(pool, req.params.id)
+  res.json({ plan, items, problems, budget })
 })
 
 exports.updateStatus = asyncHandler(async (req, res) => {
@@ -383,7 +388,7 @@ exports.updateStatus = asyncHandler(async (req, res) => {
 exports.update = asyncHandler(async (req, res) => {
   const {
     title, fund_cluster, fund_source, responsibility_center_code, notes, category,
-    department, department_id, purpose_type, purpose, date_needed, recommended_by,
+    department, department_id, purpose_type, purpose, recommended_by,
     event_name, event_date, project_name,
   } = req.body
   const newCategory    = category && VALID_CATEGORIES.includes(category) ? category : null
@@ -455,7 +460,6 @@ exports.update = asyncHandler(async (req, res) => {
            department                  = ?${officeSet}${sourceSet},
            purpose_type                = COALESCE(?, purpose_type),
            purpose                     = ?,
-           date_needed                 = ?,
            recommended_by              = ?,
            event_name                  = ?,
            event_date                  = ?,
@@ -469,7 +473,6 @@ exports.update = asyncHandler(async (req, res) => {
       ...sourceValues,
       newPurposeType,
       purpose?.trim() || null,
-      toSqlDate(date_needed),
       recommended_by?.trim() || null,
       event_name?.trim() || null,
       toSqlDate(event_date),

@@ -12,8 +12,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
-import { PRStatusBadge, CategoryBadge, RecanvassBadge } from '@/components/shared/StatusBadge'
-import { fmtCurrency, fmtDatetime, CATEGORY_LABELS, PR_STATUS_LABELS, groupItemsBySection } from '@/lib/utils'
+import { PRStatusBadge, CategoryBadge, MarkerBadges } from '@/components/shared/StatusBadge'
+import { fmtCurrency, fmtDatetime, CATEGORY_LABELS, PR_STATUS_LABELS, RE_PR_TYPES, groupItemsBySection } from '@/lib/utils'
 import RequestContextDisplay from '@/components/shared/RequestContextDisplay'
 import AttachmentsPanel from '@/components/shared/AttachmentsPanel'
 import PpmpComparison, { usePrPpmp, ViewPpmpButton } from '@/components/ppmp/PpmpComparison'
@@ -31,12 +31,14 @@ export default function TwgReviewDetail() {
   const qc = useQueryClient()
   const { user } = useAuth()
 
-  const [action, setAction] = useState(null)   // 'approve' | 'revise' | 'reject', or 'certify' | 'recanvass' | 'return' for a canvass result
+  const [action, setAction] = useState(null)   // 'approve' | 'revise' | 'reject', or 'certify' | 'recanvass' | 'return' | 'repr' for a canvass result
   const [comment, setComment] = useState('')
+  const [rePrType, setRePrType] = useState('')       // why a Re-PR sends the request back (RE_PR_TYPES)
   const [certNo, setCertNo] = useState('')           // the certificate's number, suggested by the server
   const [signature, setSignature] = useState(null)   // { image, method } on the certificate, or null
   const [signing, setSigning] = useState(false)
   const [marks, setMarks] = useState({})             // the TWG's marks on the canvass's bids (TwgEvaluation)
+  const [dqRemarks, setDqRemarks] = useState({})     // its remark on each DQ bidder
   // This member's saved signature, filled in on the certificate (they may change or remove it before confirming).
   const mySignature = useMySignature(user?.role === 'twg')
 
@@ -81,23 +83,24 @@ export default function TwgReviewDetail() {
     catch (err) { toast.error(await blobErrorMessage(err, 'Failed to open the PR Form')) }
   }
 
-  const certifyAction = ['certify', 'recanvass', 'return'].includes(action)
+  const certifyAction = ['certify', 'recanvass', 'return', 'repr'].includes(action)
   // Approving the request and certifying the bids each issue a TWG Certification.
   const issuesCert = action === 'certify' || action === 'approve'
-  const needsComment = ['revise', 'reject', 'return', 'recanvass'].includes(action)
+  const needsComment = ['revise', 'reject', 'return', 'recanvass', 'repr'].includes(action)
   const { mutate: submitReview, isPending: submitting } = useMutation({
     mutationFn: async () => {
-      // Certifying saves the marks first, as the certificate lists every bid as marked; a re-canvass keeps them for the next round.
-      if (action === 'certify' || action === 'recanvass') await api.put(`/twg/${id}/evaluation`, evaluationPayload(marks))
+      // The marks are saved first: the certificate lists every bid as marked, and a re-canvass or Re-PR keeps them on record.
+      if (['certify', 'recanvass', 'repr'].includes(action)) await api.put(`/twg/${id}/evaluation`, evaluationPayload(marks, dqRemarks))
       return api.post(`/twg/${id}/${certifyAction ? 'certify' : 'review'}`, {
         action, comment: comment.trim() || null,
+        ...(action === 'repr' ? { re_pr_type: rePrType } : {}),
         ...(issuesCert ? { cert_no: certNo.trim() || undefined, signature: signature?.image, sign_method: signature?.method } : {}),
       })
     },
     onSuccess: ({ data }) => {
       const msg = action === 'approve' ? `PR approved and forwarded to Procurement${data.certificate ? `, certified in Cert. No. ${data.certificate.cert_no}` : ''}`
                 : action === 'revise'  ? 'Revision requested. The End User has been notified.'
-                : action === 'certify' || action === 'recanvass' ? data.message
+                : ['certify', 'recanvass', 'repr'].includes(action) ? data.message
                 : action === 'return'  ? 'Returned to the BAC with your comment'
                                        : 'PR rejected. The End User has been notified.'
       toast.success(msg, issuesCert && data.certificate ? {
@@ -131,6 +134,10 @@ export default function TwgReviewDetail() {
   const outsideArea  = (pr.status === 'submitted' && !pr.permissions?.twg_review) || (certifying && !pr.permissions?.twg_certify)
   const isCertifiable = certifying && !!pr.permissions?.twg_certify
   const certifyBlock = isCertifiable ? evaluationBlock(marks, canvass) : null
+  // A Re-PR only when every supplier is DQ: every bid marked non-compliant, each with its reason.
+  const markList = Object.values(marks)
+  const rePrBlock = !markList.length || markList.some(m => m.compliant !== false || !m.remarks.trim())
+    ? 'A Re-PR is only for when every supplier is DQ: mark every bid non-compliant, with its reason.' : null
   const grandTotal = items.reduce(
     (sum, it) => sum + (parseFloat(it.quantity || 0) * parseFloat(it.estimated_cost || 0)),
     0
@@ -140,6 +147,7 @@ export default function TwgReviewDetail() {
   function openAction(next) {
     setAction(next)
     setComment('')
+    setRePrType('')
     setCertNo(bac?.suggested_cert_no || '')
     setSignature(['approve', 'certify'].includes(next) ? mySignature.saved : null)
   }
@@ -155,7 +163,7 @@ export default function TwgReviewDetail() {
           <div className="flex items-center gap-2 flex-wrap">
             <h2 className="font-mono text-ui-xl font-bold text-[--color-brand]">{pr.pr_number}</h2>
             <PRStatusBadge status={pr.status} />
-            <RecanvassBadge count={pr.recanvass_count} />
+            <MarkerBadges pr={pr} />
             <CategoryBadge category={pr.category} />
           </div>
           {pr.title && (
@@ -170,6 +178,10 @@ export default function TwgReviewDetail() {
             </Button>
             <Button variant="outline" className="gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50" onClick={() => openAction('recanvass')}>
               <RefreshCcw className="size-4" /> Re-canvass
+            </Button>
+            <Button variant="outline" className="gap-1.5 border-red-300 text-red-700 hover:bg-red-50" disabled={!!rePrBlock}
+              title={rePrBlock || 'Send the request back to its End User, through the BAC, to change its specifications or budget'} onClick={() => openAction('repr')}>
+              <Undo2 className="size-4" /> Re-PR
             </Button>
             <Button className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white border-0" disabled={!!certifyBlock}
               title={certifyBlock || undefined} onClick={() => openAction('certify')}>
@@ -252,7 +264,7 @@ export default function TwgReviewDetail() {
           </CardHeader>
           <CardContent>
             {canvass
-              ? <TwgEvaluation key={pr.id} prId={id} canvass={canvass} canEdit={isCertifiable} onChange={setMarks} />
+              ? <TwgEvaluation key={pr.id} prId={id} canvass={canvass} canEdit={isCertifiable} onChange={setMarks} onDq={setDqRemarks} />
               : <Skeleton className="h-40" />}
           </CardContent>
         </Card>
@@ -288,7 +300,7 @@ export default function TwgReviewDetail() {
         </CardContent>
       </Card>
 
-      {/* Request Context — purpose, department, date needed, recommended by */}
+      {/* Request Context — purpose, department, recommended by */}
       <RequestContextDisplay pr={pr} />
 
       {/* Items table */}
@@ -405,6 +417,7 @@ export default function TwgReviewDetail() {
             : action === 'certify' ? 'Certify the Canvass Result'
             : action === 'recanvass' ? 'Order a Re-canvass'
             : action === 'return' ? 'Return to the BAC'
+            : action === 'repr' ? 'Propose a Re-PR'
             : 'Reject Purchase Request'
           }
         >
@@ -424,6 +437,9 @@ export default function TwgReviewDetail() {
               )}
               {action === 'return' && (
                 <>Tell the BAC what is wrong with the bids of <span className="font-mono font-bold text-[--color-brand]">{pr.pr_number}</span>. It corrects them and sends the canvass again.</>
+              )}
+              {action === 'repr' && (
+                <>Every supplier is DQ, so the specifications or the budget of <span className="font-mono font-bold text-[--color-brand]">{pr.pr_number}</span> have to change. The BAC checks your reason and sends the request back to <span className="font-medium text-[--color-text-primary]">{pr.created_by_name}</span>, who changes it and submits it to you again. Your marks stay on record.</>
               )}
               {action === 'reject' && (
                 <>Reject <span className="font-mono font-bold text-[--color-brand]">{pr.pr_number}</span> outright. The PR won't move forward to Procurement. A reason is required so <span className="font-medium text-[--color-text-primary]">{pr.created_by_name}</span> understands why.</>
@@ -535,6 +551,20 @@ export default function TwgReviewDetail() {
               </div>
             )}
 
+            {/* A Re-PR's kind: always about the specifications. */}
+            {action === 'repr' && (
+              <fieldset className="space-y-1.5">
+                <legend className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-[--color-text-muted]">Why it goes back</legend>
+                {Object.entries(RE_PR_TYPES).map(([key, label]) => (
+                  <label key={key} className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-ui-sm transition-colors ${
+                    rePrType === key ? 'border-red-400 bg-red-50 text-red-900' : 'border-[--color-border] hover:border-[--color-border-strong]'}`}>
+                    <input type="radio" name="re-pr-type" value={key} checked={rePrType === key} onChange={() => setRePrType(key)} className="mt-0.5 accent-red-600" />
+                    {label}
+                  </label>
+                ))}
+              </fieldset>
+            )}
+
             <textarea
               value={comment}
               onChange={e => setComment(e.target.value)}
@@ -544,6 +574,7 @@ export default function TwgReviewDetail() {
                 : action === 'certify' ? 'Optional note…'
                 : action === 'return' ? 'Which bid was entered wrong, and what its RFQ says…'
                 : action === 'recanvass' ? 'Which lot has no compliant offer, and what the specifications require…'
+                : action === 'repr' ? 'The details: what the suppliers offered against the specifications, for example only higher-end models above the ABC…'
                 : action === 'revise' ? 'Be specific: which items, what to fix, why…'
                 : 'Reason for rejection (required)…'
               }
@@ -562,12 +593,15 @@ export default function TwgReviewDetail() {
             {action === 'recanvass' && !comment.trim() && (
               <p className="text-[10px] text-amber-700">A reason is required for a re-canvass.</p>
             )}
+            {action === 'repr' && (!rePrType || !comment.trim()) && (
+              <p className="text-[10px] text-amber-700">Pick why it goes back, and give the details.</p>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAction(null)} disabled={submitting}>Cancel</Button>
             <Button
               onClick={() => submitReview()}
-              disabled={submitting || (needsComment && !comment.trim())}
+              disabled={submitting || (needsComment && !comment.trim()) || (action === 'repr' && !rePrType)}
               className={
                 action === 'approve' || action === 'certify' ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-0 gap-1.5'
                 : ['revise', 'return', 'recanvass'].includes(action) ? 'bg-amber-600 hover:bg-amber-700 text-white border-0 gap-1.5'
@@ -580,6 +614,7 @@ export default function TwgReviewDetail() {
                 : action === 'certify' ? <><ShieldCheck className="size-4" /> Certify</>
                 : action === 'recanvass' ? <><RefreshCcw className="size-4" /> Re-canvass</>
                 : action === 'return' ? <><Undo2 className="size-4" /> Return to the BAC</>
+                : action === 'repr' ? <><Undo2 className="size-4" /> Propose the Re-PR</>
                 : action === 'revise' ? <><RotateCcw className="size-4" /> Send for Revision</>
                 : <><XCircle className="size-4" /> Reject PR</>
               }
