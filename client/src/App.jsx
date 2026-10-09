@@ -92,7 +92,7 @@ export default function App() {
           <Route path="pr/:id/canvass" element={<ProtectedRoute roles={['procurement','admin','bac']}><CanvassPage /></ProtectedRoute>} />
           <Route path="pr/:id/edit" element={<ProtectedRoute roles={['procurement','admin','requestor']}><PREdit /></ProtectedRoute>} />
 
-          <Route path="po"         element={<ProtectedRoute roles={['procurement','admin','supply','requestor']}><POList /></ProtectedRoute>} />
+          <Route path="po"         element={<ProtectedRoute roles={['procurement','admin','supply']}><POList /></ProtectedRoute>} />
           <Route path="delivery"   element={<ProtectedRoute roles={['procurement','admin','supply']}><DeliveryList /></ProtectedRoute>} />
           <Route path="bidding"    element={<ProtectedRoute roles={['procurement','admin']}><Bidding /></ProtectedRoute>} />
           <Route path="archive"       element={<ArchivePage />} />
