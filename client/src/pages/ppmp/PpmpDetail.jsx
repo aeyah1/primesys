@@ -14,7 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
 import { useConfirm } from '@/components/shared/ConfirmDialog'
-import { PpmpStatusBadge, STATUS_LABELS, MONTHS, PARTS } from '@/components/ppmp/PpmpStatusBadge'
+import { PpmpStatusBadge, STATUS_LABELS, MONTHS, PARTS, shownStatus } from '@/components/ppmp/PpmpStatusBadge'
 import PpmpUploadDialog from '@/components/ppmp/PpmpUploadDialog'
 import Notice from '@/components/ppmp/PpmpNotice'
 import { fmtCurrency, fmtDatetime, FUND_SOURCES, PR_STATUS_LABELS } from '@/lib/utils'
@@ -143,7 +143,7 @@ export default function PpmpDetail() {
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-ui-lg font-bold text-[--color-text-primary]">PPMP No. {p.version_no}</h2>
-                <PpmpStatusBadge status={p.status} />
+                <PpmpStatusBadge status={p.status} year={p.fiscal_year} />
               </div>
               <p className="text-ui-sm text-[--color-text-secondary] mt-0.5">
                 {p.office_name} ({p.office_code}) · Fiscal Year {p.fiscal_year} · {p.kind === 'final' ? 'Final' : 'Indicative'} · {FUND_SOURCES.find(s => s.value === p.fund_source)?.label}
@@ -227,7 +227,7 @@ export default function PpmpDetail() {
               {p.versions.map(v => (
                 <Link key={v.id} to={`/ppmp/${v.id}`}
                   className={`rounded-full border px-2.5 py-0.5 font-medium ${v.id === p.id ? 'border-[--color-brand] bg-[--color-brand-light] text-[--color-brand]' : 'border-[--color-border] text-[--color-text-secondary] hover:border-[--color-brand]'}`}>
-                  No. {v.version_no} · {(STATUS_LABELS[v.status] || v.status).toLowerCase()}
+                  No. {v.version_no} · {(STATUS_LABELS[shownStatus(v.status, p.fiscal_year)] || v.status).toLowerCase()}
                 </Link>
               ))}
             </div>
