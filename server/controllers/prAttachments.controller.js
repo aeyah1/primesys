@@ -51,6 +51,11 @@ exports.deleteAttachment = asyncHandler(async (req, res) => {
     [req.params.attachId, req.params.id]
   )
   if (!rows.length) return res.status(404).json({ message: 'Attachment not found' })
+  // A quotation's RFQ file stays until the quotation points to another one, so no quotation loses its file.
+  const [[quoted]] = await pool.execute('SELECT name FROM canvass_bidders WHERE attachment_id = ? LIMIT 1', [req.params.attachId])
+  if (quoted) {
+    return res.status(409).json({ message: `This is the RFQ file of ${quoted.name}'s quotation. Pick another file on that quotation, or remove the quotation, first.` })
+  }
   await pool.execute('DELETE FROM pr_attachments WHERE id = ?', [req.params.attachId])
   // The file goes after its row, so a failed delete never leaves a row without its file.
   fileStore.remove('pr', rows[0].filename)

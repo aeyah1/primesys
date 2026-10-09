@@ -56,10 +56,10 @@ const FUND_CODES = [
 // beneath the line.
 const SIGNATORIES = [
   { key: 'approved_by', title: 'Approved by, at or below the threshold',
-    hint: 'Signs the smaller requests. The head of the requesting office signs the other half of that box.',
+    hint: 'Approves requests up to the threshold, beside the person who requested it. Above the threshold, signs Requested by instead.',
     namePlaceholder: 'e.g. JUAN A. DELA CRUZ, Ph. D.', designationPlaceholder: 'Campus Director' },
   { key: 'approved_above', title: 'Approved by, above the threshold',
-    hint: 'Signs requests over the amount set above.',
+    hint: 'Approves requests over the threshold, beside the approver above, who then requests them.',
     namePlaceholder: 'e.g. MARIA S. SANTOS, Ph. D.', designationPlaceholder: 'University President' },
   { key: 'allotment_by', title: 'Allotment/Appropriation Available',
     hint: 'Certifies that funds are available.',
@@ -202,7 +202,8 @@ export default function OrganizationTab() {
           <CardDescription>
             The signature blocks on the printed forms. Leave a name blank to print an empty
             line for signing by hand. "Requested by" is not here: the End User types it on
-            each request, and the office's head, set above, is suggested.
+            each request, and the office's head, set above, is suggested. Above the threshold it
+            is fixed: the first approver requests and the second approves.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -210,8 +211,8 @@ export default function OrganizationTab() {
             {field({
               key: 'approver_threshold',
               title: 'Approver threshold (₱)',
-              placeholder: '50000',
-              hint: 'At or below this amount the first approver signs; above it, the second.',
+              placeholder: '200000',
+              hint: 'At or below this amount the person named requests and the first approver approves; above it, the first approver requests and the second approves.',
             })}
           </div>
 

@@ -106,7 +106,8 @@ async function run() {
     { canvassers: JSON.stringify([{ name: 'x'.repeat(151), designation: 'Canvasser' }]) }, r => r.status === 400, '400')
   await is('Settings', 'a requestor reads only what the PR form shows', 3, 'GET', '/settings', undefined,
     r => r.status === 200 && 'responsibility_center_code' in r.data
-      && Object.keys(r.data).every(k => ['fund_cluster', 'fund_code_stf', 'fund_code_gaa', 'fund_code_igp', 'responsibility_center_code'].includes(k)))
+      && Object.keys(r.data).every(k => ['fund_cluster', 'fund_code_stf', 'fund_code_gaa', 'fund_code_igp', 'responsibility_center_code',
+        'approver_threshold', 'approved_by_name', 'approved_by_designation', 'approved_above_name', 'approved_above_designation'].includes(k)))
 
   // ── PR numbering ────────────────────────────────────────────────────
   const filed = []
