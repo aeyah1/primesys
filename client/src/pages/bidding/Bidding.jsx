@@ -75,9 +75,9 @@ function AwardRow({ row, stage, canManage, onOpen, onStart }) {
         {['to_canvass', 'needs_award', 'with_twg', 'awaiting_po'].includes(stage) && (
           <p className={days > 3 ? 'font-semibold text-amber-700' : 'text-[--color-text-muted]'}>Waiting {plural(days, 'day')}</p>
         )}
-        {stage === 'needs_award' && row.certification_return_reason && (
-          <p className="flex items-center gap-1 font-semibold text-amber-700" title={row.certification_return_reason}>
-            <AlertTriangle className="size-3 shrink-0" /> Returned by the TWG
+        {stage === 'needs_award' && (row.recanvass_reason || row.certification_return_reason) && (
+          <p className="flex items-center gap-1 font-semibold text-amber-700" title={row.recanvass_reason || row.certification_return_reason}>
+            <AlertTriangle className="size-3 shrink-0" /> {row.recanvass_reason ? 'Re-canvass ordered by the TWG' : 'Returned by the TWG'}
           </p>
         )}
         {row.po_count > 0 && (stage === 'po_issued' || stage === 'awaiting_po') && (

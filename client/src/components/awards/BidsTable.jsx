@@ -1,6 +1,6 @@
 import { Check, Star } from 'lucide-react'
 import { fmtCurrency } from '@/lib/utils'
-import { nameKey, cents, lineCents, totalOf, lotsWithItems } from './supplier'
+import { nameKey, cents, lineCents, totalOf, lotsWithItems, isDQ, DQBadge } from './supplier'
 
 // The TWG's verdict on one bid, with the offered specification or the reason on hover.
 function Verdict({ ev }) {
@@ -34,6 +34,7 @@ export default function BidsTable({ canvass, pick, onPick, lotNote, action }) {
             {bidders.map(b => (
               <th key={b.id} className="px-3 py-2.5 min-w-32 text-right normal-case tracking-normal">
                 <span className="text-[--color-text-primary]">{b.name}</span>
+                {isDQ(b, canvass.items) && <DQBadge />}
                 {b.rfq_no && <span className="block text-[10px] font-normal text-[--color-text-muted]">RFQ No. {b.rfq_no}</span>}
               </th>
             ))}

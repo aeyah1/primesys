@@ -23,6 +23,8 @@ const server = http.createServer(app)
 const io     = new Server(server, {
   cors: { origin: config.clientUrl, credentials: true }
 })
+// Notices sent after a transaction commits reach the open pages through it.
+require('./utils/notify').attach(io)
 
 app.use(helmet())
 // Content-Disposition is exposed so the browser can save a file under the name the server gives it.
