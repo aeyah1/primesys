@@ -81,6 +81,7 @@ const SIGNATORIES = [
 const KEYS = [
   ...[...FIELDS, ...LETTERHEAD, ...FUND_CODES].map(f => f.key),
   'approver_threshold',
+  'resolution_threshold',
   ...SIGNATORIES.flatMap(s => [`${s.key}_name`, `${s.key}_designation`]),
   'bac_members',
 ]
@@ -275,17 +276,26 @@ export default function OrganizationTab() {
           </div>
           <CardDescription>
             Give BAC members the BAC role in User Management. The BAC enters the bids from the canvassers' returned
-            RFQs and sends them to the TWG; once the TWG certifies them, the BAC awards each lot in a BAC Resolution.
+            RFQs and sends them to the TWG; once the TWG certifies them, the BAC awards each lot in a BAC Resolution,
+            or below the resolution threshold on the Abstract of sealed Quotations alone.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="max-w-xs">
+            {field({
+              key: 'resolution_threshold',
+              title: 'Resolution threshold (₱)',
+              placeholder: '50000',
+              hint: 'A request whose approved budget is this amount or more is awarded in a numbered BAC Resolution; below it, on the Abstract of sealed Quotations alone.',
+            })}
+          </div>
           <div className="space-y-1.5">
             <Label htmlFor="org-bac_members">Members</Label>
             <textarea id="org-bac_members" rows={4} value={form.bac_members} disabled={isLoading}
               onChange={e => setF('bac_members', e.target.value)}
               placeholder={'One name per line, e.g.\nCARLO P. VILLANUEVA\nLIZA M. TORRES'}
               className="w-full rounded-md border border-[--color-border] bg-[--color-surface] px-3 py-2 text-sm text-[--color-text-primary] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent resize-y" />
-            <p className="text-[11px] text-[--color-text-muted]">Each signs the BAC Resolution as a BAC Member. The chairman and vice chairman are set under Signatories.</p>
+            <p className="text-[11px] text-[--color-text-muted]">Each signs the BAC Resolution and the Abstract as a BAC Member. The chairman and vice chairman are set under Signatories.</p>
           </div>
         </CardContent>
       </Card>

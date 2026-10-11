@@ -31,15 +31,23 @@ async function nextResolutionNumber(db, attempt = 0) {
 
 // Adopts a BAC Resolution for a PR's awards, dated today. Two PRs approved at
 // once could pick the same number; the UNIQUE key refuses the second, which
-// then takes the next. Resolves with { id, resolution_number }.
-async function adoptResolution(conn, prId, userId, notes = null) {
+// then takes the next. Resolves with { id, kind, resolution_number }. Kind
+// 'abstract' (below the resolution threshold) records the awards on the
+// Abstract of sealed Quotations alone, with no number.
+async function adoptResolution(conn, prId, userId, notes = null, kind = 'resolution') {
+  if (kind === 'abstract') {
+    const [r] = await conn.execute(
+      `INSERT INTO bac_resolutions (kind, resolution_number, purchase_request_id, resolved_on, notes, approved_by)
+       VALUES ('abstract', NULL, ?, CURDATE(), ?, ?)`, [prId, notes || null, userId])
+    return { id: r.insertId, kind, resolution_number: null }
+  }
   for (let attempt = 0; ; attempt++) {
     const number = await nextResolutionNumber(conn, attempt)
     try {
       const [r] = await conn.execute(
         `INSERT INTO bac_resolutions (resolution_number, purchase_request_id, resolved_on, notes, approved_by)
          VALUES (?, ?, CURDATE(), ?, ?)`, [number, prId, notes || null, userId])
-      return { id: r.insertId, resolution_number: number }
+      return { id: r.insertId, kind, resolution_number: number }
     } catch (err) {
       if (err.code !== 'ER_DUP_ENTRY' || attempt >= 4) throw err
     }
