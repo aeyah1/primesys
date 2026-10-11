@@ -15,7 +15,7 @@ async function resolutionOf(prId, resolutionId) {
     'SELECT id, pr_number, title, purpose, department, mode_of_procurement, created_at, deleted_at FROM purchase_requests WHERE id = ?', [prId])
   const [lots] = await pool.execute('SELECT * FROM lots WHERE resolution_id = ? ORDER BY id', [resolution.id])
   const [items] = await pool.execute(
-    `SELECT li.lot_id, li.item_name, li.quantity, li.unit, li.unit_price FROM lot_items li
+    `SELECT li.lot_id, li.pr_item_id, li.item_name, li.quantity, li.unit, li.unit_price FROM lot_items li
       WHERE li.lot_id IN (${lots.map(() => '?').join(', ') || 'NULL'}) ORDER BY li.lot_id, li.pr_item_id IS NULL, li.pr_item_id, li.id`,
     lots.map(l => l.id))
   return { resolution, pr, lots: lots.map(l => ({ ...l, items: items.filter(i => i.lot_id === l.id) })) }
@@ -33,7 +33,7 @@ async function noticeFor(prId, resolutionId, lotId) {
     address: theirs.find(l => l.supplier_address)?.supplier_address || null,
   }
   const safe = lead.awarded_to.replace(/[^A-Za-z0-9 -]/g, '').trim().replace(/\s+/g, '-').slice(0, 40) || 'Supplier'
-  return { resolution, pr, lead, theirs, supplier, filename: `Notice-of-Award-${resolution.resolution_number}-${safe}.pdf` }
+  return { resolution, pr, lead, theirs, supplier, filename: `Notice-of-Award-${resolution.resolution_number || resolution.resolved_on}-${safe}.pdf` }
 }
 
 // Draws a notice from noticeFor() onto a PDF document.

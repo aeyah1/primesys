@@ -332,8 +332,9 @@ async function run() {
   let through = 'ok'
   try { await H.award(BASE, tok, 81, { bac: 6, twg: 5 }, [{ name: 'Delta Net', prices: { 811: 2900 } }]) } catch (e) { through = e.message }
   t.check(G6, 'the BAC\'s bids, the TWG\'s certificate, the BAC\'s award', through === 'ok', through)
-  await is(G6, '…Ready for PO, in its own resolution', 6, 'GET', '/bac/81', undefined,
-    (r) => r.status === 200 && r.data.status === 'for_po' && r.data.resolutions.length === 1 && /-002$/.test(r.data.resolutions[0].resolution_number))
+  await is(G6, '…Ready for PO, on its own Abstract (budget below 50,000)', 6, 'GET', '/bac/81', undefined,
+    (r) => r.status === 200 && r.data.status === 'for_po' && r.data.resolutions.length === 1
+           && r.data.resolutions[0].kind === 'abstract' && r.data.resolutions[0].resolution_number === null)
   await is(G6, '…and its own certificate, the next number, unsigned', 2, 'GET', '/bac/81', undefined,
     (r) => r.status === 200 && r.data.certificates.length === 1 && /^\d{4}-\d{2}-852$/.test(r.data.certificates[0].cert_no) && r.data.certificates[0].signed === false)
   await is(G6, '…its certificate prints', 5, 'GET', `/bac/81/certificates/${(await http(2, 'GET', '/bac/81')).data?.certificates?.[0]?.id}/pdf`, undefined, isPDF)

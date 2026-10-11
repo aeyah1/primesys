@@ -38,6 +38,7 @@ const BacApprovals      = page(() => import('@/pages/bac/BacApprovals'))
 const CertificatesPage  = page(() => import('@/pages/certificates/CertificatesPage'))
 const SupplierList      = page(() => import('@/pages/suppliers/SupplierList'))
 const SupplierProfile   = page(() => import('@/pages/suppliers/SupplierProfile'))
+const RfqHistory        = page(() => import('@/pages/rfqs/RfqHistory'))
 const PpmpList          = page(() => import('@/pages/ppmp/PpmpList'))
 const PpmpDetail        = page(() => import('@/pages/ppmp/PpmpDetail'))
 const PpmpEdit          = page(() => import('@/pages/ppmp/PpmpEdit'))
@@ -114,6 +115,7 @@ export default function App() {
           <Route path="certificates"    element={<ProtectedRoute roles={['twg','bac','admin','procurement']}><CertificatesPage /></ProtectedRoute>} />
           <Route path="suppliers"       element={<ProtectedRoute roles={['admin','procurement']}><SupplierList /></ProtectedRoute>} />
           <Route path="suppliers/:id"   element={<ProtectedRoute roles={['admin','procurement']}><SupplierProfile /></ProtectedRoute>} />
+          <Route path="rfqs"            element={<ProtectedRoute roles={['bac','admin','procurement']}><RfqHistory /></ProtectedRoute>} />
           <Route path="ppmp"            element={<ProtectedRoute roles={['requestor','admin','procurement','bac','twg']}><PpmpList /></ProtectedRoute>} />
           <Route path="ppmp/:id"        element={<ProtectedRoute roles={['requestor','admin','procurement','bac','twg']}><PpmpDetail /></ProtectedRoute>} />
           <Route path="ppmp/:id/edit"   element={<ProtectedRoute roles={['requestor']}><PpmpEdit /></ProtectedRoute>} />

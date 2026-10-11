@@ -9,18 +9,20 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { FilterChip, Pager } from '@/components/shared/ListParts'
 import { MarkerBadges } from '@/components/shared/StatusBadge'
+import { awardRecordName } from '@/components/awards/supplier'
 import { fmtCurrency, fmtDate, fmtDatetime } from '@/lib/utils'
 import { openPdf, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
 
 const VIEWS = [
   { key: 'pending',  label: 'To do',       empty: 'No request is waiting for the BAC.' },
-  { key: 'approved', label: 'Resolutions', empty: 'The BAC has not approved any canvass result yet.' },
+  { key: 'approved', label: 'Awards',      empty: 'The BAC has not awarded any canvass yet.' },
 ]
 
 // The Bids and Awards Committee's queue: requests in canvass, whose bids it
 // enters and sends to the TWG, and requests the TWG certified, whose winners it
-// picks (both on the canvass page), and the resolutions it adopted.
+// picks (both on the canvass page), and its awards (each in a BAC Resolution,
+// or below the resolution threshold on the Abstract alone).
 export default function BacApprovals() {
   const [view, setView]     = useState('pending')
   const [search, setSearch] = useState('')
@@ -33,8 +35,10 @@ export default function BacApprovals() {
   const rows = data?.data ?? []
   const current = VIEWS.find(v => v.key === view)
 
-  const printResolution = (row) => openPdf(`/bac/${row.id}/resolutions/${row.resolution_id}/pdf`)
-    .catch(async (err) => toast.error(await blobErrorMessage(err, 'Could not open the BAC Resolution')))
+  // An award's own document: its BAC Resolution, or below the resolution threshold its Abstract.
+  const abstract = (row) => row.kind === 'abstract'
+  const printRecord = (row) => openPdf(`/bac/${row.id}/resolutions/${row.resolution_id}/${abstract(row) ? 'abstract' : 'pdf'}`)
+    .catch(async (err) => toast.error(await blobErrorMessage(err, `Could not open the ${abstract(row) ? 'Abstract' : 'BAC Resolution'}`)))
 
   return (
     <div className="space-y-4">
@@ -78,7 +82,7 @@ export default function BacApprovals() {
                   <Link to={`/pr/${row.id}/canvass${view === 'approved' ? '#resolutions' : ''}`} className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       {view === 'approved' && (
-                        <span className="text-ui-sm font-bold text-[--color-text-primary]">Resolution No. {row.resolution_number}</span>
+                        <span className="text-ui-sm font-bold text-[--color-text-primary]">{awardRecordName(row)}</span>
                       )}
                       <span className="font-mono text-ui-sm font-bold text-[--color-brand]">{row.pr_number}</span>
                       {view === 'pending' && <MarkerBadges pr={row} />}
@@ -92,8 +96,8 @@ export default function BacApprovals() {
                   </Link>
                   <div className="flex items-center gap-2 shrink-0">
                     {view === 'approved' ? (
-                      <Button size="sm" variant="outline" className="gap-1.5" onClick={() => printResolution(row)}>
-                        <FileText className="size-3.5" /> Resolution
+                      <Button size="sm" variant="outline" className="gap-1.5" onClick={() => printRecord(row)}>
+                        <FileText className="size-3.5" /> {abstract(row) ? 'Abstract' : 'Resolution'}
                       </Button>
                     ) : <Scale className="size-4 text-[--color-brand]" />}
                     <Link to={`/pr/${row.id}/canvass${view === 'approved' ? '#resolutions' : ''}`} aria-label={`Open ${row.pr_number}`}>
