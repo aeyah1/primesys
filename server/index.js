@@ -98,6 +98,7 @@ app.use('/api/twg',           require('./routes/twg.routes'))
 app.use('/api/bac',           require('./routes/bac.routes'))
 app.use('/api/ppmp',          require('./routes/ppmp.routes'))
 app.use('/api/dashboard',     require('./routes/dashboard.routes'))
+app.use('/api/rfqs',          require('./routes/rfqs.routes'))
 
 app.use((err, req, res, next) => {
   // Client-facing 4xx errors (status set explicitly, e.g. a workflow rule

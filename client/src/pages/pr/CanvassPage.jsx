@@ -179,7 +179,7 @@ export default function CanvassPage() {
 
           {bac?.resolutions?.length > 0 && (
             <section className="space-y-3">
-              <Heading id="resolutions">BAC resolutions</Heading>
+              <Heading id="resolutions">Awards</Heading>
               <BacPanel prId={String(pr.id)} part="resolutions" />
             </section>
           )}

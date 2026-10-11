@@ -39,8 +39,10 @@ module.exports = function drawNoticeOfAward(doc, { resolution, pr, supplier, lot
 
   doc.text('Dear Sir/Madam:', M, y, { width: W })
   y = doc.y + 8
+  // Below the resolution threshold the award rests on the Abstract of sealed Quotations alone.
+  const basis = resolution.kind === 'abstract' ? 'the Abstract of sealed Quotations' : `BAC Resolution No. ${resolution.resolution_number}`
   doc.text(
-    `We are pleased to notify you that, per BAC Resolution No. ${resolution.resolution_number} dated ${fmtDate(resolution.resolved_on)}, `
+    `We are pleased to notify you that, per ${basis} dated ${fmtDate(resolution.resolved_on)}, `
     + `your offer for ${purpose} under Purchase Request No. ${pr.pr_number} is accepted, in the amount of `
     + `${pesosInWords(total)} (PHP ${amount(total)}), for the following:`,
     M, y, { width: W, align: 'justify' })

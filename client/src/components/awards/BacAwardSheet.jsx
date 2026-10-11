@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { Ban, CheckCircle2, Undo2, AlertTriangle, Star } from 'lucide-react'
+import { Ban, CheckCircle2, Undo2, AlertTriangle, Star, FileText } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -49,13 +49,14 @@ function ReopenDialog({ prId, onClose }) {
    picks it to start with; the BAC may pick another compliant one (a reason is optional,
    and is noted on the award), never one the TWG found non-compliant on an item of the lot.
    A lot's award can't exceed its approved budget.
-   Award adopts a BAC Resolution; the request is then Ready for PO.
+   Award adopts a BAC Resolution, or below the resolution threshold records the
+   award on the Abstract alone (canvass.award_document); the request is then Ready for PO.
    pr: { id }; canvass: GET /canvass/:prId. */
 export default function BacAwardSheet({ pr, canvass }) {
   const prId = String(pr.id)
   const confirm = useConfirm()
   const refresh = useRefreshAwards(prId)
-  const { bidders } = canvass
+  const { bidders, award_document: doc } = canvass
   const lots = lotsWithItems(canvass).map(l => ({ ...l, pending: l.items.filter(i => i.state === 'pending') })).filter(l => l.pending.length)
   const [picks, setPicks] = useState(() => Object.fromEntries(lots.map(l => [l.label, l.recommended_bidder_id])))
   const [reasons, setReasons] = useState({})
@@ -166,8 +167,19 @@ export default function BacAwardSheet({ pr, canvass }) {
       </div>
 
       <section className="space-y-3 rounded-xl border border-[--color-border] bg-[--color-surface] px-4 py-4 shadow-sm">
+        {doc && (
+          <p className="flex items-start gap-2 text-xs text-[--color-text-secondary]">
+            <FileText className="size-3.5 shrink-0 mt-0.5 text-[--color-text-muted]" />
+            <span>
+              Approved budget <span className="font-semibold text-[--color-text-primary]">{fmtCurrency(doc.abc)}</span>
+              {doc.kind === 'abstract'
+                ? <>, below {fmtCurrency(doc.threshold)}: the award goes on the <span className="font-semibold text-[--color-text-primary]">Abstract of sealed Quotations</span>, with no BAC Resolution.</>
+                : <>, {fmtCurrency(doc.threshold)} or more: the award is adopted in a numbered <span className="font-semibold text-[--color-text-primary]">BAC Resolution</span>.</>}
+            </span>
+          </p>
+        )}
         <div className="space-y-1.5">
-          <Label htmlFor="award-notes">Notes on the resolution <span className="text-[--color-text-muted] font-normal text-xs">(optional)</span></Label>
+          <Label htmlFor="award-notes">Notes on the {doc?.kind === 'abstract' ? 'award' : 'resolution'} <span className="text-[--color-text-muted] font-normal text-xs">(optional)</span></Label>
           <textarea id="award-notes" value={notes} onChange={e => setNotes(e.target.value)} rows={2} maxLength={2000} className={TEXTAREA}
             placeholder="e.g. Lowest calculated and responsive offers" />
         </div>
@@ -178,7 +190,8 @@ export default function BacAwardSheet({ pr, canvass }) {
           </Button>
           <Button className="gap-1.5" disabled={isPending || !!block}
             onClick={async () => {
-              if (await confirm({ title: 'Award the canvass?', message: 'The winners are adopted in a BAC Resolution and Procurement issues the purchase orders.', confirmLabel: 'Award' })) award()
+              const on = doc?.kind === 'abstract' ? 'recorded on the Abstract of sealed Quotations' : 'adopted in a BAC Resolution'
+              if (await confirm({ title: 'Award the canvass?', message: `The winners are ${on} and Procurement issues the purchase orders.`, confirmLabel: 'Award' })) award()
             }}>
             <CheckCircle2 className="size-3.5" /> {isPending ? 'Awarding…' : 'Award'}
           </Button>

@@ -1,6 +1,7 @@
 const PDFDocument     = require('pdfkit')
 const pool            = require('../db/pool')
 const asyncHandler    = require('../utils/asyncHandler')
+const httpError       = require('../utils/httpError')
 const { prScope }     = require('../middleware/scope.middleware')
 const { paging }      = require('../middleware/validate')
 const { loadPR }      = require('../utils/prWorkflow')
@@ -9,6 +10,8 @@ const { loadOrgSettings } = require('../utils/orgSettings')
 const { withSignatures, signedCopy } = require('../utils/orgSignatures')
 const { M }            = require('../pdf/campusForm')
 const drawResolution   = require('../pdf/bacResolution')
+const drawAbstract     = require('../pdf/abstractOfQuotations')
+const { abstractOf }   = require('../utils/awardAbstract')
 const drawTwgCertificate = require('../pdf/twgCertificate')
 const drawTwgReviewCertificate = require('../pdf/twgReviewCertificate')
 const { suggestCertNo, certificateOf } = require('../utils/twgCertificate')
@@ -50,7 +53,7 @@ exports.queue = asyncHandler(async (req, res) => {
        LIMIT ${limit} OFFSET ${offset}`, params)
   } else {
     [rows] = await pool.execute(`
-      SELECT r.id AS resolution_id, r.resolution_number, r.resolved_on, u.name AS approved_by_name,
+      SELECT r.id AS resolution_id, r.kind, r.resolution_number, r.resolved_on, u.name AS approved_by_name,
              pr.id, pr.pr_number, pr.title, pr.department,
              (SELECT COALESCE(SUM(l.awarded_amount), 0) FROM lots l WHERE l.resolution_id = r.id) AS total,
              (SELECT GROUP_CONCAT(DISTINCT l.awarded_to ORDER BY l.awarded_to SEPARATOR ', ') FROM lots l WHERE l.resolution_id = r.id) AS suppliers
@@ -74,7 +77,7 @@ exports.summary = asyncHandler(async (req, res) => {
   const pr = await loadPR(pool, req.params.prId)
   const [[extra]] = await pool.execute('SELECT certification_return_reason, recanvass_reason FROM purchase_requests WHERE id = ?', [pr.id])
   const [resolutions] = await pool.execute(`
-    SELECT r.id, r.resolution_number, r.resolved_on, r.notes, r.created_at, u.name AS approved_by_name
+    SELECT r.id, r.kind, r.resolution_number, r.resolved_on, r.notes, r.created_at, u.name AS approved_by_name
       FROM bac_resolutions r JOIN users u ON u.id = r.approved_by
      WHERE r.purchase_request_id = ? ORDER BY r.id`, [pr.id])
   const [lots] = await pool.execute(
@@ -107,8 +110,8 @@ exports.summary = asyncHandler(async (req, res) => {
   })
 })
 
-function sendPdf(res, filename, draw) {
-  const doc = new PDFDocument({ size: 'LETTER', margin: M })
+function sendPdf(res, filename, draw, layout = 'portrait') {
+  const doc = new PDFDocument({ size: 'LETTER', layout, margin: M })
   res.setHeader('Content-Type', 'application/pdf')
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
   doc.pipe(res)
@@ -119,12 +122,21 @@ function sendPdf(res, filename, draw) {
 // GET /bac/:prId/resolutions/:rid/pdf - the BAC Resolution.
 exports.resolutionPdf = asyncHandler(async (req, res) => {
   const { resolution, pr, lots } = await resolutionOf(req.params.prId, req.params.rid)
+  if (resolution.kind === 'abstract') throw httpError(404, 'This award was made on the Abstract of sealed Quotations, without a BAC Resolution')
   const [[{ abc }]] = await pool.execute(
     'SELECT COALESCE(SUM(quantity * estimated_cost), 0) AS abc FROM pr_items WHERE pr_id = ? AND dropped_at IS NULL', [pr.id])
   // A resolution exists once the BAC awarded, so it is signed (on a staff copy).
   const orgSettings = await withSignatures(pool, await loadOrgSettings(pool), signedCopy(req.user, !pr.deleted_at))
   sendPdf(res, `BAC-Resolution-${resolution.resolution_number}.pdf`, (doc) =>
     drawResolution(doc, { resolution, pr, abc, lots, orgSettings }))
+})
+
+// GET /bac/:prId/resolutions/:rid/abstract - the Abstract of sealed Quotations of an award (either kind), on a landscape page.
+exports.abstractPdf = asyncHandler(async (req, res) => {
+  const data = await abstractOf(req.params.prId, req.params.rid)
+  const orgSettings = await withSignatures(pool, await loadOrgSettings(pool), signedCopy(req.user, !data.pr.deleted_at))
+  sendPdf(res, `Abstract-of-Quotations-${data.pr.pr_number}-${data.resolution.resolved_on}.pdf`, (doc) =>
+    drawAbstract(doc, { ...data, orgSettings }), 'landscape')
 })
 
 // GET /bac/certificates?kind=review|bids&search=&page= - the TWG's certificates on the PRs this user may see, newest first, with counts by kind.

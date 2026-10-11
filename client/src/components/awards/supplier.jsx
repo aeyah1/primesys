@@ -38,6 +38,9 @@ export const DQBadge = () => (
 // The canvass's lots, each with its items (GET /canvass/:prId); a lot goes to one supplier.
 export const lotsWithItems = ({ lots, items }) => lots.map(l => ({ ...l, items: l.item_ids.map(id => items.find(i => i.id === id)) }))
 
+// What an award is recorded on: a numbered BAC Resolution, or below the resolution threshold the Abstract alone.
+export const awardRecordName = (r) => (r.kind === 'abstract' ? 'Abstract of sealed Quotations' : `BAC Resolution No. ${r.resolution_number}`)
+
 export const Optional = () => <span className="text-[--color-text-muted] font-normal text-xs">(optional)</span>
 
 // Everything that shows awards, refreshed after any award, review, or PO change.

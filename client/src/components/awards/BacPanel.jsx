@@ -5,11 +5,13 @@ import { Button } from '@/components/ui/button'
 import { fmtCurrency, fmtDate, plural } from '@/lib/utils'
 import { openPdf, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
+import { awardRecordName } from './supplier'
 
 /* Where a canvass stands between the BAC and the TWG. part 'status': returned
    by the TWG (the BAC corrects the bids, BacBidSheet), with the TWG for its
    evaluation, or certified and waiting for the BAC's award (BacAwardSheet).
-   part 'resolutions': each BAC Resolution with its Notices of Award. */
+   part 'resolutions': each award, in a BAC Resolution or (below the resolution
+   threshold) on the Abstract alone, with its Abstract and Notices of Award. */
 export default function BacPanel({ prId, part = 'status' }) {
   const { data } = useQuery({
     queryKey: ['bac', 'pr', prId],
@@ -17,7 +19,7 @@ export default function BacPanel({ prId, part = 'status' }) {
   })
   if (!data) return null
   if (part === 'resolutions' && !data.resolutions.length) {
-    return <p className="text-sm text-[--color-text-muted]">The BAC has not adopted a resolution for this request yet.</p>
+    return <p className="text-sm text-[--color-text-muted]">The BAC has not awarded this request yet.</p>
   }
 
   const can = data.permissions
@@ -31,17 +33,26 @@ export default function BacPanel({ prId, part = 'status' }) {
           <div key={r.id} className="rounded-xl border border-[--color-border] px-4 py-3 space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <p className="text-sm font-semibold text-[--color-text-primary]">BAC Resolution No. {r.resolution_number}</p>
+                <p className="text-sm font-semibold text-[--color-text-primary]">{awardRecordName(r)}</p>
                 <p className="text-xs text-[--color-text-muted]">
                   {fmtDate(r.resolved_on)}, by {r.approved_by_name}
                   {' · '}{plural(r.lots.length, 'award')} for {fmtCurrency(r.lots.reduce((s, l) => s + Number(l.awarded_amount), 0))}
+                  {r.kind === 'abstract' && ' · approved budget below the resolution threshold'}
                 </p>
               </div>
               {can.print && (
-                <Button size="sm" variant="outline" className="gap-1.5"
-                  onClick={() => print(`/bac/${prId}/resolutions/${r.id}/pdf`, 'BAC Resolution')}>
-                  <FileText className="size-3.5" /> Resolution
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  {r.kind !== 'abstract' && (
+                    <Button size="sm" variant="outline" className="gap-1.5"
+                      onClick={() => print(`/bac/${prId}/resolutions/${r.id}/pdf`, 'BAC Resolution')}>
+                      <FileText className="size-3.5" /> Resolution
+                    </Button>
+                  )}
+                  <Button size="sm" variant="outline" className="gap-1.5"
+                    onClick={() => print(`/bac/${prId}/resolutions/${r.id}/abstract`, 'Abstract of sealed Quotations')}>
+                    <FileText className="size-3.5" /> Abstract
+                  </Button>
+                </div>
               )}
             </div>
             {can.print && (

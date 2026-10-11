@@ -17,6 +17,7 @@ const TITLES = {
   '/po':              'Purchase Orders',
   '/delivery':        'Deliveries',
   '/archive':         'Archive',
+  '/rfqs':            'RFQ History',
   '/notifications':   'Notifications',
   '/reports':         'Reports & Analytics',
   '/users':           'User Management',

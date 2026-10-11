@@ -3,6 +3,7 @@ const asyncHandler = require('../utils/asyncHandler')
 const httpError    = require('../utils/httpError')
 const { paging }   = require('../middleware/validate')
 const { supplierKey } = require('../utils/awardWorkflow')
+const { AWARDED, DQ } = require('../utils/canvassBids')
 
 // The supplier profiles Procurement and Admin keep
 // A quotation the BAC enters is linked to the profile of the same name
@@ -11,12 +12,6 @@ const { supplierKey } = require('../utils/awardWorkflow')
 
 const FIELDS = ['name', 'address', 'tin', 'philgeps_no', 'contact_person', 'designation', 'phone', 'email', 'status', 'status_note']
 const COLUMNS = 's.id, s.name, s.address, s.tin, s.philgeps_no, s.contact_person, s.designation, s.phone, s.email, s.status, s.status_note, s.created_at, s.updated_at'
-
-// One quotation's outcome: awarded (its total), DQ (non-compliant on every bid), else neither.
-const AWARDED = `(SELECT SUM(l.awarded_amount) FROM lots l
-                   WHERE l.purchase_request_id = d.pr_id AND l.status = 'awarded' AND LOWER(l.awarded_to) = LOWER(d.name))`
-const DQ = `(EXISTS (SELECT 1 FROM canvass_bids b WHERE b.bidder_id = d.id)
-             AND NOT EXISTS (SELECT 1 FROM canvass_bids b WHERE b.bidder_id = d.id AND (b.compliant IS NULL OR b.compliant = 1)))`
 
 // GET /suppliers?search=&status=&page= - the list with each one's quotations, awards and DQs.
 // The BAC reads it too, to fill a quotation from a profile.

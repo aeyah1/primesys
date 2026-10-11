@@ -7,6 +7,7 @@ import { EmptyState } from '@/components/shared/ListParts'
 import { DashboardHeader, StatLink, ListSkeleton } from '@/components/dashboard/DashboardParts'
 import { fmtCurrency, fmtDate, daysSince, plural } from '@/lib/utils'
 import { MarkerBadges } from '@/components/shared/StatusBadge'
+import { awardRecordName } from '@/components/awards/supplier'
 import api from '@/lib/axios'
 
 // What the BAC does next with a request in its queue.
@@ -16,7 +17,7 @@ const nextStep = (row) => row.status === 'bac_review' ? 'Certified by the TWG: p
   : row.certification_return_reason ? 'Returned by the TWG: correct the bids'
   : 'Enter the bids'
 
-// The BAC's home: its counts, the oldest work first, and the latest resolutions.
+// The BAC's home: its counts, the oldest work first, and the latest awards.
 export default function BacDashboard() {
   const { data: stats } = useQuery({
     queryKey: ['pr-stats'],
@@ -43,7 +44,7 @@ export default function BacDashboard() {
         <StatLink to="/bac" title="In Canvass" value={stats?.bidding ?? 0} icon={Scale} color="amber" sub="bids to enter or correct" />
         <StatLink to="/pr?status=twg_certification" title="With the TWG" value={stats?.twg_certification ?? 0} icon={ClipboardCheck} color="teal" sub="checking the offers" />
         <StatLink to="/bac" title="Awards to Make" value={stats?.bac_review ?? 0} icon={Trophy} color="brand" sub="certified by the TWG" />
-        <StatLink to="/bac" title="Resolutions" value={pending?.counts?.approved ?? 0} icon={FileText} color="green" sub="adopted so far" />
+        <StatLink to="/bac" title="Awards" value={pending?.counts?.approved ?? 0} icon={FileText} color="green" sub="made so far" />
       </div>
 
       <div className="grid gap-5 lg:grid-cols-5">
@@ -80,15 +81,15 @@ export default function BacDashboard() {
         </Card>
 
         <Card className="lg:col-span-2">
-          <CardHeader><CardTitle>Latest resolutions</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Latest awards</CardTitle></CardHeader>
           <CardContent className="p-0">
             {loadingApproved ? <ListSkeleton />
-              : !resolutions.length ? <EmptyState icon={FileText} title="No resolutions yet" sub="Each award the BAC makes is adopted as a resolution." />
+              : !resolutions.length ? <EmptyState icon={FileText} title="No awards yet" sub="Each award the BAC makes shows here, in a BAC Resolution or on the Abstract." />
               : resolutions.map(r => (
                 <Link key={r.resolution_id} to={`/pr/${r.id}/canvass#resolutions`}
                   className="block px-5 py-3 border-b border-[--color-border] last:border-0 hover:bg-overlay/60 transition-colors">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-ui-sm font-semibold text-[--color-text-primary]">Resolution No. {r.resolution_number}</span>
+                    <span className="text-ui-sm font-semibold text-[--color-text-primary]">{awardRecordName(r)}</span>
                     <span className="text-ui-sm font-bold text-[--color-brand]">{fmtCurrency(r.total)}</span>
                   </div>
                   <p className="text-ui-xs text-[--color-text-muted] mt-0.5 truncate">
