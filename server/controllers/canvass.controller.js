@@ -10,7 +10,7 @@ const { notifyBac } = require('../utils/bacWorkflow')
 const { notifyAreaReviewers } = require('../utils/twgAreas')
 const { prName } = require('../utils/requesterNotice')
 const { RE_PR_TYPES, sendRePr, returnRePr } = require('../utils/rePr')
-const { biddersOf, lotsOf, recommendedOf, saveBids, removeBidder, sendBlock, sendToTwg, awardBids, reopenCanvass } = require('../utils/canvassBids')
+const { biddersOf, lotsOf, recommendedOf, saveBids, removeBidder, sendBlock, sendToTwg, awardBids, reopenCanvass, awardDocumentOf } = require('../utils/canvassBids')
 
 // The canvass of one PR
 // The canvass is done outside the system: once the TWG approves the request,
@@ -56,6 +56,8 @@ exports.summary = asyncHandler(async (req, res) => {
     // Why the canvass can't go to the TWG yet, for the BAC while it is in canvass.
     send_blocked: blocked?.message ?? null,
     whole_award: wholeAward,
+    // While the BAC awards: whether the award goes in a BAC Resolution or on the Abstract alone, with the approved budget and threshold.
+    award_document: awarding ? await awardDocumentOf(pool, pr.id) : null,
     // The TWG's latest Re-PR, for the bids' remarks.
     re_pr: rePr.re_pr_reason ? { type: RE_PR_TYPES[rePr.re_pr_type] || null, reason: rePr.re_pr_reason, note: rePr.re_pr_note } : null,
     items: items.map(({ award, ...i }) => ({
@@ -176,14 +178,15 @@ exports.send = asyncHandler(async (req, res) => {
 })
 
 // POST /canvass/:prId/award - { winners: [{ lot, bidder_id, reason }], notes }: the BAC awards each
-// lot of the certified bids in a BAC Resolution, and Procurement issues the purchase orders.
+// lot of the certified bids in a BAC Resolution (below the threshold, on the Abstract alone), and
+// Procurement issues the purchase orders.
 exports.award = asyncHandler(async (req, res) => {
   const { pr, resolution, lots } = await withTransaction(async (conn) => {
     const pr = await loadPR(conn, req.params.prId, { lock: true })
     return { pr, ...(await awardBids(conn, pr, req.user, { winners: req.body.winners, notes: req.body.notes?.trim() || null })) }
   })
   await announceAwards(req.io, pr.pr_number, lots)
-  const by = resolution ? ` in Resolution No. ${resolution.resolution_number}` : ''
+  const by = !resolution ? '' : resolution.kind === 'abstract' ? ' on the Abstract of sealed Quotations' : ` in Resolution No. ${resolution.resolution_number}`
   const [procs] = await pool.execute("SELECT id FROM users WHERE role = 'procurement' AND is_active = 1")
   await Promise.all(procs.map(p => notify(req.io, p.id, `PR ${pr.pr_number} was awarded by the BAC${by}. The purchase orders can be issued.`, 'success', pr.id, 'pr')))
   res.json({ message: `Awarded${by}. Procurement issues the purchase orders.`, resolution, awards: lots.length })

@@ -5,7 +5,7 @@ import { SupplierDetails, BlacklistedBadge } from './SupplierParts'
 import api from '@/lib/axios'
 
 // The request stages after the BAC has sent the quotations (server: suppliers.controller QUOTED).
-const QUOTED = ['twg_certification', 'bac_review', 're_pr', 'for_po', 'completed']
+export const QUOTED = ['twg_certification', 'bac_review', 're_pr', 'for_po', 'completed']
 
 // The suppliers that quoted on a request, each with its profile from the supplier list, once the quotations are sent.
 export default function QuotedSuppliers({ pr }) {

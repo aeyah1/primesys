@@ -19,6 +19,8 @@ import AttachmentsPanel from '@/components/shared/AttachmentsPanel'
 import PpmpComparison, { usePrPpmp, ViewPpmpButton } from '@/components/ppmp/PpmpComparison'
 import TwgCertificates from '@/components/awards/TwgCertificates'
 import TwgEvaluation, { evaluationPayload, evaluationBlock } from '@/components/awards/TwgEvaluation'
+import CanvassFiles from '@/components/awards/CanvassFiles'
+import { QUOTED } from '@/components/suppliers/QuotedSuppliers'
 import SignatureDialog from '@/components/shared/SignatureDialog'
 import useMySignature from '@/hooks/useMySignature'
 import { useAuth } from '@/context/AuthContext'
@@ -268,6 +270,11 @@ export default function TwgReviewDetail() {
               : <Skeleton className="h-40" />}
           </CardContent>
         </Card>
+      )}
+
+      {/* After the certification the canvasser's files stay viewable, view only */}
+      {!certifying && QUOTED.includes(pr.status) && (
+        <Card><CardContent><CanvassFiles prId={String(pr.id)} /></CardContent></Card>
       )}
 
       <TwgCertificates prId={String(pr.id)} />

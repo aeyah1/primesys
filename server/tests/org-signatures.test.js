@@ -16,6 +16,7 @@ const ORG = {
   approved_by_name: 'Juan A. Dela Cruz', approved_above_name: 'Maria S. Santos', allotment_by_name: 'Pedro B. Reyes',
   app_certified_by_name: 'Ana C. Garcia', chief_accountant_name: 'Carmela D. Reyes', bac_chairman_name: 'Rosa L. Mendoza',
   bac_vice_chairman_name: 'Jose T. Ramos', bac_members: 'Carlo P. Villanueva', canvassers: JSON.stringify([{ name: 'Luis M. Aquino', designation: 'Canvasser' }]),
+  resolution_threshold: '1',   // the small request still takes a BAC Resolution, so its signatures print
 }
 function fixtures() {
   const hash = serverReq('bcryptjs').hashSync('Test@1234', 4)
@@ -60,6 +61,7 @@ async function run() {
   const rid = bac?.resolutions?.[0]?.id, lotId = bac?.resolutions?.[0]?.lots?.[0]?.id
   const DOCS = {
     'PR form': [2, '/pr/80/pdf'], 'RFQ': [2, '/pr/80/rfq'], 'BAC Resolution': [6, `/bac/80/resolutions/${rid}/pdf`],
+    'Abstract': [6, `/bac/80/resolutions/${rid}/abstract`],
     'Notice of Award': [6, `/bac/80/resolutions/${rid}/notice/${lotId}`], 'Purchase Order': [2, `/po/${po.data?.id}/pdf`],
   }
   const before = {}
@@ -93,6 +95,7 @@ async function run() {
   await adds('…an End User\'s copy: none', 'PR form', 0, 3)
   await adds('RFQ: the vice chairman and the canvasser (2)', 'RFQ', 2)
   await adds('BAC Resolution: chairman, vice chairman, member, approving official (4)', 'BAC Resolution', 4)
+  await adds('Abstract of sealed Quotations: the same four (4)', 'Abstract', 4)
   await adds('Notice of Award: the approving official (1)', 'Notice of Award', 1)
   await adds('Purchase Order, staff copy: the approving official and the Chief Accountant (2)', 'Purchase Order', 2)
   await adds('…an End User\'s copy: none', 'Purchase Order', 0, 3)

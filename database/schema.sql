@@ -424,7 +424,8 @@ ALTER TABLE `pr_items`
 -- Printed as the BAC Resolution; each supplier's awards in it as a Notice of Award.
 CREATE TABLE `bac_resolutions` (
   `id`                  INT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `resolution_number`   VARCHAR(30)  NOT NULL,
+  `kind`                ENUM('resolution','abstract') NOT NULL DEFAULT 'resolution',  -- 'abstract': below the resolution threshold, no number
+  `resolution_number`   VARCHAR(30)  NULL,
   `purchase_request_id` INT UNSIGNED NOT NULL,
   `resolved_on`         DATE         NOT NULL,
   `notes`               TEXT         NULL,
@@ -741,6 +742,8 @@ INSERT INTO `org_settings` (`setting_key`, `setting_value`) VALUES
   -- At or below this amount the Campus Director approves; above it the
   -- University President does.
   ('approver_threshold',            '200000'),
+  -- At or above this approved budget the BAC awards in a numbered BAC Resolution; below it on the Abstract alone.
+  ('resolution_threshold',          '50000'),
   ('approved_above_name',           NULL),
   ('approved_above_designation',    'University President'),
   -- Request for Quotation signatories.

@@ -26,6 +26,7 @@ const SETTING_KEYS = [
   'approved_by_designation',
   'approved_above_name',          // above it: the University President
   'approved_above_designation',
+  'resolution_threshold',         // an approved budget at or above it is awarded in a BAC Resolution; below it on the Abstract alone
   'allotment_by_name',            // certifies funds are available
   'allotment_by_designation',
   'app_certified_by_name',        // certifies it is in the APP
@@ -67,6 +68,7 @@ function fundCodeFor(org, source) {
 const PR_PREFIX = /^[A-Za-z0-9][A-Za-z0-9 -]{0,14}$/
 const DEFAULT_PR_PREFIX = 'CSO'
 const DEFAULT_APPROVER_THRESHOLD = 200000
+const DEFAULT_RESOLUTION_THRESHOLD = 50000
 
 // Every key as a string, so a template never prints "null".
 async function loadOrgSettings(db) {
@@ -87,6 +89,14 @@ function approverFor(org, total) {
   return Number(total || 0) > threshold
     ? { name: org.approved_above_name || '', designation: org.approved_above_designation || '', threshold, above: true }
     : { name: org.approved_by_name    || '', designation: org.approved_by_designation    || '', threshold, above: false }
+}
+
+// How the BAC awards a request with this approved budget: at or above the threshold in a
+// numbered BAC Resolution, below it on the Abstract of sealed Quotations alone.
+function awardDocumentFor(org, abc) {
+  const raw = Number(String(org.resolution_threshold || '').trim())
+  const threshold = Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_RESOLUTION_THRESHOLD
+  return { kind: Math.round(Number(abc || 0) * 100) >= Math.round(threshold * 100) ? 'resolution' : 'abstract', threshold }
 }
 
 // Who signs "Requested by" for a request of this size: the person the End User
@@ -113,6 +123,6 @@ function canvassersOf(org) {
 }
 
 module.exports = {
-  SETTING_KEYS, FUND_SOURCES, FUND_SOURCE_VALUES, PR_PREFIX, DEFAULT_PR_PREFIX, DEFAULT_APPROVER_THRESHOLD,
-  loadOrgSettings, prNumberPrefix, fundCodeFor, approverFor, requesterFor, bacMembers, MAX_CANVASSERS, canvassersOf,
+  SETTING_KEYS, FUND_SOURCES, FUND_SOURCE_VALUES, PR_PREFIX, DEFAULT_PR_PREFIX, DEFAULT_APPROVER_THRESHOLD, DEFAULT_RESOLUTION_THRESHOLD,
+  loadOrgSettings, prNumberPrefix, fundCodeFor, approverFor, awardDocumentFor, requesterFor, bacMembers, MAX_CANVASSERS, canvassersOf,
 }

@@ -6,6 +6,7 @@ const { adoptResolution } = require('./bacWorkflow')
 const { issueCertificate } = require('./twgCertificate')
 const { normalise, sectionsOf } = require('./itemSections')
 const { prName } = require('./requesterNotice')
+const { loadOrgSettings, awardDocumentFor } = require('./orgSettings')
 
 // The canvass bids of a PR
 // The canvasser canvasses the suppliers on paper and gives the returned RFQs
@@ -24,6 +25,20 @@ const { prName } = require('./requesterNotice')
 // the items still needing an award.
 
 const ref = (b) => `${b.bidder_id}:${b.pr_item_id}`
+
+// What the BAC's award of a PR is recorded on: { kind: 'resolution' | 'abstract', abc, threshold }.
+// The request's approved budget (its items not dropped) at or above the threshold takes a BAC Resolution.
+async function awardDocumentOf(db, prId) {
+  const [[{ abc }]] = await db.execute(
+    'SELECT COALESCE(SUM(quantity * estimated_cost), 0) AS abc FROM pr_items WHERE pr_id = ? AND dropped_at IS NULL', [prId])
+  return { ...awardDocumentFor(await loadOrgSettings(db), abc), abc: Number(abc) }
+}
+
+// SQL for one quotation's outcome over the bidder alias `d`: awarded (its total), DQ (non-compliant on every bid), else neither.
+const AWARDED = `(SELECT SUM(l.awarded_amount) FROM lots l
+                   WHERE l.purchase_request_id = d.pr_id AND l.status = 'awarded' AND LOWER(l.awarded_to) = LOWER(d.name))`
+const DQ = `(EXISTS (SELECT 1 FROM canvass_bids b WHERE b.bidder_id = d.id)
+             AND NOT EXISTS (SELECT 1 FROM canvass_bids b WHERE b.bidder_id = d.id AND (b.compliant IS NULL OR b.compliant = 1)))`
 
 // The PR's bidders in their order, each with its RFQ file, its price for each item and the TWG's evaluation of that bid:
 // [{ id, name, rfq_no, attachment_id, attachment_name, dq_remarks, supplier_id, prices: { [pr_item_id]: unit_price }, evaluation: { [pr_item_id]: { compliant, offered_spec, remarks } } }].
@@ -322,7 +337,8 @@ async function recordWinner(conn, pr, w, user) {
 // dropped). Any bidder that bid on every such item of the lot, none of them found
 // non-compliant by the TWG, may win it; a pick other than the recommended one is noted on its award, with the BAC's
 // reason if given. Records an award per lot, with the details from the winner's supplier profile, certified by the TWG's latest
-// certificate, adopts a BAC Resolution for them, and makes the PR Ready for PO. Resolves with { resolution, lots }.
+// certificate, adopts a BAC Resolution for them (below the resolution threshold, the Abstract of sealed
+// Quotations alone: awardDocumentOf), and makes the PR Ready for PO. Resolves with { resolution, lots }.
 async function awardBids(conn, pr, user, { winners = [], notes = null }) {
   if (pr.deleted_at || pr.status !== 'bac_review') throw httpError(409, 'The BAC awards once the TWG has certified the bids')
   const { items } = await itemStates(conn, pr.id)
@@ -358,14 +374,16 @@ async function awardBids(conn, pr, user, { winners = [], notes = null }) {
   let resolution = null
   if (lots.length) {
     const [[cert]] = await conn.execute('SELECT id, certified_by, created_at FROM twg_certificates WHERE pr_id = ? ORDER BY id DESC LIMIT 1', [pr.id])
-    resolution = await adoptResolution(conn, pr.id, user.id, notes)
+    resolution = await adoptResolution(conn, pr.id, user.id, notes, (await awardDocumentOf(conn, pr.id)).kind)
     const list = lots.map(() => '?').join(', ')
     await conn.execute(`UPDATE lots SET resolution_id = ?, certified_at = ?, certified_by = ?, certificate_id = ? WHERE id IN (${list})`,
       [resolution.id, cert?.created_at ?? new Date(), cert?.certified_by ?? null, cert?.id ?? null, ...lots.map(l => l.id)])
   }
   await changePRStatus(pr.id, 'for_po', {
     user, via: 'bac', conn,
-    note: resolution ? `Awarded by the BAC in Resolution No. ${resolution.resolution_number}` : 'No item left to award',
+    note: !resolution ? 'No item left to award'
+      : resolution.kind === 'abstract' ? 'Awarded by the BAC on the Abstract of sealed Quotations'
+        : `Awarded by the BAC in Resolution No. ${resolution.resolution_number}`,
   })
   return { resolution, lots }
 }
@@ -382,5 +400,5 @@ async function reopenCanvass(conn, pr, user, reason) {
 
 module.exports = {
   biddersOf, lotsOf, recommendedOf, canvassDocuments, saveBids, removeBidder, sendBlock, sendToTwg,
-  openBids, saveEvaluation, certifyBids, awardBids, reopenCanvass,
+  openBids, saveEvaluation, certifyBids, awardBids, reopenCanvass, awardDocumentOf, AWARDED, DQ,
 }

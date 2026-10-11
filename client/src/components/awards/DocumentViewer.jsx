@@ -102,6 +102,56 @@ function Viewer({ file, data, url, expanded, onExpand }) {
   const onPages = useRef((n) => setPages(n)).current
   const current = typeof zoom === 'number' ? zoom : fits?.[zoom] ?? 1
   const step = (up) => setZoom(up ? STEPS.find(s => s > current + 0.01) ?? STEPS.at(-1) : [...STEPS].reverse().find(s => s < current - 0.01) ?? STEPS[0])
+  const scale = useRef(current)    // the scale shown, for the wheel handler
+  const anchor = useRef(null)      // the point kept under the pointer through a Ctrl + scroll zoom
+  const drag = useRef(null)        // where a mouse drag started
+  const [dragging, setDragging] = useState(false)
+  useLayoutEffect(() => { scale.current = current }, [current])
+
+  // Ctrl + scroll (or a touchpad pinch) zooms around the pointer; a non-passive listener keeps the browser from zooming the page.
+  useEffect(() => {
+    const el = box.current
+    const onWheel = (e) => {
+      if (!e.ctrlKey) return
+      e.preventDefault()
+      const from = scale.current
+      const dy = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY   // Firefox may count lines, not pixels
+      const to = Math.min(Math.max(from * Math.exp(-dy * 0.002), STEPS[0]), STEPS.at(-1))
+      if (to === from) return
+      const r = el.getBoundingClientRect()
+      const a = anchor.current
+      anchor.current = { x: e.clientX - r.left, y: e.clientY - r.top, left: a?.left ?? el.scrollLeft, top: a?.top ?? el.scrollTop, ratio: (a?.ratio ?? 1) * (to / from) }
+      scale.current = to
+      setZoom(to)
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [])
+  // After the pages are redrawn at the new scale (their own effects run first), the point under the pointer is scrolled back under it.
+  useEffect(() => {
+    const a = anchor.current
+    if (!a) return
+    anchor.current = null
+    box.current.scrollLeft = (a.left + a.x) * a.ratio - a.x
+    box.current.scrollTop = (a.top + a.y) * a.ratio - a.y
+  }, [current])
+
+  // Dragging with the mouse moves the pages around; a press on the box's scrollbars is left to the browser.
+  const startDrag = (e) => {
+    const el = box.current
+    const r = el.getBoundingClientRect()
+    if (e.pointerType !== 'mouse' || e.button !== 0 || e.clientX - r.left >= el.clientWidth || e.clientY - r.top >= el.clientHeight) return
+    drag.current = { x: e.clientX, y: e.clientY, left: el.scrollLeft, top: el.scrollTop }
+    el.setPointerCapture(e.pointerId)
+    setDragging(true)
+  }
+  const moveDrag = (e) => {
+    const d = drag.current
+    if (!d) return
+    box.current.scrollLeft = d.left - (e.clientX - d.x)
+    box.current.scrollTop = d.top - (e.clientY - d.y)
+  }
+  const endDrag = () => { drag.current = null; setDragging(false) }
 
   return (
     <div className={`flex flex-col ${expanded ? 'h-full' : 'h-[70vh]'}`}>
@@ -120,7 +170,8 @@ function Viewer({ file, data, url, expanded, onExpand }) {
           </button>
         </span>
       </div>
-      <div ref={box} className="min-h-0 flex-1 overflow-auto bg-[--color-canvas] p-4">
+      <div ref={box} onPointerDown={startDrag} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}
+        className={`min-h-0 flex-1 select-none overflow-auto bg-[--color-canvas] p-4 ${dragging ? 'cursor-grabbing' : 'cursor-grab'}`}>
         {file.mimetype === 'application/pdf'
           ? <PdfPages data={data} zoom={zoom} box={inner} onFit={onFit} onPages={onPages} />
           : <Picture url={url} name={file.original_name} zoom={zoom} box={inner} onFit={onFit} />}
