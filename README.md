@@ -117,9 +117,11 @@ mysql -u root -p primesys < add_re_pr.sql
 mysql -u root -p primesys < add_dq_remarks.sql
 mysql -u root -p primesys < add_suppliers.sql
 mysql -u root -p primesys < add_award_abstract.sql
+mysql -u root -p primesys < add_session_key.sql
+mysql -u root -p primesys < add_user_devices.sql
 ```
 
-Apply only the ones your database is missing. The last eleven need MariaDB (XAMPP); several of the earlier ones are one-shot `ALTER`s that fail if run twice. `add_user_columns.sql`, `add_missing_tables.sql`, and `add_twg_role.sql` would erase the `requestor` and `twg` roles on a newer database, so they stop with an error and change nothing when the database already has either role.
+Apply only the ones your database is missing. The last thirteen need MariaDB (XAMPP); several of the earlier ones are one-shot `ALTER`s that fail if run twice. `add_user_columns.sql`, `add_missing_tables.sql`, and `add_twg_role.sql` would erase the `requestor` and `twg` roles on a newer database, so they stop with an error and change nothing when the database already has either role.
 
 ### 3. Configure environment
 

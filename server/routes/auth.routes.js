@@ -1,6 +1,6 @@
 const router    = require('express').Router()
 const rateLimit = require('express-rate-limit')
-const { body }  = require('express-validator')
+const { body, param } = require('express-validator')
 const c         = require('../controllers/auth.controller')
 const auth      = require('../middleware/auth.middleware')
 const authorize = require('../middleware/authorize.middleware')
@@ -97,6 +97,19 @@ router.post('/login',
   handle,
   c.login
 )
+// The emailed code that finishes a sign-in on a new browser (utils/loginDevices.js); wrong codes count as failed sign-ins.
+const ticketRule = body('ticket').isString().matches(/^[a-f0-9]{64}$/).withMessage('Sign in again for a new code')
+router.post('/login/verify',
+  loginLimiter,
+  ticketRule,
+  body('code').isString().withMessage('Enter the 6-digit code').bail().trim().matches(/^\d{6}$/).withMessage('Enter the 6-digit code'),
+  handle,
+  c.verifyLogin
+)
+router.post('/login/resend', emailLimiter, ticketRule, handle, c.resendLoginCode)
+router.post('/logout', auth, c.logout)
+router.get('/devices',        auth, c.myDevices)
+router.delete('/devices/:id', auth, param('id').isInt({ min: 1 }).withMessage('Device not found'), handle, c.removeDevice)
 router.post('/forgot-password',
   emailLimiter,
   body('email').isString().withMessage('A valid email address is required').bail()

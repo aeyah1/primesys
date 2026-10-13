@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useAuth } from '@/context/AuthContext'
 import api from '@/lib/axios'
+import DevicesCard from './DevicesCard'
 
 export default function SecurityTab() {
   const { replaceToken } = useAuth()
@@ -42,64 +43,67 @@ export default function SecurityTab() {
   const canSubmit = form.current && form.next && form.confirm && matches && !tooShort && !isPending
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Change password</CardTitle>
-        <CardDescription>You'll stay signed in on this device; any other device is signed out</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <PasswordField
-            id="sec-current"
-            label="Current password"
-            value={form.current}
-            onChange={v => setForm(p => ({ ...p, current: v }))}
-            show={show.current}
-            onToggle={() => setShow(p => ({ ...p, current: !p.current }))}
-            autoComplete="current-password"
-          />
-          <PasswordField
-            id="sec-next"
-            label="New password"
-            value={form.next}
-            onChange={v => setForm(p => ({ ...p, next: v }))}
-            show={show.next}
-            onToggle={() => setShow(p => ({ ...p, next: !p.next }))}
-            autoComplete="new-password"
-            hint="Minimum 8 characters"
-          />
-          <PasswordField
-            id="sec-confirm"
-            label="Confirm new password"
-            value={form.confirm}
-            onChange={v => setForm(p => ({ ...p, confirm: v }))}
-            show={show.confirm}
-            onToggle={() => setShow(p => ({ ...p, confirm: !p.confirm }))}
-            autoComplete="new-password"
-            invalid={noMatch}
-            valid={matches}
-          />
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Change password</CardTitle>
+          <CardDescription>You'll stay signed in here. Any other device is signed out, and every browser asks for an emailed code at its next sign-in.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <PasswordField
+              id="sec-current"
+              label="Current password"
+              value={form.current}
+              onChange={v => setForm(p => ({ ...p, current: v }))}
+              show={show.current}
+              onToggle={() => setShow(p => ({ ...p, current: !p.current }))}
+              autoComplete="current-password"
+            />
+            <PasswordField
+              id="sec-next"
+              label="New password"
+              value={form.next}
+              onChange={v => setForm(p => ({ ...p, next: v }))}
+              show={show.next}
+              onToggle={() => setShow(p => ({ ...p, next: !p.next }))}
+              autoComplete="new-password"
+              hint="Minimum 8 characters"
+            />
+            <PasswordField
+              id="sec-confirm"
+              label="Confirm new password"
+              value={form.confirm}
+              onChange={v => setForm(p => ({ ...p, confirm: v }))}
+              show={show.confirm}
+              onToggle={() => setShow(p => ({ ...p, confirm: !p.confirm }))}
+              autoComplete="new-password"
+              invalid={noMatch}
+              valid={matches}
+            />
 
-          {noMatch && (
-            <p className="flex items-center gap-1.5 text-ui-xs text-red-600 font-medium">
-              <XCircle className="size-3.5" /> Passwords do not match
-            </p>
-          )}
-          {matches && !tooShort && (
-            <p className="flex items-center gap-1.5 text-ui-xs text-blue-600 font-medium">
-              <CheckCircle className="size-3.5" /> Passwords match
-            </p>
-          )}
+            {noMatch && (
+              <p className="flex items-center gap-1.5 text-ui-xs text-red-600 font-medium">
+                <XCircle className="size-3.5" /> Passwords do not match
+              </p>
+            )}
+            {matches && !tooShort && (
+              <p className="flex items-center gap-1.5 text-ui-xs text-blue-600 font-medium">
+                <CheckCircle className="size-3.5" /> Passwords match
+              </p>
+            )}
 
-          <div className="flex justify-end pt-1">
-            <Button type="submit" disabled={!canSubmit} className="gap-1.5" size="sm">
-              <Lock className="size-3.5" />
-              {isPending ? 'Changing…' : 'Change password'}
-            </Button>
-          </div>
-        </form>
-      </CardContent>
-    </Card>
+            <div className="flex justify-end pt-1">
+              <Button type="submit" disabled={!canSubmit} className="gap-1.5" size="sm">
+                <Lock className="size-3.5" />
+                {isPending ? 'Changing…' : 'Change password'}
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+      <DevicesCard />
+    </div>
   )
 }
 

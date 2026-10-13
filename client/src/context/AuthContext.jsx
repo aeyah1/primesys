@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { io } from 'socket.io-client'
-import api from '@/lib/axios'
+import api, { signedOut } from '@/lib/axios'
 
 const AuthContext = createContext(null)
 
@@ -20,7 +20,9 @@ export function AuthProvider({ children }) {
 
     api.get('/auth/me')
       .then(({ data }) => setUser(data))
-      .catch(() => {
+      .catch((err) => {
+        // Why the session ended, for the login page (signed in elsewhere, password changed).
+        if (err.response?.status === 401 && err.response.data?.message) sessionStorage.setItem('primesys_notice', err.response.data.message)
         sessionStorage.removeItem('primesys_token')
         sessionStorage.removeItem('primesys_user')
         setToken(null)
@@ -40,6 +42,8 @@ export function AuthProvider({ children }) {
     })
     s.on('connect', () => s.emit('join', user.id))
     s.on('connect_error', (err) => console.warn('Socket auth error:', err.message))
+    // One session per account: a sign-in on another tab or device ends this one at once, saying why.
+    s.on('signed_out', ({ message } = {}) => { s.disconnect(); signedOut(message) })
     setSocket(s)
     return () => { s.disconnect(); setSocket(null) }
   }, [user?.id, token])
@@ -56,6 +60,9 @@ export function AuthProvider({ children }) {
   }, [queryClient])
 
   const logout = useCallback(() => {
+    // The server ends the session too, so this token can't be used again; sent with the token before it is cleared.
+    const t = sessionStorage.getItem('primesys_token')
+    if (t) api.post('/auth/logout', null, { headers: { Authorization: `Bearer ${t}` } }).catch(() => {})
     sessionStorage.removeItem('primesys_token')
     sessionStorage.removeItem('primesys_user')
     setToken(null)

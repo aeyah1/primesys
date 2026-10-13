@@ -64,7 +64,7 @@ export default function BacBidSheet({ pr, canvass }) {
       <div className="grid grid-cols-1 gap-4 2xl:grid-cols-5">
         <section className="space-y-4 2xl:col-span-3">
           {editing ? (
-            <QuotationForm key={editing.quotation?.id ?? 'new'} prId={prId} canvass={canvass} quotation={editing.quotation}
+            <QuotationForm key={editing.quotation?.id ?? 'new'} prId={prId} prNumber={pr.pr_number} canvass={canvass} quotation={editing.quotation}
               onFile={setShown} onClose={() => setEditing(null)} />
           ) : (
             <>
