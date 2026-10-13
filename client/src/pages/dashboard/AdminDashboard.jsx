@@ -2,7 +2,7 @@
 import { Link } from 'react-router-dom'
 import {
   FileText, Users, Settings, CheckCircle2,
-  TrendingUp, Wallet, ShieldCheck, AlertCircle, AlertTriangle,
+  TrendingUp, Wallet, ShieldCheck, AlertCircle, AlertTriangle, ShieldAlert,
 } from 'lucide-react'
 import {
   BarChart, Bar,
@@ -89,6 +89,14 @@ export default function AdminDashboard() {
   // Categories no active TWG member reviews: their PRs cannot be reviewed.
   const uncovered = coverage.filter(c => !c.reviewers.length)
 
+  // Repeated failed sign-ins in the last 24 hours, from the audit log (server/controllers/audit.controller.js).
+  const { data: alerts } = useQuery({
+    queryKey: ['audit-alerts'],
+    queryFn: () => api.get('/audit/alerts').then(r => r.data),
+    refetchInterval: 60_000,
+  })
+  const flagged = (alerts?.accounts?.length || 0) + (alerts?.addresses?.length || 0)
+
   // Exact totals from the server, not a count of one page of users.
   const userCounts = usersRes?.counts
   const totalUsers = userCounts?.roles?.all ?? 0
@@ -133,6 +141,36 @@ export default function AdminDashboard() {
           </Button>
         </div>
       </div>
+
+      {flagged > 0 && (
+        <div className="flex items-start gap-3 rounded-xl border border-red-300 bg-red-50 px-4 py-3">
+          <ShieldAlert className="size-4 text-red-700 mt-0.5 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-red-800">Repeated failed sign-ins in the last 24 hours</p>
+            <p className="text-xs text-red-700 mt-0.5">
+              Someone may be guessing passwords. If the people named didn't make these attempts, ask them to change their password.
+            </p>
+            <ul className="mt-2 space-y-1 text-xs text-red-800">
+              {alerts.accounts.map(a => (
+                <li key={`u${a.user_id}`}>
+                  <Link to={`/audit?user=${a.user_id}&category=sign_in`} className="font-semibold hover:underline">{a.name || a.username || `User #${a.user_id}`}</Link>
+                  : {a.failures} failed sign-ins, the last {fmtDate(a.last_at)}
+                </li>
+              ))}
+              {alerts.addresses.map(a => (
+                <li key={`ip${a.ip}`}>
+                  Address <Link to={`/audit?q=${encodeURIComponent(a.ip)}&category=sign_in`} className="font-mono font-semibold hover:underline">{a.ip.replace(/^::ffff:/, '')}</Link>
+                  : {a.failures} refused sign-ins on {a.accounts} {a.accounts === 1 ? 'account' : 'accounts'}
+                </li>
+              ))}
+            </ul>
+            {alerts.locked > 0 && <p className="text-xs text-red-700 mt-1.5">{alerts.locked} account {alerts.locked === 1 ? 'lock' : 'locks'} after repeated failures.</p>}
+          </div>
+          <Button asChild variant="secondary" size="sm" className="shrink-0">
+            <Link to="/audit?category=sign_in&outcome=refused">Open Audit Log</Link>
+          </Button>
+        </div>
+      )}
 
       {uncovered.length > 0 && (
         <div className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">

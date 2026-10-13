@@ -27,6 +27,7 @@ const DeliveryList      = page(() => import('@/pages/delivery/DeliveryList'))
 const Bidding           = page(() => import('@/pages/bidding/Bidding'))
 const ReportsPage       = page(() => import('@/pages/reports/ReportsPage'))
 const UserList          = page(() => import('@/pages/users/UserList'))
+const AuditLogPage      = page(() => import('@/pages/audit/AuditLogPage'))
 const ArchivePage       = page(() => import('@/pages/archive/ArchivePage'))
 const RemindersPage     = page(() => import('@/pages/reminders/RemindersPage'))
 const NotificationsPage = page(() => import('@/pages/notifications/NotificationsPage'))
@@ -107,6 +108,7 @@ export default function App() {
           <Route path="profile"       element={<Navigate to="/settings" replace />} />
           <Route path="reports"       element={<ProtectedRoute roles={['admin','procurement']}><ReportsPage /></ProtectedRoute>} />
           <Route path="users"         element={<ProtectedRoute roles={['admin']}><UserList /></ProtectedRoute>} />
+          <Route path="audit"         element={<ProtectedRoute roles={['admin']}><AuditLogPage /></ProtectedRoute>} />
           <Route path="quarters"      element={<Navigate to="/settings?tab=organization" replace />} />
 
           <Route path="twg/reviews"     element={<ProtectedRoute roles={['twg']}><TwgReviewList /></ProtectedRoute>} />
