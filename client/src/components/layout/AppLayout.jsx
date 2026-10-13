@@ -5,6 +5,7 @@ import Header from './Header'
 import { useLiveUpdates } from '@/hooks/useLiveUpdates'
 import { AnimatedPage } from '@/animations'
 import OnboardingModal from '@/components/shared/OnboardingModal'
+import IdleSignOut from '@/components/shared/IdleSignOut'
 
 const TITLES = {
   '/dashboard':       'Dashboard',
@@ -51,6 +52,7 @@ export default function AppLayout() {
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: 'var(--color-canvas)' }}>
       <OnboardingModal />
+      <IdleSignOut />
       <Sidebar
         collapsed={collapsed}
         onToggle={() => setCollapsed(p => !p)}

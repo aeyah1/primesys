@@ -274,7 +274,8 @@ exports.logout = async (req, res) => {
     await pool.execute('UPDATE users SET session_key = ? WHERE id = ? AND session_key <=> ?',
       [crypto.randomBytes(16).toString('hex'), req.user.id, req.user.sk ?? null])
     endSessions(req.io, req.user.id)
-    securityLog('logout', { userId: req.user.id, ip: req.ip })
+    // A sign-out the browser made by itself after 30 minutes without activity says so (client IdleSignOut).
+    securityLog('logout', { userId: req.user.id, ip: req.ip, ...(req.body?.reason === 'idle' && { reason: 'idle' }) })
     res.status(204).end()
   } catch (err) {
     console.error(err); res.status(500).json({ message: 'Internal server error' })
