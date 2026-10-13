@@ -15,6 +15,7 @@ const { ipKeyGenerator } = require('express-rate-limit')
 const cron      = require('node-cron')
 const { sendDueReminders } = require('./controllers/reminders.controller')
 const { loadUserState, sessionEnded } = require('./middleware/auth.middleware')
+const { auditTrail, pruneAudit } = require('./utils/audit')
 
 const app    = express()
 // Behind a hosting proxy, req.ip must be the visitor's address so rate limits apply per visitor.
@@ -79,6 +80,9 @@ app.use('/api/', writeLimiter)
 // Attach socket.io to every request so controllers can emit events
 app.use((req, _, next) => { req.io = io; next() })
 
+// Every change anyone makes goes into the audit log the admin reads (utils/audit.js).
+app.use('/api', auditTrail)
+
 app.use('/api/auth',          require('./routes/auth.routes'))
 app.use('/api/users',         require('./routes/users.routes'))
 app.use('/api/departments',   require('./routes/departments.routes'))
@@ -99,6 +103,7 @@ app.use('/api/bac',           require('./routes/bac.routes'))
 app.use('/api/ppmp',          require('./routes/ppmp.routes'))
 app.use('/api/dashboard',     require('./routes/dashboard.routes'))
 app.use('/api/rfqs',          require('./routes/rfqs.routes'))
+app.use('/api/audit',         require('./routes/audit.routes'))
 
 app.use((err, req, res, next) => {
   // Client-facing 4xx errors (status set explicitly, e.g. a workflow rule
@@ -153,7 +158,12 @@ cron.schedule('* * * * *', async () => {
   }
 })
 
+// The audit log keeps a year: older entries go each night, and when the server starts (it may sleep through the night).
+const prune = () => pruneAudit().catch(err => console.error('[audit] prune failed:', err.message))
+cron.schedule('20 3 * * *', prune)
+
 server.listen(config.port, () => {
   console.log(`PRimeSys server running on http://localhost:${config.port}`)
   require('./db/pool').checkClock()
+  prune()
 })

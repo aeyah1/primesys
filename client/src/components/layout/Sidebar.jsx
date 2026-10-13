@@ -3,7 +3,7 @@ import {
   LayoutDashboard, FileText, ShoppingCart,
   Users, ChevronRight, Bell, Archive,
   LogOut, Settings as SettingsIcon, Gavel, AlarmClock, BookOpen,
-  ClipboardCheck, BarChart3, Scale, FilePlus, PackageCheck, Building2, ListChecks, FileBadge, Store, FileStack,
+  ClipboardCheck, BarChart3, Scale, FilePlus, PackageCheck, Building2, ListChecks, FileBadge, Store, FileStack, ScrollText,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import useSignOut from '@/hooks/useSignOut'
@@ -47,6 +47,7 @@ function menuFor(role) {
       return [{ label: 'Overview', items: [HOME, ALL_REQUESTS] }, records(SUPPLIERS, RFQS, CERTIFICATES, PPMP, REPORTS, ARCHIVE),
               { label: 'Administration', items: [
                 { to: '/users', label: 'User Management', icon: Users },
+                { to: '/audit', label: 'Audit Log', icon: ScrollText },
                 { to: '/settings?tab=organization', label: 'Organization', icon: Building2 },
               ] },
               { label: 'Help', items: [NOTIFICATIONS, REMINDERS, GUIDE] }, ACCOUNT]
