@@ -624,6 +624,29 @@ CREATE TABLE `user_devices` (
   CONSTRAINT `fk_user_devices_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Every change and sign-in event, for the admin's Audit Log page; kept a year (server/utils/audit.js).
+CREATE TABLE `audit_logs` (
+  `id`          BIGINT UNSIGNED   NOT NULL AUTO_INCREMENT,
+  `created_at`  DATETIME          NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `user_id`     INT UNSIGNED      NULL,
+  `user_name`   VARCHAR(100)      NULL,
+  `user_role`   VARCHAR(20)       NULL,
+  `action`      VARCHAR(80)       NOT NULL,
+  `category`    VARCHAR(20)       NOT NULL,
+  `summary`     VARCHAR(200)      NOT NULL,
+  `target_type` VARCHAR(20)       NULL,
+  `target_id`   INT UNSIGNED      NULL,
+  `outcome`     VARCHAR(10)       NOT NULL,
+  `status`      SMALLINT UNSIGNED NULL,
+  `detail`      VARCHAR(255)      NULL,
+  `ip`          VARCHAR(45)       NULL,
+  `device`      VARCHAR(100)      NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_audit_created`  (`created_at`),
+  KEY `idx_audit_user`     (`user_id`, `created_at`),
+  KEY `idx_audit_category` (`category`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- PPMP: each office's plan for a fiscal year, uploaded as its softcopy; in effect once complete (server/db/add_ppmp.sql).
 CREATE TABLE `ppmps` (
   `id`                 INT UNSIGNED NOT NULL AUTO_INCREMENT,

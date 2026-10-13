@@ -21,6 +21,7 @@ const TITLES = {
   '/notifications':   'Notifications',
   '/reports':         'Reports & Analytics',
   '/users':           'User Management',
+  '/audit':           'Audit Log',
   '/settings':        'Settings',
 }
 

@@ -3,7 +3,7 @@ import {
   BookOpen, FileText, Gavel, ShoppingCart, Truck,
   Users, CheckCircle, ArrowRight, ChevronDown, ChevronUp,
   ClipboardList, ClipboardCheck, Package, Send, Eye, Pencil,
-  Trash2, Bell, Clock, Download, Shield, RotateCcw, XCircle, Archive, Building2, FileBadge, Store, FileStack,
+  Trash2, Bell, Clock, Download, Shield, RotateCcw, XCircle, Archive, Building2, FileBadge, Store, FileStack, ScrollText,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { PRStatusBadge } from '@/components/shared/StatusBadge'
@@ -197,6 +197,7 @@ function RoleGuide({ role }) {
         <Step number={5} icon={Building2}     title="Organization settings"  description="Set the fund cluster and responsibility center code in Settings → Organization. They are filled in on every new PR. Under Saved signatures, add each signatory's signature with their consent: it prints over their name once their step is done, on staff copies only." />
         <Step number={6} icon={Store}         title="Suppliers"              description="You keep the supplier list with Procurement: each supplier's profile, its quotations, awards and DQs, and whether it is blacklisted." />
         <Step number={7} icon={FileStack}     title="RFQ History"            description="Every RFQ uploaded to a request, newest first, with its supplier, total and outcome, and a search." />
+        <Step number={8} icon={ScrollText}    title="Audit Log"              description="Under Administration, the Audit Log lists every change and sign-in in PRimeSys, newest first: who did it (and their role), what, on which request, PPMP or account, when, whether it was done or refused, and from which browser and address. Filter by person, kind of activity, result and dates, or search a name or PR number; Activity in User Management opens one person's history. Entries are kept for a year and can't be edited. When an account or an address has repeated failed sign-ins in a day, your dashboard shows a red warning." />
       </div>
       <Tip>A request filed without a quarter goes under the one today falls in; an End User always picks a quarter of their PPMP's year.</Tip>
     </div>
