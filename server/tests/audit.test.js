@@ -90,6 +90,7 @@ async function run() {
   row = await last()
   t.check(G2, 'a sign-in is recorded once, by that person', r.status === 200 && row.summary === 'Signed in' && row.user_id === 6 && row.category === 'sign_in'
     && (await rows()).filter(x => x.action.includes('login')).length === 1, `${show(r)} ${JSON.stringify(row)}`)
+  const bacToken = r.data?.token
   r = await http(null, 'POST', '/auth/login', { identifier: 'bacone', password: WRONG })
   await settle()
   row = await last()
@@ -101,6 +102,14 @@ async function run() {
   t.check(G2, '…and one on an account that doesn\'t exist names no account', row.summary.startsWith('Failed sign-in') && row.target_id === null, JSON.stringify(row))
   const all = JSON.stringify(await rows())
   t.check(G2, 'no password, right or wrong, is ever stored', !all.includes(PW) && !all.includes(WRONG))
+  // The browser signs itself out after 30 minutes without activity (client IdleSignOut) and says why.
+  const idle = await fetch(BASE + '/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${bacToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: 'idle' }) })
+  await settle()
+  row = await last()
+  t.check(G2, 'a sign-out after 30 minutes without activity is recorded as such', idle.status === 204 && row.summary === 'Signed out' && row.user_id === 6
+    && row.detail === 'automatically, after 30 minutes without activity', JSON.stringify(row))
+  r = await fetch(BASE + '/auth/me', { headers: { Authorization: `Bearer ${bacToken}` } })
+  t.check(G2, '…and that session is over on the server too', r.status === 401, String(r.status))
 
   // ── Reading ───────────────────────────────────────────────────────────
   const G3 = 'Reading'

@@ -160,7 +160,8 @@ function fromSecurityEvent(event, details = {}) {
     event === 'login_code_exemption' && (details.skip ? 'no code from now on' : 'code required again'),
     event === 'twg_areas_set' && Array.isArray(details.areas) && details.areas.join(', '),
     details.newDevice && `on ${details.newDevice}`,
-    details.reason && `reason: ${details.reason}`,
+    event === 'logout' && details.reason === 'idle' && 'automatically, after 30 minutes without activity',
+    details.reason && event !== 'logout' && `reason: ${details.reason}`,
     details.limiter && `limit: ${details.limiter}`,
   ].filter(Boolean)
   record({

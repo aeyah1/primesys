@@ -581,6 +581,7 @@ export default function UserList() {
                   <SelectItem value="bac">BAC (Bids and Awards Committee)</SelectItem>
                 </SelectContent>
               </Select>
+              <p className="text-[11px] text-[--color-text-muted]">One person, one account: don't give someone who files requests (End User) a TWG or BAC account too, so nobody reviews or awards their own request.</p>
             </div>
 
             {addForm.role === 'twg' && (
@@ -697,6 +698,7 @@ export default function UserList() {
                   <SelectItem value="bac">BAC (Bids and Awards Committee)</SelectItem>
                 </SelectContent>
               </Select>
+              <p className="text-[11px] text-[--color-text-muted]">One person, one account: don't give someone who files requests (End User) a TWG or BAC account too, so nobody reviews or awards their own request.</p>
             </div>
 
             {editForm.role === 'twg' && (
