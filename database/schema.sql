@@ -63,6 +63,8 @@ CREATE TABLE `users` (
   `token_version`              INT UNSIGNED NOT NULL DEFAULT 0,
   -- The key of the latest sign-in, carried by its token: one session per account, so a new sign-in or a sign-out ends the last.
   `session_key`                CHAR(32)     NULL,
+  -- Set by the admin: signs in with the password alone, no emailed code on a new browser (demo or shared accounts).
+  `skip_login_code`            TINYINT(1)   NOT NULL DEFAULT 0,
   `fund_cluster`               VARCHAR(100) NULL,
   `responsibility_center_code` VARCHAR(100) NULL,
   -- A TWG member's own saved signature (PNG data URL), filled in when they certify; only they read it.
