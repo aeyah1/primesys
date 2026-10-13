@@ -1,6 +1,7 @@
 const pool = require('../db/pool')
 const bcrypt = require('bcryptjs')
 const { invalidateUserCache, endSessions } = require('../middleware/auth.middleware')
+const { forgetDevices } = require('../utils/loginDevices')
 const throttle    = require('../utils/loginThrottle')
 const securityLog = require('../utils/securityLog')
 const withTransaction = require('../db/transaction')
@@ -272,6 +273,7 @@ exports.resetPassword = async (req, res) => {
     const hash = await bcrypt.hash(password, 10)
     // Raising the token version signs the user out everywhere.
     await pool.execute('UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?', [hash, rows[0].id])
+    await forgetDevices(pool, rows[0].id)   // a new password: every browser verifies again
     endSessions(req.io, rows[0].id)
     throttle.clearUser(rows[0].id)
     securityLog('password_set_by_admin', { userId: rows[0].id, by: req.user.id })

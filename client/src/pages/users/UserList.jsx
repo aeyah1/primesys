@@ -282,6 +282,7 @@ export default function UserList() {
 
   return (
     <div className="space-y-4">
+      <h2 className="text-ui-2xl font-bold text-[--color-text-primary]">User Management</h2>
       <div className="flex items-center justify-between gap-4">
         <div className="relative max-w-72">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-[--color-text-muted]" />

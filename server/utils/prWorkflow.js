@@ -38,7 +38,7 @@ const CANVASS_STAGES = ['bidding', 'twg_certification', 'bac_review', 're_pr']
 // `noPO`: not while an active purchase order exists; `noAward`: not once a
 // supplier is awarded; `reason`: a note is required; `alsoVia`: the award
 // workflow makes it too, without those checks), or names the single action
-// that makes it (`via`). Final statuses have no moves.
+// that makes it (`via`). Final statuses have no moves, but its End User may reopen a rejected PR.
 //
 // "Return for revision" (twg_review / bidding -> revision_requested) is how
 // Procurement gets an approved PR changed: items are locked from submission on
@@ -73,7 +73,8 @@ const TRANSITIONS = {
   re_pr:              { revision_requested: { via: 'bac' }, twg_certification: { via: 'bac' }, cancelled: { roles: STAFF, noPO: true } },
   for_po:             { bidding: { roles: STAFF, noPO: true, alsoVia: 'award' }, completed: { via: 'delivery' },
                         cancelled: { roles: STAFF, noPO: true } },
-  rejected:  {},
+  // Rejected stays on record, but its End User may reopen it to change and resubmit, so a long request isn't retyped.
+  rejected:  { revision_requested: { roles: EDITORS, owner: true } },
   completed: {},
   cancelled: {},
 }

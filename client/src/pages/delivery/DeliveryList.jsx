@@ -117,6 +117,7 @@ export default function DeliveryList() {
 
   return (
     <div className="space-y-4">
+      <h2 className="text-ui-2xl font-bold text-[--color-text-primary]">Deliveries</h2>
 
       {/* Stats strip */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 card-grid">

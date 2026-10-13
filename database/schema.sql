@@ -61,6 +61,8 @@ CREATE TABLE `users` (
   -- Sign-in tokens carry this number; changing or resetting the password
   -- raises it, so every token issued before stops working.
   `token_version`              INT UNSIGNED NOT NULL DEFAULT 0,
+  -- The key of the latest sign-in, carried by its token: one session per account, so a new sign-in or a sign-out ends the last.
+  `session_key`                CHAR(32)     NULL,
   `fund_cluster`               VARCHAR(100) NULL,
   `responsibility_center_code` VARCHAR(100) NULL,
   -- A TWG member's own saved signature (PNG data URL), filled in when they certify; only they read it.
@@ -604,6 +606,20 @@ CREATE TABLE `password_reset_tokens` (
   KEY `idx_prt_token_hash` (`token_hash`),
   KEY `idx_prt_user_id`    (`user_id`),
   CONSTRAINT `fk_prt_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Browsers each account verified with an emailed code, remembered 30 days (server/utils/loginDevices.js).
+CREATE TABLE `user_devices` (
+  `id`            INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `user_id`       INT UNSIGNED NOT NULL,
+  `device_hash`   CHAR(64)     NOT NULL,
+  `label`         VARCHAR(100) NOT NULL,
+  `created_at`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `last_used_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `trusted_until` DATETIME     NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_user_device` (`user_id`, `device_hash`),
+  CONSTRAINT `fk_user_devices_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- PPMP: each office's plan for a fiscal year, uploaded as its softcopy; in effect once complete (server/db/add_ppmp.sql).

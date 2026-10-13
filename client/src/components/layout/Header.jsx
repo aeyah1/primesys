@@ -35,7 +35,8 @@ export default function Header({ title, onMobileMenu }) {
         >
           <Menu className="size-5" />
         </button>
-        <h1 className="text-ui-lg font-bold text-[--color-text-primary] truncate">{title}</h1>
+        {/* The page names itself in its own heading; this one is for screen readers, so it isn't shown twice. */}
+        <h1 className="sr-only">{title}</h1>
       </div>
 
       <div className="flex items-center gap-1.5">
