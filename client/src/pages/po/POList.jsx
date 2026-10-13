@@ -58,6 +58,7 @@ export default function POList() {
 
   return (
     <div className="space-y-4">
+      <h2 className="text-ui-2xl font-bold text-[--color-text-primary]">Purchase Orders</h2>
       <div className="relative w-full sm:w-80">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-[--color-text-muted]" />
         <Input

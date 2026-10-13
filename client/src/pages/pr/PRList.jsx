@@ -111,6 +111,7 @@ export default function PRList() {
 
   return (
     <div className="space-y-4">
+      <h2 className="text-ui-2xl font-bold text-[--color-text-primary]">Purchase Requests</h2>
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 min-w-48 max-w-72">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-[--color-text-muted]" />

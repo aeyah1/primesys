@@ -14,7 +14,7 @@ const rateLimit = require('express-rate-limit')
 const { ipKeyGenerator } = require('express-rate-limit')
 const cron      = require('node-cron')
 const { sendDueReminders } = require('./controllers/reminders.controller')
-const { loadUserState, tokenRevoked } = require('./middleware/auth.middleware')
+const { loadUserState, sessionEnded } = require('./middleware/auth.middleware')
 
 const app    = express()
 // Behind a hosting proxy, req.ip must be the visitor's address so rate limits apply per visitor.
@@ -127,7 +127,7 @@ io.use(async (socket, next) => {
   try {
     const state = await loadUserState(socket.user.id)
     if (!state.active) return next(new Error('Account deactivated'))
-    if (tokenRevoked(socket.user, state)) return next(new Error('Session ended'))
+    if (sessionEnded(socket.user, state)) return next(new Error('Session ended'))
     next()
   } catch {
     next(new Error('Service temporarily unavailable'))   // fail closed

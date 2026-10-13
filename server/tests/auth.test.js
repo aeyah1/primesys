@@ -70,13 +70,30 @@ function check(g, label, ok, got = '') {
   print(`${ok ? 'PASS' : 'FAIL'}  ${label.padEnd(58)} ${ok ? '' : 'got ' + got}`)
 }
 const show = (r) => `${r.status} ${JSON.stringify(r.data)}`.slice(0, 160)
-const mailsTo = (addr) => SENT.filter(m => m.to.toLowerCase() === addr.toLowerCase())
+// Sign-in code emails are counted on their own (codeMailsTo), so the other checks count only what they send.
+const isCodeMail = (m) => / is your PRimeSys sign-in code$/.test(m.subject || '')
+const mailsTo = (addr) => SENT.filter(m => m.to.toLowerCase() === addr.toLowerCase() && !isCodeMail(m))
+const codeMailsTo = (addr) => SENT.filter(m => m.to.toLowerCase() === addr.toLowerCase() && isCodeMail(m))
 const tokenIn = (m, kind) => (m?.html.match(new RegExp(`${kind}\\?token=([a-f0-9]{64})`)) || [])[1]
 const TOKENS = []
 
 let seq = 0
 const reg = (over = {}) => { seq++; return { first_name: 'Test', last_name: `User${seq}`, username: `newuser${seq}`, email: `newuser${seq}@auth.invalid`, password: PW, confirm_password: PW, department_id: 1, website: '', ...over } }
 const wait = (ms) => new Promise(r => setTimeout(r, ms))
+
+// The sign-in code in the latest code email (utils/loginDevices.js), kept with the secrets that must never reach the logs.
+const lastCode = () => {
+  const m = [...SENT].reverse().map(x => /^(\d{6}) is your PRimeSys sign-in code$/.exec(x.subject || '')).find(Boolean)
+  if (m) TOKENS.push(m[1])
+  return m?.[1]
+}
+// Signs in as a person would: password, then, on a browser the account hasn't verified, the emailed code.
+async function signIn(body) {
+  const r = await http('POST', '/auth/login', body)
+  if (r.status !== 200 || !r.data?.verify) return r
+  TOKENS.push(r.data.ticket)
+  return http('POST', '/auth/login/verify', { ticket: r.data.ticket, code: lastCode() })
+}
 
 async function run() {
   // Registration
@@ -152,9 +169,9 @@ async function run() {
   const G2 = 'Admin approval'
   const adminTok = tok(1, 'admin')
   const idOf = async (username) => (await q('SELECT id FROM users WHERE username = ?', [username]))[0]?.id
-  r = await http('POST', '/auth/login', { identifier: u1.username, password: PW })
+  r = await signIn({ identifier: u1.username, password: PW })
   check(G2, 'sign-in before approval (right password) → 403 pending', r.status === 403 && r.data.type === 'pending' && /waiting for the administrator/.test(r.data.message) && !r.data.token, show(r))
-  r = await http('POST', '/auth/login', { identifier: u1.username, password: 'wrong-password' })
+  r = await signIn({ identifier: u1.username, password: 'wrong-password' })
   check(G2, '…wrong password → generic 401 (state not revealed)', r.status === 401 && r.data.message === 'Invalid username/email or password.', show(r))
   for (const p of ['/auth/verify-email', '/auth/resend-verification']) {
     r = await http('POST', p, { token: 'f'.repeat(64), identifier: u1.username })
@@ -189,8 +206,8 @@ async function run() {
 
   // Login
   const G3 = 'Login'
-  r = await http('POST', '/auth/login', { identifier: u1.username, password: PW })
-  const u1Token = r.data?.token
+  r = await signIn({ identifier: u1.username, password: PW })
+  let u1Token = r.data?.token
   check(G3, 'username + password → 200, requestor token', r.status === 200 && r.data.user.role === 'requestor' && !!u1Token, show(r))
   check(G3, '…no password hash in the reply', r.status === 200 && !('password_hash' in r.data.user), Object.keys(r.data?.user || {}).join())
   // The New Request page reads the office from the signed-in user, so sign-in must carry it, as a reload does.
@@ -199,31 +216,34 @@ async function run() {
   const reload = await http('GET', '/auth/me', undefined, u1Token)
   check(G3, '…the same profile a reload returns', JSON.stringify(reload.data) === JSON.stringify(r.data?.user), `${JSON.stringify(reload.data)} vs ${JSON.stringify(r.data?.user)}`)
   check(G3, '…and no token version or verification flag', !('token_version' in r.data.user) && !('is_verified' in r.data.user), Object.keys(r.data?.user || {}).join())
-  check(G3, '…the token carries only the account id and version (SEC-8)', Object.keys(jwt.decode(u1Token) || {}).sort().join() === 'exp,iat,id,tv', JSON.stringify(jwt.decode(u1Token)))
-  r = await http('POST', '/auth/login', { identifier: u1.email.toUpperCase(), password: PW })
+  check(G3, '…the token carries only the account id, version and session key (SEC-8)', Object.keys(jwt.decode(u1Token) || {}).sort().join() === 'exp,iat,id,sk,tv', JSON.stringify(jwt.decode(u1Token)))
+  r = await signIn({ identifier: u1.email.toUpperCase(), password: PW })
   check(G3, 'email (any case) + password → 200', r.status === 200, show(r))
-  const wrong = await http('POST', '/auth/login', { identifier: 'req1', password: 'wrong-password' })
-  const unknownU = await http('POST', '/auth/login', { identifier: 'no_such_user', password: 'wrong-password' })
-  const unknownE = await http('POST', '/auth/login', { identifier: 'nobody@auth.invalid', password: 'wrong-password' })
+  const firstSession = await http('GET', '/auth/me', undefined, u1Token)
+  check(G3, '…and that second sign-in ends the first (one session per account)', firstSession.status === 401 && firstSession.data?.type === 'signed_in_elsewhere', show(firstSession))
+  u1Token = r.data?.token
+  const wrong = await signIn({ identifier: 'req1', password: 'wrong-password' })
+  const unknownU = await signIn({ identifier: 'no_such_user', password: 'wrong-password' })
+  const unknownE = await signIn({ identifier: 'nobody@auth.invalid', password: 'wrong-password' })
   check(G3, 'wrong password → 401 generic', wrong.status === 401 && wrong.data.message === 'Invalid username/email or password.', show(wrong))
   check(G3, 'unknown username / unknown email → identical 401', [unknownU, unknownE].every(x => x.status === 401 && JSON.stringify(x.data) === JSON.stringify(wrong.data)), `${show(unknownU)} | ${show(unknownE)}`)
   check(G3, 'no attempts-left or seconds-left in failures', !('attemptsLeft' in wrong.data) && !('secondsLeft' in wrong.data), JSON.stringify(wrong.data))
-  r = await http('POST', '/auth/login', { identifier: 'gone1', password: 'wrong-password' })
+  r = await signIn({ identifier: 'gone1', password: 'wrong-password' })
   check(G3, 'deactivated + wrong password → generic 401', r.status === 401 && r.data.message === wrong.data.message, show(r))
-  r = await http('POST', '/auth/login', { identifier: 'gone1', password: FPW })
+  r = await signIn({ identifier: 'gone1', password: FPW })
   check(G3, 'deactivated + right password → 403 inactive, no token', r.status === 403 && r.data.type === 'inactive' && !r.data.token, show(r))
-  r = await http('POST', '/auth/login', { identifier: 'pend1', password: FPW })
+  r = await signIn({ identifier: 'pend1', password: FPW })
   check(G3, 'former pending account (deactivated by DB-5) + right password → 403 inactive', r.status === 403 && r.data.type === 'inactive', show(r))
 
-  await http('POST', '/auth/login', { identifier: 'req1', password: FPW })   // clears the earlier failure
-  for (let i = 0; i < 5; i++) await http('POST', '/auth/login', { identifier: 'req1', password: `wrong-${i}` })
-  r = await http('POST', '/auth/login', { identifier: 'req1@auth.invalid', password: FPW })
+  await signIn({ identifier: 'req1', password: FPW })   // clears the earlier failure
+  for (let i = 0; i < 5; i++) await signIn({ identifier: 'req1', password: `wrong-${i}` })
+  r = await signIn({ identifier: 'req1@auth.invalid', password: FPW })
   check(G3, '5 failures by username → account locked, even via email + right password', r.status === 429, show(r))
   check(G3, '…lock message is generic (no duration)', /please wait a few minutes/i.test(r.data?.message) && !('secondsLeft' in (r.data || {})), JSON.stringify(r.data))
-  for (let i = 0; i < 5; i++) await http('POST', '/auth/login', { identifier: 'ghost_account', password: `wrong-${i}` })
-  r = await http('POST', '/auth/login', { identifier: 'ghost_account', password: 'anything' })
+  for (let i = 0; i < 5; i++) await signIn({ identifier: 'ghost_account', password: `wrong-${i}` })
+  r = await signIn({ identifier: 'ghost_account', password: 'anything' })
   check(G3, 'a non-existent account locks the same way (no enumeration)', r.status === 429, show(r))
-  r = await http('POST', '/auth/login', { identifier: 'proc1', password: FPW })
+  r = await signIn({ identifier: 'proc1', password: FPW })
   check(G3, 'other accounts unaffected by the lock', r.status === 200, show(r))
 
   // Password reset
@@ -245,9 +265,9 @@ async function run() {
   check(G4, 'new password under 8 characters → 400', r.status === 400, show(r))
   r = await http('POST', '/auth/reset-password', { token: rt1, password: NEWPW })
   check(G4, 'valid token → password reset', r.status === 200, show(r))
-  r = await http('POST', '/auth/login', { identifier: 'req1', password: NEWPW })
+  r = await signIn({ identifier: 'req1', password: NEWPW })
   check(G4, '…sign in with new password works, lock cleared by the reset', r.status === 200, show(r))
-  r = await http('POST', '/auth/login', { identifier: 'req1', password: FPW })
+  r = await signIn({ identifier: 'req1', password: FPW })
   check(G4, '…old password rejected', r.status === 401, show(r))
   r = await http('POST', '/auth/reset-password', { token: rt1, password: 'Another-Pass-3' })
   check(G4, 'reused token → 400', r.status === 400, show(r))
@@ -287,14 +307,14 @@ async function run() {
     const rr = await http(m, route.replace('/0', `/${u1Token ? JSON.parse(Buffer.from(u1Token.split('.')[1], 'base64url')).id : 0}`), body, u1Token)
     check(G5, `registered requestor → ${label} → 403`, rr.status === 403, show(rr))
   }
-  // req1's password was reset above, so a valid token must carry the new token version.
-  const [{ token_version: req1Version }] = await q('SELECT token_version FROM users WHERE id = 3')
-  const claimsAdmin = jwt.sign({ id: 3, name: 'u3', username: 'u3', email: 'u3@auth.invalid', role: 'admin', tv: req1Version }, config.jwt.secret, { expiresIn: '1h' })
+  // req1's password was reset and it signed in above, so a valid token must carry the new token version and session key.
+  const [{ token_version: req1Version, session_key: req1Key }] = await q('SELECT token_version, session_key FROM users WHERE id = 3')
+  const claimsAdmin = jwt.sign({ id: 3, name: 'u3', username: 'u3', email: 'u3@auth.invalid', role: 'admin', tv: req1Version, sk: req1Key }, config.jwt.secret, { expiresIn: '1h' })
   r = await http('GET', '/users', undefined, claimsAdmin)
   check(G5, 'token claiming admin for a requestor → 403 (database role wins)', r.status === 403, show(r))
   r = await http('GET', '/auth/me', undefined, tok(3, 'requestor'))
   check(G5, "…and req1's token from before the reset is refused (SEC-1)", r.status === 401, show(r))
-  const procToken = tok(2, 'procurement')
+  const procToken = (await signIn({ identifier: 'proc1', password: FPW })).data?.token   // proc1 signed in above
   const before = await http('GET', '/reports/summary', undefined, procToken)
   await http('PATCH', '/users/2', { name: 'Proc One', role: 'requestor', department_id: 2 }, tok(1, 'admin'))
   const after = await http('GET', '/reports/summary', undefined, procToken)
@@ -320,7 +340,7 @@ async function run() {
   check(G6, '…and one for an office that already has one → 201', r.status === 201, show(r))
   r = await http('POST', '/users', { name: 'Made By Admin', username: 'made_proc', email: 'made_proc@auth.invalid', password: 'Admin-Made-1', role: 'procurement' }, admin)
   check(G6, 'admin creates a procurement account (the controlled path)', r.status === 201 && r.data.role === 'procurement', show(r))
-  r = await http('POST', '/auth/login', { identifier: 'made_proc', password: 'Admin-Made-1' })
+  r = await signIn({ identifier: 'made_proc', password: 'Admin-Made-1' })
   check(G6, '…it signs in as procurement', r.status === 200 && r.data.user.role === 'procurement', show(r))
   r = await http('POST', '/users', { name: 'Outside Staff', username: 'outside_staff', email: 'outside.staff@gmail.com', password: 'Admin-Made-2', role: 'requestor', department_id: 2 }, admin)
   check(G6, 'admin-created accounts are not limited to the sign-up domains', r.status === 201, show(r))
@@ -330,7 +350,7 @@ async function run() {
   const r2 = await http('PATCH', '/users/7/decline', undefined, admin)
   check(G6, 'approving an approved account → 409; the old decline endpoint is gone → 404', r.status === 409 && r2.status === 404, `${r.status} ${r2.status}`)
   await http('PATCH', '/users/7/toggle', undefined, admin)
-  r = await http('POST', '/auth/login', { identifier: 'pend1', password: FPW })
+  r = await signIn({ identifier: 'pend1', password: FPW })
   check(G6, 'a reactivated former pending account signs in', r.status === 200 && r.data.user.role === 'procurement' && !('is_approved' in r.data.user), show(r))
 
   // Socket.IO
@@ -359,50 +379,167 @@ async function run() {
     live.sock.close()
   }
 
-  // Sessions end when the password changes (audit SEC-1)
-  const G13 = 'Session revocation (SEC-1)'
+  // One session per account; sessions end on a new sign-in, a password change (audit SEC-1), or sign-out
+  const G13 = 'Sessions (SEC-1, one per account)'
   SECRETS.push('Changed-Pass-9', 'Admin-Reset-7', 'Reset-By-Email-5')   // must never reach the logs
   const me = (t) => http('GET', '/auth/me', undefined, t)
-  r = await http('POST', '/auth/login', { identifier: 'made_proc', password: 'Admin-Made-1' })
-  const devA = r.data?.token
+  const claims = (t) => JSON.parse(Buffer.from(t.split('.')[1], 'base64url'))
+  r = await signIn({ identifier: 'made_proc', password: 'Admin-Made-1' })
+  const tabA = r.data?.token
   const madeId = r.data?.user?.id
-  const devB = (await http('POST', '/auth/login', { identifier: 'made_proc', password: 'Admin-Made-1' })).data?.token
-  check(G13, 'two devices signed in', (await me(devA)).status === 200 && (await me(devB)).status === 200)
-  check(G13, 'sign-in token carries the token version', JSON.parse(Buffer.from(devA.split('.')[1], 'base64url')).tv === 0, devA)
-  const sockB = await connect(devB)
-  if (sockB.ok) sockB.sock.emit('join', madeId)
+  check(G13, 'sign-in token carries the token version and a session key', claims(tabA).tv === 0 && /^[a-f0-9]{32}$/.test(claims(tabA).sk), tabA)
+  const sockA = await connect(tabA)
+  if (sockA.ok) sockA.sock.emit('join', madeId)
   await wait(200)
-  const sockBDropped = new Promise((resolve) => { if (!sockB.ok) return resolve(false); sockB.sock.on('disconnect', () => resolve(true)); setTimeout(() => resolve(false), 3000) })
-  r = await http('PATCH', '/auth/password', { current_password: 'Admin-Made-1', new_password: 'Changed-Pass-9' }, devA)
-  const devA2 = r.data?.token
-  check(G13, 'change password → 200 with a fresh token for this device', r.status === 200 && !!devA2 && devA2 !== devA, show(r))
-  r = await me(devB)
-  check(G13, '…the other device is signed out (401)', r.status === 401 && /session has ended/i.test(r.data?.message), show(r))
-  check(G13, '…the old token of this device no longer works', (await me(devA)).status === 401)
-  check(G13, '…the fresh token works', (await me(devA2)).status === 200)
-  check(G13, "…the other device's live connection was closed", await sockBDropped, 'still connected')
-  const staleSock = await connect(devB)
-  check(G13, '…a live connection with the old token is refused', !staleSock.ok && /session ended/i.test(staleSock.err), staleSock.err || 'connected')
-  const freshSock = await connect(devA2)
-  check(G13, '…and one with the fresh token connects', freshSock.ok, freshSock.err)
+  const toldA = new Promise((resolve) => { if (!sockA.ok) return resolve(null); sockA.sock.on('signed_out', (m) => resolve(m)); setTimeout(() => resolve(null), 3000) })
+  const droppedA = new Promise((resolve) => { if (!sockA.ok) return resolve(false); sockA.sock.on('disconnect', () => resolve(true)); setTimeout(() => resolve(false), 5000) })
+  const tabB = (await signIn({ identifier: 'made_proc', password: 'Admin-Made-1' })).data?.token
+  r = await me(tabA)
+  check(G13, 'a sign-in in another tab or device ends the last session → 401 saying why', r.status === 401 && r.data?.type === 'signed_in_elsewhere' && /another tab or device/.test(r.data.message), show(r))
+  check(G13, '…the new one works', (await me(tabB)).status === 200)
+  const told = await toldA
+  check(G13, "…the last session's live connection is told why", /another tab or device/.test(told?.message || ''), JSON.stringify(told))
+  check(G13, '…then closed', await droppedA, 'still connected')
+  const staleSock = await connect(tabA)
+  check(G13, '…and refused if it comes back', !staleSock.ok && /session ended/i.test(staleSock.err), staleSock.err || 'connected')
+
+  r = await http('PATCH', '/auth/password', { current_password: 'Admin-Made-1', new_password: 'Changed-Pass-9' }, tabB)
+  const tabB2 = r.data?.token
+  check(G13, 'change password → 200 with a fresh token for this session', r.status === 200 && !!tabB2 && tabB2 !== tabB && claims(tabB2).sk === claims(tabB).sk, show(r))
+  r = await me(tabB)
+  check(G13, '…the old token no longer works (401, password changed)', r.status === 401 && /session has ended/i.test(r.data?.message), show(r))
+  check(G13, '…the fresh token works', (await me(tabB2)).status === 200)
+  const freshSock = await connect(tabB2)
+  check(G13, '…and a live connection with it connects', freshSock.ok, freshSock.err)
   if (freshSock.ok) freshSock.sock.close()
   check(G13, '…old password rejected, new one accepted',
-    (await http('POST', '/auth/login', { identifier: 'made_proc', password: 'Admin-Made-1' })).status === 401
-    && (await http('POST', '/auth/login', { identifier: 'made_proc', password: 'Changed-Pass-9' })).status === 200)
+    (await signIn({ identifier: 'made_proc', password: 'Admin-Made-1' })).status === 401
+    && (await signIn({ identifier: 'made_proc', password: 'Changed-Pass-9' })).status === 200)
   const legacy = jwt.sign({ id: madeId, name: 'x', username: 'made_proc', email: 'x', role: 'procurement' }, config.jwt.secret, { expiresIn: '1h' })
   check(G13, 'token without a version (older sign-in) is refused once the version went up', (await me(legacy)).status === 401)
 
-  r = await http('POST', '/auth/login', { identifier: 'made_proc', password: 'Changed-Pass-9' })
+  const tabC = (await signIn({ identifier: 'made_proc', password: 'Changed-Pass-9' })).data?.token
+  r = await http('POST', '/auth/logout', undefined, tabC)
+  check(G13, 'sign out → 204, and the server refuses the token after', r.status === 204 && (await me(tabC)).status === 401, show(r))
+  const [{ token_version: madeVersion }] = await q('SELECT token_version FROM users WHERE id = ?', [madeId])
+  const keyless = jwt.sign({ id: madeId, tv: madeVersion }, config.jwt.secret, { expiresIn: '1h' })
+  check(G13, '…and a token from before session keys existed is refused too', (await me(keyless)).status === 401)
+
+  r = await signIn({ identifier: 'made_proc', password: 'Changed-Pass-9' })
   const beforeAdminReset = r.data?.token
   r = await http('PATCH', `/users/${madeId}/reset-password`, { password: 'Admin-Reset-7' }, admin)
   check(G13, 'admin sets a new password → user signed out everywhere', r.status === 200 && (await me(beforeAdminReset)).status === 401, show(r))
   check(G13, '…the admin stays signed in', (await http('GET', '/users', undefined, admin)).status === 200)
 
-  const twgBefore = (await http('POST', '/auth/login', { identifier: 'twg1', password: FPW })).data?.token
+  const twgBefore = (await signIn({ identifier: 'twg1', password: FPW })).data?.token
   await http('POST', '/auth/forgot-password', { email: 'twg1@auth.invalid' })
   const twgReset = tokenIn(mailsTo('twg1@auth.invalid').slice(-1)[0], 'reset-password'); TOKENS.push(twgReset)
   r = await http('POST', '/auth/reset-password', { token: twgReset, password: 'Reset-By-Email-5' })
   check(G13, 'reset by email link → earlier sessions signed out', r.status === 200 && !!twgBefore && (await me(twgBefore)).status === 401, show(r))
+
+  // New-device sign-in by emailed code, as on Facebook (utils/loginDevices.js)
+  const G14 = 'New device (emailed code)'
+  const crypto = require('crypto')
+  const mailsBefore = codeMailsTo('sup1@auth.invalid').length
+  r = await http('POST', '/auth/login', { identifier: 'sup1', password: FPW })
+  const t1 = r.data?.ticket; TOKENS.push(t1)
+  check(G14, 'first sign-in on a browser → 200 asking for the code, no token', r.status === 200 && r.data.verify === true && !r.data.token && /^[a-f0-9]{64}$/.test(t1), show(r))
+  check(G14, '…says where the code went, without the whole address', r.data?.email === 'su***@auth.invalid', r.data?.email)
+  const codeMail = codeMailsTo('sup1@auth.invalid').slice(-1)[0]
+  const c1 = lastCode()
+  check(G14, '…one email to the account, the 6-digit code in its subject', codeMailsTo('sup1@auth.invalid').length === mailsBefore + 1 && /^\d{6}$/.test(c1 || '') && codeMail.html.includes(c1), codeMail?.subject)
+  r = await http('POST', '/auth/login/verify', { ticket: t1, code: c1 === '000000' ? '111111' : '000000' })
+  check(G14, 'wrong code → 400 with the tries left', r.status === 400 && r.data.type === 'code' && /4 tries left/.test(r.data.message), show(r))
+  r = await http('POST', '/auth/login/verify', { ticket: t1, code: c1 })
+  const supKey = r.data?.device
+  check(G14, 'right code → signed in, with a device key for the browser to keep', r.status === 200 && !!r.data.token && /^[a-f0-9]{64}$/.test(supKey || ''), show(r))
+  const supToken = r.data?.token
+  check(G14, '…the token works', (await http('GET', '/auth/me', undefined, supToken)).status === 200)
+  r = await http('POST', '/auth/login/verify', { ticket: t1, code: c1 })
+  check(G14, '…and the code can\'t be used twice', r.status === 400 && r.data.type === 'expired', show(r))
+  const mailsNow = SENT.length
+  r = await http('POST', '/auth/login', { identifier: 'sup1', password: FPW, device: supKey })
+  check(G14, 'the remembered browser signs in without a code', r.status === 200 && !!r.data.token && SENT.length === mailsNow, show(r))
+  const supNow = r.data?.token   // the account's session from here on (one per account)
+  r = await http('POST', '/auth/login', { identifier: 'sup1', password: FPW })
+  check(G14, 'another browser (no key) is asked again', r.status === 200 && r.data.verify === true, show(r))
+  TOKENS.push(r.data?.ticket)
+  r = await http('POST', '/auth/login', { identifier: 'proc1', password: FPW, device: supKey })
+  check(G14, "another account on the same browser is asked too (a shared computer)", r.status === 200 && r.data.verify === true, show(r))
+  TOKENS.push(r.data?.ticket)
+
+  r = await http('POST', '/auth/login', { identifier: 'sup1', password: FPW })
+  const t2 = r.data?.ticket; TOKENS.push(t2); const c2 = lastCode()
+  for (let i = 0; i < 5; i++) r = await http('POST', '/auth/login/verify', { ticket: t2, code: c2 === '000000' ? '111111' : '000000' })
+  check(G14, '5 wrong codes end the sign-in', r.status === 400 && r.data.type === 'expired' && /too many/i.test(r.data.message), show(r))
+  r = await http('POST', '/auth/login/verify', { ticket: t2, code: c2 })
+  check(G14, '…the right code no longer works then', r.status === 400 && r.data.type === 'expired', show(r))
+
+  const clock = Date.now
+  let shift = 0
+  Date.now = () => clock() + shift
+  r = await http('POST', '/auth/login', { identifier: 'sup1', password: FPW })
+  const t3 = r.data?.ticket; TOKENS.push(t3); const c3 = lastCode()
+  r = await http('POST', '/auth/login/resend', { ticket: t3 })
+  check(G14, 'a new code within a minute → 429 saying how long', r.status === 429 && r.data.wait > 0, show(r))
+  shift += 61e3
+  r = await http('POST', '/auth/login/resend', { ticket: t3 })
+  const c3b = lastCode()
+  check(G14, '…after a minute → a new code by email', r.status === 200 && /su\*\*\*@auth\.invalid/.test(r.data.message) && /^\d{6}$/.test(c3b || ''), show(r))
+  if (c3b !== c3) {
+    r = await http('POST', '/auth/login/verify', { ticket: t3, code: c3 })
+    check(G14, '…the old code stops working', r.status === 400 && r.data.type === 'code', show(r))
+  }
+  shift += 11 * 60e3
+  r = await http('POST', '/auth/login/verify', { ticket: t3, code: c3b })
+  check(G14, 'a code is good for 10 minutes', r.status === 400 && r.data.type === 'expired', show(r))
+  Date.now = clock
+  r = await http('POST', '/auth/login/verify', { ticket: 'not-a-ticket', code: '123456' })
+  check(G14, 'a malformed ticket → 400', r.status === 400, show(r))
+
+  r = await http('GET', '/auth/devices', undefined, supNow)
+  const listed = Array.isArray(r.data) ? r.data : []
+  const supDevice = listed.find(d => d.tag === crypto.createHash('sha256').update(supKey).digest('hex').slice(0, 12))
+  check(G14, 'Settings lists the remembered browser, tagged so it can find itself', r.status === 200 && !!supDevice && !!supDevice.label && !!supDevice.trusted_until, show(r))
+  check(G14, '…and only that account\'s', listed.length === 1, JSON.stringify(r.data))
+  r = await http('DELETE', `/auth/devices/${supDevice?.id}`, undefined, tok(1, 'admin'))
+  check(G14, "another account can't remove it → 404", r.status === 404, show(r))
+  r = await http('DELETE', `/auth/devices/${supDevice?.id}`, undefined, supNow)
+  check(G14, 'removing it → 204', r.status === 204, show(r))
+  r = await http('POST', '/auth/login', { identifier: 'sup1', password: FPW, device: supKey })
+  check(G14, '…and that browser is asked for a code again', r.status === 200 && r.data.verify === true, show(r))
+  TOKENS.push(r.data?.ticket)
+
+  r = await http('POST', '/auth/login', { identifier: 'sup1', password: FPW, remember: false })
+  const t5 = r.data?.ticket; TOKENS.push(t5)
+  check(G14, '"Remember this device" unticked: the code is still asked', r.status === 200 && r.data.verify === true, show(r))
+  check(G14, '…the email says that browser won\'t be remembered', /not to be remembered/.test(codeMailsTo('sup1@auth.invalid').slice(-1)[0]?.html || ''))
+  r = await http('POST', '/auth/login/verify', { ticket: t5, code: lastCode() })
+  check(G14, '…signed in, with no device key to keep', r.status === 200 && !!r.data.token && !r.data.device, show(r))
+  r = await http('GET', '/auth/devices', undefined, r.data?.token)
+  check(G14, '…and no browser remembered', Array.isArray(r.data) && r.data.length === 0, JSON.stringify(r.data))
+  const supKey2 = (await signIn({ identifier: 'sup1', password: FPW })).data?.device
+  r = await http('POST', '/auth/login', { identifier: 'sup1', password: FPW, device: supKey2, remember: false })
+  check(G14, 'a remembered browser unticked: let in without a code', !!supKey2 && r.status === 200 && !!r.data.token, show(r))
+  r = await http('POST', '/auth/login', { identifier: 'sup1', password: FPW, device: supKey2 })
+  check(G14, '…then forgotten, so the code is asked next time', r.status === 200 && r.data.verify === true, show(r))
+  TOKENS.push(r.data?.ticket)
+
+  SECRETS.push('Admin-Made-4')
+  r = await signIn({ identifier: 'made_fa', password: 'Admin-Made-3' })
+  const faKey = r.data?.device
+  r = await http('PATCH', '/auth/password', { current_password: 'Admin-Made-3', new_password: 'Admin-Made-4' }, r.data?.token)
+  r = await http('POST', '/auth/login', { identifier: 'made_fa', password: 'Admin-Made-4', device: faKey })
+  check(G14, 'changing the password forgets every browser', !!faKey && r.status === 200 && r.data.verify === true, show(r))
+  TOKENS.push(r.data?.ticket)
+
+  r = await http('POST', '/auth/login', { identifier: 'outside_staff', password: 'Admin-Made-2' })
+  const t4 = r.data?.ticket; TOKENS.push(t4); const c4 = lastCode()
+  const [{ id: outsideId }] = await q("SELECT id FROM users WHERE username = 'outside_staff'")
+  await http('PATCH', `/users/${outsideId}/toggle`, undefined, tok(1, 'admin'))
+  r = await http('POST', '/auth/login/verify', { ticket: t4, code: c4 })
+  check(G14, 'an account deactivated before its code is entered → 403, no token', r.status === 403 && !r.data.token, show(r))
+  await http('PATCH', `/users/${outsideId}/toggle`, undefined, tok(1, 'admin'))
 
   // CAPTCHA (enabled in-process, Turnstile reply stubbed)
   const G8 = 'CAPTCHA'
@@ -422,6 +559,14 @@ async function run() {
   captchaReply = true
   r = await http('POST', '/auth/register', reg({ captcha_token: 'widget-token' }))
   check(G8, 'enabled, provider says yes → 201', r.status === 201, show(r))
+  captchaReply = false
+  r = await signIn({ identifier: 'sup1', password: 'wrong-password' })
+  check(G8, 'sign-in, enabled, no token → 400 before any password is tried', r.status === 400 && r.data?.type === 'captcha', show(r))
+  r = await signIn({ identifier: 'sup1', password: FPW, captcha_token: 'widget-token' })
+  check(G8, 'sign-in, provider says no → 400, no token', r.status === 400 && !r.data?.token, show(r))
+  captchaReply = true
+  r = await signIn({ identifier: 'sup1', password: FPW, captcha_token: 'widget-token' })
+  check(G8, 'sign-in, provider says yes → 200', r.status === 200 && !!r.data?.token, show(r))
   config.captcha.enabled = false; config.captcha.secretKey = ''
   global.fetch = realFetch
 
@@ -451,13 +596,13 @@ async function run() {
   const G10 = 'Timing'
   const t = { unknown: [], wrong: [] }
   for (let i = 0; i < 4; i++) {
-    t.unknown.push((await http('POST', '/auth/login', { identifier: `timing_ghost_${i}`, password: 'wrong-password' })).ms)
-    t.wrong.push((await http('POST', '/auth/login', { identifier: u1.username, password: 'wrong-password' })).ms)
+    t.unknown.push((await signIn({ identifier: `timing_ghost_${i}`, password: 'wrong-password' })).ms)
+    t.wrong.push((await signIn({ identifier: u1.username, password: 'wrong-password' })).ms)
   }
   const med = (a) => a.sort((x, y) => x - y)[Math.floor(a.length / 2)]
   const ratio = med(t.wrong) / med(t.unknown)
   check(G10, `unknown account takes as long as a wrong password (ratio ${ratio.toFixed(2)})`, ratio > 0.5 && ratio < 2, JSON.stringify(t))
-  await http('POST', '/auth/login', { identifier: u1.username, password: PW })   // clear its failures
+  await signIn({ identifier: u1.username, password: PW })   // clear its failures
 
   // Rate limits (last: they block this address)
   const G11 = 'Rate limits'
@@ -471,9 +616,9 @@ async function run() {
   for (let i = 0; i < 30 && !hit; i++) { sent++; r = await http('POST', '/auth/forgot-password', { email: `spam${i}@auth.invalid` }); if (r.status === 429) hit = sent }
   check(G11, 'password-reset spam from one address → 429', hit > 0, show(r))
   hit = 0; sent = 0
-  for (let i = 0; i < 80 && !hit; i++) { sent++; r = await http('POST', '/auth/login', { identifier: `spray_${i}`, password: 'wrong-password' }); if (r.status === 429) hit = sent }
+  for (let i = 0; i < 80 && !hit; i++) { sent++; r = await signIn({ identifier: `spray_${i}`, password: 'wrong-password' }); if (r.status === 429) hit = sent }
   check(G11, 'password spraying across accounts from one address → 429', hit > 0, show(r))
-  r = await http('POST', '/auth/login', { identifier: 'admin1', password: FPW })
+  r = await signIn({ identifier: 'admin1', password: FPW })
   check(G11, '…that address is blocked for a while, even with a right password', r.status === 429, show(r))
 
   // Security log
@@ -482,7 +627,8 @@ async function run() {
   const events = new Set([...all.matchAll(/\[security\] \S+ (\w+)/g)].map(m => m[1]))
   for (const e of ['register', 'register_rejected', 'account_approved', 'account_rejected', 'login', 'login_failed', 'login_locked',
                    'login_throttled', 'password_reset_requested', 'password_reset_completed', 'role_changed', 'account_deactivated',
-                   'account_activated', 'user_created', 'rate_limited', 'password_changed', 'password_set_by_admin']) {
+                   'account_activated', 'user_created', 'rate_limited', 'password_changed', 'password_set_by_admin', 'logout', 'login_rejected',
+                   'login_code_sent', 'login_code_failed', 'device_removed']) {
     check(G12, `logs "${e}"`, events.has(e), [...events].join(','))
   }
   const leaked = [...SECRETS, ...TOKENS.filter(Boolean), config.jwt.secret].filter(sct => all.includes(sct))

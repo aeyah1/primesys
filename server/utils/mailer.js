@@ -27,8 +27,16 @@ async function sendWithBrevo({ to, subject, html }) {
   if (!res.ok) throw new Error(`Brevo refused the email (${res.status}): ${(await res.text()).slice(0, 200)}`)
 }
 
+// A copy run on this computer (CLIENT_URL on localhost) with no email set up shows each email's subject in the console
+// instead of failing, so a sign-in code (in its subject) can still be read; a live site always sends.
+const LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/?$/.test(config.clientUrl)
+
 module.exports = async function sendMail({ to, subject, html }) {
   if (config.mail.brevoKey) return sendWithBrevo({ to, subject, html })
+  if (!config.mail.user && LOCAL) {
+    console.log(`[mailer] no email set up on this computer, not sent to ${to}: ${subject}`)
+    return
+  }
   await transporter.sendMail({
     from: `"PRimeSys" <${config.mail.user}>`,
     to, subject, html,

@@ -31,7 +31,7 @@ function fixtures() {
       ${P(21, 'submitted', 4)}, ${P(22, 'for_po', 4, 6)}, ${P(23, 'bidding', 4, 6)},
       ${P(24, 'draft', 2)}, ${P(25, 'submitted', 4)}, ${P(26, 'revision_requested', 3, 6)},
       ${P(27, 'for_po', 3, 6)}, ${P(28, 'for_po', 4, 6)}, ${P(29, 'for_po', 4, 6)},
-      ${P(30, 'for_po', 4, 6)}, ${P(31, 'for_po', 3, 6)};
+      ${P(30, 'for_po', 4, 6)}, ${P(31, 'for_po', 3, 6)}, ${P(32, 'rejected', 3, 6)};
     INSERT INTO lots (id, purchase_request_id, lot_number, status, awarded_to, created_by) VALUES
       (5, 19, 'LOT-001', 'awarded', 'S19', 2), (6, 22, 'LOT-001', 'awarded', 'S22', 2),
       (7, 23, 'LOT-001', 'awarded', 'S23', 2), (8, 27, 'LOT-001', 'awarded', 'S27', 2),
@@ -150,6 +150,11 @@ add('Status', 'requestor: TWG-approved → bidding',  3, 'PATCH', '/pr/15/status
 add('Status', 'admin: completed → draft',           1, 'PATCH', '/pr/16/status', { status: 'draft' }, code(409), '409 final')
 add('Status', 'admin: rejected → for_po',           1, 'PATCH', '/pr/17/status', { status: 'for_po' }, code(409), '409 final')
 add('Status', 'requestor: rejected → submitted',    3, 'PATCH', '/pr/17/status', { status: 'submitted' }, code(409), '409 final')
+add('Status', 'another requestor reopens a rejected PR', 4, 'PATCH', '/pr/32/status', { status: 'revision_requested' }, code(404), '404 not theirs')
+add('Status', "procurement reopens someone's rejected PR", 2, 'PATCH', '/pr/32/status', { status: 'revision_requested' }, code(403), '403 not owner')
+add('Status', 'TWG reopens a rejected PR',          6, 'PATCH', '/pr/32/status', { status: 'revision_requested' }, code(403), '403 role')
+add('Status', 'requestor reopens own rejected PR',  3, 'PATCH', '/pr/32/status', { status: 'revision_requested' }, code(200), '200')
+add('Status', '…and can edit it again',             3, 'PATCH', '/pr/32', { title: 'fixed after rejection' }, code(200), '200')
 add('Status', 'procurement: → for_po by hand',      2, 'PATCH', '/pr/15/status', { status: 'for_po' }, code(409), '409 award only')
 add('Status', 'procurement can\'t canvass by hand',  2, 'PATCH', '/pr/15/status', { status: 'bidding' }, code(409), '409 started from the canvass')
 add('Status', 'procurement starts the canvass',     2, 'POST', '/canvass/15/start', { mode_of_procurement: 'Shopping' }, code(200), '200')

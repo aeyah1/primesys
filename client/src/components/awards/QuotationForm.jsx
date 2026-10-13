@@ -1,19 +1,67 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query'
-import { Upload, Save, AlertTriangle, Store, Ban } from 'lucide-react'
+import { Upload, Save, AlertTriangle, Store, Ban, Loader2, FileCheck } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { fmtCurrency } from '@/lib/utils'
-import { pdfLines, readRfq } from '@/lib/pdf'
+import { pdfLines } from '@/lib/pdf'
+import { docxLines } from '@/lib/docx'
+import { ocrLines } from '@/lib/ocr'
+import { readRfq, matchRfq, otherRequest } from '@/lib/rfq'
 import api from '@/lib/axios'
 import { nameKey, cents, lineCents, lotsWithItems, findProfile } from './supplier'
+
+// How an attached file is read: its own text (a PDF or Word file; a scanned PDF falls back to OCR page by page), or OCR (a photo).
+const kindOf = (f) => (!f ? null : f.mimetype === 'application/pdf' ? 'pdf' : f.mimetype?.startsWith('image/') ? 'image'
+  : /\.docx$/i.test(f.original_name || '') ? 'docx' : null)
+
+// A returned RFQ read (lib/rfq.js), with whether OCR read any of it.
+async function readFile(data, kind) {
+  let ocr = kind === 'image'
+  const lines = kind === 'docx' ? await docxLines(data)
+    : kind === 'image' ? await ocrLines(new Blob([data]))
+    : await pdfLines(data, { scan: (page) => { ocr = true; return ocrLines(page) } })
+  return { ...readRfq(lines), ocr }
+}
+
+const without = (set, id) => new Set([...set].filter(x => x !== id))
+
+/* Under the file: reading it, then what it filled in for the BAC to check against it, what it left to type, or why it
+   filled nothing (another request's RFQ). */
+function ReadNote({ reading, unreadable, filled, total, prNumber }) {
+  if (reading) {
+    return (
+      <p className="flex items-center gap-1.5 text-[11px] text-[--color-text-secondary]">
+        <Loader2 className="size-3.5 shrink-0 animate-spin" /> Reading the RFQ… a scan or photo takes a few seconds, the first one a little longer.
+      </p>
+    )
+  }
+  const warn = (text) => <p className="flex items-start gap-1.5 text-[11px] text-amber-800"><AlertTriangle className="mt-px size-3.5 shrink-0" />{text}</p>
+  if (unreadable) return warn('This file could not be read. Type the quotation from it.')
+  if (!filled) return null
+  if (filled.other) return warn(`This RFQ is for ${filled.other}, not ${prNumber}. Nothing was filled in; pick this request's RFQ.`)
+  const from = filled.ocr ? 'scan' : 'file'
+  const parts = [filled.name && 'the supplier', filled.prices.size && `${filled.prices.size} of ${total} prices`,
+    filled.specs.size && `what was offered for ${filled.specs.size} item${filled.specs.size === 1 ? '' : 's'}`].filter(Boolean)
+  if (!parts.length) {
+    return <p className="text-[11px] text-[--color-text-muted]">{filled.unsure ? `No price could be read for sure from this ${from}.` : 'Nothing more to fill in from this file.'} Type the quotation from it.</p>
+  }
+  return (
+    <div className="space-y-1 rounded-lg border border-[--color-brand] bg-[--color-brand-light] px-3 py-2 text-[11px] text-[--color-text-primary]">
+      <p className="flex items-start gap-1.5"><FileCheck className="mt-px size-3.5 shrink-0 text-[--color-brand]" />
+        Filled in from the RFQ: {parts.join(', ').replace(/, ([^,]*)$/, ' and $1')}. Check each against the {from} beside this form.</p>
+      {filled.check.size > 0 && <p className="pl-5 text-amber-800">{filled.check.size} marked in amber {filled.check.size === 1 ? "doesn't" : "don't"} agree with the total or quantity on its row.</p>}
+      {filled.unsure > 0 && <p className="pl-5 text-[--color-text-secondary]">{filled.unsure} more could not be read for sure from the {from}; type {filled.unsure === 1 ? 'it' : 'them'}.</p>}
+    </div>
+  )
+}
 
 /* Under the supplier's name: the supplier read from its RFQ file and whether
    it is in the supplier list, so the BAC picks the profile in one click; once
    the name is a profile's, its details (and a warning when it is blacklisted). */
-function SupplierMatch({ name, read, reading, profiles, onUse }) {
+function SupplierMatch({ name, read, profiles, onUse }) {
   const profile = profiles.find(p => nameKey(p.name) === nameKey(name))
   if (profile) {
     return (
@@ -28,9 +76,7 @@ function SupplierMatch({ name, read, reading, profiles, onUse }) {
       </div>
     )
   }
-  if (reading) return <p className="text-[11px] text-[--color-text-muted]">Reading the supplier from the RFQ file…</p>
-  if (!read) return null
-  if (!read.name) return <p className="text-[11px] text-[--color-text-muted]">The supplier's name could not be read from this file (a scan or a photo). Type it as written on the RFQ.</p>
+  if (!read?.name) return null
   const match = findProfile(profiles, read)
   const same = nameKey(name) === nameKey((match || read).name)
   return (
@@ -55,12 +101,13 @@ const SELECT = 'w-full h-10 rounded-md border border-[--color-border] bg-[--colo
 const FILES = '.pdf,.jpg,.jpeg,.png,.webp,.xlsx,.docx,.csv'
 
 /* One supplier's quotation, typed by the BAC from its returned RFQ: the RFQ
-   file (attached to the request, or one already attached), the supplier (read
-   from a PDF RFQ and matched to the supplier list, SupplierMatch), the RFQ No., and for each item still to award it offered what it offered (blank
+   file (attached to the request, or one already attached), the supplier
+   (matched to the supplier list, SupplierMatch), the RFQ No., and for each item still to award it offered what it offered (blank
    for as specified, for the TWG to check) and its unit price (blank for no
-   bid), lot by lot. The file opens beside the form (onFile).
-   quotation: a bidder of GET /canvass/:prId, or null for a new one. */
-export default function QuotationForm({ prId, canvass, quotation, onFile, onClose }) {
+   bid), lot by lot. The file opens beside the form (onFile); a file picked or
+   uploaded here is read (ReadNote) and fills the fields still empty, marked
+   until edited. quotation: a bidder of GET /canvass/:prId, or null for a new one. */
+export default function QuotationForm({ prId, prNumber, canvass, quotation, onFile, onClose }) {
   const qc = useQueryClient()
   const fileRef = useRef(null)
   const [name, setName] = useState(quotation?.name || '')
@@ -78,22 +125,47 @@ export default function QuotationForm({ prId, canvass, quotation, onFile, onClos
     queryFn: () => api.get('/suppliers?limit=200').then(r => r.data.data),
     staleTime: 60_000,
   })
-  // The supplier as typed on its RFQ, read from a PDF file.
-  const pdf = files.find(f => f.id === fileId)?.mimetype === 'application/pdf'
-  const { data: read, isFetching: reading } = useQuery({
+  // What the RFQ file says: the supplier, and its rows of prices.
+  const kind = kindOf(files.find(f => f.id === fileId))
+  const { data: read, isFetching: reading, isError: unreadable } = useQuery({
     queryKey: ['rfq-read', prId, fileId],
-    queryFn: async () => readRfq(await pdfLines((await api.get(`/pr/${prId}/attachments/${fileId}/download`, { responseType: 'arraybuffer' })).data)),
-    enabled: pdf,
+    queryFn: async () => readFile((await api.get(`/pr/${prId}/attachments/${fileId}/download`, { responseType: 'arraybuffer' })).data, kind),
+    enabled: !!kind,
     staleTime: Infinity,
     retry: false,
   })
 
-  const lots = lotsWithItems(canvass).map(l => ({ ...l, items: l.items.filter(i => i.state === 'pending') })).filter(l => l.items.length)
+  const allLots = lotsWithItems(canvass)
+  const lots = allLots.map(l => ({ ...l, items: l.items.filter(i => i.state === 'pending') })).filter(l => l.items.length)
   const open = lots.flatMap(l => l.items)
   const priceOf = (id) => (Number(prices[id]) > 0 ? Number(prices[id]) : null)
   const quoted = open.filter(i => priceOf(i.id) != null)
   const total = quoted.reduce((s, i) => s + lineCents(i.quantity, priceOf(i.id)), 0)
-  const pickFile = (id) => { setFileId(id); onFile(id) }
+
+  // The file just picked or uploaded fills the empty fields once read; `filled` says what it filled, marked until edited.
+  const [fillFrom, setFillFrom] = useState(null)
+  const [filled, setFilled] = useState(null)
+  const pickFile = (id) => { setFileId(id); setFillFrom(id); setFilled(null); onFile(id) }
+  useEffect(() => {
+    if (fillFrom == null || fillFrom !== fileId || reading || !read) return
+    setFillFrom(null)
+    const other = otherRequest(read, prNumber)
+    // Numbered as on the printed RFQ, which leaves dropped items off.
+    const m = other ? null : matchRfq(read, allLots.map(l => ({ ...l, items: l.items.filter(i => i.state !== 'dropped') })), { exact: !read.ocr })
+    const openIds = new Set(open.map(i => i.id))
+    const take = (from, have) => Object.keys(from || {}).map(Number).filter(id => openIds.has(id) && !have(id))
+    const priced = take(m?.prices, id => Number(prices[id]) > 0)
+    const offered = take(m?.specs, id => specs[id]?.trim())
+    const supplier = !other && !name.trim() && read.name ? (findProfile(profiles, read) || read).name : null
+    if (priced.length) setPrices(x => ({ ...x, ...Object.fromEntries(priced.map(id => [id, String(m.prices[id])])) }))
+    if (offered.length) setSpecs(x => ({ ...x, ...Object.fromEntries(offered.map(id => [id, m.specs[id]])) }))
+    if (supplier) setName(supplier)
+    setFilled({
+      other, ocr: read.ocr, name: !!supplier, prices: new Set(priced), specs: new Set(offered),
+      check: new Set(priced.filter(id => m.check.has(id))), unsure: new Set((m?.unsure || []).filter(id => openIds.has(id) && !priced.includes(id) && !priceOf(id))).size,
+    })
+  }, [fillFrom, fileId, reading, read])
+  const edited = (field, id) => setFilled(f => f && { ...f, [field]: without(f[field], id), ...(field === 'prices' && { check: without(f.check, id) }) })
 
   const upload = async (file) => {
     setUploading(true)
@@ -145,7 +217,8 @@ export default function QuotationForm({ prId, canvass, quotation, onFile, onClos
           <input ref={fileRef} type="file" accept={FILES} className="hidden"
             onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) upload(f) }} />
         </div>
-        <p className="text-[11px] text-[--color-text-muted]">The supplier's returned RFQ, a PDF or a photo. It opens beside this form.</p>
+        <p className="text-[11px] text-[--color-text-muted]">The supplier's returned RFQ: a PDF, Word file or photo. It opens beside this form, and fills in what it can read for you to check.</p>
+        <ReadNote reading={!!kind && reading} unreadable={!!kind && unreadable} filled={filled} total={open.length} prNumber={prNumber} />
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -159,7 +232,7 @@ export default function QuotationForm({ prId, canvass, quotation, onFile, onClos
           <Input id="quote-rfq" value={rfqNo} maxLength={50} placeholder={quotation ? '' : String(canvass.bidders.length + 1)} onChange={e => setRfqNo(e.target.value)} />
         </div>
       </div>
-      <SupplierMatch name={name} read={pdf ? read : null} reading={pdf && reading} profiles={profiles} onUse={setName} />
+      <SupplierMatch name={name} read={kind ? read : null} profiles={profiles} onUse={setName} />
 
       <div className="rounded-xl border border-[--color-border] overflow-x-auto">
         <table className="w-full text-sm">
@@ -182,6 +255,8 @@ export default function QuotationForm({ prId, canvass, quotation, onFile, onClos
               {lot.items.map(i => {
                 const p = priceOf(i.id)
                 const above = p != null && Number(i.estimated_cost) > 0 && cents(p) > cents(i.estimated_cost)
+                const check = filled?.check.has(i.id)
+                const auto = filled?.prices.has(i.id)
                 return (
                   <tr key={i.id} className="border-t border-[--color-border] align-top">
                     <td className="px-3 py-2.5">
@@ -190,14 +265,18 @@ export default function QuotationForm({ prId, canvass, quotation, onFile, onClos
                     </td>
                     <td className="px-3 py-1.5">
                       <Input value={specs[i.id] ?? ''} maxLength={1000} placeholder="As specified" aria-label={`What the supplier offered for ${i.item_name}`}
-                        onChange={e => setSpecs(x => ({ ...x, [i.id]: e.target.value }))} className="text-xs" />
+                        title={filled?.specs.has(i.id) ? 'Read from the RFQ file' : undefined}
+                        onChange={e => { setSpecs(x => ({ ...x, [i.id]: e.target.value })); edited('specs', i.id) }}
+                        className={`text-xs ${filled?.specs.has(i.id) ? 'bg-[--color-brand-light]' : ''}`} />
                     </td>
                     <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap text-[--color-text-secondary]">{Number(i.estimated_cost) > 0 ? fmtCurrency(i.estimated_cost) : 'None'}</td>
                     <td className="px-3 py-1.5">
                       <Input type="number" min="0.01" step="0.01" placeholder="No bid" value={prices[i.id] ?? ''} aria-label={`Unit price for ${i.item_name}`}
-                        onChange={e => setPrices(x => ({ ...x, [i.id]: e.target.value }))}
-                        className={`text-right tabular-nums ${above ? 'border-amber-400 text-amber-800' : ''}`} />
-                      {above && <span className="text-[10px] text-amber-700">above the budget</span>}
+                        title={auto ? 'Read from the RFQ file' : undefined}
+                        onChange={e => { setPrices(x => ({ ...x, [i.id]: e.target.value })); edited('prices', i.id) }}
+                        className={`text-right tabular-nums ${above || check ? 'border-amber-400 text-amber-800' : ''} ${auto ? 'bg-[--color-brand-light]' : ''}`} />
+                      {check && <span className="block text-[10px] text-amber-700">check: its row's total differs</span>}
+                      {above && <span className="block text-[10px] text-amber-700">above the budget</span>}
                     </td>
                     <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap text-[--color-text-secondary]">{p != null ? fmtCurrency(lineCents(i.quantity, p) / 100) : ''}</td>
                   </tr>
