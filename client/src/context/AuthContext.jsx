@@ -59,10 +59,11 @@ export function AuthProvider({ children }) {
     setUser(u)
   }, [queryClient])
 
-  const logout = useCallback(() => {
+  // reason 'idle': signed out by itself after 30 minutes without activity (components/shared/IdleSignOut.jsx).
+  const logout = useCallback(({ reason } = {}) => {
     // The server ends the session too, so this token can't be used again; sent with the token before it is cleared.
     const t = sessionStorage.getItem('primesys_token')
-    if (t) api.post('/auth/logout', null, { headers: { Authorization: `Bearer ${t}` } }).catch(() => {})
+    if (t) api.post('/auth/logout', reason ? { reason } : null, { headers: { Authorization: `Bearer ${t}` } }).catch(() => {})
     sessionStorage.removeItem('primesys_token')
     sessionStorage.removeItem('primesys_user')
     setToken(null)
