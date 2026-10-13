@@ -8,10 +8,12 @@ const config   = require('../config')
 const throttle = require('../utils/loginThrottle')
 const securityLog = require('../utils/securityLog')
 const { verifyCaptcha } = require('../utils/captcha')
-const { endSessions, invalidateUserCache } = require('../middleware/auth.middleware')
+const { endSessions, replaceSessions, invalidateUserCache } = require('../middleware/auth.middleware')
 const notify   = require('../utils/notify')
 const { checkSignature, METHODS } = require('../utils/signature')
 const resetPasswordEmail = require('../emails/resetPassword')
+const loginCodeEmail = require('../emails/loginCode')
+const devices  = require('../utils/loginDevices')
 const accountExistsEmail = require('../emails/accountExists')
 
 const BCRYPT_COST = 10
@@ -25,9 +27,10 @@ const REGISTERED    = 'Thanks for signing up. An administrator will review your 
 const PENDING       = 'Your account is waiting for the administrator\'s approval. You will get an email once it is approved.'
 const RESET_SENT    = 'If an account matches the information provided, reset instructions will be sent.'
 
-// Tokens carry only the account id and token_version (tv); the rest is read from the database per request (audit SEC-8).
-const sign = (user, tokenVersion) => jwt.sign(
-  { id: user.id, tv: tokenVersion },
+// Tokens carry only the account id, token_version (tv) and their sign-in's session key (sk); the rest is read from the
+// database per request (audit SEC-8).
+const sign = (user, tokenVersion, sessionKey) => jwt.sign(
+  { id: user.id, tv: tokenVersion, sk: sessionKey },
   config.jwt.secret,
   { expiresIn: config.jwt.expiresIn, algorithm: 'HS256' }
 )
@@ -124,7 +127,12 @@ async function tellOwner(user, ip) {
 // wrong passwords get the same reply in the same time.
 exports.login = async (req, res) => {
   try {
-    const { identifier, password } = req.body   // shape checked in the route
+    const { identifier, password, captcha_token } = req.body   // shape checked in the route
+    // The bot check comes first, so a script never gets as far as trying a password.
+    if (!await verifyCaptcha(captcha_token, req.ip)) {
+      securityLog('login_rejected', { reason: 'captcha', ip: req.ip })
+      return res.status(400).json({ message: 'Please complete the verification challenge.', type: 'captcha' })
+    }
     const [rows] = await pool.execute(
       `SELECT id, name, username, email, password_hash, token_version, role, is_active, is_verified
          FROM users WHERE LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?) LIMIT 1`,
@@ -154,9 +162,118 @@ exports.login = async (req, res) => {
       return res.status(403).json({ message: PENDING, type: 'pending' })
     }
 
+    // A browser the account hasn't verified, its first sign-in included, is let in only with the code emailed to it.
+    // "Remember this device" (on unless sent false) decides whether it is then remembered for 30 days.
+    const remember = req.body.remember !== false
+    if (!await devices.isTrusted(user.id, req.body.device)) {
+      const label = devices.deviceLabel(req.get('user-agent'))
+      const { ticket, code } = devices.startChallenge(user.id, req.body.device, label, remember)
+      try {
+        await sendLoginCode(user, code, label, remember)
+      } catch (err) {
+        devices.dropChallenge(ticket)
+        console.error('[mailer] sign-in code email failed:', err.message)
+        return res.status(503).json({ message: 'We couldn\'t send the sign-in code to your email. Please try again in a few minutes.' })
+      }
+      securityLog('login_code_sent', { userId: user.id, ip: req.ip })
+      return res.json({ verify: true, ticket, email: maskEmail(user.email), minutes: devices.CODE_MINUTES })
+    }
+    // A remembered browser unticked this time (a shared computer, say) is let in and then forgotten.
+    if (!remember) await devices.forgetDevice(user.id, req.body.device)
     securityLog('login', { userId: user.id, ip: req.ip })
-    const { password_hash, token_version, ...safe } = user
-    res.json({ token: sign(safe, token_version), user: await profileOf(user.id) })
+    res.json(await startSession(req, user))
+  } catch (err) {
+    console.error(err); res.status(500).json({ message: 'Internal server error' })
+  }
+}
+
+// One session per account: a sign-in's key replaces the last, which ends the account's other tabs and devices.
+async function startSession(req, user) {
+  const sessionKey = crypto.randomBytes(16).toString('hex')
+  await pool.execute('UPDATE users SET session_key = ? WHERE id = ?', [sessionKey, user.id])
+  await replaceSessions(req.io, user.id)
+  return { token: sign(user, user.token_version, sessionKey), user: await profileOf(user.id) }
+}
+
+// "al***@nemsu.edu.ph": where the code went, without spelling out the address to whoever typed the password.
+const maskEmail = (email) => String(email).replace(/^(.{1,2})[^@]*(@.+)$/, '$1***$2')
+
+function sendLoginCode(user, code, device, remember) {
+  return sendMail({
+    to: user.email,
+    subject: `${code} is your PRimeSys sign-in code`,
+    html: loginCodeEmail({ name: user.name, device, code, minutes: devices.CODE_MINUTES, days: remember ? devices.TRUST_DAYS : null, resetUrl: `${config.clientUrl}/forgot-password` }),
+  })
+}
+
+// POST /auth/login/verify - { ticket, code }: the emailed code finishes the sign-in; the browser is remembered when asked.
+exports.verifyLogin = async (req, res) => {
+  try {
+    const r = devices.checkCode(req.body.ticket, req.body.code)
+    if (r.error === 'wrong') {
+      securityLog('login_code_failed', { ip: req.ip })
+      return res.status(400).json({ message: `That code isn't right. ${r.left} ${r.left === 1 ? 'try' : 'tries'} left.`, type: 'code' })
+    }
+    if (r.error) {
+      securityLog('login_code_failed', { reason: r.error, ip: req.ip })
+      return res.status(400).json({ message: r.error === 'locked' ? 'Too many wrong codes. Sign in again for a new one.' : 'This code has expired. Sign in again for a new one.', type: 'expired' })
+    }
+    const [[user]] = await pool.execute('SELECT id, name, email, token_version, is_active, is_verified FROM users WHERE id = ?', [r.userId])
+    if (!user?.is_active || !user.is_verified) {
+      return res.status(403).json({ message: 'Your account has been deactivated. Contact your administrator.', type: 'inactive' })
+    }
+    const device = r.remember ? await devices.remember(user.id, r.key, r.label) : undefined
+    securityLog('login', { userId: user.id, ip: req.ip, newDevice: r.label, remembered: r.remember })
+    res.json({ ...await startSession(req, user), device })
+  } catch (err) {
+    console.error(err); res.status(500).json({ message: 'Internal server error' })
+  }
+}
+
+// POST /auth/login/resend - { ticket }: a new code for a sign-in still waiting, a minute after the last.
+exports.resendLoginCode = async (req, res) => {
+  try {
+    const r = devices.resendCode(req.body.ticket)
+    if (r.error === 'wait') return res.status(429).json({ message: `You can ask for another code in ${r.wait} seconds.`, wait: r.wait })
+    if (r.error) return res.status(400).json({ message: 'This sign-in has expired. Sign in again for a new code.', type: 'expired' })
+    const [[user]] = await pool.execute('SELECT id, name, email FROM users WHERE id = ?', [r.userId])
+    await sendLoginCode(user, r.code, r.label, r.remember)
+    securityLog('login_code_sent', { userId: user.id, ip: req.ip, resent: true })
+    res.json({ message: `A new code was sent to ${maskEmail(user.email)}.` })
+  } catch (err) {
+    console.error(err); res.status(500).json({ message: 'Internal server error' })
+  }
+}
+
+// GET /auth/devices - the browsers this account verified and still remembers.
+exports.myDevices = async (req, res) => {
+  try {
+    res.json(await devices.listDevices(req.user.id))
+  } catch (err) {
+    console.error(err); res.status(500).json({ message: 'Internal server error' })
+  }
+}
+
+// DELETE /auth/devices/:id - forgets one of them: its next sign-in asks for a code again.
+exports.removeDevice = async (req, res) => {
+  try {
+    if (!await devices.removeDevice(req.user.id, req.params.id)) return res.status(404).json({ message: 'Device not found' })
+    securityLog('device_removed', { userId: req.user.id })
+    res.status(204).end()
+  } catch (err) {
+    console.error(err); res.status(500).json({ message: 'Internal server error' })
+  }
+}
+
+// Sign-out ends the session on the server too: the account's key changes, so this token stops working. The new key is
+// one nobody holds rather than none, which tokens from before keys existed would match.
+exports.logout = async (req, res) => {
+  try {
+    await pool.execute('UPDATE users SET session_key = ? WHERE id = ? AND session_key <=> ?',
+      [crypto.randomBytes(16).toString('hex'), req.user.id, req.user.sk ?? null])
+    endSessions(req.io, req.user.id)
+    securityLog('logout', { userId: req.user.id, ip: req.ip })
+    res.status(204).end()
   } catch (err) {
     console.error(err); res.status(500).json({ message: 'Internal server error' })
   }
@@ -218,13 +335,14 @@ exports.changePassword = async (req, res) => {
     const hash = await bcrypt.hash(new_password, BCRYPT_COST)
     const tokenVersion = await withTransaction(async (conn) => {
       await conn.execute('UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?', [hash, rows[0].id])
+      await devices.forgetDevices(conn, rows[0].id)   // a new password: every browser verifies again
       const [[{ token_version }]] = await conn.execute('SELECT token_version FROM users WHERE id = ?', [rows[0].id])
       return token_version
     })
     endSessions(req.io, rows[0].id)
     securityLog('password_changed', { userId: rows[0].id })
     const { password_hash, ...user } = rows[0]
-    res.json({ message: 'Password changed. Other devices have been signed out.', token: sign(user, tokenVersion) })
+    res.json({ message: 'Password changed. Other devices have been signed out.', token: sign(user, tokenVersion, req.user.sk) })
   } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
 }
 
@@ -276,6 +394,7 @@ exports.resetPassword = async (req, res) => {
       await conn.execute('UPDATE password_reset_tokens SET used = 1 WHERE user_id = ? AND used = 0', [uid])
       // Raising the token version signs out every existing session.
       await conn.execute('UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?', [await bcrypt.hash(password, BCRYPT_COST), uid])
+      await devices.forgetDevices(conn, uid)   // a new password: every browser verifies again
       return uid
     })
     if (!userId) {

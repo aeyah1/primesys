@@ -590,7 +590,9 @@ function PRItemsSection({ prId, pr, canEdit, category }) {
 const MOVED = {
   submitted:          (pr) => [`${pr.pr_number} sent to the TWG`, 'You will be notified when they review it.'],
   draft:              (pr) => [`${pr.pr_number} is back to draft`, 'Edit it, then submit it again.'],
-  revision_requested: (pr) => [`Returned to ${pr.created_by_name} for revision`, 'They are told what to change.'],
+  revision_requested: (pr) => (pr.status === 'rejected'
+    ? [`${pr.pr_number} reopened`, 'Change what the TWG pointed out, then resubmit it.']
+    : [`Returned to ${pr.created_by_name} for revision`, 'They are told what to change.']),
   bidding:            (pr) => [`${pr.pr_number} is back in canvass`],
   cancelled:          (pr) => [`${pr.pr_number} cancelled`],
 }
@@ -806,7 +808,8 @@ export default function PRDetail() {
             <RotateCcw className="size-4 text-amber-700 mt-0.5 shrink-0" />
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-amber-900">
-                {pr.revision && pr.revision.from_status !== 'submitted'
+                {pr.revision?.from_status === 'rejected' ? 'Rejected by the TWG, reopened for changes'
+                  : pr.revision && pr.revision.from_status !== 'submitted'
                   ? `Returned for revision by ${pr.revision.by_name} (Procurement)`
                   : 'TWG requested revisions'}
               </p>
@@ -834,7 +837,7 @@ export default function PRDetail() {
         </div>
       )}
 
-      {/* TWG rejection notice — terminal state, shows TWG's reason */}
+      {/* TWG rejection notice with the TWG's reason; its creator may reopen it to change and resubmit */}
       {pr.status === 'rejected' && (
         <div className="rounded-xl border border-red-300 bg-red-50 px-5 py-4">
           <div className="flex items-start gap-3">
@@ -846,9 +849,21 @@ export default function PRDetail() {
               ) : (
                 <p className="text-ui-xs text-red-800/80 mt-1">No reason was provided.</p>
               )}
-              <p className="text-[10px] text-red-700/80 mt-2">
-                This PR will not move forward to Procurement. Create a new PR if you want to try again.
-              </p>
+              {pr.created_by === user?.id && pr.permissions?.next_statuses?.includes('revision_requested') ? (
+                <>
+                  <p className="text-[10px] text-red-700/80 mt-2">
+                    You can still fix it: reopen it with all its items, change what the TWG pointed out, and resubmit it.
+                  </p>
+                  <Button size="sm" className="mt-3 gap-1.5" disabled={isPending} onClick={() => updateStatus({ status: 'revision_requested' })}>
+                    <RotateCcw className="size-4" />
+                    {isPending ? 'Reopening…' : 'Edit and resubmit'}
+                  </Button>
+                </>
+              ) : (
+                <p className="text-[10px] text-red-700/80 mt-2">
+                  It won't go on to Procurement unless the person who filed it reopens it and resubmits it.
+                </p>
+              )}
             </div>
           </div>
         </div>

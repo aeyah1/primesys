@@ -168,14 +168,15 @@ add('Login', 'deactivated + wrong password', null, 'POST', '/auth/login', login(
 add('Login', 'deactivated + right password', null, 'POST', '/auth/login', login('inactReq', 'Test@1234'), code(403, 'deactivated'), '403 deactivated')
 add('Login', 'waiting for approval + wrong password', null, 'POST', '/auth/login', login('unverReq', 'nope'),     code(401), '401 (no status leak)')
 add('Login', 'waiting for approval + right password', null, 'POST', '/auth/login', login('unverReq', 'Test@1234'), (r) => r.status === 403 && r.data.type === 'pending', '403 pending')
-add('Login', 'normal account',             null, 'POST', '/auth/login', login('reqA', 'Test@1234'),     (r) => r.status === 200 && !!r.data.token, '200 token')
+// reqB signs in for real: reqA keeps acting with the test's own tokens below, which a real sign-in (one session per account) would end.
+add('Login', 'normal account',             null, 'POST', '/auth/login', login('reqB', 'Test@1234'),     (r) => r.status === 200 && r.data.verify === true && !r.data.token, '200, then the emailed code (new browser)')
 add('Users', 'list includes usernames',    1, 'GET', '/users?limit=50', undefined, (r) => r.status === 200 && r.data.data.length === 11 && r.data.data.every(u => u.username), 'all 11 have username')
 // Role requests are retired (public sign-up is requestor-only); roles are assigned only by an admin in User Management.
 add('Users', 'approving an approved account is refused', 1, 'PATCH', '/users/7/approve', undefined, code(409), '409')
 add('Users', 'only an admin approves sign-ups', 2, 'PATCH', '/users/9/approve', undefined, code(403), '403')
 add('Users', 'role-request decline endpoint gone', 1, 'PATCH', '/users/10/decline', undefined, code(404), '404')
 add('Users', 'admin reactivates a former pending account', 1, 'PATCH', '/users/7/toggle', undefined, code(200), '200')
-add('Users', '…account can now sign in as procurement', null, 'POST', '/auth/login', login('pendProc', 'Test@1234'), (r) => r.status === 200 && r.data.user.role === 'procurement', '200 procurement')
+add('Users', '…account can now sign in as procurement', null, 'POST', '/auth/login', login('pendProc', 'Test@1234'), (r) => r.status === 200 && r.data.verify === true, '200, then the emailed code')
 add('Users', 'admin assigns requestor instead', 1, 'PATCH', '/users/10', { name: 'pendSup', role: 'requestor', department_id: 1 }, code(200), '200')
 add('Users', '…list shows the assigned role', 1, 'GET', '/users?limit=50', undefined, (r) => r.status === 200 && r.data.data.find(x => x.id === 10)?.role === 'requestor', 'role requestor')
 add('Users', 'editing a deactivated account', 1, 'PATCH', '/users/11', { name: 'pendTwg', role: 'requestor', department_id: 2 }, code(200), '200')

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ClipboardList, Search, AlertTriangle, Ban, List } from 'lucide-react'
+import { ClipboardList, Search, AlertTriangle, Ban, List, Check, Plus } from 'lucide-react'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -109,11 +109,13 @@ const fitsKind = (line, kind) => !!KIND_HEADINGS[kind]?.test(String(line.categor
 // The item field of a PR form: type what is needed and the closest PPMP lines come up, the best one first; a close one
 // is ready to take with Enter, a weak one only by a click. Browse lists every line, those of the item's `kind` first. `year` keeps the
 // pick to one fiscal year once the request has an item from it; `quarter` (1 to 4) to the lines planned in that quarter, with what is left of its quantity.
-export function PpmpItemField({ plans, isLoading, value, onPick, taken, year, quarter = null, kind = null, label = 'Item from the PPMP', id }) {
+// With `onPickMany`, Browse ticks several lines and hands them over together; `canBrowse` may stop Browse from opening.
+export function PpmpItemField({ plans, isLoading, value, onPick, onPickMany, canBrowse, taken, year, quarter = null, kind = null, label = 'Item from the PPMP', id }) {
   const [text, setText] = useState(null)   // what is being typed; null shows the picked line
   const [active, setActive] = useState(-2)   // -2: not moved with the arrow keys yet, so the list's own start applies
   const [focused, setFocused] = useState(false)
   const [browsing, setBrowsing] = useState(false)
+  const browse = () => { if (!canBrowse || canBrowse()) setBrowsing(true) }
   const usable = (year ? plans.filter(p => p.fiscal_year === year) : plans)
     .map(p => (quarter ? { ...p, lines: p.lines.filter(l => inQuarter(l, quarter)) } : p))
   const all = usable.flatMap(p => p.lines.map(l => ({ ...l, fiscal_year: p.fiscal_year })))
@@ -176,28 +178,39 @@ export function PpmpItemField({ plans, isLoading, value, onPick, taken, year, qu
               {suggestions.length ? suggestions.map(line) : (
                 <li className="px-3 py-3 text-ui-xs text-[--color-text-muted]">
                   No PPMP line is close to "{typed.trim()}".{' '}
-                  <button type="button" onMouseDown={e => e.preventDefault()} onClick={() => setBrowsing(true)} className="font-semibold text-[--color-brand] hover:underline">Browse the PPMP</button>
+                  <button type="button" onMouseDown={e => e.preventDefault()} onClick={browse} className="font-semibold text-[--color-brand] hover:underline">Browse the PPMP</button>
                 </li>
               )}
             </ul>
           )}
         </div>
-        <Button type="button" variant="outline" size="icon" title="Browse the PPMP" aria-label="Browse the PPMP"
-          disabled={isLoading || !plans.length} onClick={() => setBrowsing(true)}>
+        <Button type="button" variant="outline" size="icon" title={onPickMany ? 'Pick several from the PPMP' : 'Browse the PPMP'}
+          aria-label={onPickMany ? 'Pick several from the PPMP' : 'Browse the PPMP'} disabled={isLoading || !plans.length} onClick={browse}>
           <List className="size-4" />
         </Button>
       </div>
-      <BrowsePpmp open={browsing} onOpenChange={setBrowsing} plans={usable} leftOf={leftOf} onPick={choose} quarter={quarter} kind={kind} />
+      <BrowsePpmp open={browsing} onOpenChange={setBrowsing} plans={usable} leftOf={leftOf} onPick={choose} quarter={quarter} kind={kind}
+        onPickMany={onPickMany && ((ls) => { onPickMany(ls); setBrowsing(false) })} />
     </div>
   )
 }
 
 // Every line of the PPMP to pick from (of the quarter, when the request draws on one), with a search, one fiscal year at a time;
-// the lines of the item's kind come first, highlighted, then the others.
-function BrowsePpmp({ open, onOpenChange, plans, leftOf, onPick, quarter, kind }) {
+// the lines of the item's kind come first, highlighted, then the others. With `onPickMany`, a click ticks a line instead of taking it.
+function BrowsePpmp({ open, onOpenChange, plans, leftOf, onPick, onPickMany, quarter, kind }) {
   const [search, setSearch] = useState('')
   const [planId, setPlanId] = useState(null)
+  const [ticked, setTicked] = useState(new Set())   // line ids, of the plan shown
   const plan = plans.find(p => p.id === planId) || plans[0]
+  const close = (o) => { onOpenChange(o); if (!o) { setTicked(new Set()); setSearch('') } }
+  const take = (l) => {
+    if (!onPickMany) { onPick({ ...l, fiscal_year: plan.fiscal_year }); setSearch(''); return }
+    setTicked(t => { const n = new Set(t); if (!n.delete(l.id)) n.add(l.id); return n })
+  }
+  const takeTicked = () => {
+    onPickMany(plan.lines.filter(l => ticked.has(l.id)).map(l => ({ ...l, fiscal_year: plan.fiscal_year })))
+    close(false)
+  }
   const words = search.toLowerCase().split(/\s+/).filter(Boolean)
   const lines = (plan?.lines || []).filter(l => words.every(w => `${l.code || ''} ${l.description} ${l.category || ''}`.toLowerCase().includes(w)))
   const fits = kind ? lines.filter(l => fitsKind(l, kind)) : []
@@ -207,11 +220,17 @@ function BrowsePpmp({ open, onOpenChange, plans, leftOf, onPick, quarter, kind }
   )
   const row = (l, fit) => {
     const left = leftOf(l)
+    const on = ticked.has(l.id)
     return (
       <li key={l.id}>
-        <button type="button" disabled={left <= 0} onClick={() => { onPick({ ...l, fiscal_year: plan.fiscal_year }); setSearch('') }}
+        <button type="button" disabled={left <= 0} onClick={() => take(l)} role={onPickMany ? 'checkbox' : undefined} aria-checked={onPickMany ? on : undefined}
           className={`flex w-full items-start justify-between gap-4 px-4 py-3 text-left transition-colors hover:bg-[--color-overlay] disabled:cursor-not-allowed disabled:opacity-50 ${fit ? 'bg-[--color-brand-light]' : ''}`}>
-          <span className="min-w-0">
+          {onPickMany && (
+            <span className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded border ${on ? 'border-[--color-brand] bg-[--color-brand] text-white' : 'border-[--color-border-strong] bg-white'}`}>
+              {on && <Check className="size-3" />}
+            </span>
+          )}
+          <span className="min-w-0 flex-1">
             <span className="block text-sm font-medium text-[--color-text-primary]">{l.description}</span>
             <span className="block text-[11px] text-[--color-text-muted]">
               {[l.code, l.category, fmtCurrency(l.unit_cost) + ' each', l.months.map(m => MONTHS[m - 1]).join(', ')].filter(Boolean).join(' · ')}
@@ -225,14 +244,14 @@ function BrowsePpmp({ open, onOpenChange, plans, leftOf, onPick, quarter, kind }
     )
   }
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={close}>
       <DialogContent title="Pick from the PPMP" className="max-w-2xl"
         description={plan ? `${plan.office_code}, FY ${plan.fiscal_year}, PPMP No. ${plan.version_no}${quarter ? `, Q${quarter} items` : ''}. Only what is left of each line can be requested.` : undefined}>
         <div className="space-y-3">
           {plans.length > 1 && (
             <div className="flex gap-2">
               {plans.map(p => (
-                <Button key={p.id} type="button" size="sm" variant={p.id === plan?.id ? 'primary' : 'outline'} onClick={() => setPlanId(p.id)}>FY {p.fiscal_year}</Button>
+                <Button key={p.id} type="button" size="sm" variant={p.id === plan?.id ? 'primary' : 'outline'} onClick={() => { setPlanId(p.id); setTicked(new Set()) }}>FY {p.fiscal_year}</Button>
               ))}
             </div>
           )}
@@ -247,13 +266,21 @@ function BrowsePpmp({ open, onOpenChange, plans, leftOf, onPick, quarter, kind }
             {fits.length > 0 && rest.length > 0 && heading('Other PPMP items', false)}
             {rest.map(l => row(l, false))}
           </ul>
+          {onPickMany && (
+            <div className="sticky bottom-0 -mx-6 -mb-6 flex items-center justify-between gap-3 border-t border-[--color-border] bg-white px-6 py-3">
+              <p className="text-ui-sm text-[--color-text-secondary]">
+                {ticked.size ? `${ticked.size} ticked, each at the PPMP's price` : 'Tick the items you need'}
+              </p>
+              <Button type="button" className="gap-1.5" disabled={!ticked.size} onClick={takeTicked}>
+                <Plus className="size-4" /> Add {ticked.size || ''} item{ticked.size === 1 ? '' : 's'}
+              </Button>
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>
   )
 }
-
-const SPANS = { Q1: 'Jan to Mar', Q2: 'Apr to Jun', Q3: 'Jul to Sep', Q4: 'Oct to Dec' }
 
 // The lines a request for quarter q (1 to 4) starts with: each line planned in it with something left, once per key.
 export function quarterLines(plan, q) {
@@ -261,20 +288,15 @@ export function quarterLines(plan, q) {
   return plan.lines.filter(l => inQuarter(l, q) && l.quarter_left[q - 1] > 0 && !seen.has(l.key) && seen.add(l.key))
 }
 
-// The quarter a Fund Administrator's request is for: one of their PPMP's year, each with how many of its items are left to request.
+// The quarter a Fund Administrator's request is for: one of their PPMP's year.
 export function QuarterSelect({ plans, value, onChange, id }) {
   return (
     <Select value={value} onValueChange={onChange}>
       <SelectTrigger id={id}><SelectValue placeholder="Pick the quarter" /></SelectTrigger>
       <SelectContent>
-        {plans.flatMap(p => p.quarters.map(q => {
-          const n = quarterLines(p, Number(q.label[1])).length
-          return (
-            <SelectItem key={q.id} value={String(q.id)}>
-              {q.label} {q.year}, {SPANS[q.label]} · {n ? `${n} item${n === 1 ? '' : 's'} to request` : 'nothing left'}
-            </SelectItem>
-          )
-        }))}
+        {plans.flatMap(p => p.quarters.map(q => (
+          <SelectItem key={q.id} value={String(q.id)}>{q.label} {q.year}</SelectItem>
+        )))}
       </SelectContent>
     </Select>
   )
