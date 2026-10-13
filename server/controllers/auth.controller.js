@@ -134,7 +134,7 @@ exports.login = async (req, res) => {
       return res.status(400).json({ message: 'Please complete the verification challenge.', type: 'captcha' })
     }
     const [rows] = await pool.execute(
-      `SELECT id, name, username, email, password_hash, token_version, role, is_active, is_verified
+      `SELECT id, name, username, email, password_hash, token_version, role, is_active, is_verified, skip_login_code
          FROM users WHERE LOWER(username) = LOWER(?) OR LOWER(email) = LOWER(?) LIMIT 1`,
       [identifier, identifier]
     )
@@ -162,10 +162,12 @@ exports.login = async (req, res) => {
       return res.status(403).json({ message: PENDING, type: 'pending' })
     }
 
-    // A browser the account hasn't verified, its first sign-in included, is let in only with the code emailed to it.
+    // A browser the account hasn't verified, its first sign-in included, is let in only with the code emailed to it;
+    // administrators, and accounts the admin exempted (demo or shared ones), sign in with the password alone.
     // "Remember this device" (on unless sent false) decides whether it is then remembered for 30 days.
     const remember = req.body.remember !== false
-    if (!await devices.isTrusted(user.id, req.body.device)) {
+    const needsCode = user.role !== 'admin' && !user.skip_login_code
+    if (needsCode && !await devices.isTrusted(user.id, req.body.device)) {
       const label = devices.deviceLabel(req.get('user-agent'))
       const { ticket, code } = devices.startChallenge(user.id, req.body.device, label, remember)
       try {

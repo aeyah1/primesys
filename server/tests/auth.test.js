@@ -541,6 +541,36 @@ async function run() {
   check(G14, 'an account deactivated before its code is entered → 403, no token', r.status === 403 && !r.data.token, show(r))
   await http('PATCH', `/users/${outsideId}/toggle`, undefined, tok(1, 'admin'))
 
+  // Administrators, and accounts the admin exempts, sign in with the password alone; the admin can change an email.
+  SECRETS.push('Admin-Made-5')
+  await http('POST', '/users', { name: 'Second Admin', username: 'admin_two', email: 'admin2@auth.invalid', password: 'Admin-Made-5', role: 'admin' }, tok(1, 'admin'))
+  r = await http('POST', '/auth/login', { identifier: 'admin_two', password: 'Admin-Made-5' })
+  check(G14, 'an administrator signs in without the emailed code', r.status === 200 && !!r.data.token && !r.data.verify, show(r))
+  const outsideEdit = { name: 'Outside Staff', role: 'requestor', department_id: 2 }
+  r = await http('PATCH', `/users/${outsideId}`, { ...outsideEdit, skip_login_code: true }, tok(1, 'admin'))
+  check(G14, 'the admin exempts an account from the code → 200', r.status === 200, show(r))
+  r = await http('GET', '/users?search=outside_staff', undefined, tok(1, 'admin'))
+  check(G14, '…the user list says so', r.data?.data?.[0]?.skip_login_code === 1, JSON.stringify(r.data?.data?.[0]))
+  r = await http('POST', '/auth/login', { identifier: 'outside_staff', password: 'Admin-Made-2' })
+  check(G14, '…and it signs in with the password alone', r.status === 200 && !!r.data.token && !r.data.verify, show(r))
+  await http('PATCH', `/users/${outsideId}`, { ...outsideEdit, skip_login_code: false }, tok(1, 'admin'))
+  r = await http('POST', '/auth/login', { identifier: 'outside_staff', password: 'Admin-Made-2' })
+  check(G14, '…until the exemption is taken off', r.status === 200 && r.data.verify === true, show(r))
+  TOKENS.push(r.data?.ticket)
+  r = await http('PATCH', `/users/${outsideId}`, { ...outsideEdit, email: 'outside.new@auth.invalid' }, tok(1, 'admin'))
+  const [{ email: savedEmail }] = await q('SELECT email FROM users WHERE id = ?', [outsideId])
+  check(G14, 'the admin saves a new email for an account', r.status === 200 && savedEmail === 'outside.new@auth.invalid', `${show(r)} ${savedEmail}`)
+  r = await http('POST', '/auth/login', { identifier: 'outside_staff', password: 'Admin-Made-2' })
+  check(G14, '…and its next code goes there', r.status === 200 && codeMailsTo('outside.new@auth.invalid').length === 1, show(r))
+  TOKENS.push(r.data?.ticket)
+  r = await http('PATCH', `/users/${outsideId}`, { ...outsideEdit, email: 'sup1@auth.invalid' }, tok(1, 'admin'))
+  check(G14, "another account's email → 409", r.status === 409, show(r))
+  r = await http('PATCH', `/users/${outsideId}`, { ...outsideEdit, email: 'not-an-email' }, tok(1, 'admin'))
+  check(G14, 'an invalid email → 400', r.status === 400, show(r))
+  const procNow = (await signIn({ identifier: 'proc1', password: FPW })).data?.token   // proc1 signed in for real before
+  r = await http('PATCH', `/users/${outsideId}`, { ...outsideEdit, skip_login_code: true }, procNow)
+  check(G14, "only an admin can exempt an account → 403", r.status === 403, show(r))
+
   // CAPTCHA (enabled in-process, Turnstile reply stubbed)
   const G8 = 'CAPTCHA'
   const realFetch = global.fetch
@@ -628,7 +658,7 @@ async function run() {
   for (const e of ['register', 'register_rejected', 'account_approved', 'account_rejected', 'login', 'login_failed', 'login_locked',
                    'login_throttled', 'password_reset_requested', 'password_reset_completed', 'role_changed', 'account_deactivated',
                    'account_activated', 'user_created', 'rate_limited', 'password_changed', 'password_set_by_admin', 'logout', 'login_rejected',
-                   'login_code_sent', 'login_code_failed', 'device_removed']) {
+                   'login_code_sent', 'login_code_failed', 'device_removed', 'email_changed', 'login_code_exemption']) {
     check(G12, `logs "${e}"`, events.has(e), [...events].join(','))
   }
   const leaked = [...SECRETS, ...TOKENS.filter(Boolean), config.jwt.secret].filter(sct => all.includes(sct))

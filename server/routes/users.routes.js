@@ -43,6 +43,11 @@ router.patch('/:id',
   // The office this person encodes for; its head signs "Requested by" on their PRs.
   idRule('department_id', 'Pick a valid office'),
   textRule('designation', 'Designation', 150),
+  // Where the person's sign-in codes and notices go, and whether they sign in without the code (demo or shared accounts).
+  body('email').if(body('email').exists()).isString().withMessage('A valid email address is required').bail().trim()
+    .isEmail().withMessage('A valid email address is required').bail()
+    .isLength({ max: 150 }).withMessage('Email is too long'),
+  body('skip_login_code').optional().isBoolean({ strict: true }).withMessage('No sign-in code must be on or off'),
   areas,
   handle,
   c.update)

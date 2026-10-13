@@ -18,6 +18,8 @@ const accountReviewEmail = require('../emails/accountReview')
 // A 4xx thrown by a rule goes back as is; anything else is logged and masked.
 const fail = (res, err) => {
   if (err.status >= 400 && err.status < 500) return res.status(err.status).json({ message: err.message })
+  // Two saves racing for the same username or email: the unique key answers.
+  if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ message: 'That username or email is already in use' })
   console.error(err); res.status(500).json({ message: 'Internal server error' })
 }
 
@@ -81,7 +83,7 @@ exports.list = async (req, res) => {
 
     const list = where('search', 'role', 'status', 'area')
     const [rows] = await pool.execute(
-      `SELECT u.id, u.name, u.username, u.email, u.role, u.is_active, u.is_verified, u.created_at,
+      `SELECT u.id, u.name, u.username, u.email, u.role, u.is_active, u.is_verified, u.created_at, u.skip_login_code,
               u.designation, u.department_id, d.code AS department_code, d.name AS department_name,
               (SELECT GROUP_CONCAT(ta.category) FROM twg_assignments ta WHERE ta.user_id = u.id) AS twg_areas
        FROM users u
@@ -131,7 +133,7 @@ exports.update = async (req, res) => {
     if (!name || !role || !VALID_ROLES.includes(role)) {
       return res.status(400).json({ message: 'Valid name and role are required' })
     }
-    const [current] = await pool.execute('SELECT id, role, department_id, is_active, is_verified FROM users WHERE id = ?', [req.params.id])
+    const [current] = await pool.execute('SELECT id, role, email, department_id, is_active, is_verified, skip_login_code FROM users WHERE id = ?', [req.params.id])
     if (!current.length) return res.status(404).json({ message: 'User not found' })
     // An admin can't demote themselves, so there is always an admin left.
     if (current[0].id === req.user.id && role !== current[0].role) {
@@ -147,12 +149,21 @@ exports.update = async (req, res) => {
       )
       if (dup.length) return res.status(409).json({ message: 'Username already taken' })
     }
-    // The office this person encodes for, and their own job title. Both are
-    // only written when sent, so a form that omits them leaves them alone.
+    // The email (where sign-in codes go) can't be another account's.
+    const email = typeof req.body.email === 'string' ? req.body.email.trim() : null
+    if (email) {
+      const [dup] = await pool.execute('SELECT id FROM users WHERE LOWER(email) = LOWER(?) AND id != ?', [email, req.params.id])
+      if (dup.length) return res.status(409).json({ message: 'That email is already used by another account' })
+    }
+    // The office this person encodes for, their own job title, their email, and whether they sign in without the
+    // emailed code: each only written when sent, so a form that omits one leaves it alone.
     const extra = []
     const extraValues = []
     if ('department_id' in req.body) { extra.push('department_id = ?'); extraValues.push(req.body.department_id || null) }
     if ('designation'   in req.body) { extra.push('designation = ?');   extraValues.push(String(req.body.designation ?? '').trim() || null) }
+    if (email)                       { extra.push('email = ?');         extraValues.push(email) }
+    const skip = typeof req.body.skip_login_code === 'boolean' ? req.body.skip_login_code : null
+    if (skip !== null)               { extra.push('skip_login_code = ?'); extraValues.push(skip ? 1 : 0) }
 
     const officeId = 'department_id' in req.body ? (req.body.department_id || null) : current[0].department_id
     const areasSaved = await withTransaction(async (conn) => {
@@ -168,6 +179,8 @@ exports.update = async (req, res) => {
       securityLog('role_changed', { userId: current[0].id, from: current[0].role, to: role, by: req.user.id })
     }
     if (areasSaved) securityLog('twg_areas_set', { userId: current[0].id, areas, by: req.user.id })
+    if (email && email.toLowerCase() !== String(current[0].email).toLowerCase()) securityLog('email_changed', { userId: current[0].id, by: req.user.id })
+    if (skip !== null && skip !== !!current[0].skip_login_code) securityLog('login_code_exemption', { userId: current[0].id, skip, by: req.user.id })
     // A new office is told to its holder at once, and their open pages (New Request's Office / Section, the PPMP) follow it.
     if (Number(officeId || 0) !== Number(current[0].department_id || 0) && current[0].id !== req.user.id && current[0].is_active) {
       const [[office]] = officeId ? await pool.execute('SELECT code, name FROM departments WHERE id = ?', [officeId]) : [[null]]
