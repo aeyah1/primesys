@@ -2,8 +2,9 @@ import { Fragment, useState } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import {
   Search, UserX, UserCheck, UserPlus, Pencil,
-  Trash2, BadgeCheck, Ban, KeyRound, Eye, EyeOff, ClipboardCheck, AlertTriangle, ArrowUpDown,
+  Trash2, BadgeCheck, Ban, KeyRound, Eye, EyeOff, ClipboardCheck, AlertTriangle, ArrowUpDown, ScrollText,
 } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { toast } from '@/lib/toast'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -460,6 +461,10 @@ export default function UserList() {
                           <div className="flex items-center gap-1">
                             <Button variant="ghost" size="icon" onClick={() => openEdit(u)} title="Edit user">
                               <Pencil className="size-4 text-[--color-text-muted]" />
+                            </Button>
+                            {/* Their history in the Audit Log: what they did, and what was done to their account. */}
+                            <Button asChild variant="ghost" size="icon" title="Activity" aria-label={`Activity of ${u.name}`}>
+                              <Link to={`/audit?user=${u.id}`}><ScrollText className="size-4 text-[--color-text-muted]" /></Link>
                             </Button>
                             {!u.is_verified && (
                               <>
