@@ -124,7 +124,7 @@ export default function UserList() {
     staleTime: 5 * 60_000,
   })
 
-  const [editForm, setEditForm]   = useState({ name: '', role: 'requestor', newPassword: '', areas: [], department_id: '', designation: '' })
+  const [editForm, setEditForm]   = useState({ name: '', email: '', role: 'requestor', newPassword: '', areas: [], department_id: '', designation: '', skip_login_code: false })
   const [showAddPw, setShowAddPw] = useState(false)
   const [showEditPw, setShowEditPw] = useState(false)
 
@@ -228,7 +228,7 @@ export default function UserList() {
 
   function openEdit(u) {
     setEditUser(u)
-    setEditForm({ name: u.name, username: u.username || '', role: u.role || 'requestor', newPassword: '', areas: u.twg_areas || [], department_id: u.department_id || '', designation: u.designation || '' })
+    setEditForm({ name: u.name, username: u.username || '', email: u.email || '', role: u.role || 'requestor', newPassword: '', areas: u.twg_areas || [], department_id: u.department_id || '', designation: u.designation || '', skip_login_code: !!u.skip_login_code })
     setShowEditPw(false)
     setEditOpen(true)
   }
@@ -249,6 +249,7 @@ export default function UserList() {
   function handleEdit(e) {
     e.preventDefault()
     if (!editForm.name.trim()) return toast.error('Name is required')
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(editForm.email.trim())) return toast.error('Enter a valid email address')
     if (editForm.newPassword && editForm.newPassword.length < 8) {
       return toast.error('Password must be at least 8 characters')
     }
@@ -260,6 +261,8 @@ export default function UserList() {
         role: editForm.role,
         department_id: editForm.department_id || null,
         designation: editForm.designation?.trim() || null,
+        email: editForm.email.trim(),
+        ...(editForm.role !== 'admin' ? { skip_login_code: editForm.skip_login_code } : {}),
         ...(editForm.username.trim() ? { username: editForm.username.trim() } : {}),
         ...(editForm.role === 'twg' ? { areas: editForm.areas } : {}),
       },
@@ -412,7 +415,10 @@ export default function UserList() {
                           continued={i === 0 && groupStart(u.role) < (page - 1) * PAGE_SIZE} />
                       )}
                       <TableRow>
-                        <TableCell className="font-medium">{u.name}</TableCell>
+                        <TableCell className="font-medium">
+                          {u.name}
+                          {!!u.skip_login_code && u.role !== 'admin' && <span className="ml-2 rounded-full border border-amber-300 bg-amber-50 px-1.5 py-px text-[10px] font-semibold text-amber-800" title="Signs in without the emailed code">No sign-in code</span>}
+                        </TableCell>
                         <TableCell>
                           {u.username
                             ? <span className="font-mono text-ui-xs text-[--color-text-secondary]">{u.username}</span>
@@ -661,6 +667,19 @@ export default function UserList() {
             </div>
 
             <div className="space-y-1.5">
+              <Label htmlFor="edit-email">Email</Label>
+              <Input
+                id="edit-email"
+                type="email"
+                value={editForm.email}
+                onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))}
+                placeholder="name@nemsu.edu.ph"
+                spellCheck={false}
+              />
+              <p className="text-[11px] text-[--color-text-muted]">Sign-in codes and notices go here, so it must be an inbox the person can open.</p>
+            </div>
+
+            <div className="space-y-1.5">
               <Label>Role</Label>
               <Select value={editForm.role} onValueChange={v => setEditForm(f => ({ ...f, role: v }))} disabled={editUser?.id === me?.id}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
@@ -735,6 +754,20 @@ export default function UserList() {
                 </button>
               </div>
             </div>
+
+            {/* Administrators never get the code; other accounts may be exempted, e.g. demo or shared ones. */}
+            {editForm.role === 'admin' ? (
+              <p className="text-[11px] text-[--color-text-muted]">Administrators sign in with their password alone, without an emailed code.</p>
+            ) : (
+              <label className="flex items-start gap-2.5 cursor-pointer rounded-lg border border-[--color-border] px-3 py-2.5">
+                <input type="checkbox" checked={editForm.skip_login_code} onChange={e => setEditForm(f => ({ ...f, skip_login_code: e.target.checked }))}
+                  className="mt-0.5 size-4 shrink-0 cursor-pointer accent-[--color-brand]" />
+                <span>
+                  <span className="block text-ui-sm font-medium text-[--color-text-primary]">No sign-in code</span>
+                  <span className="block text-[11px] text-[--color-text-muted]">Signs in with the password alone, never an emailed code. For demo or shared accounts; less safe, so keep it off for real people.</span>
+                </span>
+              </label>
+            )}
 
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
