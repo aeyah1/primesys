@@ -45,8 +45,10 @@ function ReadNote({ reading, unreadable, filled, total, prNumber }) {
   const from = filled.ocr ? 'scan' : 'file'
   const parts = [filled.name && 'the supplier', filled.prices.size && `${filled.prices.size} of ${total} prices`,
     filled.specs.size && `what was offered for ${filled.specs.size} item${filled.specs.size === 1 ? '' : 's'}`].filter(Boolean)
+  // A scan's words may be misread, so what was offered is never filled from one (lib/rfq.js matchRfq).
+  const offers = filled.ocr && 'Offered specifications are not read from a scan or photo: type what the supplier wrote for each item, or leave it blank for As specified.'
   if (!parts.length) {
-    return <p className="text-[11px] text-[--color-text-muted]">{filled.unsure ? `No price could be read for sure from this ${from}.` : 'Nothing more to fill in from this file.'} Type the quotation from it.</p>
+    return <p className="text-[11px] text-[--color-text-muted]">{filled.unsure ? `No price could be read for sure from this ${from}.` : 'Nothing more to fill in from this file.'} Type the quotation from it.{offers && ` ${offers}`}</p>
   }
   return (
     <div className="space-y-1 rounded-lg border border-[--color-brand] bg-[--color-brand-light] px-3 py-2 text-[11px] text-[--color-text-primary]">
@@ -54,6 +56,7 @@ function ReadNote({ reading, unreadable, filled, total, prNumber }) {
         Filled in from the RFQ: {parts.join(', ').replace(/, ([^,]*)$/, ' and $1')}. Check each against the {from} beside this form.</p>
       {filled.check.size > 0 && <p className="pl-5 text-amber-800">{filled.check.size} marked in amber {filled.check.size === 1 ? "doesn't" : "don't"} agree with the total or quantity on its row.</p>}
       {filled.unsure > 0 && <p className="pl-5 text-[--color-text-secondary]">{filled.unsure} more could not be read for sure from the {from}; type {filled.unsure === 1 ? 'it' : 'them'}.</p>}
+      {offers && <p className="pl-5 text-[--color-text-secondary]">{offers}</p>}
     </div>
   )
 }

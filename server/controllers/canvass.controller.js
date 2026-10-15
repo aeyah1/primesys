@@ -10,7 +10,7 @@ const { notifyBac } = require('../utils/bacWorkflow')
 const { notifyAreaReviewers } = require('../utils/twgAreas')
 const { prName } = require('../utils/requesterNotice')
 const { RE_PR_TYPES, sendRePr, returnRePr } = require('../utils/rePr')
-const { biddersOf, lotsOf, recommendedOf, saveBids, removeBidder, sendBlock, sendToTwg, awardBids, reopenCanvass, awardDocumentOf } = require('../utils/canvassBids')
+const { biddersOf, lotsOf, recommendedOf, twgSkipped, saveBids, removeBidder, sendBlock, sendToTwg, sendToAward, awardBids, reopenCanvass, awardDocumentOf } = require('../utils/canvassBids')
 
 // The canvass of one PR
 // The canvass is done outside the system: once the TWG approves the request,
@@ -19,9 +19,9 @@ const { biddersOf, lotsOf, recommendedOf, saveBids, removeBidder, sendBlock, sen
 // gives the returned RFQs to the BAC. The BAC types in each supplier's
 // quotation with its RFQ file (utils/canvassBids.js) and sends them to the
 // TWG, which marks each bid compliant or not and certifies them, or orders
-// a re-canvass when no offer for a lot is compliant; the BAC then picks
-// each lot's winner and awards. An item no supplier offers is dropped from
-// the procurement.
+// a re-canvass when no offer for a lot is compliant, or (the TWG is optional)
+// straight to the award; the BAC then picks each lot's winner and awards. An
+// item no supplier offers is dropped from the procurement.
 
 const STAFF = ['procurement', 'admin']
 const BAC   = ['bac']
@@ -38,6 +38,7 @@ exports.summary = asyncHandler(async (req, res) => {
   const start = staff && pr.status === 'twg_review'
   const bidders = await biddersOf(pool, pr.id)
   const blocked = bidding ? await sendBlock(pool, pr) : null
+  const skipped = pr.status === 'bac_review' && await twgSkipped(pool, pr.id)
   const [picks] = await pool.execute('SELECT id, winner_bidder_id, winner_reason FROM pr_items WHERE pr_id = ?', [pr.id])
   const [[rePr]] = await pool.execute('SELECT re_pr_type, re_pr_reason, re_pr_note FROM purchase_requests WHERE id = ?', [pr.id])
   res.json({
@@ -51,10 +52,12 @@ exports.summary = asyncHandler(async (req, res) => {
     // The items by lot, each lot going to one supplier: the system recommends the lowest compliant total of its items still to award.
     lots: lotsOf(items).map(l => {
       const open = l.items.filter(i => i.state === 'pending')
-      return { label: l.label, name: l.name, item_ids: l.items.map(i => i.id), recommended_bidder_id: recommendedOf(open, bidders)?.id ?? null }
+      return { label: l.label, name: l.name, item_ids: l.items.map(i => i.id), recommended_bidder_id: recommendedOf(open, bidders, { checked: !skipped })?.id ?? null }
     }),
-    // Why the canvass can't go to the TWG yet, for the BAC while it is in canvass.
+    // Why the canvass can't go to the TWG or its award yet, for the BAC while it is in canvass.
     send_blocked: blocked?.message ?? null,
+    // Waiting for the award without the TWG's evaluation (sent straight from the canvass).
+    twg_skipped: skipped,
     whole_award: wholeAward,
     // While the BAC awards: whether the award goes in a BAC Resolution or on the Abstract alone, with the approved budget and threshold.
     award_document: awarding ? await awardDocumentOf(pool, pr.id) : null,
@@ -70,7 +73,7 @@ exports.summary = asyncHandler(async (req, res) => {
     permissions: {
       start,
       bid:     bidding,                      // entering and removing the quotations
-      send:    bidding && !blocked,          // sending the canvass to the TWG
+      send:    bidding && !blocked,          // sending the canvass to the TWG, or straight to the award
       award:   awarding,                     // picking each lot's winner, or taking the canvass back
       drop:    bidding || awarding,
       restore: bidding || (staff && pr.status === 'for_po'),
@@ -166,13 +169,16 @@ exports.removeBidder = asyncHandler(async (req, res) => {
   res.json({ message: 'Quotation removed', bidders: await biddersOf(pool, req.params.prId) })
 })
 
-// POST /canvass/:prId/send - the BAC sends the complete canvass to the TWG for its evaluation.
+// POST /canvass/:prId/send - { to: 'twg' (default) | 'award' }: the BAC sends the complete canvass to the TWG for its
+// evaluation, or straight to its award when its items need none.
 exports.send = asyncHandler(async (req, res) => {
+  const toAward = req.body.to === 'award'
   const pr = await withTransaction(async (conn) => {
     const pr = await loadPR(conn, req.params.prId, { lock: true })
-    await sendToTwg(conn, pr, req.user)
+    await (toAward ? sendToAward : sendToTwg)(conn, pr, req.user)
     return pr
   })
+  if (toAward) return res.json({ message: 'Ready for the award' })
   await notifyAreaReviewers(req.io, pr, { certify: true })
   res.json({ message: 'Sent to the TWG for evaluation' })
 })

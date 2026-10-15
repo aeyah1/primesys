@@ -7,11 +7,11 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
 import { fmtCurrency } from '@/lib/utils'
-import { useConfirm } from '@/components/shared/ConfirmDialog'
 import api from '@/lib/axios'
 import { lineCents, totalOf, lotsWithItems, useRefreshAwards } from './supplier'
 import BidsTable from './BidsTable'
 import CanvassFiles from './CanvassFiles'
+import AwardReviewDialog from './AwardReviewDialog'
 import { DropItemDialog } from './CanvassPanel'
 
 const TEXTAREA = 'w-full rounded-md border border-[--color-border] bg-[--color-surface] px-3 py-2 text-sm text-[--color-text-primary] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent resize-y'
@@ -28,7 +28,7 @@ function ReopenDialog({ prId, onClose }) {
   return (
     <Dialog open onOpenChange={v => { if (!v) onClose() }}>
       <DialogContent title="Take the Canvass Back"
-        description="The bids can be corrected, or new suppliers' quotations added, then the canvass goes back to the TWG. Bids left unchanged keep the TWG's marks.">
+        description="The bids can be corrected, or new suppliers' quotations added, then the canvass is sent on again, to the TWG or straight to the award. Bids left unchanged keep the TWG's marks.">
         <div className="space-y-1.5">
           <Label>Reason <span className="text-red-600 text-xs">*</span></Label>
           <textarea value={reason} onChange={e => setReason(e.target.value)} rows={3} maxLength={500} autoFocus className={TEXTAREA}
@@ -43,26 +43,27 @@ function ReopenDialog({ prId, onClose }) {
   )
 }
 
-/* The BAC's award once the TWG has certified the bids, a lot at a time: each
+/* The BAC's award once the TWG has certified the bids (or the canvass came
+   straight to the award, canvass.twg_skipped), a lot at a time: each
    lot goes to one supplier that bid on all of it. The system recommends the
-   lowest total of the bidders the TWG found compliant on the whole lot and
+   lowest total of the bidders the TWG found compliant on the whole lot (without the TWG, of all of them) and
    picks it to start with; the BAC may pick another compliant one (a reason is optional,
    and is noted on the award), never one the TWG found non-compliant on an item of the lot.
    A lot's award can't exceed its approved budget.
-   Award adopts a BAC Resolution, or below the resolution threshold records the
+   Award opens the review (AwardReviewDialog); confirming adopts a BAC Resolution, or below the resolution threshold records the
    award on the Abstract alone (canvass.award_document); the request is then Ready for PO.
    pr: { id }; canvass: GET /canvass/:prId. */
 export default function BacAwardSheet({ pr, canvass }) {
   const prId = String(pr.id)
-  const confirm = useConfirm()
   const refresh = useRefreshAwards(prId)
-  const { bidders, award_document: doc } = canvass
+  const { bidders, award_document: doc, twg_skipped: skipped } = canvass
   const lots = lotsWithItems(canvass).map(l => ({ ...l, pending: l.items.filter(i => i.state === 'pending') })).filter(l => l.pending.length)
   const [picks, setPicks] = useState(() => Object.fromEntries(lots.map(l => [l.label, l.recommended_bidder_id])))
   const [reasons, setReasons] = useState({})
   const [notes, setNotes] = useState('')
   const [dropping, setDropping] = useState(null)
   const [reopening, setReopening] = useState(false)
+  const [reviewing, setReviewing] = useState(false)
 
   // Each lot's pick, its total, its budget (as the server checks them), the item the TWG found the pick
   // non-compliant on, and the bids that could be awarded it: those on the whole lot, compliant, within its
@@ -83,7 +84,9 @@ export default function BacAwardSheet({ pr, canvass }) {
   const over = chosen.find(c => c.bidder && c.over)
   const block = (unpicked && (unpicked.lot.recommended_bidder_id
       ? `Pick the supplier of ${unpicked.lot.name}, or drop its items if no bid can be awarded.`
-      : `No supplier is compliant on all of ${unpicked.lot.name}. Drop a non-compliant item, or take it back to the canvass for new quotations.`))
+      : skipped
+        ? `No supplier can be awarded all of ${unpicked.lot.name}. Drop an item, or take it back to the canvass for new quotations.`
+        : `No supplier is compliant on all of ${unpicked.lot.name}. Drop a non-compliant item, or take it back to the canvass for new quotations.`))
     || (failing && `The TWG found ${failing.bidder.name}'s offer for "${failing.failed.item_name}" non-compliant, so it can't be awarded ${failing.lot.name}. Pick a compliant supplier, drop the item, or take it back to the canvass.`)
     || (over && (over.within.length
       ? `${over.bidder.name}'s total for ${over.lot.name} is above its approved budget. Pick a bid within it, such as ${over.within[0].b.name} (${fmtCurrency(over.within[0].total / 100)}).`
@@ -134,7 +137,7 @@ export default function BacAwardSheet({ pr, canvass }) {
       winners: chosen.map(c => ({ lot: c.lot.label, bidder_id: c.bidder.id, reason: reasons[c.lot.label]?.trim() || undefined })),
       notes: notes.trim() || undefined,
     }),
-    onSuccess: ({ data }) => { toast.success(data.message); refresh() },
+    onSuccess: ({ data }) => { toast.success(data.message); setReviewing(false); refresh() },
     onError: (err) => toast.error(err.response?.data?.message || 'The award could not be made'),
   })
 
@@ -145,7 +148,9 @@ export default function BacAwardSheet({ pr, canvass }) {
           <h3 className="text-ui-sm font-bold uppercase tracking-wide text-[--color-text-secondary]">Pick each lot's winner</h3>
           <p className="text-xs text-[--color-text-secondary]">
             Each lot goes to one supplier that bid on all of it. <Star className="inline size-3 -mt-0.5 fill-amber-400 text-amber-500" /> marks
-            the system's recommendation, the lowest total of the bidders compliant on the whole lot. You may pick any of them, but not a supplier the TWG found non-compliant on an item of the lot.
+            {skipped
+              ? ' the system\'s recommendation, the lowest total. The TWG did not evaluate these bids, so you may pick any supplier that bid on the whole lot.'
+              : ' the system\'s recommendation, the lowest total of the bidders compliant on the whole lot. You may pick any of them, but not a supplier the TWG found non-compliant on an item of the lot.'}
           </p>
           <BidsTable canvass={canvass} pick={picks} onPick={(lot, id) => setPicks(x => ({ ...x, [lot.label]: id }))} lotNote={lotNote}
             action={(i) => i.state === 'pending' && (
@@ -188,18 +193,18 @@ export default function BacAwardSheet({ pr, canvass }) {
           <Button variant="secondary" className="gap-1.5" disabled={isPending} onClick={() => setReopening(true)}>
             <Undo2 className="size-3.5" /> Take back to the canvass
           </Button>
-          <Button className="gap-1.5" disabled={isPending || !!block}
-            onClick={async () => {
-              const on = doc?.kind === 'abstract' ? 'recorded on the Abstract of sealed Quotations' : 'adopted in a BAC Resolution'
-              if (await confirm({ title: 'Award the canvass?', message: `The winners are ${on} and Procurement issues the purchase orders.`, confirmLabel: 'Award' })) award()
-            }}>
-            <CheckCircle2 className="size-3.5" /> {isPending ? 'Awarding…' : 'Award'}
+          <Button className="gap-1.5" disabled={isPending || !!block} onClick={() => setReviewing(true)}>
+            <CheckCircle2 className="size-3.5" /> Review and award
           </Button>
         </div>
       </section>
 
       {dropping && <DropItemDialog prId={prId} item={dropping} onClose={() => setDropping(null)} />}
       {reopening && <ReopenDialog prId={prId} onClose={() => setReopening(false)} />}
+      {reviewing && !block && (
+        <AwardReviewDialog prId={prId} chosen={chosen} reasons={reasons} notes={notes} doc={doc} skipped={skipped}
+          pending={isPending} onConfirm={() => award()} onClose={() => setReviewing(false)} />
+      )}
     </div>
   )
 }

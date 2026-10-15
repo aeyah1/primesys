@@ -1041,10 +1041,10 @@ export default function PRDetail() {
                 <p className="text-xs text-[--color-text-secondary] mt-0.5">
                   {pr.status === 'bidding' ? 'In canvass: the BAC enters the bids from the canvasser\'s returned RFQs.'
                     : pr.status === 'twg_certification' ? 'With the TWG, which checks every bid and certifies them.'
-                    : pr.status === 'bac_review' ? 'Certified by the TWG; the BAC picks the winners.'
+                    : pr.status === 'bac_review' ? 'Ready for the award; the BAC picks the winners.'
                     : pr.status === 're_pr' ? 'Every supplier was DQ. The TWG proposed a Re-PR; the BAC checks it on the canvass page.'
                     : pr.status === 'cancelled' ? 'The canvass record is kept.'
-                    : 'Certified. The winners and the BAC Resolution are on the canvass page.'}
+                    : 'Awarded. The winners and the BAC Resolution are on the canvass page.'}
                 </p>
               </div>
             </div>

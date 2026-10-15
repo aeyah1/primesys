@@ -97,7 +97,9 @@ export default function BacPanel({ prId, part = 'status' }) {
       {data.status === 'bac_review' && (
         <p className="flex items-center gap-2 rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
           <ShieldCheck className="size-4 shrink-0" />
-          <span><span className="font-semibold">Certified by the TWG.</span> The BAC picks each lot's winner; the system recommends the lowest compliant total.</span>
+          {data.twg_skipped
+            ? <span><span className="font-semibold">Ready for the award, without the TWG.</span> The BAC picks each lot's winner; the system recommends the lowest total.</span>
+            : <span><span className="font-semibold">Certified by the TWG.</span> The BAC picks each lot's winner; the system recommends the lowest compliant total.</span>}
         </p>
       )}
     </div>
