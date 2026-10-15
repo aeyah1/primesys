@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Ban, Undo2, Plus, Pencil, Trash2, Send, AlertTriangle, FileText } from 'lucide-react'
+import { Ban, Undo2, Plus, Pencil, Trash2, Send, Gavel, AlertTriangle, FileText } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import { fmtCurrency } from '@/lib/utils'
@@ -18,8 +18,8 @@ const ICON = 'p-1.5 rounded-lg text-[--color-text-muted] transition-colors'
    one at a time from its returned RFQ (QuotationForm), listed with its file,
    how many items it quoted and its total; the system compares them lot by lot
    (BidsTable). Send to the TWG hands the complete canvass over for its
-   evaluation; the winners are picked once the TWG has certified the bids
-   (BacAwardSheet). pr: { id }; canvass: GET /canvass/:prId. */
+   evaluation (optional: needed for items like IT equipment); Go to award skips it.
+   The winners are picked next (BacAwardSheet). pr: { id }; canvass: GET /canvass/:prId. */
 export default function BacBidSheet({ pr, canvass }) {
   const prId = String(pr.id)
   const qc = useQueryClient()
@@ -48,8 +48,13 @@ export default function BacBidSheet({ pr, canvass }) {
     catch (err) { toast.error(err.response?.data?.message || 'Failed to bring the item back') }
   }
   const { mutate: send, isPending: sending } = useMutation({
-    mutationFn: () => api.post(`/canvass/${prId}/send`),
-    onSuccess: ({ data }) => { toast.success(data.message, { description: 'The TWG marks each bid compliant or not, then certifies them or orders a re-canvass; then you pick the winners.' }); refresh() },
+    mutationFn: (to) => api.post(`/canvass/${prId}/send`, { to }),
+    onSuccess: ({ data }, to) => {
+      toast.success(data.message, { description: to === 'award'
+        ? 'Pick each lot\'s winner, then review the award before you confirm it.'
+        : 'The TWG marks each bid compliant or not, then certifies them or orders a re-canvass; then you pick the winners.' })
+      refresh()
+    },
     onError: (err) => { toast.error(err.response?.data?.message || 'The canvass could not be sent'); qc.invalidateQueries({ queryKey: ['canvass', prId] }) },
   })
 
@@ -134,13 +139,19 @@ export default function BacBidSheet({ pr, canvass }) {
         <p className="mr-auto flex items-center gap-1.5 text-xs text-[--color-text-secondary]">
           {sendBlock
             ? <><AlertTriangle className="size-3.5 shrink-0 text-amber-600" /> <span className="text-amber-700">{sendBlock}</span></>
-            : 'The canvass is complete. The TWG checks every bid next; you pick each lot\'s winner once it has certified them.'}
+            : 'The canvass is complete. Send it to the TWG when its items need a technical evaluation (such as IT equipment), or go straight to the award.'}
         </p>
+        <Button variant="outline" className="gap-1.5" disabled={sending || !!editing || !!sendBlock}
+          onClick={async () => {
+            if (await confirm({ title: 'Send the canvass to the TWG?', message: 'The quotations lock while the TWG checks each bid for compliance and certifies them.', confirmLabel: 'Send to the TWG' })) send('twg')
+          }}>
+          <Send className="size-3.5" /> Send to the TWG
+        </Button>
         <Button className="gap-1.5" disabled={sending || !!editing || !!sendBlock}
           onClick={async () => {
-            if (await confirm({ title: 'Send the canvass to the TWG?', message: 'The quotations lock while the TWG checks each bid for compliance and certifies them.', confirmLabel: 'Send to the TWG' })) send()
+            if (await confirm({ title: 'Go to the award without the TWG?', message: 'The quotations lock and you pick each lot\'s winner next. No TWG certificate is issued for these bids.', confirmLabel: 'Go to award' })) send('award')
           }}>
-          <Send className="size-3.5" /> {sending ? 'Sending…' : 'Send to the TWG'}
+          <Gavel className="size-3.5" /> {sending ? 'Sending…' : 'Go to award'}
         </Button>
       </section>
 

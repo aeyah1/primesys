@@ -148,19 +148,19 @@ const SLIDES = {
       logo: true,
       color: 'from-indigo-400 to-blue-400',
       title: 'Welcome to PRimeSys!',
-      body:  "You're logged in as a member of the Bids and Awards Committee. You enter the bids from the canvasser's returned RFQs for the TWG to check, then pick the winners and award them in a BAC Resolution.",
+      body:  "You're logged in as a member of the Bids and Awards Committee. You enter the bids from the canvasser's returned RFQs, send them to the TWG when the items need its check, then pick the winners and award them in a BAC Resolution.",
     },
     {
       Icon:  ClipboardCheck,
       color: 'from-amber-400 to-orange-400',
       title: 'For Evaluation',
-      body:  'Requests in canvass wait under For Evaluation, right below your Dashboard. Open one and add each supplier\'s quotation: attach its returned RFQ, then type the supplier, the RFQ No. and its prices. Then send it to the TWG.',
+      body:  'Requests in canvass wait under For Evaluation, right below your Dashboard. Open one and add each supplier\'s quotation: attach its returned RFQ, then type the supplier, the RFQ No. and its prices. Then send it to the TWG, or go straight to the award.',
     },
     {
       Icon:  CheckCircle,
       color: 'from-emerald-400 to-teal-400',
       title: 'Pick and Award',
-      body:  'Once the TWG certifies the bids, the request comes back to you. Each lot goes to one supplier: the system recommends the lowest compliant total; you may pick any compliant supplier. Click Award: the winners are adopted in a numbered BAC Resolution.',
+      body:  'Once the TWG certifies the bids, or right after Go to award, the request is ready for your award. Each lot goes to one supplier: the system recommends the lowest total of the compliant bids; you may pick any of them. Click Review and award, check every lot, then Confirm award: the winners are adopted in a numbered BAC Resolution.',
     },
     {
       Icon:  Download,

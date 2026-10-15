@@ -4,7 +4,7 @@ const { canvassersOf } = require('../utils/orgSettings')
 const { lotsOf, COLS, SEAL, REQUEST_TEXT, NOTES, TERMS, ACCEPT_TEXT, ADDRESSEE, amount, qty } = require('./requestForQuotation')
 
 // The Request for Quotation as a Word document: the same form as requestForQuotation.js (one page per lot, the
-// letterhead, the item table with its two price columns left blank, the supplier's terms and the canvassers), to
+// letterhead, the item table with its offer and price columns left blank, the supplier's terms and the canvassers), to
 // edit or print where the PDF can't be opened. Letter, the PDF's 56 pt margins; its column widths in twips.
 
 const MARGIN = 56 * 20
@@ -55,24 +55,25 @@ function lotBody({ pr, org, lot }) {
   ] }], { widths: [1800, FULL - 4400, 2600], borders: false }))
   out.push(gap(8))
 
-  // The items: section headings, then each item's name and specifications; the price columns stay empty.
+  // The items: section headings, then each item's name and specifications; the offer and price columns stay empty.
   const cell = (text, align = 'center', opts = {}) => ({ content: p(text, { align, size: 9, ...opts }) })
+  const blanks = (from) => COLS.slice(from).map(() => cell(''))
   const rows = [{ header: true, cells: COLS.map(c => ({ content: p(c.header, { align: 'center', b: true, size: 8.5 }) })) }]
   let section = null, no = 0, lines = 0
   for (const item of lot.items) {
     const label = (item.group_label || '').trim()
     if (label && label !== section) {
       section = label
-      rows.push({ cells: [cell(''), cell(label.toUpperCase(), 'left', { b: true }), cell(''), cell(''), cell(''), cell('')] })
+      rows.push({ cells: [cell(''), cell(label.toUpperCase(), 'left', { b: true }), ...blanks(2)] })
       lines += 1
     }
     const desc = [p(item.item_name || '', { b: true, i: true, size: 9 })]
     if (item.notes) desc.push(p(item.notes, { size: 9 }))
-    rows.push({ cells: [cell(String(++no)), { content: desc, vAlign: 'top' }, cell(qty(item.quantity)), cell(item.unit || ''), cell(''), cell('')] })
+    rows.push({ cells: [cell(String(++no)), { content: desc, vAlign: 'top' }, cell(qty(item.quantity)), cell(item.unit || ''), ...blanks(4)] })
     lines += 1 + (item.notes ? String(item.notes).split(/\r?\n/).length : 0)
   }
   for (; lines < MIN_LINES; lines++) rows.push({ height: 260, cells: COLS.map(() => cell('')) })
-  rows.push({ cells: [cell(''), cell(`ABC : ${amount(lot.abc)}`, 'left', { b: true }), cell(''), cell(''), cell(''), cell('')] })
+  rows.push({ cells: [cell(''), cell(`ABC : ${amount(lot.abc)}`, 'left', { b: true }), ...blanks(2)] })
   rows.push({ cells: [{ span: COLS.length, content: p(`Purpose: ${pr.title || pr.purpose || ''}`, { b: true, size: 9 }) }] })
   out.push(table(rows, { widths: WIDTHS }))
   out.push(gap(8))

@@ -149,7 +149,7 @@ async function run() {
                    '4. Price validity shall be for a period of', '5. G-EPS Registration Certificate']) {
     t.check('The request', `note "${n.slice(0, 26)}..."`, has(p1, n))
   }
-  for (const h of ['ITEM NO.', 'ITEM & DESCRIPTION', 'QTY', 'UNIT', 'AMOUNT']) {
+  for (const h of ['ITEM', 'NO.', 'ITEM & DESCRIPTION', 'QTY', 'UNIT', 'OFFERED', 'SPECIFICATION', 'AMOUNT']) {
     t.check('The request', `column header "${h}"`, has(p1, h))
   }
   for (const f of ['Delivery Period:', 'Warranty:', 'Price Validity:', 'Printed Name/Signature', 'Tel No./Cellphone No./Email Add']) {
@@ -268,6 +268,9 @@ async function run() {
   t.check(D, 'special characters are kept, escaped', xml.includes('Folder &amp; clip &lt;long&gt;'), (xml.match(/Folder[^<]{0,30}/) || [])[0])
   t.check(D, 'the ABC of each lot', words.includes('ABC : 70,000.00') && words.includes('ABC : 98,980.00'))
   t.check(D, 'the prices are left for the supplier', !words.includes('17,500.00') && !words.includes('45,000.00'))
+  t.check(D, 'a column for what the supplier offers', words.includes('OFFERED') && words.includes('SPECIFICATION'))
+  t.check(D, 'every row has a cell under each column', (xml.match(/<w:tr[ >][\s\S]*?<\/w:tr>/g) || []).filter(r => /ABC : |Window 1</.test(r))
+    .every(r => (r.match(/<w:tc>/g) || []).length === drawRFQ.COLS.length))
   t.check(D, 'the purpose, terms, acceptance and signature lines', ['Purpose: Office Use of the Department of Computer Studies', 'Delivery Period:', 'Price Validity:', 'After having carefully read', 'Printed Name/Signature'].every(x => words.includes(x)))
   t.check(D, 'the canvasser', words.includes('PEDRO B. REYES'))
   const many = unzip(rfqDocx({ pr: PR, orgSettings: { ...ORG, canvassers: JSON.stringify(['A', 'B', 'C', 'D'].map(n => ({ name: `CANVASSER ${n}`, designation: 'Canvasser' }))) }, items: BLINDS }))
