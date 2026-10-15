@@ -11,7 +11,7 @@ import { awardRecordName } from '@/components/awards/supplier'
 import api from '@/lib/axios'
 
 // What the BAC does next with a request in its queue.
-const nextStep = (row) => row.status === 'bac_review' ? 'Certified by the TWG: pick the winners'
+const nextStep = (row) => row.status === 'bac_review' ? 'Ready for the award: pick the winners'
   : row.status === 're_pr' ? 'Re-PR proposed by the TWG: check it'
   : row.recanvass_reason ? 'Re-canvass ordered by the TWG: enter the new quotations'
   : row.certification_return_reason ? 'Returned by the TWG: correct the bids'
@@ -36,14 +36,14 @@ export default function BacDashboard() {
 
   return (
     <div className="space-y-6">
-      <DashboardHeader sub="Enter the bids from the returned RFQs and send them to the TWG; once the TWG certifies them, pick the winners.">
+      <DashboardHeader sub="Enter the bids from the returned RFQs, send them to the TWG when the items need its check, and pick the winners.">
         <Button asChild className="gap-2"><Link to="/bac"><Scale className="size-4" /> For Evaluation</Link></Button>
       </DashboardHeader>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 card-grid">
         <StatLink to="/bac" title="In Canvass" value={stats?.bidding ?? 0} icon={Scale} color="amber" sub="bids to enter or correct" />
         <StatLink to="/pr?status=twg_certification" title="With the TWG" value={stats?.twg_certification ?? 0} icon={ClipboardCheck} color="teal" sub="checking the offers" />
-        <StatLink to="/bac" title="Awards to Make" value={stats?.bac_review ?? 0} icon={Trophy} color="brand" sub="certified by the TWG" />
+        <StatLink to="/bac" title="Awards to Make" value={stats?.bac_review ?? 0} icon={Trophy} color="brand" sub="ready for the award" />
         <StatLink to="/bac" title="Awards" value={pending?.counts?.approved ?? 0} icon={FileText} color="green" sub="made so far" />
       </div>
 

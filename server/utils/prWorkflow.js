@@ -65,7 +65,7 @@ const TRANSITIONS = {
   revision_requested: { submitted: { roles: EDITORS, owner: true }, cancelled: { roles: ADMIN } },
   twg_review:         { bidding: { via: 'canvass' }, revision_requested: { roles: STAFF, reason: true },
                         cancelled: { roles: STAFF } },
-  bidding:            { twg_certification: { via: 'bac' }, for_po: { via: 'award' },
+  bidding:            { twg_certification: { via: 'bac' }, bac_review: { via: 'bac' }, for_po: { via: 'award' },
                         revision_requested: { roles: STAFF, reason: true, noAward: true },
                         cancelled: { roles: STAFF, noPO: true } },
   twg_certification:  { bac_review: { via: 'twg' }, bidding: { via: 'twg' }, re_pr: { via: 'twg' }, cancelled: { roles: ADMIN, noPO: true } },
