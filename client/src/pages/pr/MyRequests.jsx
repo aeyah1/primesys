@@ -15,7 +15,7 @@ const STEP_HELP = [
   'You describe what you need and submit it to the TWG.',
   'The Technical Working Group checks the specifications and may ask for changes.',
   'Procurement gives the Request for Quotation (RFQ) to the canvasser, who collects suppliers\' prices; the BAC enters them.',
-  'The TWG checks every offer against your specifications. If none fits, it orders a re-canvass or a Re-PR.',
+  'When needed (such as for IT equipment), the TWG checks every offer against your specifications. If none fits, it orders a re-canvass or a Re-PR.',
   'The Bids and Awards Committee chooses the supplier of each lot.',
   'Procurement issues the purchase order to the supplier.',
   'The Supply Office receives the items, and your request is done.',

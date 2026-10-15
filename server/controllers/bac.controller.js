@@ -16,6 +16,7 @@ const drawTwgCertificate = require('../pdf/twgCertificate')
 const drawTwgReviewCertificate = require('../pdf/twgReviewCertificate')
 const { suggestCertNo, certificateOf } = require('../utils/twgCertificate')
 const { resolutionOf, noticeFor, drawOf, noticeLeads } = require('../utils/awardNotice')
+const { twgSkipped }   = require('../utils/canvassBids')
 
 // The Bids and Awards Committee's work
 // The BAC enters the canvass bids, sends them to the TWG, and once the TWG has
@@ -92,6 +93,8 @@ exports.summary = asyncHandler(async (req, res) => {
     // Why the TWG returned the canvass or ordered a re-canvass, while the BAC has it again.
     certification_return_reason: live && pr.status === 'bidding' ? extra.certification_return_reason : null,
     recanvass_reason: live && pr.status === 'bidding' ? extra.recanvass_reason : null,
+    // Waiting for the award without the TWG's evaluation.
+    twg_skipped: live && pr.status === 'bac_review' && await twgSkipped(pool, pr.id),
     resolutions: resolutions.map(r => {
       const theirs = lots.filter(l => l.resolution_id === r.id)
       return {

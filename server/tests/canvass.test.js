@@ -32,7 +32,7 @@ function fixtures() {
     ${H.twgAreas([5])}
     INSERT INTO purchase_requests (id, pr_number, title, status, created_by, category, mode_of_procurement) VALUES
       ${P(80, 'bidding')}, ${P(81, 'twg_review')}, ${P(82, 'bidding', "'Shopping'")}, ${P(83, 'bidding', "'Shopping'")}, ${P(84, 'bidding', "'Shopping'")},
-      ${P(85, 'bidding', "'Shopping'")};
+      ${P(85, 'bidding', "'Shopping'")}, ${P(86, 'bidding', "'Shopping'")};
     INSERT INTO pr_items (id, pr_id, group_label, item_name, quantity, unit, estimated_cost) VALUES
       (801, 80, 'LOT 1', 'Laptop', 2, 'unit', 45000), (802, 80, 'Lot 1 ', 'Mouse', 4, 'pc', 500),
       (803, 80, 'LOT 2', 'Printer', 1, 'unit', 12000), (804, 80, 'LOT 3', 'Projector', 1, 'unit', 30000),
@@ -40,6 +40,7 @@ function fixtures() {
       (821, 82, NULL, 'Chair', 10, 'pc', 2500), (822, 82, NULL, 'Table', 2, 'pc', 8000),
       (831, 83, NULL, 'Cabinet', 1, 'unit', 9000),
       (841, 84, NULL, 'Speaker', 1, 'unit', 2000), (842, 84, NULL, 'Microphone', 1, 'unit', 1000),
+      (861, 86, NULL, 'Ballpen', 10, 'box', 300), (862, 86, NULL, 'Folder', 20, 'pc', 15),
       (851, 85, NULL, 'Bond paper', 10, 'ream', 250), (852, 85, NULL, 'Specialty paper', 5, 'ream', 400);
     SET FOREIGN_KEY_CHECKS = 1;
   `
@@ -170,7 +171,7 @@ async function run() {
   await is(G1, 'the bids can\'t change meanwhile → 409', 6, 'PUT', '/canvass/80/bids', sheet(BIDS), code(409, /in canvass/))
   await is(G1, '…nor a quotation be removed → 409', 6, 'DELETE', `/canvass/80/bidders/${ids.Gamma}`, undefined, code(409, /in canvass/))
   await is(G1, '…nor an item be dropped → 409', 6, 'POST', '/canvass/80/items/804/drop', { reason: 'x' }, code(409))
-  await is(G1, '…nor anything awarded → 409', 6, 'POST', '/canvass/80/award', { winners: [] }, code(409, /once the TWG has certified/))
+  await is(G1, '…nor anything awarded → 409', 6, 'POST', '/canvass/80/award', { winners: [] }, code(409, /certified by the TWG or sent straight to the award/))
 
   // The TWG evaluates every bid and certifies
   const G3 = 'TWG evaluation'
@@ -509,6 +510,29 @@ async function run() {
   await is(G11, '…nothing left for the BAC to send → 409', 6, 'POST', '/canvass/85/re-pr', { action: 'send' }, code(409, /No Re-PR waits/))
   await is(G11, 'the Archive\'s Re-PR tab lists it alone', 3, 'GET', '/pr?re_pr=1&limit=100', undefined,
     (r) => ok(r) && r.data.data.map(p => p.id).join() === '85' && r.data.data[0].re_pr_count === 1)
+
+  // The TWG is optional: the BAC sends a canvass straight to its award and picks freely, with no compliance marks
+  const G12 = 'Straight to the award'
+  await is(G12, 'two quotations', 6, 'PUT', '/canvass/86/bids', sheet([['Juliet Supply', { 861: 300, 862: 15 }], ['Kilo Trading', { 861: 280, 862: 14 }]]), code(200))
+  await is(G12, '…the returned RFQs attached', 6, 'POST', '/pr/86/attachments', H.canvassScan(), code(201))
+  await is(G12, 'an unknown destination → 400', 6, 'POST', '/canvass/86/send', { to: 'supply' }, code(400, /"twg" or "award"/))
+  await is(G12, 'the BAC sends it straight to the award', 6, 'POST', '/canvass/86/send', { to: 'award' }, code(200))
+  await is(G12, '…logged without the TWG', 6, 'GET', '/pr/86/logs', undefined,
+    (r) => ok(r) && r.data.some(l => l.from_status === 'bidding' && l.to_status === 'bac_review' && /without the TWG's evaluation/.test(l.note)))
+  await is(G12, '…not in the TWG\'s certification queue', 5, 'GET', '/twg/pending?stage=certify', undefined, (r) => ok(r) && !r.data.data.some(p => p.id === 86))
+  await is(G12, '…the End User is told the offers are in', 3, 'GET', '/notifications', undefined,
+    (r) => ok(r) && r.data.some(n => n.message === 'The suppliers\' offers for PR PR-C-86 — Canvass 86 are in. The BAC chooses the suppliers next.'))
+  const cv86 = (await http(6, 'GET', '/canvass/86')).data
+  const K = Object.fromEntries((cv86?.bidders || []).map(b => [b.name.split(' ')[0], b.id]))
+  t.check(G12, 'with no marks, the lowest total is recommended', cv86?.twg_skipped === true && cv86.permissions.award === true && cv86.lots[0].recommended_bidder_id === K.Kilo,
+    JSON.stringify(cv86?.lots))
+  await is(G12, '…and the BAC panel says the TWG was skipped', 6, 'GET', '/bac/86', undefined, (r) => ok(r) && r.data.twg_skipped === true)
+  await is(G12, 'the BAC awards Juliet though Kilo is lower', 6, 'POST', '/canvass/86/award', { winners: [{ lot: '', bidder_id: K.Juliet, reason: 'Faster delivery' }] },
+    (r) => ok(r) && r.data.awards === 1)
+  await is(G12, '…no TWG certificate on the award, the pick noted, ready for its PO', 2, 'GET', '/lots/pr/86', undefined,
+    (r) => ok(r) && r.data.length === 1 && r.data[0].certificate_id === null && r.data[0].certified_at !== null
+           && r.data[0].notes === 'All items: chosen over the recommended lowest bid of Kilo Trading. The BAC\'s reason: Faster delivery')
+  await is(G12, '…Ready for PO', 2, 'GET', '/pr/86', undefined, (r) => ok(r) && r.data.status === 'for_po')
 
   // A cancelled PR
   const G8 = 'Cancelling'

@@ -19,7 +19,7 @@ const CAPTION = /name of supplier\s*\/?\s*company|business address/i
 const LABEL = /^[a-z][\w ./]{0,30}:|^(date|quotation no)\b/i
 const QUOTATION = /quotation\s*no\.?\s*:?\s*([^|]+(?:\|\s*-[^|]*)?)/i
 const quotationOf = (line) => line.match(QUOTATION)?.[1].replace(/\s*\|\s*/g, ' ').trim()
-const HEAD_WORDS = new Set(['item', 'items', 'no', 'description', 'qty', 'quantity', 'unit', 'amount', 'total', 'price', 'cost', 'and'])
+const HEAD_WORDS = new Set(['item', 'items', 'no', 'description', 'qty', 'quantity', 'unit', 'offered', 'specification', 'specifications', 'amount', 'total', 'price', 'cost', 'and'])
 const END = /^(abc|purpose|grand total|total|delivery period|after having)\b/i
 
 // What the supplier typed for a caption: after it on its line (Name of Supplier/Company: X), else above it, as the campus
@@ -46,7 +46,8 @@ function besideDate(lines) {
   return name && !LABEL.test(name) && !CAPTION.test(name) ? name : null
 }
 
-// A table line's cells read from the right: up to two amounts (unit, then total), the quantity and unit, and the description.
+// A table line's cells read from the right: up to two amounts (unit, then total), what was offered, the quantity and unit,
+// and the description (its cells in `texts`).
 function cellsOf(cs) {
   cs = [...cs]
   const amounts = []
@@ -61,15 +62,20 @@ function cellsOf(cs) {
     else if (k < parts.length) cs[cs.length - 1] = parts[0]
     break
   }
+  // The OFFERED SPECIFICATION cell sits right after the quantity and unit, apart or run together ("10 piece").
+  const isUnit = (c) => /^[a-z][a-z./-]*$/i.test(c ?? '')
+  const QTY_UNIT = /^(\d+(?:\.\d+)?)\s+([a-z][a-z./-]*)$/i
+  const offer = QTY_UNIT.test(cs.at(-2) ?? '') || (isUnit(cs.at(-2)) && amount(cs.at(-3) ?? '') != null) ? cs.pop() : null
   let qty = null, unit = null, merged = false
-  const both = cs.at(-1)?.match(/^(\d+(?:\.\d+)?)\s+([a-z][a-z./-]*)$/i)
+  const both = cs.at(-1)?.match(QTY_UNIT)
   if (both) { cs.pop(); qty = Number(both[1]); unit = both[2]; merged = true }
-  else if (cs.length >= 2 && /^[a-z][a-z./-]*$/i.test(cs.at(-1)) && amount(cs.at(-2)) != null) { unit = cs.pop(); qty = amount(cs.pop()) }
-  return { desc: cs.join(' '), qty, unit, amounts, merged }
+  else if (cs.length >= 2 && isUnit(cs.at(-1)) && amount(cs.at(-2)) != null) { unit = cs.pop(); qty = amount(cs.pop()) }
+  return { desc: cs.join(' '), texts: cs, qty, unit, offer, amounts, merged }
 }
 
 // The supplier (name, address, email, phone), the quotation numbers, and the item rows: { no, where (quotation number
-// and lot heading), qty, unit, amounts, lines (its description), near (the text around it, to tell the item by) }.
+// and lot heading), qty, unit, offer, amounts, lines (the cells of its description), near (the text around it, to tell
+// the item by) }.
 export function readRfq(raw) {
   const lines = raw.map(tidy).filter(Boolean)
   const text = lines.join('\n')
@@ -106,9 +112,9 @@ export function readRfq(raw) {
     const around = entries.slice(from, to)
     const loose = around.filter(x => x !== e && x.amounts.length).sort((a, b) => Math.abs(entries.indexOf(a) - i) - Math.abs(entries.indexOf(b) - i))[0]
     return {
-      no: e.no, where: e.where, qty: e.qty, unit: e.unit,
+      no: e.no, where: e.where, qty: e.qty, unit: e.unit, offer: e.offer,
       amounts: e.amounts.length ? e.amounts : loose?.amounts || [],
-      lines: entries.slice(i, to).map(x => x.desc).filter(Boolean),
+      lines: entries.slice(i, to).flatMap(x => x.texts).filter(Boolean),
       near: around.map(x => x.desc).join(' '),
     }
   })
@@ -149,8 +155,9 @@ function lotOf(lots, where) {
 
 // The read rows on the canvass lots ({ label, items }): a row's lot from its quotation number or heading, its item by its
 // number when its words agree, else by its words alone. Gives { prices, specs, check, unsure }: the unit price per item id,
-// what was offered when the supplier wrote words the request doesn't have (`exact` text only, never OCR), the items whose
-// typed price doesn't agree with its row's total or quantity, and the items whose scanned price could not be proved.
+// what was offered (its OFFERED SPECIFICATION cell, and any words the request doesn't have; `exact` text only, never OCR),
+// the items whose typed price doesn't agree with its row's total or quantity, and the items whose scanned price could not
+// be proved.
 export function matchRfq(read, lots, { exact = false } = {}) {
   const all = lots.flatMap(l => l.items)
   const known = new Set(all.flatMap(i => words(`${i.item_name} ${i.notes || ''} ${i.unit || ''} ${Number(i.quantity)}`)))
@@ -166,13 +173,17 @@ export function matchRfq(read, lots, { exact = false } = {}) {
       : free.map(i => ({ i, s: likeness(i, row.near) })).filter(x => x.s >= 0.6).sort((a, b) => b.s - a.s)[0]?.i
     if (!item) continue
     const qty = Number(item.quantity)
+    // An unpriced row with no unit reads its quantity as its only amount ("4 | 1"): that is no price at all.
+    if (total == null && row.qty == null && price === qty) continue
     const adds = (total == null ? qty === 1 : Math.abs(Math.round(qty * price * 100) - Math.round(total * 100)) <= 1) && (row.qty == null || row.qty === qty)
     // OCR can misread a digit or a row, so a scan's price is taken only when its row's total proves it; typed text is taken as written.
     if (!exact && (total == null || !adds)) { out.unsure.push(item.id); continue }
     taken.add(item.id)
     out.prices[item.id] = price
     if (!adds) out.check.add(item.id)
-    const fresh = exact ? row.lines.filter(l => words(l).some(w => !known.has(w))) : []
+    // A unit typed close to the offer reads as one cell with it ("piece Maped 8 in"); the item's own unit goes.
+    const bare = (s) => { const [w, ...rest] = s.split(' '); return rest.length && flat(w) === flat(item.unit) ? rest.join(' ') : s }
+    const fresh = exact ? [row.offer, ...row.lines.filter(l => words(l).some(w => !known.has(w))).map(bare)].filter(Boolean) : []
     if (fresh.length) out.specs[item.id] = fresh.join(' ')
   }
   return out

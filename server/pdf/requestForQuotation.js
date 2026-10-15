@@ -8,9 +8,10 @@ const { drawSignature } = require('../utils/signature')
 // Request for Quotation, drawn as the campus's own form.
 //
 // Sent to at least three suppliers once a PR is approved and under canvass.
-// It lists the items with their quantities but leaves UNIT AMOUNT and TOTAL
-// AMOUNT blank: the supplier writes the prices in, signs, and returns it. Those
-// returned forms are what the Abstract of Quotations compares.
+// It lists the items with their quantities but leaves OFFERED SPECIFICATION,
+// UNIT AMOUNT and TOTAL AMOUNT blank: the supplier writes what it offers and the
+// prices in, signs, and returns it. Those returned forms are what the Abstract of
+// Quotations compares and the TWG checks.
 //
 // One page per LOT, because the campus canvasses a lot at a time (its filled
 // examples are one file per lot). A PR with no sections gets a single page.
@@ -23,15 +24,18 @@ const BLACK = '#000000'
 const LINE  = 0.75
 const SEAL  = path.join(__dirname, '..', 'assets', 'nemsu-seal.png')
 
-// Columns, left to right; they sum to W. The last two are left empty for the
-// supplier to fill in, so they are wide enough to write a peso amount in.
+// Columns, left to right; they sum to W. The last three are left empty for the
+// supplier to fill in: what it offers (brand, model, specifications), and the
+// prices, wide enough to write a peso amount in. The description keeps the room
+// a fourteen-item lot needs to fit its page.
 const COLS = [
-  { header: 'ITEM NO.',           width: 52,  align: 'center' },
-  { header: 'ITEM & DESCRIPTION', width: 216, align: 'left'   },
-  { header: 'QTY',                width: 44,  align: 'center' },
-  { header: 'UNIT',               width: 48,  align: 'center' },
-  { header: 'UNIT\nAMOUNT',       width: 70,  align: 'right'  },
-  { header: 'TOTAL\nAMOUNT',      width: 70,  align: 'right'  },
+  { header: 'ITEM\nNO.',              width: 30,  align: 'center' },
+  { header: 'ITEM & DESCRIPTION',    width: 198, align: 'left'   },
+  { header: 'QTY',                   width: 30,  align: 'center' },
+  { header: 'UNIT',                  width: 38,  align: 'center' },
+  { header: 'OFFERED\nSPECIFICATION', width: 92,  align: 'left'   },
+  { header: 'UNIT\nAMOUNT',          width: 56,  align: 'right'  },
+  { header: 'TOTAL\nAMOUNT',         width: 56,  align: 'right'  },
 ]
 const X = COLS.reduce((acc, c) => [...acc, acc[acc.length - 1] + c.width], [M])
 
@@ -189,7 +193,7 @@ function drawLot(doc, { pr, orgSettings: org, lot, first }) {
     put(String(no),        X[0], top, COLS[0].width, row.height, { align: 'center' })
     put(qty(item.quantity), X[2], top, COLS[2].width, row.height, { align: 'center' })
     put(item.unit || '',    X[3], top, COLS[3].width, row.height, { align: 'center' })
-    // UNIT AMOUNT and TOTAL AMOUNT stay empty: the supplier fills them in.
+    // OFFERED SPECIFICATION, UNIT AMOUNT and TOTAL AMOUNT stay empty: the supplier fills them in.
     const inner = COLS[1].width - PAD * 2
     let ty = top + PAD
     doc.font('Times-BoldItalic').fontSize(FS).fillColor(BLACK).text(String(item.item_name || ''), X[1] + PAD, ty, { width: inner })

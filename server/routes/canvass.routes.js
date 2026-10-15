@@ -8,8 +8,8 @@ const { handle, textRule, oneOfRule, moneyRule } = require('../middleware/valida
 const { PROCUREMENT_MODES } = require('../utils/procurementModes')
 
 // A PR's canvass: Procurement starts it; the BAC enters each supplier's
-// quotation, drops items no supplier offers, sends them to the TWG, and once
-// the TWG has certified them, awards each lot.
+// quotation, drops items no supplier offers, sends them to the TWG (or straight
+// to the award), and once the TWG has certified them, awards each lot.
 // Scoped (C2): 404 unless this user may see the PR.
 router.use(auth)
 const prAccess = requireAccess('pr', 'prId')
@@ -40,7 +40,7 @@ router.post('/:prId/re-pr', bac, prAccess,
   textRule('note', 'Note', 2000),
   handle,
   c.settleRePr)
-router.post('/:prId/send', bac, prAccess, c.send)
+router.post('/:prId/send', bac, prAccess, oneOfRule('to', 'Send it to "twg" or "award"', ['twg', 'award']), handle, c.send)
 router.post('/:prId/award', bac, prAccess,
   body('winners').isArray({ max: 200 }).withMessage('Pick the winners'),
   textRule('winners.*.lot', 'Lot', 255),
