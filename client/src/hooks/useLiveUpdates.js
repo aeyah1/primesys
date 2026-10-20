@@ -61,7 +61,7 @@ export function useLiveUpdates() {
       // type. The type is a severity the server picks freely ('info',
       // 'warning', ...), so switching on it silently stopped matching when
       // those were consolidated, and the lists went stale until refetched.
-      // reference_type is 'pr', 'lot', 'delivery', 'ppmp' or 'account'.
+      // reference_type is 'pr', 'lot', 'delivery', 'ppmp', 'rfqs' or 'account'.
       const id = notification.reference_id ? String(notification.reference_id) : null
       const refresh = (...keys) => keys.forEach(k => qc.invalidateQueries({ queryKey: k }))
 
@@ -83,6 +83,11 @@ export function useLiveUpdates() {
         case 'ppmp':
           refresh(['ppmp-list'], ['ppmp-coverage'])
           if (id) refresh(['ppmp', id])
+          break
+
+        // The BAC opened or locked the RFQ History.
+        case 'rfqs':
+          refresh(['rfq-access'], ['rfqs'])
           break
 
         // The admin changed this account (its office): reload it, and what follows the office.
