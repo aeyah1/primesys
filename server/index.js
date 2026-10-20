@@ -16,6 +16,7 @@ const cron      = require('node-cron')
 const { sendDueReminders } = require('./controllers/reminders.controller')
 const { loadUserState, sessionEnded } = require('./middleware/auth.middleware')
 const { auditTrail, pruneAudit } = require('./utils/audit')
+const { lockWhenDue } = require('./utils/quoteAccess')
 
 const app    = express()
 // Behind a hosting proxy, req.ip must be the visitor's address so rate limits apply per visitor.
@@ -157,6 +158,9 @@ cron.schedule('* * * * *', async () => {
     console.error('[cron] sendDueReminders failed:', err.message)
   }
 })
+
+// The suppliers' RFQs lock again when the time the BAC opened them for runs out (they are refused past it either way).
+cron.schedule('* * * * *', () => lockWhenDue(io).catch(err => console.error('[cron] RFQ lock failed:', err.message)))
 
 // The audit log keeps a year: older entries go each night, and when the server starts (it may sleep through the night).
 const prune = () => pruneAudit().catch(err => console.error('[audit] prune failed:', err.message))

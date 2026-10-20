@@ -1,4 +1,5 @@
 const pool = require('../db/pool')
+const { DURATIONS } = require('./quoteAccess')
 const { deviceLabel } = require('./loginDevices')
 
 // The audit log the admin reads (Audit Log page): one row per change anyone makes and per sign-in event. Changes are
@@ -38,6 +39,7 @@ const ROUTES = {
   'POST /api/canvass/:prId/award':             ['canvass', 'Awarded the winners', 'pr'],
   'POST /api/canvass/:prId/reopen':            ['canvass', 'Took the canvass back', 'pr'],
   'POST /api/canvass/:prId/re-pr':             ['canvass', 'Acted on a proposed Re-PR', 'pr'],
+  'PUT /api/rfqs/access':                      ['canvass', (req) => req.rfqAction || (req.body?.open ? `Tried to open the RFQs${DURATIONS[req.body?.hours] ? ` for ${DURATIONS[req.body.hours]}` : ''}` : 'Tried to lock the RFQs'), null],
   'POST /api/canvass/:prId/items/:itemId/drop':    ['canvass', 'Dropped an item from the canvass', 'pr'],
   'POST /api/canvass/:prId/items/:itemId/restore': ['canvass', 'Restored a dropped item', 'pr'],
   'PATCH /api/lots/:id':                       ['canvass', 'Edited a lot', 'lot'],
