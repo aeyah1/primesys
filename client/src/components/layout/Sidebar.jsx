@@ -3,10 +3,11 @@ import {
   LayoutDashboard, FileText, ShoppingCart,
   Users, ChevronRight, Bell, Archive,
   LogOut, Settings as SettingsIcon, Gavel, AlarmClock, BookOpen,
-  ClipboardCheck, BarChart3, Scale, FilePlus, PackageCheck, Building2, ListChecks, FileBadge, Store, FileStack, ScrollText,
+  ClipboardCheck, BarChart3, Scale, FilePlus, PackageCheck, Building2, ListChecks, FileBadge, Store, FileStack, ScrollText, Lock,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import useSignOut from '@/hooks/useSignOut'
+import useRfqAccess from '@/hooks/useRfqAccess'
 import { cn } from '@/lib/utils'
 
 // One menu per role. Every role starts on its Dashboard; "My Work" holds what it
@@ -22,7 +23,7 @@ const REPORTS       = { to: '/reports',       label: 'Reports',         icon: Ba
 const ARCHIVE       = { to: '/archive',       label: 'Archive',         icon: Archive }
 const CERTIFICATES  = { to: '/certificates',  label: 'Certificates',    icon: FileBadge }
 const SUPPLIERS     = { to: '/suppliers',     label: 'Suppliers',       icon: Store }
-const RFQS          = { to: '/rfqs',          label: 'RFQ History',     icon: FileStack }
+const RFQS          = { to: '/rfqs',          label: 'RFQ History',     icon: FileStack, rfqs: true }
 const ACCOUNT       = { label: 'Account', items: [{ to: '/settings', label: 'Settings', icon: SettingsIcon }] }
 const records       = (...items) => ({ label: 'Records', items })
 
@@ -75,6 +76,10 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
   const { user } = useAuth()
   const signOut = useSignOut()
   const groups = menuFor(user?.role)
+  // Procurement and admins see RFQ History locked until the BAC opens the RFQs.
+  const staffRole = ['procurement', 'admin'].includes(user?.role)
+  const { data: rfqAccess } = useRfqAccess(staffRole)
+  const rfqLocked = staffRole && rfqAccess && !rfqAccess.open
   const location = useLocation()
   const allItems = groups.flatMap(g => g.items)
   const initials = user?.name?.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'U'
@@ -154,6 +159,9 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
                       )} />
                       {!collapsed && (
                         <span className="truncate transition-all duration-200">{item.label}</span>
+                      )}
+                      {!collapsed && item.rfqs && rfqLocked && (
+                        <Lock className="ml-auto size-3.5 shrink-0 opacity-70" aria-label="Locked by the BAC" />
                       )}
                     </>
                   )}
