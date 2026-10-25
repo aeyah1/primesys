@@ -21,6 +21,7 @@ import { fmtDate, fmtCurrency, PR_STATUS_LABELS, RE_PR_TYPES, CATEGORY_FORM, bui
 import { SectionNameInput, SectionHeaderRow } from '@/components/shared/ItemSections'
 import RequestProgress from '@/components/shared/RequestProgress'
 import CategorySpecFields from '@/components/shared/CategorySpecFields'
+import SpecCheck from '@/components/shared/SpecCheck'
 import { RequestContextFields, PurposeTypeBadge, hasRequestContext } from '@/components/shared/RequestContextDisplay'
 import PurchaseOrders from './PurchaseOrders'
 import TwgCertificates from '@/components/awards/TwgCertificates'
@@ -280,6 +281,7 @@ function PRItemsSection({ prId, pr, canEdit, category }) {
                                     {item.notes}
                                   </div>
                                 )}
+                                <SpecCheck pr={pr} item={item} />
                                 {reviewOf.get(item.id)?.line && (
                                   <PpmpLineNote line={reviewOf.get(item.id).line} planned={reviewOf.get(item.id).line.planned}
                                     warnings={reviewOf.get(item.id).warnings} block={canEdit ? reviewOf.get(item.id).problem : null} className="mt-2 font-normal" />
