@@ -12,6 +12,7 @@ const { endSessions, replaceSessions, invalidateUserCache } = require('../middle
 const notify   = require('../utils/notify')
 const { checkSignature, METHODS } = require('../utils/signature')
 const resetPasswordEmail = require('../emails/resetPassword')
+const { hashToken, issueResetToken } = require('../utils/resetLink')
 const loginCodeEmail = require('../emails/loginCode')
 const devices  = require('../utils/loginDevices')
 const accountExistsEmail = require('../emails/accountExists')
@@ -34,14 +35,6 @@ const sign = (user, tokenVersion, sessionKey) => jwt.sign(
   config.jwt.secret,
   { expiresIn: config.jwt.expiresIn, algorithm: 'HS256' }
 )
-
-// A fresh single-use token: the raw value goes in the emailed link, and only
-// its SHA-256 hash is stored.
-function newToken() {
-  const token = crypto.randomBytes(32).toString('hex')
-  return { token, hash: hashToken(token) }
-}
-function hashToken(token) { return crypto.createHash('sha256').update(String(token)).digest('hex') }
 
 // Public sign-up: always a Fund Administrator (role requestor) for one office, waiting for an admin's approval.
 exports.register = async (req, res) => {
@@ -361,15 +354,7 @@ exports.forgotPassword = async (req, res) => {
         [user.id, config.auth.emailCooldownMin]
       )
       if (!recent.n) {
-        const { token, hash } = newToken()
-        await withTransaction(async (conn) => {
-          // Only the newest link works: earlier unused ones are retired.
-          await conn.execute('UPDATE password_reset_tokens SET used = 1 WHERE user_id = ? AND used = 0', [user.id])
-          await conn.execute(
-            'INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES (?, ?, NOW() + INTERVAL 1 HOUR)',
-            [user.id, hash]
-          )
-        })
+        const token = await withTransaction((conn) => issueResetToken(conn, user.id, 1))
         securityLog('password_reset_requested', { userId: user.id, ip: req.ip })
         sendMail({
           to: user.email,
