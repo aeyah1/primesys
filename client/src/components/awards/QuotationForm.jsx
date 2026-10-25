@@ -55,6 +55,7 @@ function ReadNote({ reading, unreadable, filled, total, prNumber }) {
       <p className="flex items-start gap-1.5"><FileCheck className="mt-px size-3.5 shrink-0 text-[--color-brand]" />
         Filled in from the RFQ: {parts.join(', ').replace(/, ([^,]*)$/, ' and $1')}. Check each against the {from} beside this form.</p>
       {filled.check.size > 0 && <p className="pl-5 text-amber-800">{filled.check.size} marked in amber {filled.check.size === 1 ? "doesn't" : "don't"} agree with the total or quantity on its row.</p>}
+      {filled.unproven.size > 0 && <p className="pl-5 text-amber-800">{filled.unproven.size} marked in amber had no total on the RFQ to confirm {filled.unproven.size === 1 ? 'it' : 'them'}; make sure each matches the {from}.</p>}
       {filled.unsure > 0 && <p className="pl-5 text-[--color-text-secondary]">{filled.unsure} more could not be read for sure from the {from}; type {filled.unsure === 1 ? 'it' : 'them'}.</p>}
       {offers && <p className="pl-5 text-[--color-text-secondary]">{offers}</p>}
     </div>
@@ -165,10 +166,10 @@ export default function QuotationForm({ prId, prNumber, canvass, quotation, onFi
     if (supplier) setName(supplier)
     setFilled({
       other, ocr: read.ocr, name: !!supplier, prices: new Set(priced), specs: new Set(offered),
-      check: new Set(priced.filter(id => m.check.has(id))), unsure: new Set((m?.unsure || []).filter(id => openIds.has(id) && !priced.includes(id) && !priceOf(id))).size,
+      check: new Set(priced.filter(id => m.check.has(id))), unproven: new Set(priced.filter(id => m.unproven.has(id))), unsure: new Set((m?.unsure || []).filter(id => openIds.has(id) && !priced.includes(id) && !priceOf(id))).size,
     })
   }, [fillFrom, fileId, reading, read])
-  const edited = (field, id) => setFilled(f => f && { ...f, [field]: without(f[field], id), ...(field === 'prices' && { check: without(f.check, id) }) })
+  const edited = (field, id) => setFilled(f => f && { ...f, [field]: without(f[field], id), ...(field === 'prices' && { check: without(f.check, id), unproven: without(f.unproven, id) }) })
 
   const upload = async (file) => {
     setUploading(true)
@@ -259,6 +260,7 @@ export default function QuotationForm({ prId, prNumber, canvass, quotation, onFi
                 const p = priceOf(i.id)
                 const above = p != null && Number(i.estimated_cost) > 0 && cents(p) > cents(i.estimated_cost)
                 const check = filled?.check.has(i.id)
+                const unproven = filled?.unproven.has(i.id)
                 const auto = filled?.prices.has(i.id)
                 return (
                   <tr key={i.id} className="border-t border-[--color-border] align-top">
@@ -277,8 +279,9 @@ export default function QuotationForm({ prId, prNumber, canvass, quotation, onFi
                       <Input type="number" min="0.01" step="0.01" placeholder="No bid" value={prices[i.id] ?? ''} aria-label={`Unit price for ${i.item_name}`}
                         title={auto ? 'Read from the RFQ file' : undefined}
                         onChange={e => { setPrices(x => ({ ...x, [i.id]: e.target.value })); edited('prices', i.id) }}
-                        className={`text-right tabular-nums ${above || check ? 'border-amber-400 text-amber-800' : ''} ${auto ? 'bg-[--color-brand-light]' : ''}`} />
+                        className={`text-right tabular-nums ${above || check || unproven ? 'border-amber-400 text-amber-800' : ''} ${auto ? 'bg-[--color-brand-light]' : ''}`} />
                       {check && <span className="block text-[10px] text-amber-700">check: its row's total differs</span>}
+                      {unproven && <span className="block text-[10px] text-amber-700">check: no total to confirm it</span>}
                       {above && <span className="block text-[10px] text-amber-700">above the budget</span>}
                     </td>
                     <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap text-[--color-text-secondary]">{p != null ? fmtCurrency(lineCents(i.quantity, p) / 100) : ''}</td>

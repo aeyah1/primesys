@@ -6,8 +6,9 @@ const flat = (s) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').tr
 const words = (s) => flat(s).split(' ').filter(w => w.length > 1 || /\d/.test(w))
 const digits = (s) => String(s ?? '').replace(/\D/g, '')
 
-// Blanks to fill in (underscores), empty cells, and a table rule read as a bracket all go.
-const tidy = (line) => line.replace(/_{2,}/g, ' ').split('|').map(c => c.replace(/^[[\]]+|[[\]]+$/g, '').trim()).filter(Boolean).join(' | ')
+// Blanks to fill in (underscores), empty cells, cells of stray marks ("30 | ." would hide the 30), and a table rule read
+// as a bracket all go.
+const tidy = (line) => line.replace(/_{2,}/g, ' ').split('|').map(c => c.replace(/^[[\]]+|[[\]]+$/g, '').trim()).filter(c => /[\p{L}\p{N}]/u.test(c)).join(' | ')
 
 // A peso amount as typed (6,850.00, 6850, P6,850.00), also as OCR misreads it (6.850.00, 6 850,00, 340.00°); else null.
 function amount(text) {
@@ -154,14 +155,14 @@ function lotOf(lots, where) {
 }
 
 // The read rows on the canvass lots ({ label, items }): a row's lot from its quotation number or heading, its item by its
-// number when its words agree, else by its words alone. Gives { prices, specs, check, unsure }: the unit price per item id,
-// what was offered (its OFFERED SPECIFICATION cell, and any words the request doesn't have; `exact` text only, never OCR),
-// the items whose typed price doesn't agree with its row's total or quantity, and the items whose scanned price could not
-// be proved.
+// number when its words agree, else by its words alone. Gives { prices, specs, check, unproven, unsure }: the unit price
+// per item id, what was offered (its OFFERED SPECIFICATION cell, and any words the request doesn't have; `exact` text
+// only, never OCR), the items whose typed price doesn't agree with its row's total or quantity, the items whose scanned
+// price had no total to prove it, and the items whose scanned price could not be taken.
 export function matchRfq(read, lots, { exact = false } = {}) {
   const all = lots.flatMap(l => l.items)
   const known = new Set(all.flatMap(i => words(`${i.item_name} ${i.notes || ''} ${i.unit || ''} ${Number(i.quantity)}`)))
-  const out = { prices: {}, specs: {}, check: new Set(), unsure: [] }
+  const out = { prices: {}, specs: {}, check: new Set(), unproven: new Set(), unsure: [] }
   const taken = new Set()
   for (const row of read.rows) {
     const [price, total] = row.amounts
@@ -176,11 +177,15 @@ export function matchRfq(read, lots, { exact = false } = {}) {
     // An unpriced row with no unit reads its quantity as its only amount ("4 | 1"): that is no price at all.
     if (total == null && row.qty == null && price === qty) continue
     const adds = (total == null ? qty === 1 : Math.abs(Math.round(qty * price * 100) - Math.round(total * 100)) <= 1) && (row.qty == null || row.qty === qty)
-    // OCR can misread a digit or a row, so a scan's price is taken only when its row's total proves it; typed text is taken as written.
-    if (!exact && (total == null || !adds)) { out.unsure.push(item.id); continue }
+    // OCR can misread a digit or a row: a scan's price its row's total disagrees with, or one with no total that is ten
+    // times off the budget, is left to type; one with no total is filled for the BAC to check. Typed text is taken as written.
+    const est = Number(item.estimated_cost)
+    const unproven = !exact && total == null
+    if ((!exact && total != null && !adds) || (unproven && est > 0 && (price > est * 10 || price * 10 < est))) { out.unsure.push(item.id); continue }
     taken.add(item.id)
     out.prices[item.id] = price
-    if (!adds) out.check.add(item.id)
+    if (unproven) out.unproven.add(item.id)
+    else if (!adds) out.check.add(item.id)
     // A unit typed close to the offer reads as one cell with it ("piece Maped 8 in"); the item's own unit goes.
     const bare = (s) => { const [w, ...rest] = s.split(' '); return rest.length && flat(w) === flat(item.unit) ? rest.join(' ') : s }
     const fresh = exact ? [row.offer, ...row.lines.filter(l => words(l).some(w => !known.has(w))).map(bare)].filter(Boolean) : []

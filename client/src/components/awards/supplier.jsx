@@ -8,13 +8,28 @@ import { useQueryClient } from '@tanstack/react-query'
 export const nameKey = (name) => String(name || '').trim().replace(/\s+/g, ' ').toLowerCase()
 
 // A supplier profile the RFQ's supplier matches: the same name (ignoring case, spacing,
-// punctuation and "&" for "and"), else the same email, else the same phone number.
+// punctuation and "&" for "and"), else the same email, else the same phone number; a name
+// OCR read ("ABC Yupplies") may also be the one profile it clearly resembles most.
 const looseKey = (s) => String(s || '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim()
 const digits = (s) => String(s || '').replace(/\D/g, '').replace(/^63/, '0')
-export const findProfile = (profiles, { name, email, phone } = {}) => (name && profiles.find(p => looseKey(p.name) === looseKey(name)))
+export const findProfile = (profiles, { name, email, phone, ocr } = {}) => (name && profiles.find(p => looseKey(p.name) === looseKey(name)))
   || (email && profiles.find(p => p.email?.toLowerCase() === email.toLowerCase()))
   || (phone && profiles.find(p => p.phone && digits(p.phone) === digits(phone)))
+  || (ocr && name && resembling(profiles, name))
   || null
+
+// How alike two names are, 0 to 1, by the letter pairs they share (Dice).
+const pairs = (s) => { const t = looseKey(s).replace(/ /g, ''); return Array.from({ length: Math.max(0, t.length - 1) }, (_, i) => t.slice(i, i + 2)) }
+function likeness(a, b) {
+  const x = pairs(a), rest = pairs(b), all = x.length + rest.length
+  let shared = 0
+  for (const p of x) { const i = rest.indexOf(p); if (i >= 0) { rest.splice(i, 1); shared++ } }
+  return all ? 2 * shared / all : 0
+}
+function resembling(profiles, name) {
+  const [best, next] = profiles.map(p => ({ p, s: likeness(p.name, name) })).sort((a, b) => b.s - a.s)
+  return best && best.s >= 0.4 && best.s - (next?.s || 0) >= 0.15 ? best.p : null
+}
 
 // Money in whole centavos, so sums and comparisons are exact (as on the server).
 export const cents     = (v) => Math.round(Number(v || 0) * 100)
