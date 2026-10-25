@@ -5,12 +5,13 @@ import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/context/AuthContext'
 
-// Signs this tab out after 30 minutes without activity, for shared computers, warning a minute before. Windows that
-// share this tab's sign-in (a duplicated tab, the TWG's PPMP window) share their activity and sign out together.
+// Signs the browser out after 30 minutes without activity, for shared computers, warning a minute before. Every tab
+// shares the sign-in, so the tabs share their activity and sign out together.
 const IDLE_MS = 30 * 60_000
 const WARN_MS = 60_000
 const EVENTS = ['mousemove', 'mousedown', 'keydown', 'wheel', 'scroll', 'touchstart']
 const MESSAGE = 'You were signed out after 30 minutes without activity, to keep your account safe on shared computers.'
+const SEEN = 'primesys_active'   // the sign-in's last activity, so the time a closed browser sat unused counts too
 
 export default function IdleSignOut() {
   const { logout } = useAuth()
@@ -21,7 +22,8 @@ export default function IdleSignOut() {
 
   useEffect(() => {
     // The sign-in this tab shares with other windows, told apart by its token's last characters.
-    const key = (sessionStorage.getItem('primesys_token') || '').slice(-24)
+    const key = (localStorage.getItem('primesys_token') || '').slice(-24)
+    try { const s = JSON.parse(localStorage.getItem(SEEN)); if (key && s?.key === key) last.current = s.at } catch { /* not kept: counts from now */ }
     const channel = typeof BroadcastChannel === 'function' ? new BroadcastChannel('primesys-activity') : null
     let marked = 0
     let ended = false
@@ -39,6 +41,7 @@ export default function IdleSignOut() {
       if (now - marked < 5000 || document.querySelector('[data-idle-warning]')) return
       marked = now
       last.current = now
+      try { localStorage.setItem(SEEN, JSON.stringify({ key, at: now })) } catch { /* not kept: a reopened browser counts from then */ }
       channel?.postMessage({ key, at: now })
     }
     if (channel) channel.onmessage = ({ data }) => {
@@ -46,14 +49,16 @@ export default function IdleSignOut() {
       if (data.out) end(false)
       else if (data.at > last.current) { last.current = data.at; setLeft(null) }
     }
-    EVENTS.forEach(e => window.addEventListener(e, mark, { passive: true, capture: true }))
-    // Checked every second from the clock, so time spent asleep (a closed laptop) counts too.
-    const tick = setInterval(() => {
+    // Checked every second from the clock, so time spent asleep (a closed laptop) counts too, and once right away.
+    const check = () => {
       const idle = Date.now() - last.current
       if (idle >= IDLE_MS) end(true)
       else if (idle >= IDLE_MS - WARN_MS) setLeft(Math.ceil((IDLE_MS - idle) / 1000))
       else setLeft(l => (l === null ? l : null))
-    }, 1000)
+    }
+    check()
+    EVENTS.forEach(e => window.addEventListener(e, mark, { passive: true, capture: true }))
+    const tick = setInterval(check, 1000)
     return () => {
       clearInterval(tick)
       EVENTS.forEach(e => window.removeEventListener(e, mark, { capture: true }))
@@ -64,7 +69,9 @@ export default function IdleSignOut() {
   const stay = () => {
     last.current = Date.now()
     setLeft(null)
-    try { new BroadcastChannel('primesys-activity').postMessage({ key: (sessionStorage.getItem('primesys_token') || '').slice(-24), at: last.current }) } catch { /* only this tab */ }
+    const seen = { key: (localStorage.getItem('primesys_token') || '').slice(-24), at: last.current }
+    try { localStorage.setItem(SEEN, JSON.stringify(seen)) } catch { /* not kept */ }
+    try { new BroadcastChannel('primesys-activity').postMessage(seen) } catch { /* only this tab */ }
   }
 
   return (
