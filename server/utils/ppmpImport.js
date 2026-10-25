@@ -1,5 +1,6 @@
 const httpError = require('./httpError')
 const { brandIn } = require('./brandNames')
+const { isIctLine, ictSpecIn } = require('./ictSpecs')
 
 // Turns the rows of a PPMP file (DBM or GPPB style) into item lines for review, with a warning list for each.
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
@@ -193,7 +194,9 @@ function mapPpmp(rows) {
     if (!monthNums.length) warnings.push('No month marked in the schedule')
     else if (counted && quantity && !splits) warnings.push(`The months add up to ${monthSum}, not the quantity ${quantity}, so each quarter's share is not known`)
     const brand = brandIn(item.description)
-    if (brand) warnings.push(`Names a brand (${brand}); describe it by its specifications`)
+    if (brand) warnings.push(`Names a brand (${brand}); ${isIctLine(item) ? 'say only what the item is' : 'describe it by its specifications'}`)
+    const spec = ictSpecIn(item)
+    if (spec) warnings.push(`An ICT item with specifications ("${spec}"): the PPMP should only say what the item is; the End User types its specifications when requesting it, and the TWG checks them`)
     items.push({ ...item, warnings })
     if (items.length > MAX_ITEMS) throw httpError(400, `The file lists more than ${MAX_ITEMS} items`)
   }

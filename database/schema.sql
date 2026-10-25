@@ -217,6 +217,9 @@ CREATE TABLE `pr_items` (
   `unit`           VARCHAR(50)   NULL,
   `estimated_cost` DECIMAL(15,2) NULL,
   `notes`          TEXT          NULL,
+  -- An ICT item's specification the End User typed (its notes) is checked by the TWG before it approves (utils/ictSpecs.js).
+  `spec_checked_at` DATETIME     NULL,
+  `spec_checked_by` INT UNSIGNED NULL,
   -- Dropped from the procurement (e.g. no supplier could offer it), with why.
   `dropped_at`     DATETIME      NULL,
   `dropped_by`     INT UNSIGNED  NULL,
@@ -231,9 +234,11 @@ CREATE TABLE `pr_items` (
   KEY `idx_pr_items_pr_id` (`pr_id`),
   KEY `idx_pr_items_category` (`category`),
   KEY `idx_pr_items_ppmp_item` (`ppmp_item_id`),
+  KEY `idx_pr_items_spec_checked_by` (`spec_checked_by`),
   CONSTRAINT `fk_pr_items_pr`         FOREIGN KEY (`pr_id`)      REFERENCES `purchase_requests` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_pr_items_dropped_by` FOREIGN KEY (`dropped_by`) REFERENCES `users` (`id`)             ON DELETE SET NULL,
-  CONSTRAINT `fk_pr_items_balance_of` FOREIGN KEY (`balance_of`) REFERENCES `pr_items` (`id`)          ON DELETE SET NULL
+  CONSTRAINT `fk_pr_items_balance_of` FOREIGN KEY (`balance_of`) REFERENCES `pr_items` (`id`)          ON DELETE SET NULL,
+  CONSTRAINT `fk_pr_items_spec_checked_by` FOREIGN KEY (`spec_checked_by`) REFERENCES `users` (`id`)   ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE `pr_attachments` (

@@ -32,6 +32,7 @@ const ROUTES = {
   'POST /api/twg/:prId/review':                ['requests', (req) => TWG_REVIEW[req.body?.action] || 'Reviewed a purchase request (TWG)', 'pr'],
   'POST /api/twg/:prId/certify':               ['canvass', (req) => TWG_CERTIFY[req.body?.action] || 'Acted on the bids (TWG)', 'pr'],
   'PUT /api/twg/:prId/evaluation':             ['canvass', 'Saved the bid evaluation (TWG)', 'pr'],
+  'PATCH /api/twg/:prId/items/:itemId/spec-check': ['requests', (req) => (req.body?.checked === false ? 'Unmarked a typed ICT specification as checked (TWG)' : 'Checked a typed ICT specification (TWG)'), 'pr'],
   'POST /api/canvass/:prId/start':             ['canvass', 'Started the canvass', 'pr'],
   'PUT /api/canvass/:prId/bids':               ['canvass', 'Saved a quotation', 'pr'],
   'DELETE /api/canvass/:prId/bidders/:bidderId': ['canvass', 'Removed a quotation', 'pr'],
