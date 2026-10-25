@@ -211,4 +211,4 @@ async function pruneAudit() {
   if (r.affectedRows) console.info(`[audit] removed ${r.affectedRows} entries older than ${KEEP_DAYS} days`)
 }
 
-module.exports = { ROUTES, EVENTS, KEEP_DAYS, auditTrail, fromSecurityEvent, pruneAudit }
+module.exports = { ROUTES, EVENTS, KEEP_DAYS, ROLE_WORDS, auditTrail, fromSecurityEvent, pruneAudit }

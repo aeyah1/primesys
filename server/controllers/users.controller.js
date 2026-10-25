@@ -14,6 +14,23 @@ const notify    = require('../utils/notify')
 const sendMail = require('../utils/mailer')
 const config   = require('../config')
 const accountReviewEmail = require('../emails/accountReview')
+const accountInviteEmail = require('../emails/accountInvite')
+const { issueResetToken } = require('../utils/resetLink')
+const { ROLE_WORDS } = require('../utils/audit')
+const crypto = require('crypto')
+
+const INVITE_DAYS = 3
+
+// A free username made from an email's part before the @ ("juan.dela.cruz@gmail.com" gives juan_dela_cruz, then
+// juan_dela_cruz_2 when that is taken).
+async function usernameFrom(email) {
+  const base = (email.split('@')[0].toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 44) || 'user').padEnd(3, '0')
+  for (let n = 1; ; n++) {
+    const name = n === 1 ? base : `${base}_${n}`
+    const [taken] = await pool.execute('SELECT id FROM users WHERE LOWER(username) = ?', [name])
+    if (!taken.length) return name
+  }
+}
 
 // A 4xx thrown by a rule goes back as is; anything else is logged and masked.
 const fail = (res, err) => {
@@ -195,33 +212,38 @@ exports.update = async (req, res) => {
 
 exports.create = async (req, res) => {
   try {
-    const { name, username, email, password, role, areas } = req.body   // checked in the route
-    if (!name || !username || !email || !role) {
+    // No password: the person sets their own from the emailed link. The username is made from the email when left out.
+    const { name, email, role, areas } = req.body   // checked in the route
+    if (!name || !email || !role) {
       return res.status(400).json({ message: 'All fields are required' })
     }
     if (!VALID_ROLES.includes(role)) {
       return res.status(400).json({ message: 'Invalid role' })
     }
-    if (!/^[a-zA-Z0-9_]+$/.test(username.trim())) {
-      return res.status(400).json({ message: 'Username may only contain letters, numbers, and underscores' })
-    }
-    const [dupUser] = await pool.execute('SELECT id FROM users WHERE LOWER(username) = LOWER(?)', [username.trim()])
-    if (dupUser.length) return res.status(409).json({ message: 'Username already taken' })
     const [dupEmail] = await pool.execute('SELECT id FROM users WHERE LOWER(email) = LOWER(?)', [email.trim()])
     if (dupEmail.length) return res.status(409).json({ message: 'Email already in use' })
+    let username = req.body.username?.trim()
+    if (username) {
+      const [dupUser] = await pool.execute('SELECT id FROM users WHERE LOWER(username) = LOWER(?)', [username])
+      if (dupUser.length) return res.status(409).json({ message: 'Username already taken' })
+    } else {
+      username = await usernameFrom(email.trim())
+    }
 
-    const hash = await bcrypt.hash(password, 10)
-    let result
+    // A password nobody knows, until the link sets theirs.
+    const hash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10)
+    let result, token
     try {
       result = await withTransaction(async (conn) => {
         await assertOffice(conn, { role, department_id: req.body.department_id || null })
         const [r] = await conn.execute(
           `INSERT INTO users (name, username, email, password_hash, role, is_verified, department_id, designation)
            VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
-          [name.trim(), username.trim(), email.trim(), hash, role,
+          [name.trim(), username, email.trim(), hash, role,
            req.body.department_id || null, String(req.body.designation ?? '').trim() || null]
         )
         await saveAreas(conn, r.insertId, role, areas, req.user.id)
+        token = await issueResetToken(conn, r.insertId, INVITE_DAYS * 24)
         return r
       })
     } catch (err) {
@@ -234,7 +256,19 @@ exports.create = async (req, res) => {
       'SELECT id, name, username, email, role, is_active, created_at FROM users WHERE id = ?',
       [result.insertId]
     )
-    res.status(201).json(rows[0])
+    // Emailed to the person; if it can't be sent, the admin gets the link to pass on another way.
+    const setUrl = `${config.clientUrl}/reset-password?token=${token}`
+    let sent = false
+    try {
+      sent = await sendMail({
+        to: rows[0].email, subject: 'Your PRimeSys account is ready',
+        html: accountInviteEmail({ name: rows[0].name, username, role: ROLE_WORDS[role] || role, setUrl, days: INVITE_DAYS,
+          loginUrl: `${config.clientUrl}/login`, resetUrl: `${config.clientUrl}/forgot-password` }),
+      }) !== false
+    } catch (err) {
+      console.error('[mailer] account invitation failed:', err.message)
+    }
+    res.status(201).json({ ...rows[0], invite_sent: sent, invite_link: sent ? null : setUrl })
   } catch (err) { fail(res, err) }
 }
 

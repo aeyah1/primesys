@@ -76,6 +76,11 @@ const mailsTo = (addr) => SENT.filter(m => m.to.toLowerCase() === addr.toLowerCa
 const codeMailsTo = (addr) => SENT.filter(m => m.to.toLowerCase() === addr.toLowerCase() && isCodeMail(m))
 const tokenIn = (m, kind) => (m?.html.match(new RegExp(`${kind}\\?token=([a-f0-9]{64})`)) || [])[1]
 const TOKENS = []
+// An admin-made account has no password until its owner sets one from the link in its invitation email.
+const setByInvite = (email, password) => {
+  const token = tokenIn(mailsTo(email).slice(-1)[0], 'reset-password'); TOKENS.push(token)
+  return http('POST', '/auth/reset-password', { token, password })
+}
 
 let seq = 0
 const reg = (over = {}) => { seq++; return { first_name: 'Test', last_name: `User${seq}`, username: `newuser${seq}`, email: `newuser${seq}@auth.invalid`, password: PW, confirm_password: PW, department_id: 1, website: '', ...over } }
@@ -298,7 +303,7 @@ async function run() {
     check(G5, `${label} → 401`, r.status === 401, show(r))
   }
   for (const [label, m, route, body] of [
-    ['admin: list users', 'GET', '/users'], ['admin: create a user', 'POST', '/users', { name: 'X', username: 'x_user', email: 'x@auth.invalid', password: 'Longenough1', role: 'admin' }],
+    ['admin: list users', 'GET', '/users'], ['admin: create a user', 'POST', '/users', { name: 'X', username: 'x_user', email: 'x@auth.invalid', role: 'admin' }],
     ['admin: change own role', 'PATCH', `/users/${0}`, { name: 'X', role: 'admin' }],
     ['procurement: issue PO', 'POST', '/po', { purchase_request_id: 1, supplier_name: 'S', issued_date: '2026-09-11', total_amount: 5 }],
     ['procurement: reports', 'GET', '/reports/summary'], ['BAC: award', 'POST', '/canvass/1/award', {}],
@@ -334,18 +339,31 @@ async function run() {
   check(G6, 'admin cannot demote themselves (always an admin left)', r.status === 400, show(r))
   r = await http('PATCH', '/users/1/toggle', undefined, admin)
   check(G6, 'admin cannot deactivate themselves', r.status === 400, show(r))
-  r = await http('POST', '/users', { name: 'Admin FA', username: 'made_fa', email: 'made_fa@auth.invalid', password: 'Admin-Made-3', role: 'requestor' }, admin)
+  r = await http('POST', '/users', { name: 'Admin FA', username: 'made_fa', email: 'made_fa@auth.invalid', role: 'requestor' }, admin)
   check(G6, 'an admin-made Fund Administrator needs an office → 400', r.status === 400 && /office/.test(r.data.message), show(r))
-  r = await http('POST', '/users', { name: 'Admin FA', username: 'made_fa', email: 'made_fa@auth.invalid', password: 'Admin-Made-3', role: 'requestor', department_id: 3 }, admin)
+  r = await http('POST', '/users', { name: 'Admin FA', username: 'made_fa', email: 'made_fa@auth.invalid', role: 'requestor', department_id: 3 }, admin)
   check(G6, '…and one for an office that already has one → 201', r.status === 201, show(r))
-  r = await http('POST', '/users', { name: 'Made By Admin', username: 'made_proc', email: 'made_proc@auth.invalid', password: 'Admin-Made-1', role: 'procurement' }, admin)
-  check(G6, 'admin creates a procurement account (the controlled path)', r.status === 201 && r.data.role === 'procurement', show(r))
+  await setByInvite('made_fa@auth.invalid', 'Admin-Made-3')
+  r = await http('POST', '/users', { name: 'Made By Admin', username: 'made_proc', email: 'made_proc@auth.invalid', role: 'procurement' }, admin)
+  const invite = mailsTo('made_proc@auth.invalid')[0]
+  check(G6, 'admin creates a procurement account (the controlled path), emailed its username and a set-password link',
+    r.status === 201 && r.data.role === 'procurement' && r.data.invite_sent === true && !r.data.invite_link
+    && /made_proc/.test(invite?.html) && !!tokenIn(invite, 'reset-password'), show(r))
+  const [inviteRow] = await q('SELECT expires_at > NOW() + INTERVAL 71 HOUR AS long_enough FROM password_reset_tokens WHERE user_id = ? AND used = 0', [r.data?.id])
+  check(G6, '…the link lasts 3 days', Number(inviteRow?.long_enough) === 1, JSON.stringify(inviteRow))
+  r = await http('POST', '/auth/login', { identifier: 'made_proc', password: 'Admin-Made-1' })
+  check(G6, '…no password opens it before the owner sets one', r.status === 401, show(r))
+  r = await setByInvite('made_proc@auth.invalid', 'Admin-Made-1')
+  check(G6, '…the link sets it', r.status === 200, show(r))
   r = await signIn({ identifier: 'made_proc', password: 'Admin-Made-1' })
-  check(G6, '…it signs in as procurement', r.status === 200 && r.data.user.role === 'procurement', show(r))
-  r = await http('POST', '/users', { name: 'Outside Staff', username: 'outside_staff', email: 'outside.staff@gmail.com', password: 'Admin-Made-2', role: 'requestor', department_id: 2 }, admin)
+  check(G6, '…then it signs in as procurement', r.status === 200 && r.data.user.role === 'procurement', show(r))
+  r = await http('POST', '/users', { name: 'Outside Staff', username: 'outside_staff', email: 'outside.staff@gmail.com', role: 'requestor', department_id: 2 }, admin)
   check(G6, 'admin-created accounts are not limited to the sign-up domains', r.status === 201, show(r))
-  r = await http('POST', '/users', { name: 'Weak', username: 'weak_pw', email: 'weak@auth.invalid', password: 'short', role: 'supply' }, admin)
-  check(G6, 'admin-set password under 8 characters → 400', r.status === 400, show(r))
+  await setByInvite('outside.staff@gmail.com', 'Admin-Made-2')
+  r = await http('POST', '/users', { name: 'Juan', email: 'juan.dela-cruz@auth.invalid', role: 'supply' }, admin)
+  const r2b = await http('POST', '/users', { name: 'Juan Two', email: 'Juan.Dela.Cruz@other.invalid', role: 'supply' }, admin)
+  check(G6, 'no username given → made from the email, a number added when taken',
+    r.data?.username === 'juan_dela_cruz' && r2b.data?.username === 'juan_dela_cruz_2', `${show(r)} ${show(r2b)}`)
   r = await http('PATCH', '/users/7/approve', undefined, admin)
   const r2 = await http('PATCH', '/users/7/decline', undefined, admin)
   check(G6, 'approving an approved account → 409; the old decline endpoint is gone → 404', r.status === 409 && r2.status === 404, `${r.status} ${r2.status}`)
@@ -387,7 +405,8 @@ async function run() {
   r = await signIn({ identifier: 'made_proc', password: 'Admin-Made-1' })
   const tabA = r.data?.token
   const madeId = r.data?.user?.id
-  check(G13, 'sign-in token carries the token version and a session key', claims(tabA).tv === 0 && /^[a-f0-9]{32}$/.test(claims(tabA).sk), tabA)
+  // Version 1: setting the password from the invitation link counts as one change.
+  check(G13, 'sign-in token carries the token version and a session key', claims(tabA).tv === 1 && /^[a-f0-9]{32}$/.test(claims(tabA).sk), tabA)
   const sockA = await connect(tabA)
   if (sockA.ok) sockA.sock.emit('join', madeId)
   await wait(200)
@@ -543,7 +562,8 @@ async function run() {
 
   // Administrators, and accounts the admin exempts, sign in with the password alone; the admin can change an email.
   SECRETS.push('Admin-Made-5')
-  await http('POST', '/users', { name: 'Second Admin', username: 'admin_two', email: 'admin2@auth.invalid', password: 'Admin-Made-5', role: 'admin' }, tok(1, 'admin'))
+  await http('POST', '/users', { name: 'Second Admin', username: 'admin_two', email: 'admin2@auth.invalid', role: 'admin' }, tok(1, 'admin'))
+  await setByInvite('admin2@auth.invalid', 'Admin-Made-5')
   r = await http('POST', '/auth/login', { identifier: 'admin_two', password: 'Admin-Made-5' })
   check(G14, 'an administrator signs in without the emailed code', r.status === 200 && !!r.data.token && !r.data.verify, show(r))
   const outsideEdit = { name: 'Outside Staff', role: 'requestor', department_id: 2 }
