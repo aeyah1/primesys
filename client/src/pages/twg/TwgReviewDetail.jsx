@@ -13,7 +13,8 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
 import { PRStatusBadge, CategoryBadge, MarkerBadges } from '@/components/shared/StatusBadge'
-import { fmtCurrency, fmtDatetime, CATEGORY_LABELS, PR_STATUS_LABELS, RE_PR_TYPES, groupItemsBySection } from '@/lib/utils'
+import { fmtCurrency, fmtDatetime, CATEGORY_LABELS, PR_STATUS_LABELS, RE_PR_TYPES, groupItemsBySection, typedSpec } from '@/lib/utils'
+import SpecCheck from '@/components/shared/SpecCheck'
 import RequestContextDisplay from '@/components/shared/RequestContextDisplay'
 import AttachmentsPanel from '@/components/shared/AttachmentsPanel'
 import PpmpComparison, { usePrPpmp, ViewPpmpButton } from '@/components/ppmp/PpmpComparison'
@@ -145,6 +146,8 @@ export default function TwgReviewDetail() {
     0
   )
   const groups = groupItemsBySection(items)
+  // ICT specifications the End User typed that are not checked yet: approving waits for them (SpecCheck under each).
+  const unchecked = items.filter(it => typedSpec(it) && !it.dropped_at && !it.spec_checked_at)
 
   function openAction(next) {
     setAction(next)
@@ -210,6 +213,8 @@ export default function TwgReviewDetail() {
             </Button>
             <Button
               className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white border-0"
+              disabled={unchecked.length > 0}
+              title={unchecked.length ? 'Mark each typed specification as checked first' : undefined}
               onClick={() => openAction('approve')}
             >
               <CheckCircle2 className="size-4" /> Approve & Forward
@@ -323,6 +328,12 @@ export default function TwgReviewDetail() {
           </Button>
         </CardHeader>
         <CardContent className="p-0">
+          {isReviewable && unchecked.length > 0 && (
+            <div className="mx-4 my-3 rounded-lg border border-amber-300 bg-amber-50 px-3.5 py-2.5 text-ui-sm text-amber-900">
+              <p className="font-semibold">Check the specifications the End User typed first</p>
+              <p className="mt-0.5 text-xs">Press Mark as checked under each of these; you can approve once all are: {unchecked.map(it => it.item_name).join('; ')}.</p>
+            </div>
+          )}
           {itemsLoading
             ? <div className="p-6 space-y-2">{Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-10" />)}</div>
             : !items.length
@@ -358,6 +369,7 @@ export default function TwgReviewDetail() {
                                   {it.notes && (
                                     <div className="text-sm text-[--color-text-secondary] mt-2 whitespace-pre-wrap leading-relaxed">{it.notes}</div>
                                   )}
+                                  <SpecCheck pr={pr} item={it} />
                                 </td>
                                 <td className="px-4 py-3 text-center tabular-nums">{it.quantity}</td>
                                 <td className="px-4 py-3 text-center text-[--color-text-secondary]">{it.unit || '—'}</td>

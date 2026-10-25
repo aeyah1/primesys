@@ -198,9 +198,10 @@ export const CATEGORY_FORM = {
 // To add a new field to a category: edit this array. To add a new category:
 // add the entry AND a corresponding card in ItemCategorySelector.
 export const CATEGORY_FIELDS = {
+  // ICT: no sample specifications; the End User types their own, which the TWG checks (CategorySpecFields, server utils/ictSpecs.js).
   hardware: [
     { key: 'specs', label: 'Minimum Specifications', type: 'textarea',
-      placeholder: 'e.g.\nProcessor: 8 cores or more, 4.0 GHz or faster\n16GB RAM, 512GB SSD\n15.6" full HD display\nDedicated graphics, 6GB or more' },
+      placeholder: 'Type the minimum specifications this item must meet, one per line' },
   ],
   office_supplies: [
     { key: 'size_type', label: 'Size / Type', placeholder: 'e.g. A4 / 80gsm / sub20' },
@@ -255,6 +256,9 @@ export function groupItemsBySection(items) {
     .filter(s => s.items.length)
     .map(s => ({ ...s, items: s.items.map(item => ({ ...item, rowNum: ++n })) }))
 }
+
+// An ICT item whose specification the End User typed, for the TWG to check (server utils/ictSpecs.js typedSpec).
+export const typedSpec = (item) => item?.category === 'hardware' && !!String(item.notes ?? '').trim()
 
 export function buildItemNotes(category, specs) {
   const fields = CATEGORY_FIELDS[category] || []

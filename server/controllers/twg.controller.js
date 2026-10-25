@@ -17,6 +17,7 @@ const { issueCertificate } = require('../utils/twgCertificate')
 const { paging }         = require('../middleware/validate')
 const { CATEGORIES, categoryLabel } = require('../utils/categories')
 const { IN_AREA, areasOf, reviewsCategory } = require('../utils/twgAreas')
+const { typedSpec, uncheckedSpecs } = require('../utils/ictSpecs')
 
 // A TWG member works only in their review areas; an admin sees every area.
 const areaFilter = (user) => (user.role === 'admin' ? { sql: '1 = 1', params: [] } : { sql: IN_AREA, params: [user.id] })
@@ -107,6 +108,11 @@ exports.reviewPR = asyncHandler(async (req, res) => {
 
   const denied = await notReviewer(req.user, req.params.prId)
   if (denied) return res.status(denied.status).json({ message: denied.message })
+  // Every specification the End User typed for an ICT item is checked first (utils/ictSpecs.js).
+  const unchecked = action === 'approve' ? await uncheckedSpecs(pool, req.params.prId) : 0
+  if (unchecked) {
+    return res.status(409).json({ message: `Check the specifications the End User typed for ${unchecked} ICT item${unchecked === 1 ? '' : 's'} first: mark each as checked on the request.` })
+  }
 
   const toStatus =
     action === 'approve' ? 'twg_review'         :
@@ -151,6 +157,23 @@ exports.reviewPR = asyncHandler(async (req, res) => {
                     : action === 'revise'  ? 'sent back for revision'
                                            : 'rejected'
   res.json({ message: certificate ? `PR approved; certified in Cert. No. ${certificate.cert_no}` : `PR ${resultLabel}`, certificate })
+})
+
+// PATCH /twg/:prId/items/:itemId/spec-check - { checked }: marks (or, with false, unmarks) the specification the End User
+// typed for an ICT item as checked, while the request is under the TWG's review.
+exports.checkSpec = asyncHandler(async (req, res) => {
+  const denied = await notReviewer(req.user, req.params.prId)
+  if (denied) return res.status(denied.status).json({ message: denied.message })
+  const [[pr]] = await pool.execute('SELECT status FROM purchase_requests WHERE id = ? AND deleted_at IS NULL', [req.params.prId])
+  if (pr?.status !== 'submitted') return res.status(409).json({ message: 'Specifications are checked while the request is under TWG review' })
+  const [[item]] = await pool.execute('SELECT id, category, notes FROM pr_items WHERE id = ? AND pr_id = ?', [req.params.itemId, req.params.prId])
+  if (!item) return res.status(404).json({ message: 'Item not found' })
+  if (!typedSpec(item)) return res.status(400).json({ message: 'Only an ICT item with a typed specification is checked' })
+  const checked = req.body.checked !== false
+  await pool.execute(
+    `UPDATE pr_items SET spec_checked_at = ${checked ? 'NOW()' : 'NULL'}, spec_checked_by = ? WHERE id = ?`,
+    [checked ? req.user.id : null, item.id])
+  res.json({ message: checked ? 'Specification checked' : 'Specification no longer marked checked', left: await uncheckedSpecs(pool, req.params.prId) })
 })
 
 // PUT /twg/:prId/evaluation - { bids: [{ bidder_id, pr_item_id, compliant, offered_spec, remarks }], dq: [{ bidder_id, remarks }] }:

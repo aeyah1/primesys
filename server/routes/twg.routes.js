@@ -17,6 +17,8 @@ router.get('/recent',  c.recent)
 // Deciding is the TWG's alone; admins may read the queue to supervise it.
 router.post('/:prId/review', authorize('twg'), requireAccess('pr', 'prId'),
   textRule('comment', 'Comment', 2000), textRule('cert_no', 'Cert. No.', 30), handle, c.reviewPR)
+router.patch('/:prId/items/:itemId/spec-check', authorize('twg'), requireAccess('pr', 'prId'),
+  body('checked').optional().isBoolean({ strict: true }).withMessage('Say whether it is checked'), handle, c.checkSpec)
 router.put('/:prId/evaluation', authorize('twg'), requireAccess('pr', 'prId'),
   body('bids').isArray({ min: 1, max: 2000 }).withMessage('Send the bids evaluated'),
   body('bids.*.bidder_id').isInt({ min: 1 }).withMessage('Unknown bidder').toInt(),
