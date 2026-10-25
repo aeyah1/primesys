@@ -22,7 +22,6 @@ export function usePrPpmp(prId) {
 // Opens the whole PPMP; in a new tab from a dialog, so a comment being written stays.
 export function ViewPpmpButton({ plan, newTab = false }) {
   if (!plan) return null
-  // The sign-in lives in this tab's sessionStorage, which window.open copies to the new tab (a noopener link would start it signed out).
   if (newTab) {
     return (
       <Button type="button" variant="outline" size="sm" className="gap-1.5 shrink-0" onClick={() => window.open(`/ppmp/${plan.id}`, '_blank')}>

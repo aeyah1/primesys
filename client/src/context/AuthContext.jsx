@@ -8,14 +8,14 @@ const AuthContext = createContext(null)
 export function AuthProvider({ children }) {
   const queryClient = useQueryClient()
   const [user, setUser] = useState(() => {
-    try { return JSON.parse(sessionStorage.getItem('primesys_user')) } catch { return null }
+    try { return JSON.parse(localStorage.getItem('primesys_user')) } catch { return null }
   })
-  const [token, setToken] = useState(() => sessionStorage.getItem('primesys_token'))
+  const [token, setToken] = useState(() => localStorage.getItem('primesys_token'))
   const [loading, setLoading] = useState(true)
   const [socket, setSocket] = useState(null)
 
   useEffect(() => {
-    const token = sessionStorage.getItem('primesys_token')
+    const token = localStorage.getItem('primesys_token')
     if (!token) { setLoading(false); return }
 
     api.get('/auth/me')
@@ -23,13 +23,29 @@ export function AuthProvider({ children }) {
       .catch((err) => {
         // Why the session ended, for the login page (signed in elsewhere, password changed).
         if (err.response?.status === 401 && err.response.data?.message) sessionStorage.setItem('primesys_notice', err.response.data.message)
-        sessionStorage.removeItem('primesys_token')
-        sessionStorage.removeItem('primesys_user')
+        localStorage.removeItem('primesys_token')
+        localStorage.removeItem('primesys_user')
         setToken(null)
         setUser(null)
       })
       .finally(() => setLoading(false))
   }, [])
+
+  // Every tab shares one sign-in, so a sign-in, sign-out or profile change in another tab is followed here too.
+  useEffect(() => {
+    const follow = (e) => {
+      if (e.key !== null && e.key !== 'primesys_token' && e.key !== 'primesys_user') return
+      const t = localStorage.getItem('primesys_token')
+      let u = null
+      try { u = JSON.parse(localStorage.getItem('primesys_user')) } catch { /* unreadable: signed out */ }
+      // A new or ended sign-in drops the cached lists, as login and logout do.
+      if (e.key !== 'primesys_user') queryClient.clear()
+      setToken(t && u ? t : null)
+      setUser(t && u ? u : null)
+    }
+    window.addEventListener('storage', follow)
+    return () => window.removeEventListener('storage', follow)
+  }, [queryClient])
 
   // One live-update connection per signed-in session; a new token (sign-in, or
   // a password change) opens a fresh one, since the server checks it only when
@@ -53,8 +69,8 @@ export function AuthProvider({ children }) {
   // see the previous user's lists, even for a moment.
   const login = useCallback(({ token: t, user: u }) => {
     queryClient.clear()
-    sessionStorage.setItem('primesys_token', t)
-    sessionStorage.setItem('primesys_user', JSON.stringify(u))
+    localStorage.setItem('primesys_token', t)
+    localStorage.setItem('primesys_user', JSON.stringify(u))
     setToken(t)
     setUser(u)
   }, [queryClient])
@@ -62,10 +78,10 @@ export function AuthProvider({ children }) {
   // reason 'idle': signed out by itself after 30 minutes without activity (components/shared/IdleSignOut.jsx).
   const logout = useCallback(({ reason } = {}) => {
     // The server ends the session too, so this token can't be used again; sent with the token before it is cleared.
-    const t = sessionStorage.getItem('primesys_token')
+    const t = localStorage.getItem('primesys_token')
     if (t) api.post('/auth/logout', reason ? { reason } : null, { headers: { Authorization: `Bearer ${t}` } }).catch(() => {})
-    sessionStorage.removeItem('primesys_token')
-    sessionStorage.removeItem('primesys_user')
+    localStorage.removeItem('primesys_token')
+    localStorage.removeItem('primesys_user')
     setToken(null)
     setUser(null)
     queryClient.clear()
@@ -75,7 +91,7 @@ export function AuthProvider({ children }) {
   // After a password change: the old token no longer works, so this device
   // keeps its session with the fresh one the server returned.
   const replaceToken = useCallback((t) => {
-    sessionStorage.setItem('primesys_token', t)
+    localStorage.setItem('primesys_token', t)
     setToken(t)
   }, [])
 
@@ -86,7 +102,7 @@ export function AuthProvider({ children }) {
     try {
       const { data } = await api.get('/auth/me')
       setUser(data)
-      sessionStorage.setItem('primesys_user', JSON.stringify(data))
+      localStorage.setItem('primesys_user', JSON.stringify(data))
     } catch {
       // 401 will be handled by the axios interceptor (redirects to /login)
     }
