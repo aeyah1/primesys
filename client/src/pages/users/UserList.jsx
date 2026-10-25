@@ -2,7 +2,7 @@ import { Fragment, useState } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import {
   Search, UserX, UserCheck, UserPlus, Pencil,
-  Trash2, BadgeCheck, Ban, KeyRound, Eye, EyeOff, ClipboardCheck, AlertTriangle, ArrowUpDown, ScrollText,
+  Trash2, BadgeCheck, Ban, KeyRound, Eye, EyeOff, ClipboardCheck, AlertTriangle, ArrowUpDown, ScrollText, Copy,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { toast } from '@/lib/toast'
@@ -22,7 +22,7 @@ import { useAuth } from '@/context/AuthContext'
 import useUrlParams from '@/hooks/useUrlParams'
 import api from '@/lib/axios'
 
-const EMPTY_ADD = { name: '', username: '', email: '', password: '', role: 'requestor', areas: [], department_id: '', designation: '' }
+const EMPTY_ADD = { name: '', username: '', email: '', role: 'requestor', areas: [], department_id: '', designation: '' }
 const PAGE_SIZE = 20
 
 // Role tabs: staff first in workflow order, then Fund Administrators, the largest
@@ -104,8 +104,10 @@ function AreaChecklist({ value, onChange }) {
   )
 }
 
-function toUsername(name) {
-  return name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '').slice(0, 30)
+// The username made from an email's part before the @, as the server makes it (users.controller usernameFrom), which
+// adds a number when it is taken.
+function usernameOf(email) {
+  return email.split('@')[0].toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 44)
 }
 
 export default function UserList() {
@@ -126,7 +128,7 @@ export default function UserList() {
   })
 
   const [editForm, setEditForm]   = useState({ name: '', email: '', role: 'requestor', newPassword: '', areas: [], department_id: '', designation: '', skip_login_code: false })
-  const [showAddPw, setShowAddPw] = useState(false)
+  const [invite, setInvite]       = useState(null)   // a new account whose email could not be sent, with its link
   const [showEditPw, setShowEditPw] = useState(false)
 
   // Role tab, status, review area, sort, search, and page live in the URL, so
@@ -180,7 +182,8 @@ export default function UserList() {
   const { mutate: createUser, isPending: creating } = useMutation({
     mutationFn: (body) => api.post('/users', body),
     onSuccess: (res) => {
-      toast.success(`User "${res.data.name}" created — they can now log in with username: ${res.data.username}`)
+      if (res.data.invite_sent) toast.success(`${res.data.name}'s account is made, username ${res.data.username}. An email to ${res.data.email} has the link to set their password.`)
+      else setInvite(res.data)
       refreshUsers()
       setAddOpen(false)
       setAddForm(EMPTY_ADD)
@@ -236,13 +239,13 @@ export default function UserList() {
 
   function handleAdd(e) {
     e.preventDefault()
-    const { name, username, email, password, role, areas } = addForm
-    if (!name.trim() || !username.trim() || !email.trim() || !password) {
-      return toast.error('All fields are required')
-    }
-    if (password.length < 8) return toast.error('Password must be at least 8 characters')
+    const { name, username, email, role, areas } = addForm
+    if (!name.trim() || !email.trim()) return toast.error('Name and email are required')
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return toast.error('Enter a valid email address')
     if (role === 'requestor' && !addForm.department_id) return toast.error('Pick the office this End User handles')
-    createUser({ name: name.trim(), username: username.trim(), email: email.trim(), password, role,
+    // The made-up username is left to the server, which picks a free one; a typed one is kept as typed.
+    const typed = username.trim() && username.trim() !== usernameOf(email.trim()) ? username.trim() : undefined
+    createUser({ name: name.trim(), username: typed, email: email.trim(), role,
       department_id: addForm.department_id || null, designation: addForm.designation?.trim() || null,
       ...(role === 'twg' ? { areas } : {}) })
   }
@@ -273,11 +276,12 @@ export default function UserList() {
     }
   }
 
-  function handleNameChange(val) {
+  // The username follows the email until the admin types their own.
+  function handleEmailChange(val) {
     setAddForm(f => ({
       ...f,
-      name: val,
-      username: f.username === toUsername(f.name) ? toUsername(val) : f.username,
+      email: val,
+      username: f.username === usernameOf(f.email) ? usernameOf(val) : f.username,
     }))
   }
 
@@ -298,7 +302,7 @@ export default function UserList() {
           />
         </div>
         {/* On a role tab, a new account starts with that role. */}
-        <Button onClick={() => { setAddForm({ ...EMPTY_ADD, role: tab === 'all' ? EMPTY_ADD.role : tab }); setShowAddPw(false); setAddOpen(true) }} className="gap-2">
+        <Button onClick={() => { setAddForm({ ...EMPTY_ADD, role: tab === 'all' ? EMPTY_ADD.role : tab }); setAddOpen(true) }} className="gap-2">
           <UserPlus className="size-4" />
           Add User
         </Button>
@@ -512,25 +516,10 @@ export default function UserList() {
               <Input
                 id="add-name"
                 value={addForm.name}
-                onChange={e => handleNameChange(e.target.value)}
+                onChange={e => setAddForm(f => ({ ...f, name: e.target.value }))}
                 placeholder="e.g. Juan dela Cruz"
                 autoFocus
               />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="add-username">
-                Username <span className="text-red-500">*</span>
-                <span className="ml-1.5 text-[10px] text-[--color-text-muted] font-normal">Used to log in</span>
-              </Label>
-              <Input
-                id="add-username"
-                value={addForm.username}
-                onChange={e => setAddForm(f => ({ ...f, username: e.target.value.replace(/\s/g, '_') }))}
-                placeholder="e.g. juan_dela_cruz"
-                spellCheck={false}
-              />
-              <p className="text-[10px] text-[--color-text-muted]">Letters, numbers, and underscores only.</p>
             </div>
 
             <div className="space-y-1.5">
@@ -539,31 +528,25 @@ export default function UserList() {
                 id="add-email"
                 type="email"
                 value={addForm.email}
-                onChange={e => setAddForm(f => ({ ...f, email: e.target.value }))}
-                placeholder="e.g. juan@example.com"
+                onChange={e => handleEmailChange(e.target.value)}
+                placeholder="e.g. juan.delacruz@gmail.com"
               />
+              <p className="text-[10px] text-[--color-text-muted]">Their own email: the link to set their password goes here.</p>
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="add-password">Password <span className="text-red-500">*</span></Label>
-              <div className="relative">
-                <Input
-                  id="add-password"
-                  type={showAddPw ? 'text' : 'password'}
-                  value={addForm.password}
-                  onChange={e => setAddForm(f => ({ ...f, password: e.target.value }))}
-                  placeholder="At least 8 characters"
-                  className="pr-10"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowAddPw(p => !p)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[--color-text-muted] hover:text-[--color-text-primary]"
-                  tabIndex={-1}
-                >
-                  {showAddPw ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                </button>
-              </div>
+              <Label htmlFor="add-username">
+                Username
+                <span className="ml-1.5 text-[10px] text-[--color-text-muted] font-normal">Made from the email; you can change it</span>
+              </Label>
+              <Input
+                id="add-username"
+                value={addForm.username}
+                onChange={e => setAddForm(f => ({ ...f, username: e.target.value.replace(/\s/g, '_') }))}
+                placeholder="e.g. juan_delacruz"
+                spellCheck={false}
+              />
+              <p className="text-[10px] text-[--color-text-muted]">Letters, numbers, and underscores only. If it is taken, a number is added.</p>
             </div>
 
             <div className="space-y-1.5">
@@ -620,15 +603,38 @@ export default function UserList() {
             </p>
 
             <div className="rounded-lg border border-[--color-border] bg-[--color-canvas] px-4 py-3 text-ui-xs text-[--color-text-secondary]">
-              This account will be <span className="font-semibold text-blue-700">approved</span> and ready to use immediately.
-              Share the username and password with the user directly.
+              This account will be <span className="font-semibold text-blue-700">approved</span>. We'll email {addForm.email.trim() || 'them'} their
+              username and a link to set their own password; it works once, for 3 days (after that, Forgot password on the sign-in page).
             </div>
 
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={creating}>{creating ? 'Creating…' : 'Create User'}</Button>
+              <Button type="submit" disabled={creating}>{creating ? 'Creating…' : 'Create and email them'}</Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── A new account whose email could not be sent: the admin passes the link on another way ── */}
+      <Dialog open={!!invite} onOpenChange={(open) => { if (!open) setInvite(null) }}>
+        <DialogContent title="Send them this link" className="max-w-lg">
+          <div className="space-y-3 pt-2 text-ui-sm text-[--color-text-secondary]">
+            <p>
+              {invite?.name}'s account is made (username <span className="font-semibold text-[--color-text-primary]">{invite?.username}</span>),
+              but the email to {invite?.email} could not be sent. Send them this link another way, such as Messenger.
+              It works once, for 3 days, and lets whoever opens it set the password, so send it only to them.
+            </p>
+            <div className="flex gap-2">
+              <Input readOnly value={invite?.invite_link || ''} onFocus={e => e.target.select()} className="text-xs" aria-label="Link to set their password" />
+              <Button type="button" variant="secondary" className="gap-1.5 shrink-0"
+                onClick={() => navigator.clipboard.writeText(invite?.invite_link || '').then(() => toast.success('Link copied'), () => toast.error('Copy it from the box instead'))}>
+                <Copy className="size-3.5" /> Copy
+              </Button>
+            </div>
+          </div>
+          <DialogFooter className="px-0 pb-0 pt-6">
+            <Button onClick={() => setInvite(null)}>Done</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

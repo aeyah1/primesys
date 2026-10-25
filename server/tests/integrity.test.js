@@ -226,8 +226,8 @@ async function run() {
   await is(G7, 'the list holds this year\'s four quarters, with their dates', 1, 'GET', '/quarters', undefined,
     (r) => r.status === 200 && ['Q1', 'Q2', 'Q3', 'Q4'].every(l => r.data.some(x => x.label === l && x.year === new Date().getFullYear() && x.start_date && x.end_date)))
   await is(G7, 'settings: fund cluster over 50 characters → 400', 1, 'PATCH', '/settings', { fund_cluster: 'f'.repeat(51) }, code(400))
-  await is(G7, 'user: name over 100 characters → 400', 1, 'POST', '/users', { name: 'n'.repeat(101), username: 'longname', email: 'l@int.invalid', password: 'Long-Enough-1', role: 'supply' }, code(400))
-  await is(G7, 'user: 2-letter username → 400', 1, 'POST', '/users', { name: 'N', username: 'ab', email: 'ab@int.invalid', password: 'Long-Enough-1', role: 'supply' }, code(400))
+  await is(G7, 'user: name over 100 characters → 400', 1, 'POST', '/users', { name: 'n'.repeat(101), username: 'longname', email: 'l@int.invalid', role: 'supply' }, code(400))
+  await is(G7, 'user: 2-letter username → 400', 1, 'POST', '/users', { name: 'N', username: 'ab', email: 'ab@int.invalid', role: 'supply' }, code(400))
   await is(G7, 'user: invalid email → 400', 1, 'POST', '/users', { name: 'N', username: 'bademail', email: 'nope', password: 'Long-Enough-1', role: 'supply' }, code(400))
   await is(G7, 'profile: name over 100 characters → 400', 3, 'PATCH', '/auth/me', { name: 'n'.repeat(101) }, code(400))
   await is(G7, 'TWG comment over 2000 characters → 400', 6, 'POST', '/twg/40/review', { action: 'revise', comment: 'c'.repeat(2001) }, code(400))
