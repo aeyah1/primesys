@@ -16,8 +16,12 @@ async function pickedLine(prId, ppmpItemId, exceptItemId) {
 // is editable. Every change re-derives the PR's own category from them, since
 // that is what routes it to the TWG (utils/categories.js).
 exports.listItems = asyncHandler(async (req, res) => {
+  // With the TWG's check of an ICT item's typed specification (utils/ictSpecs.js).
   const [rows] = await pool.execute(
-    'SELECT id, ppmp_item_id, stock_property_no, group_label, category, item_name, quantity, unit, estimated_cost, notes FROM pr_items WHERE pr_id = ? ORDER BY id',
+    `SELECT i.id, i.ppmp_item_id, i.stock_property_no, i.group_label, i.category, i.item_name, i.quantity, i.unit, i.estimated_cost, i.notes,
+            i.dropped_at, i.spec_checked_at, cu.name AS spec_checked_by_name
+       FROM pr_items i LEFT JOIN users cu ON cu.id = i.spec_checked_by
+      WHERE i.pr_id = ? ORDER BY i.id`,
     [req.params.id]
   )
   res.json(rows)
@@ -66,7 +70,7 @@ exports.updateItem = asyncHandler(async (req, res) => {
   if (denied) return res.status(denied.status).json({ message: denied.message })
   // Picking another PPMP line brings its description and unit; an item from the PPMP keeps the line's.
   const line = 'ppmp_item_id' in b ? await pickedLine(req.params.id, b.ppmp_item_id, req.params.itemId) : null
-  const [[current]] = await pool.execute('SELECT ppmp_item_id FROM pr_items WHERE id = ?', [req.params.itemId])
+  const [[current]] = await pool.execute('SELECT ppmp_item_id, category, notes FROM pr_items WHERE id = ?', [req.params.itemId])
   const fromPpmp = line || (current.ppmp_item_id && !('ppmp_item_id' in b && !b.ppmp_item_id))
 
   // Only the fields sent change; a blank optional field is cleared, a blank quantity is ignored (audit API-14).
@@ -82,6 +86,10 @@ exports.updateItem = asyncHandler(async (req, res) => {
     unit:           line ? line.unit : !fromPpmp && 'unit' in b ? text(b.unit) : undefined,
     estimated_cost: 'estimated_cost' in b ? num(b.estimated_cost) : undefined,
     notes:          'notes' in b ? text(b.notes) : undefined,
+  }
+  // A changed specification (or category) is the TWG's to check again.
+  if ((changes.notes !== undefined && changes.notes !== current.notes) || (changes.category !== undefined && changes.category !== current.category)) {
+    Object.assign(changes, { spec_checked_at: null, spec_checked_by: null })
   }
   const cols = Object.keys(changes).filter(c => changes[c] !== undefined)
   if (cols.length) {
