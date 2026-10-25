@@ -86,7 +86,7 @@ async function run() {
   await is(G1, 'saving without `areas` keeps them', 1, 'PATCH', '/users/8', { name: 'New Member B', role: 'twg' }, code(200))
   await is(G1, '…still Furniture', 8, 'GET', '/twg/areas', undefined, (r) => r.status === 200 && r.data.areas.join() === 'furniture')
   const made = await is(G1, 'new TWG account created with its areas', 1, 'POST', '/users',
-    { name: 'Lab Head', username: 'labhead', email: 'lab@areas.invalid', password: 'Long-Enough-1', role: 'twg', areas: ['lab_educational'] }, code(201))
+    { name: 'Lab Head', username: 'labhead', email: 'lab@areas.invalid', role: 'twg', areas: ['lab_educational'] }, code(201))
   await is(G1, '…signs in to a Lab & Educational queue', made.data?.id, 'GET', '/twg/areas', undefined, (r) => r.status === 200 && r.data.areas.join() === 'lab_educational')
   await is(G1, 'changing the role away from TWG drops the areas', 1, 'PATCH', `/users/${made.data?.id}`, { name: 'Lab Head', role: 'procurement' }, code(200))
   const [{ n: leftover }] = await H.sql(TEST_DB, 'SELECT COUNT(*) AS n FROM twg_assignments WHERE user_id = ?', [made.data?.id])

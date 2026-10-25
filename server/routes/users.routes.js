@@ -21,9 +21,10 @@ const areas = [
 // Which categories have a TWG reviewer (before the /:id routes).
 router.get('/twg-coverage',   c.twgCoverage)
 
+// A new account has no password: it is emailed a link to set one; left out, the username is made from the email.
 router.post('/',
   textRule('name', 'Name', 100, { required: true }),
-  username(body('username')),
+  username(body('username').optional({ values: 'falsy' })),
   body('email').isString().withMessage('Email is required').bail().trim()
     .isEmail().withMessage('A valid email address is required').bail()
     .isLength({ max: 150 }).withMessage('Email is too long'),
@@ -32,7 +33,6 @@ router.post('/',
   idRule('department_id', 'Pick a valid office'),
   textRule('designation', 'Designation', 150),
   areas,
-  passwordRule('password'),
   handle,
   c.create)
 router.get('/',               c.list)
