@@ -47,6 +47,8 @@ function configure({ db, port, env = {} }) {
     JWT_SECRET: 'test-only-jwt-secret-0123456789abcdef0123456789abcdef',
     MAIL_USER: '', MAIL_PASS: '', CAPTCHA_ENABLED: 'false', CAPTCHA_SECRET_KEY: '',
     ALLOWED_EMAIL_DOMAINS: '*',
+    // Files are stored as uploaded unless a test sets its own key, whatever the local .env holds.
+    FILE_ENCRYPTION_KEY: '',
     ...env,
   })
   return { db, port, base: `http://127.0.0.1:${port}/api` }

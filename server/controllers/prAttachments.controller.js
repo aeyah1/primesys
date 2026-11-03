@@ -46,7 +46,7 @@ exports.listAttachments = asyncHandler(async (req, res) => {
     FROM pr_attachments pa
     JOIN users u ON pa.uploaded_by = u.id
     WHERE pa.pr_id = ?${rfqs ? '' : ` AND NOT ${IS_RFQ('pa')}`}
-    ORDER BY pa.created_at ASC
+    ORDER BY pa.created_at ASC, pa.id ASC
   `, [req.params.id])
   res.json(rows)
 })
