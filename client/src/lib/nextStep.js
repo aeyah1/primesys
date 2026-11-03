@@ -1,10 +1,10 @@
 // The request page's two guides, the same for every role (pages/pr/PRDetail.jsx): where the request is on its six
 // steps (stepsOf), and what the person looking at it does next (nextStepOf). Both work on GET /pr/:id.
-import { prStatusKey, fmtDate, RE_PR_TYPES, CATEGORY_LABELS, PR_STATUS_LABELS } from './utils'
+import { prStatusKey, fmtDate, fmtDatetime, RE_PR_TYPES, CATEGORY_LABELS, PR_STATUS_LABELS } from './utils'
 
 export const STEPS = ['Request', 'TWG review', 'Canvass', 'Award', 'Purchase order', 'Delivery']
 // Who does each step, shown under the steps still to come.
-const STEP_WHO = ['End User', 'TWG', 'Procurement, then the BAC', 'BAC (TWG check if needed)', 'Procurement', 'Supply Office']
+const STEP_WHO = ['End User', 'TWG', 'Procurement', 'BAC decides, Procurement records (TWG check if needed)', 'Procurement', 'Supply Office']
 
 // The step each status is on (an index into STEPS; STEPS.length when all are done) and how it stands: moving, back
 // (sent back to be fixed), stopped, or done.
@@ -55,7 +55,7 @@ export function nextStepOf(pr, user) {
   const wait = (title, text, actions = []) => ({ mine: false, title, text, actions })
 
   if (pr.deleted_at) {
-    return wait('Deleted', `Deleted ${fmtDate(pr.deleted_at)}${pr.deleted_by_name ? ` by ${pr.deleted_by_name}` : ''}. It is kept in the Archive and can no longer be changed.${pr.delete_reason ? ` Reason: ${said(pr.delete_reason)}` : ''}`)
+    return wait('Deleted', `Deleted ${fmtDatetime(pr.deleted_at)}${pr.deleted_by_name ? ` by ${pr.deleted_by_name}` : ''}. It is kept in the Archive and can no longer be changed.${pr.delete_reason ? ` Reason: ${said(pr.delete_reason)}` : ''}`)
   }
   switch (prStatusKey(pr)) {
     case 'draft':
@@ -75,7 +75,7 @@ export function nextStepOf(pr, user) {
 
     case 'revision_requested': {
       const why = pr.revision?.from_status === 're_pr'
-        ? `Re-PR: ${RE_PR_TYPES[pr.re_pr_type] || 'change the specifications'}.${pr.re_pr_reason ? ` ${said(pr.re_pr_reason)}` : ''}${pr.re_pr_note ? ` The BAC adds: ${said(pr.re_pr_note)}` : ''} An item may now cost more than its PPMP line, or not be in the PPMP; the extra comes out of the office's PPMP budget.`
+        ? `Re-PR: ${RE_PR_TYPES[pr.re_pr_type] || 'change the specifications'}.${pr.re_pr_reason ? ` ${said(pr.re_pr_reason)}` : ''}${pr.re_pr_note ? ` Procurement adds: ${said(pr.re_pr_note)}` : ''} An item may now cost more than its PPMP line, or not be in the PPMP; the extra comes out of the office's PPMP budget.`
         : `${pr.revision?.by_name ? `${pr.revision.by_name} asked for changes` : 'Changes were asked for'}: ${said(pr.revision?.note || pr.twg_comment || 'no reason was given')}`
       if (canEdit || next.includes('submitted')) {
         return mine('Change the request, then submit it again', why, [...(canEdit ? ['edit'] : []), ...(next.includes('submitted') ? ['submit'] : [])])
@@ -91,33 +91,33 @@ export function nextStepOf(pr, user) {
     case 'twg_review':
       return staff
         ? mine('Start the canvass', `Give it its PR number and mode of procurement, then print the RFQ for the canvasser.${pr.twg_comment ? ` The TWG noted: ${said(pr.twg_comment)}` : ''}`, ['start_canvass'])
-        : wait('Procurement starts the canvass next', `The TWG approved it${pr.twg_reviewed_at ? ` on ${fmtDate(pr.twg_reviewed_at)}` : ''}.`, remind)
+        : wait('Procurement starts the canvass next', `The TWG approved it${pr.twg_reviewed_at ? ` on ${fmtDatetime(pr.twg_reviewed_at)}` : ''}.`, remind)
 
     case 'bidding': {
       const quotes = Number(pr.quotes) || 0
       const back = pr.certification_return_reason ? `Returned by the TWG: ${said(pr.certification_return_reason)} `
         : pr.recanvass_reason ? `Re-canvass ordered by the TWG: ${said(pr.recanvass_reason)} ` : ''
-      if (role === 'bac') {
-        return mine('Enter the quotations', `${back}${quotes ? `${quotes} entered so far.` : 'None entered yet.'} Add each supplier's returned RFQ, then send them to the TWG (IT and hardware) or go straight to the award.`, ['enter_quotations'])
+      if (role === 'procurement') {
+        return mine('Enter the quotations', `${back}${quotes ? `${quotes} entered so far.` : 'None entered yet.'} Add each supplier's returned RFQ, then send them to the TWG (IT and hardware) or go straight to the award.`, ['enter_quotations', 'print_rfq', 'word_rfq'])
       }
-      return wait('The BAC is entering the suppliers\' quotations', `${back}${quotes ? `${quotes} in so far. ` : ''}The canvasser takes the RFQ to the suppliers and brings their quotations back.`,
+      return wait('Procurement is entering the suppliers\' quotations', `${back}${quotes ? `${quotes} in so far. ` : ''}The canvasser takes the RFQ to the suppliers and brings their quotations back.`,
         staff ? ['print_rfq', 'word_rfq'] : remind)
     }
 
     case 'twg_certification':
       return pr.permissions?.twg_certify
-        ? mine('Check the offers', 'Mark each bid compliant or not against the specifications, then certify them, order a re-canvass, or return them to the BAC.', ['check_offers'])
-        : wait('The TWG is checking the offers', 'The BAC chooses the supplier next.')
+        ? mine('Check the offers', 'Mark each bid compliant or not against the specifications, then certify them, order a re-canvass, or return them to Procurement.', ['check_offers'])
+        : wait('The TWG is checking the offers', 'The BAC chooses the supplier next, and Procurement records its award.')
 
     case 're_pr':
-      return role === 'bac'
+      return role === 'procurement'
         ? mine('Check the Re-PR', `${RE_PR_TYPES[pr.re_pr_type] || 'Change the specifications'}. Send it to the End User to change, or return it to the TWG.`, ['check_repr'])
-        : wait('The BAC is checking the TWG\'s Re-PR', 'No supplier\'s offer met the specifications; the End User changes the request next.')
+        : wait('Procurement is checking the TWG\'s Re-PR', 'No supplier\'s offer met the specifications; the End User changes the request next.')
 
     case 'bac_review':
-      return role === 'bac'
-        ? mine('Choose the supplier of each lot', 'Pick each lot\'s winner (the system recommends the lowest), then review and confirm the award.', ['choose_winners'])
-        : wait('The BAC is choosing the supplier', 'Procurement issues the purchase order next.')
+      return role === 'procurement'
+        ? mine('Record the BAC\'s award', 'Pick the supplier the BAC chose for each lot and tick the criteria it applied, then review and confirm.', ['choose_winners'])
+        : wait('The BAC is choosing the supplier', 'Procurement records its award, then issues the purchase order.')
 
     case 'for_po':
       if (staff) return mine('Issue the purchase order', 'Each winning supplier gets its own PO, with its expected delivery date.', ['issue_po'])

@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import ScanViewer, { previewable } from '@/components/awards/ScanViewer'
-import { fmtDate } from '@/lib/utils'
+import { fmtDatetime, removedNote } from '@/lib/utils'
 import { downloadFile, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
 import { useConfirm } from '@/components/shared/ConfirmDialog'
@@ -27,7 +27,8 @@ function fmtSize(bytes) {
 
 // onChange(): after a file is added or removed, for views that depend on the files.
 // preview: a View button opens a PDF or a picture in the page (a delivery's proof).
-export default function AttachmentsPanel({ endpoint, queryKey, canDelete, canUpload, onChange, preview = false }) {
+// rfq: uploads are marked as suppliers' RFQs, seen only by those who may see quotations (the canvasser's files).
+export default function AttachmentsPanel({ endpoint, queryKey, canDelete, canUpload, onChange, preview = false, rfq = false }) {
   const confirm = useConfirm()
   const qc      = useQueryClient()
   const fileRef = useRef()
@@ -55,6 +56,7 @@ export default function AttachmentsPanel({ endpoint, queryKey, canDelete, canUpl
     }
     const formData = new FormData()
     formData.append('file', file)
+    if (rfq) formData.append('rfq', '1')
     setUploading(true)
     try {
       await api.post(`${endpoint}/attachments`, formData, {
@@ -97,12 +99,13 @@ export default function AttachmentsPanel({ endpoint, queryKey, canDelete, canUpl
             <div key={att.id} className="flex items-center gap-3 px-4 py-3 bg-white hover:bg-[--color-surface] transition-colors">
               {fileIcon(att.mimetype)}
               <div className="flex-1 min-w-0">
-                <p className="text-ui-sm font-medium text-[--color-text-primary] truncate">{att.original_name}</p>
+                <p className={`text-ui-sm font-medium truncate ${att.removed_at ? 'text-[--color-text-muted] line-through' : 'text-[--color-text-primary]'}`}>{att.original_name}</p>
                 <p className="text-[10px] text-[--color-text-muted] mt-0.5">
-                  {fmtSize(att.size)} · {att.uploaded_by_name} · {fmtDate(att.created_at)}
+                  {fmtSize(att.size)} · {att.uploaded_by_name} · {fmtDatetime(att.created_at)}
                 </p>
+                {att.removed_at && <p className="text-[10px] text-amber-700 mt-0.5">{removedNote(att.removed_at)}</p>}
               </div>
-              <div className="flex items-center gap-1 shrink-0">
+              {!att.removed_at && <div className="flex items-center gap-1 shrink-0">
                 {preview && previewable(att.mimetype) && (
                   <button onClick={() => setViewing(att)} title="View" aria-label={`View ${att.original_name}`}
                     className="p-1.5 rounded-lg text-[--color-text-muted] hover:text-[--color-brand] hover:bg-[--color-overlay] transition-colors">
@@ -127,7 +130,7 @@ export default function AttachmentsPanel({ endpoint, queryKey, canDelete, canUpl
                     <Trash2 className="size-3.5" />
                   </button>
                 )}
-              </div>
+              </div>}
             </div>
           ))}
         </div>
@@ -135,7 +138,7 @@ export default function AttachmentsPanel({ endpoint, queryKey, canDelete, canUpl
 
       {viewing && (
         <Dialog open onOpenChange={v => { if (!v) setViewing(null) }}>
-          <DialogContent title={viewing.original_name} description={`${viewing.uploaded_by_name ? `Attached by ${viewing.uploaded_by_name}, ` : ''}${fmtDate(viewing.created_at)}`} className="max-w-4xl">
+          <DialogContent title={viewing.original_name} description={`${viewing.uploaded_by_name ? `Attached by ${viewing.uploaded_by_name}, ` : ''}${fmtDatetime(viewing.created_at)}`} className="max-w-4xl">
             <div className="overflow-hidden rounded-lg border border-[--color-border] bg-white"><ScanViewer base={endpoint} file={viewing} /></div>
           </DialogContent>
         </Dialog>

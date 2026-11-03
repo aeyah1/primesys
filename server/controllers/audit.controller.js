@@ -6,7 +6,7 @@ const { paging } = require('../middleware/validate')
 const CATEGORIES = ['sign_in', 'requests', 'canvass', 'orders', 'ppmp', 'users', 'settings', 'account', 'other']
 const OUTCOMES = ['ok', 'refused', 'error']
 const DAY = /^\d{4}-\d{2}-\d{2}$/
-const ACCOUNT_FAILURES = 5    // failed sign-ins on one account in 24 hours
+const ACCOUNT_FAILURES = 5    // failed sign-ins and face checks on one account in 24 hours
 const ADDRESS_FAILURES = 10   // refused sign-in events from one address in 24 hours
 
 // Each row's item named as people know it: the PR number, the office's PPMP, the person, the PO, the office, the supplier.
@@ -33,47 +33,66 @@ const TARGET = `CASE a.target_type
     WHEN 'lot' THEN l.lot_number
   END`
 
-// GET /audit - newest first: ?user (what they did and what was done to their account), category, outcome, from and to
-// (dates, both included), q (person, what, item, address), page, limit.
+// One page of entries, newest first, for query `q`: user (what they did and what was done to their account), category,
+// outcome, from and to (dates, both included), q (person, what, item, address), page, limit. Resolves with { data, total, page, limit }.
+async function entries(q) {
+  const { page, limit, offset } = paging(q, { defaultLimit: 50, maxLimit: 200 })
+  const where = []
+  const params = []
+  const userId = parseInt(q.user, 10)
+  if (userId > 0) { where.push("(a.user_id = ? OR (a.target_type = 'user' AND a.target_id = ?))"); params.push(userId, userId) }
+  if (CATEGORIES.includes(q.category)) { where.push('a.category = ?'); params.push(q.category) }
+  if (OUTCOMES.includes(q.outcome)) { where.push('a.outcome = ?'); params.push(q.outcome) }
+  if (DAY.test(q.from || '')) { where.push('a.created_at >= ?'); params.push(`${q.from} 00:00:00`) }
+  if (DAY.test(q.to || '')) { where.push('a.created_at < DATE_ADD(?, INTERVAL 1 DAY)'); params.push(q.to) }
+  const text = typeof q.q === 'string' ? q.q.trim().slice(0, 100) : ''
+  if (text) {
+    where.push(`(a.user_name LIKE ? OR a.summary LIKE ? OR a.detail LIKE ? OR a.ip LIKE ? OR ${TARGET} LIKE ?)`)
+    params.push(...Array(5).fill(`%${text}%`))
+  }
+  const sql = where.length ? `WHERE ${where.join(' AND ')}` : ''
+  const [rows] = await pool.execute(
+    `SELECT a.id, a.created_at, a.user_id, a.user_name, a.user_role, a.action, a.category, a.summary,
+            a.target_type, a.target_id, ${TARGET} AS target_label, a.outcome, a.status, a.detail, a.ip, a.device
+     ${FROM} ${sql} ORDER BY a.id DESC LIMIT ${limit} OFFSET ${offset}`, params)
+  const [[{ total }]] = await pool.execute(`SELECT COUNT(*) AS total ${FROM} ${sql}`, params)
+  return { data: rows, total: Number(total), page, limit }
+}
+
+// GET /audit - every entry, for the admin; the filters of entries().
 exports.list = async (req, res) => {
   try {
-    const q = req.query
-    const { page, limit, offset } = paging(q, { defaultLimit: 50, maxLimit: 200 })
-    const where = []
-    const params = []
-    const userId = parseInt(q.user, 10)
-    if (userId > 0) { where.push("(a.user_id = ? OR (a.target_type = 'user' AND a.target_id = ?))"); params.push(userId, userId) }
-    if (CATEGORIES.includes(q.category)) { where.push('a.category = ?'); params.push(q.category) }
-    if (OUTCOMES.includes(q.outcome)) { where.push('a.outcome = ?'); params.push(q.outcome) }
-    if (DAY.test(q.from || '')) { where.push('a.created_at >= ?'); params.push(`${q.from} 00:00:00`) }
-    if (DAY.test(q.to || '')) { where.push('a.created_at < DATE_ADD(?, INTERVAL 1 DAY)'); params.push(q.to) }
-    const text = typeof q.q === 'string' ? q.q.trim().slice(0, 100) : ''
-    if (text) {
-      where.push(`(a.user_name LIKE ? OR a.summary LIKE ? OR a.detail LIKE ? OR a.ip LIKE ? OR ${TARGET} LIKE ?)`)
-      params.push(...Array(5).fill(`%${text}%`))
-    }
-    const sql = where.length ? `WHERE ${where.join(' AND ')}` : ''
-    const [rows] = await pool.execute(
-      `SELECT a.id, a.created_at, a.user_id, a.user_name, a.user_role, a.action, a.category, a.summary,
-              a.target_type, a.target_id, ${TARGET} AS target_label, a.outcome, a.status, a.detail, a.ip, a.device
-       ${FROM} ${sql} ORDER BY a.id DESC LIMIT ${limit} OFFSET ${offset}`, params)
-    const [[{ total }]] = await pool.execute(`SELECT COUNT(*) AS total ${FROM} ${sql}`, params)
-    res.json({ data: rows, total: Number(total), page, limit })
+    res.json(await entries(req.query))
+  } catch (err) {
+    console.error(err); res.status(500).json({ message: 'Internal server error' })
+  }
+}
+
+// GET /audit/mine?category=&from=&to=&page= - the signed-in person's own history, read only: what they did, and what
+// was done to their account (failed sign-ins on it, an admin's changes). Where someone else acted, that person's
+// address and browser stay hidden.
+exports.mine = async (req, res) => {
+  try {
+    const { category, from, to, page, limit } = req.query
+    const out = await entries({ category, from, to, page, limit, user: req.user.id })
+    res.json({ ...out, data: out.data.map(r => (r.user_id && r.user_id !== req.user.id ? { ...r, ip: null, device: null } : r)) })
   } catch (err) {
     console.error(err); res.status(500).json({ message: 'Internal server error' })
   }
 }
 
 // GET /audit/alerts - the last 24 hours, for the admin dashboard: accounts with repeated failed sign-ins, addresses
-// with many refused sign-in events, and how many accounts were locked.
+// with many refused sign-in events, how many accounts were locked, and how many changes failed with a server error.
 exports.alerts = async (req, res) => {
   try {
+    // A failed face check is the account's own line (its user_id), a wrong password the account it was tried on (target_id).
     const [accounts] = await pool.execute(
-      `SELECT a.target_id AS user_id, u.name, u.username, COUNT(*) AS failures, MAX(a.created_at) AS last_at
-         FROM audit_logs a LEFT JOIN users u ON u.id = a.target_id
-        WHERE a.created_at > NOW() - INTERVAL 1 DAY AND a.target_type = 'user'
-          AND a.action IN ('auth.login_failed', 'auth.login_locked', 'auth.login_throttled')
-        GROUP BY a.target_id, u.name, u.username HAVING COUNT(*) >= ${ACCOUNT_FAILURES} ORDER BY failures DESC LIMIT 10`)
+      `SELECT COALESCE(a.target_id, a.user_id) AS user_id, u.name, u.username, COUNT(*) AS failures, MAX(a.created_at) AS last_at
+         FROM audit_logs a LEFT JOIN users u ON u.id = COALESCE(a.target_id, a.user_id)
+        WHERE a.created_at > NOW() - INTERVAL 1 DAY
+          AND ((a.target_type = 'user' AND a.action IN ('auth.login_failed', 'auth.login_locked', 'auth.login_throttled'))
+            OR a.action = 'auth.face_check_failed')
+        GROUP BY COALESCE(a.target_id, a.user_id), u.name, u.username HAVING COUNT(*) >= ${ACCOUNT_FAILURES} ORDER BY failures DESC LIMIT 10`)
     const [addresses] = await pool.execute(
       `SELECT a.ip, COUNT(*) AS failures, COUNT(DISTINCT a.target_id) AS accounts, MAX(a.created_at) AS last_at
          FROM audit_logs a
@@ -81,7 +100,9 @@ exports.alerts = async (req, res) => {
         GROUP BY a.ip HAVING COUNT(*) >= ${ADDRESS_FAILURES} ORDER BY failures DESC LIMIT 10`)
     const [[{ locked }]] = await pool.execute(
       "SELECT COUNT(*) AS locked FROM audit_logs WHERE action = 'auth.login_locked' AND created_at > NOW() - INTERVAL 1 DAY")
-    res.json({ accounts, addresses, locked: Number(locked) })
+    const [[{ errors }]] = await pool.execute(
+      "SELECT COUNT(*) AS errors FROM audit_logs WHERE outcome = 'error' AND created_at > NOW() - INTERVAL 1 DAY")
+    res.json({ accounts, addresses, locked: Number(locked), errors: Number(errors) })
   } catch (err) {
     console.error(err); res.status(500).json({ message: 'Internal server error' })
   }

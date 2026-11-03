@@ -2,7 +2,7 @@ const httpError = require('./httpError')
 const { checkSignature, signatureBuffer, METHODS } = require('./signature')
 const { bacMembers, canvassersOf } = require('./orgSettings')
 
-// Saved signatures of the officials named in Settings > Organization. An admin saves each with the person's
+// Saved signatures of the officials named on the Organization page. An admin saves each with the person's
 // consent; it is kept under their name, so a new officeholder never prints with the last one's signature.
 // It prints over that name only on a staff copy, once the signer's step is done (signedCopy).
 

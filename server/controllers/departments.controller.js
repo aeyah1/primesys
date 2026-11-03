@@ -2,6 +2,7 @@ const pool         = require('../db/pool')
 const asyncHandler = require('../utils/asyncHandler')
 const httpError    = require('../utils/httpError')
 const securityLog  = require('../utils/securityLog')
+const { cleanSections } = require('../utils/departments')
 
 // The offices that file purchase requests, with the head who signs
 // "Requested by" on the printed form (see utils/departments.js).
@@ -17,7 +18,7 @@ exports.list = asyncHandler(async (req, res) => {
            (SELECT COUNT(*) FROM users u WHERE u.department_id = d.id) AS user_count,
            (SELECT COUNT(*) FROM purchase_requests pr WHERE pr.department_id = d.id) AS pr_count` : ''
   const [rows] = await pool.execute(`
-    SELECT d.id, d.code, d.name, d.head_name, d.head_designation, d.is_active${counts}
+    SELECT d.id, d.code, d.name, d.head_name, d.head_designation, d.sections, d.is_active${counts}
       FROM departments d
      ${all ? '' : 'WHERE d.is_active = 1'}
      ORDER BY d.code`)
@@ -26,10 +27,11 @@ exports.list = asyncHandler(async (req, res) => {
 
 exports.create = asyncHandler(async (req, res) => {
   const { code, name, head_name, head_designation } = req.body   // checked in the route
+  const sections = cleanSections(req.body.sections).join('\n') || null
   try {
     const [r] = await pool.execute(
-      'INSERT INTO departments (code, name, head_name, head_designation) VALUES (?, ?, ?, ?)',
-      [code.trim(), name.trim(), head_name?.trim() || null, head_designation?.trim() || null]
+      'INSERT INTO departments (code, name, head_name, head_designation, sections) VALUES (?, ?, ?, ?, ?)',
+      [code.trim(), name.trim(), head_name?.trim() || null, head_designation?.trim() || null, sections]
     )
     securityLog('department_created', { id: r.insertId, code: code.trim(), by: req.user.id })
     res.status(201).json({ id: r.insertId })
@@ -41,7 +43,7 @@ exports.create = asyncHandler(async (req, res) => {
 
 // PATCH /departments/:id - only the fields sent are changed, so a blank head
 // name clears it rather than being silently kept.
-const FIELDS = ['code', 'name', 'head_name', 'head_designation']
+const FIELDS = ['code', 'name', 'head_name', 'head_designation', 'sections']
 
 exports.update = asyncHandler(async (req, res) => {
   const [[dept]] = await pool.execute('SELECT id FROM departments WHERE id = ?', [req.params.id])
@@ -52,6 +54,8 @@ exports.update = asyncHandler(async (req, res) => {
   if (!sent.length && !setActive) return res.json({ message: 'Nothing to change' })
 
   const values = sent.map(f => {
+    // Sections, one per line, are kept tidied (utils/departments.js).
+    if (f === 'sections') return cleanSections(req.body.sections).join('\n') || null
     const v = String(req.body[f] ?? '').trim()
     // code and name are required columns, so they can't be blanked.
     if ((f === 'code' || f === 'name') && !v) throw httpError(400, `${f === 'code' ? 'Code' : 'Name'} is required`)

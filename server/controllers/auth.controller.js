@@ -16,6 +16,8 @@ const { hashToken, issueResetToken } = require('../utils/resetLink')
 const loginCodeEmail = require('../emails/loginCode')
 const devices  = require('../utils/loginDevices')
 const accountExistsEmail = require('../emails/accountExists')
+const maintenance = require('../utils/maintenance')
+const face     = require('../utils/faceCheck')
 
 const BCRYPT_COST = 10
 // Compared against when no account matches, so an unknown username takes as
@@ -154,6 +156,8 @@ exports.login = async (req, res) => {
     if (!user.is_verified) {
       return res.status(403).json({ message: PENDING, type: 'pending' })
     }
+    // During maintenance only admins sign in.
+    if (user.role !== 'admin' && await maintenance.refuse(res)) return
 
     // A browser the account hasn't verified, its first sign-in included, is let in only with the code emailed to it;
     // administrators, and accounts the admin exempted (demo or shared ones), sign in with the password alone.
@@ -175,6 +179,7 @@ exports.login = async (req, res) => {
     }
     // A remembered browser unticked this time (a shared computer, say) is let in and then forgotten.
     if (!remember) await devices.forgetDevice(user.id, req.body.device)
+    if (await needsFace(user)) return res.json(faceStep(user))
     securityLog('login', { userId: user.id, ip: req.ip })
     res.json(await startSession(req, user))
   } catch (err) {
@@ -182,13 +187,19 @@ exports.login = async (req, res) => {
   }
 }
 
-// One session per account: a sign-in's key replaces the last, which ends the account's other tabs and devices.
-async function startSession(req, user) {
+// One session per account: a sign-in's key replaces the last, which ends the account's other tabs and devices. A sign-in
+// finished with a face check counts as one passed for critical actions (utils/faceCheck.js).
+async function startSession(req, user, { faced = false } = {}) {
   const sessionKey = crypto.randomBytes(16).toString('hex')
   await pool.execute('UPDATE users SET session_key = ? WHERE id = ?', [sessionKey, user.id])
   await replaceSessions(req.io, user.id)
+  if (faced) face.markPassed(user.id, sessionKey)
   return { token: sign(user, user.token_version, sessionKey), user: await profileOf(user.id) }
 }
+
+// Staff with a face on record pass a face check as the last step of signing in, while face checks are on.
+const needsFace = async (user) => face.isStaff(user.role) && await face.inForce() && !!await face.templateOf(user.id)
+const faceStep = (user, log) => ({ face: true, ticket: face.startSignIn(user.id, log) })
 
 // "al***@nemsu.edu.ph": where the code went, without spelling out the address to whoever typed the password.
 const maskEmail = (email) => String(email).replace(/^(.{1,2})[^@]*(@.+)$/, '$1***$2')
@@ -213,13 +224,46 @@ exports.verifyLogin = async (req, res) => {
       securityLog('login_code_failed', { reason: r.error, ip: req.ip })
       return res.status(400).json({ message: r.error === 'locked' ? 'Too many wrong codes. Sign in again for a new one.' : 'This code has expired. Sign in again for a new one.', type: 'expired' })
     }
-    const [[user]] = await pool.execute('SELECT id, name, email, token_version, is_active, is_verified FROM users WHERE id = ?', [r.userId])
+    const [[user]] = await pool.execute('SELECT id, name, email, role, token_version, is_active, is_verified FROM users WHERE id = ?', [r.userId])
     if (!user?.is_active || !user.is_verified) {
       return res.status(403).json({ message: 'Your account has been deactivated. Contact your administrator.', type: 'inactive' })
     }
+    if (user.role !== 'admin' && await maintenance.refuse(res)) return
     const device = r.remember ? await devices.remember(user.id, r.key, r.label) : undefined
-    securityLog('login', { userId: user.id, ip: req.ip, newDevice: r.label, remembered: r.remember })
+    const log = { newDevice: r.label, remembered: r.remember }
+    if (await needsFace(user)) return res.json({ ...faceStep(user, log), device })
+    securityLog('login', { userId: user.id, ip: req.ip, ...log })
     res.json({ ...await startSession(req, user), device })
+  } catch (err) {
+    console.error(err); res.status(500).json({ message: 'Internal server error' })
+  }
+}
+
+// POST /auth/login/face - { ticket, samples }: the face check that finishes a staff sign-in; MAX_TRIES, then sign in again.
+exports.verifyFace = async (req, res) => {
+  try {
+    const s = face.signInOf(req.body.ticket)
+    if (!s) return res.status(400).json({ message: 'This sign-in has expired. Sign in again.', type: 'expired' })
+    const [[user]] = await pool.execute('SELECT id, name, email, role, token_version, is_active, is_verified FROM users WHERE id = ?', [s.userId])
+    if (!user?.is_active || !user.is_verified) {
+      face.dropSignIn(req.body.ticket)
+      return res.status(403).json({ message: 'Your account has been deactivated. Contact your administrator.', type: 'inactive' })
+    }
+    if (user.role !== 'admin' && await maintenance.refuse(res)) return
+    // 'none': the face was removed since the password step (an admin reset it), so it signs in as staff without one do.
+    const result = await face.compare(user.id, req.body.samples)
+    if (result === 'mismatch' || result === 'unclear') {
+      securityLog('face_check_failed', { userId: user.id, ip: req.ip, reason: result })
+      const left = face.MAX_TRIES - ++s.tries
+      if (left <= 0) {
+        face.dropSignIn(req.body.ticket)
+        return res.status(400).json({ message: 'Too many face checks didn\'t match. Sign in again.', type: 'expired' })
+      }
+      return res.status(400).json({ message: face.failText(result, left), type: 'face', left })
+    }
+    face.dropSignIn(req.body.ticket)
+    securityLog('login', { userId: user.id, ip: req.ip, ...s.log, face: result === 'match' })
+    res.json(await startSession(req, user, { faced: result === 'match' }))
   } catch (err) {
     console.error(err); res.status(500).json({ message: 'Internal server error' })
   }

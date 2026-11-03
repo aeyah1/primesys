@@ -1,5 +1,3 @@
-const fs   = require('fs')
-const path = require('path')
 const { signatureBuffer, drawSignature } = require('../utils/signature')
 
 // The TWG's Certification (Goods and services), following the campus's own
@@ -14,7 +12,6 @@ const { signatureBuffer, drawSignature } = require('../utils/signature')
 const M      = 56
 const W      = 612 - M * 2
 const FOOT   = 792 - 64            // where the footer starts
-const SEAL   = path.join(__dirname, '..', 'assets', 'nemsu-seal.png')
 const PAD    = 3
 const HEAD_H = 40
 const MIN_BODY = 250               // the table is at least this tall, as on the printed form
@@ -48,14 +45,12 @@ function footer(doc, orgSettings) {
   doc.page.margins.bottom = bottom
 }
 
-// The seal, the university, CERTIFICATION (Goods and services) and the Cert. No.; leaves doc.y under it.
+// The university, CERTIFICATION (Goods and services) and the Cert. No.; leaves doc.y under it. No seal is printed
+// without the university's authorisation.
 function letterhead(doc, orgSettings, certNo) {
   const centre = { width: W, align: 'center' }
   const y = 36
-  if (fs.existsSync(SEAL)) {
-    try { doc.image(SEAL, (612 - 56) / 2, y, { width: 56, height: 56 }) } catch { /* not fatal */ }
-  }
-  doc.font('Helvetica').fontSize(11).fillColor('#000').text('Republic of the Philippines', M, y + 62, centre)
+  doc.font('Helvetica').fontSize(11).fillColor('#000').text('Republic of the Philippines', M, y + 10, centre)
   doc.font('Helvetica-Bold').fontSize(13).text(setting(orgSettings, 'entity_full_name', 'North Eastern Mindanao State University'), M, doc.y, centre)
   doc.font('Times-Bold').fontSize(11).text('CERTIFICATION', M, doc.y, { ...centre, characterSpacing: 2 })
   doc.font('Helvetica-Oblique').fontSize(10).text('(Goods and services)', M, doc.y, centre)

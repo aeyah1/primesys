@@ -1,4 +1,4 @@
-import { Check, Star } from 'lucide-react'
+import { Check } from 'lucide-react'
 import { fmtCurrency } from '@/lib/utils'
 import { nameKey, cents, lineCents, totalOf, lotsWithItems, isDQ, DQBadge } from './supplier'
 
@@ -19,11 +19,10 @@ function remarksOf(b, lots, headed, wonBy, items) {
   return list
 }
 
-/* Every bid the BAC entered, compared lot by lot: items down, the bidders
+/* Every bid Procurement entered, compared lot by lot: items down, the bidders
    across (with their RFQ No.), each bid with the TWG's verdict, and each
    bidder's total for the lot (only a bidder that bid on all of it can win it).
-   The lot's recommended bidder (the lowest compliant total) is starred while
-   it waits for the award, and its winner checked once awarded. Under them,
+   No bidder is suggested: the BAC chooses. The lot's winner is checked once awarded. Under them,
    each bidder's remarks (Awarded, DQ) and the TWG's Re-PR reason when every bidder was DQ.
    canvass: GET /canvass/:prId. Optional: pick ({ [lot label]: bidder id }) with
    onPick(lot, bidderId) to choose each lot's winner; lotNote(lot) for a line
@@ -107,13 +106,11 @@ export default function BidsTable({ canvass, pick, onPick, lotNote, action }) {
                   {bidders.map((b, n) => {
                     const total = totals[n]
                     if (total == null) return <td key={b.id} className="px-3 py-2.5 text-right text-[11px] text-[--color-text-muted]">Not all items</td>
-                    const recommended = pending.length > 0 && lot.recommended_bidder_id === b.id
                     const won = !pending.length && counted.every(i => wonBy(i, b))
                     const chosen = choosing && pick[lot.label] === b.id
                     const over = budget > 0 && total > budget
                     const amount = (
                       <span className={`inline-flex items-center gap-1 tabular-nums font-semibold ${over ? 'text-red-700' : chosen || won ? 'text-emerald-800' : 'text-[--color-text-primary]'}`}>
-                        {recommended && <Star className="size-3.5 shrink-0 fill-amber-400 text-amber-500" aria-label="Recommended" />}
                         {won && <Check className="size-3.5 shrink-0" aria-label="Winner" />}
                         {fmtCurrency(total / 100)}
                       </span>
@@ -164,7 +161,7 @@ export default function BidsTable({ canvass, pick, onPick, lotNote, action }) {
               <tr className="border-t border-[--color-border] bg-amber-50">
                 <td colSpan={cols} className="px-3 py-2.5 text-xs text-amber-900">
                   <span className="font-semibold">Re-PR:</span> {rePr.type ? `${rePr.type}. ` : ''}{rePr.reason}
-                  {rePr.note && <span className="block">The BAC adds: {rePr.note}</span>}
+                  {rePr.note && <span className="block">Procurement adds: {rePr.note}</span>}
                 </td>
               </tr>
             )}

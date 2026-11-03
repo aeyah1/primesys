@@ -85,11 +85,6 @@ export function useLiveUpdates() {
           if (id) refresh(['ppmp', id])
           break
 
-        // The BAC opened or locked the RFQ History.
-        case 'rfqs':
-          refresh(['rfq-access'], ['rfqs'], ['canvass'], ['pr'], ['bac'])
-          qc.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith('pr-attachments-') })
-          break
 
         // The admin changed this account (its office): reload it, and what follows the office.
         case 'account':

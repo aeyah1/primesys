@@ -10,9 +10,9 @@ const FRAMES = [
   { status: 'submitted',         event: 'Submitted to the TWG',              by: 'End User',    at: 'Oct 1, 9:12 AM' },
   { status: 'twg_review',        event: 'Approved, review certificate issued', by: 'TWG',       at: 'Oct 2, 2:40 PM' },
   { status: 'bidding',           event: 'Canvass started, RFQ printed',      by: 'Procurement', at: 'Oct 3, 10:05 AM' },
-  { status: 'twg_certification', event: 'Three quotations recorded',         by: 'BAC',         at: 'Oct 9, 3:18 PM' },
+  { status: 'twg_certification', event: 'Three quotations recorded',         by: 'Procurement', at: 'Oct 9, 3:18 PM' },
   { status: 'bac_review',        event: 'Offers checked and certified',      by: 'TWG',         at: 'Oct 10, 11:30 AM' },
-  { status: 'for_po',            event: 'Lot awarded',                       by: 'BAC',         at: 'Oct 13, 9:02 AM' },
+  { status: 'for_po',            event: 'Lot awarded',                       by: 'Procurement', at: 'Oct 13, 9:02 AM' },
   { status: 'for_po',            event: 'Purchase order issued',             by: 'Procurement', at: 'Oct 14, 8:47 AM', pos: [{ delivery_status: 'pending' }] },
   { status: 'completed',         event: 'Delivery received in full',         by: 'Supply',      at: 'Oct 21, 1:45 PM' },
 ]
@@ -42,13 +42,7 @@ export default function HeroPreview({ compact = false }) {
       {/* app bar */}
       <div className="flex items-center justify-between border-b border-[--color-border] bg-[--color-canvas] px-6 py-3 text-ui-xs">
         <span className="text-[--color-text-muted]">My Requests <span className="px-1.5">/</span> <span className="font-semibold text-[--color-text-secondary]">Request details</span></span>
-        <span className="flex items-center gap-2 font-medium text-[--color-text-secondary]">
-          <span className="relative flex size-2">
-            <span className="absolute size-full rounded-full bg-emerald-500 opacity-60 motion-safe:animate-ping" />
-            <span className="relative size-2 rounded-full bg-emerald-500" />
-          </span>
-          Updated live
-        </span>
+        <span className="font-medium text-[--color-text-secondary]">Every step on record</span>
       </div>
 
       {/* request header */}

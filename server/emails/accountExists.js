@@ -34,7 +34,7 @@ module.exports = function accountExistsEmail({ name, loginUrl, resetUrl }) {
       <p style="margin:0 0 32px;">If it wasn't you, you can ignore this email. Your account has not changed.</p>
 
       <p style="margin:0;">Sincerely,</p>
-      <p style="margin:4px 0 0;font-weight:700;">PrimeSys Support Team</p>
+      <p style="margin:4px 0 0;font-weight:700;">PRimeSys Support Team</p>
 
       <hr style="border:none;border-top:1px solid #f3f4f6;margin-top:32px;" />
       <p style="color:#9ca3af;font-size:11px;margin:12px 0 0;font-family:Inter,Arial,sans-serif;">

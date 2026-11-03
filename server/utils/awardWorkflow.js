@@ -45,7 +45,7 @@ function awardLockedReason(pr, lot) {
   if (pr.deleted_at)              return deny(409, 'This PR has been deleted')
   if (FINAL.includes(pr.status))  return deny(409, 'This PR is closed, so its awards are kept as they are')
   if (REVIEWING.includes(pr.status)) {
-    return deny(409, `This PR is with the ${pr.status === 'bac_review' ? 'BAC' : 'TWG'} for review, so its awards are kept as they are. Ask for it to be returned to change one.`)
+    return deny(409, `This PR is ${pr.status === 'bac_review' ? 'waiting for its award' : 'with the TWG for review'}, so its awards are kept as they are. Take it back to the canvass to change one.`)
   }
   if (lot.status === 'cancelled') return deny(409, 'This award was cancelled. Record a new award instead.')
   if (lot.po_id)                  return deny(409, 'This award has a purchase order, so it can\'t change. Cancel the PO first to award its items again.')
@@ -117,7 +117,7 @@ async function awardsForPO(db, prId, supplier) {
   const [lots] = await db.execute(
     `SELECT id, lot_number, awarded_to, awarded_amount, supplier_contact, supplier_address
        FROM lots WHERE purchase_request_id = ? AND status = 'awarded' AND po_id IS NULL AND certified_at IS NOT NULL ORDER BY id`, [prId])
-  if (!lots.length) throw httpError(409, 'No award on this PR is waiting for a purchase order. Its awards need the BAC\'s award and the TWG\'s certification first.')
+  if (!lots.length) throw httpError(409, 'No award on this PR is waiting for a purchase order. Record the BAC\'s award first.')
   const groups = new Map()
   for (const l of lots) {
     const key = supplierKey(l.awarded_to)

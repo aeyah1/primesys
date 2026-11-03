@@ -6,6 +6,7 @@ const httpError       = require('../utils/httpError')
 const notify          = require('../utils/notify')
 const sendMail        = require('../utils/mailer')
 const fileStore       = require('../utils/fileStore')
+const { removedMessage } = require('../utils/retention')
 const deliveryStatusEmail   = require('../emails/deliveryStatus')
 const { prScope } = require('../middleware/scope.middleware')
 const {
@@ -77,6 +78,10 @@ exports.list = async (req, res) => {
       params.push(`%${search}%`, `%${search}%`, `%${search}%`)
     }
     const w = `WHERE ${where.join(' AND ')}`   // never empty: the scope filter is always present
+    // ?status=complete|partial narrows the rows; the counts of each are of the whole search.
+    const status = ['complete', 'partial'].includes(req.query.status) ? req.query.status : null
+    const rowsWhere = status ? `${w} AND d.status = ?` : w
+    const rowParams = status ? [...params, status] : params
 
     const [rows] = await pool.execute(`
       SELECT d.*, po.po_number, po.expected_delivery_date,
@@ -88,10 +93,10 @@ exports.list = async (req, res) => {
       JOIN purchase_orders po   ON d.po_id = po.id
       JOIN purchase_requests pr ON po.purchase_request_id = pr.id
       LEFT JOIN users u         ON d.received_by = u.id
-      ${w}
+      ${rowsWhere}
       ORDER BY d.created_at DESC
       LIMIT ${limit} OFFSET ${offset}
-    `, params)
+    `, rowParams)
     // What each delivery brought (POs whose lines are its awards' items).
     const ids = rows.map(r => r.id)
     const [brought] = ids.length ? await pool.execute(
@@ -100,7 +105,7 @@ exports.list = async (req, res) => {
         WHERE di.delivery_id IN (${ids.map(() => '?').join(',')}) ORDER BY li.id`, ids) : [[]]
 
     const [cnt] = await pool.execute(`
-      SELECT COUNT(*) AS total
+      SELECT COUNT(*) AS all_count, COALESCE(SUM(d.status = 'complete'), 0) AS complete, COALESCE(SUM(d.status = 'partial'), 0) AS partial
       FROM deliveries d
       JOIN purchase_orders po   ON d.po_id = po.id
       JOIN purchase_requests pr ON po.purchase_request_id = pr.id
@@ -113,7 +118,9 @@ exports.list = async (req, res) => {
       locked: deliveryLocked({ delivery_status: po_delivery_status }),
       items: brought.filter(b => b.delivery_id === d.id).map(({ delivery_id, ...b }) => b),
     }))
-    res.json({ data, total: cnt[0].total, page, totalPages: Math.ceil(cnt[0].total / limit) })
+    const counts = { all: Number(cnt[0].all_count), complete: Number(cnt[0].complete), partial: Number(cnt[0].partial) }
+    const total = status ? counts[status] : counts.all
+    res.json({ data, total, counts, page, totalPages: Math.ceil(total / limit) })
   } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
 }
 
@@ -304,7 +311,7 @@ exports.uploadAttachment = async (req, res) => {
 exports.listAttachments = async (req, res) => {
   try {
     const [rows] = await pool.execute(`
-      SELECT da.id, da.original_name, da.mimetype, da.size, da.created_at,
+      SELECT da.id, da.original_name, da.mimetype, da.size, da.created_at, da.removed_at,
              u.name AS uploaded_by_name
       FROM delivery_attachments da
       LEFT JOIN users u ON da.uploaded_by = u.id
@@ -322,6 +329,7 @@ exports.downloadAttachment = async (req, res) => {
       [req.params.attachId, req.params.id]
     )
     if (!rows.length) return res.status(404).json({ message: 'Attachment not found' })
+    if (rows[0].removed_at) return res.status(410).json({ message: removedMessage(rows[0].removed_at), removed_at: rows[0].removed_at })
     await fileStore.send(res, 'delivery', rows[0].filename, rows[0].original_name)
   } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
 }

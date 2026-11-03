@@ -6,15 +6,7 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { NotificationBell } from '@/components/shared/NotificationBell'
 import { LogOut, Settings as SettingsIcon, Bell, Menu } from 'lucide-react'
 
-const ROLE_LABELS = { admin: 'Administrator', procurement: 'Procurement', requestor: 'End User', supply: 'Supply Officer', twg: 'TWG', bac: 'BAC' }
-const ROLE_COLORS = {
-  admin:       'bg-purple-100 text-purple-800',
-  procurement: 'bg-blue-100 text-blue-800',
-  requestor:   'bg-teal-100 text-teal-800',
-  supply:      'bg-orange-100 text-orange-800',
-  twg:         'bg-cyan-100 text-cyan-800',
-  bac:         'bg-indigo-100 text-indigo-800',
-}
+const ROLE_LABELS = { admin: 'Administrator', procurement: 'Procurement', requestor: 'End User', supply: 'Supply Officer', twg: 'TWG' }
 
 export default function Header({ title, onMobileMenu }) {
   const { user } = useAuth()
@@ -62,7 +54,7 @@ export default function Header({ title, onMobileMenu }) {
               </Avatar>
               <div className="hidden sm:flex flex-col items-start">
                 <span className="text-sm font-semibold text-[--color-text-primary] leading-tight">{user?.name}</span>
-                <span className={`text-[11px] font-medium px-1.5 py-0 rounded-full mt-0.5 whitespace-nowrap ${ROLE_COLORS[user?.role] || 'bg-slate-100 text-slate-700'}`}>
+                <span className={`text-[11px] font-medium px-1.5 py-0 rounded-full mt-0.5 whitespace-nowrap bg-[--color-brand-light] text-[--color-brand]`}>
                   {ROLE_LABELS[user?.role] || user?.role}
                 </span>
               </div>

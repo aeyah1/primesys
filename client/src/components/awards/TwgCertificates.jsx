@@ -3,9 +3,10 @@ import { FileText } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { fmtDate } from '@/lib/utils'
+import { fmtDatetime } from '@/lib/utils'
 import { openPdf, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
+import { LockedChip } from './QuotesLocked'
 
 // What each certificate certifies: the request (issued when the TWG approves it) or the canvass bids.
 const KINDS = { review: 'Request checked (market price and specifications)', bids: 'Canvass bids checked' }
@@ -29,15 +30,15 @@ export default function TwgCertificates({ prId, title }) {
           <div>
             <p className="text-sm font-semibold text-[--color-text-primary]">TWG Certification No. {c.cert_no}</p>
             <p className="text-xs text-[--color-text-muted]">
-              {KINDS[c.kind] || KINDS.bids} · {fmtDate(c.created_at)}{c.certified_by_name ? `, by ${c.certified_by_name}` : ''}
+              {KINDS[c.kind] || KINDS.bids} · {fmtDatetime(c.created_at)}{c.certified_by_name ? `, by ${c.certified_by_name}` : ''}
               {c.signed ? ', signed' : ', unsigned (to sign by hand)'}
             </p>
           </div>
-          {data.permissions?.print && (
+          {data.permissions?.print && (c.kind === 'bids' && !data.quotes_visible ? <LockedChip label="Certificate" /> : (
             <Button size="sm" variant="outline" className="gap-1.5" onClick={() => print(c)}>
               <FileText className="size-3.5" /> Certificate
             </Button>
-          )}
+          ))}
         </div>
       ))}
     </div>

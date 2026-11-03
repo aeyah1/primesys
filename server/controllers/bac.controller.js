@@ -17,16 +17,16 @@ const drawTwgReviewCertificate = require('../pdf/twgReviewCertificate')
 const { suggestCertNo, certificateOf } = require('../utils/twgCertificate')
 const { resolutionOf, noticeFor, drawOf, noticeLeads } = require('../utils/awardNotice')
 const { twgSkipped }   = require('../utils/canvassBids')
+const { seesQuotes, canSeeQuotes, LOCKED } = require('../utils/quoteAccess')
 
-// The Bids and Awards Committee's work
-// The BAC enters the canvass bids, sends them to the TWG, and once the TWG has
-// certified them, awards (canvass.controller); each award round adopts a BAC
-// Resolution, printed with a Notice of Award per supplier, and the TWG's
-// certificates print here too. Its queue lists the requests in canvass
-// (bids to enter) and those the TWG certified (winners to pick).
+// The award records
+// The BAC decides offline; Procurement enters the canvass bids, sends them to the TWG, and once the TWG has certified
+// them, records the BAC's award (canvass.controller). Each award round adopts a BAC Resolution, printed with a Notice
+// of Award per supplier, and the TWG's certificates print here too. The queue lists the requests in canvass (bids to
+// enter) and those the TWG certified (the award to record).
 
-// GET /bac/queue?view=pending|approved&search=&page= - PRs waiting for the BAC
-// (bids to enter, or winners to pick), or the resolutions it adopted, with both counts.
+// GET /bac/queue?view=pending|approved&search=&page= - PRs waiting for their award to be recorded
+// (bids to enter, or winners to record), or the resolutions adopted, with both counts.
 exports.queue = asyncHandler(async (req, res) => {
   const view = req.query.view === 'approved' ? 'approved' : 'pending'
   const { page, limit, offset } = paging(req.query, { defaultLimit: 20, maxLimit: 100 })
@@ -69,10 +69,12 @@ exports.queue = asyncHandler(async (req, res) => {
   res.json({
     data: rows, total, page, totalPages: Math.max(Math.ceil(total / limit), 1),
     counts: { pending: Number(counts.pending), approved: Number(counts.approved) },
+    // The Abstracts list every supplier's prices (utils/quoteAccess.js); awards are made past the TWG's check.
+    quotes_visible: seesQuotes(req.user.role, 'awarded'),
   })
 })
 
-// GET /bac/:prId - where the PR stands with the BAC, its resolutions (each with
+// GET /bac/:prId - where the PR stands in its award, its resolutions (each with
 // its awards), and what this user may do.
 exports.summary = asyncHandler(async (req, res) => {
   const pr = await loadPR(pool, req.params.prId)
@@ -90,7 +92,7 @@ exports.summary = asyncHandler(async (req, res) => {
   const live = !pr.deleted_at
   res.json({
     status: pr.status,
-    // Why the TWG returned the canvass or ordered a re-canvass, while the BAC has it again.
+    // Why the TWG returned the canvass or ordered a re-canvass, while Procurement has it again.
     certification_return_reason: live && pr.status === 'bidding' ? extra.certification_return_reason : null,
     recanvass_reason: live && pr.status === 'bidding' ? extra.recanvass_reason : null,
     // Waiting for the award without the TWG's evaluation.
@@ -110,6 +112,8 @@ exports.summary = asyncHandler(async (req, res) => {
     permissions: {
       print: [...BAC_READERS, 'twg'].includes(req.user.role),
     },
+    // Whether the Abstract and the bids certificate open for this viewer (utils/quoteAccess.js).
+    quotes_visible: await canSeeQuotes(req.user, pr.status),
   })
 })
 
@@ -128,7 +132,7 @@ exports.resolutionPdf = asyncHandler(async (req, res) => {
   if (resolution.kind === 'abstract') throw httpError(404, 'This award was made on the Abstract of sealed Quotations, without a BAC Resolution')
   const [[{ abc }]] = await pool.execute(
     'SELECT COALESCE(SUM(quantity * estimated_cost), 0) AS abc FROM pr_items WHERE pr_id = ? AND dropped_at IS NULL', [pr.id])
-  // A resolution exists once the BAC awarded, so it is signed (on a staff copy).
+  // A resolution exists once the award is recorded, so it is signed (on a staff copy).
   const orgSettings = await withSignatures(pool, await loadOrgSettings(pool), signedCopy(req.user, !pr.deleted_at))
   sendPdf(res, `BAC-Resolution-${resolution.resolution_number}.pdf`, (doc) =>
     drawResolution(doc, { resolution, pr, abc, lots, orgSettings }))
@@ -136,6 +140,8 @@ exports.resolutionPdf = asyncHandler(async (req, res) => {
 
 // GET /bac/:prId/resolutions/:rid/abstract - the Abstract of sealed Quotations of an award (either kind), on a landscape page.
 exports.abstractPdf = asyncHandler(async (req, res) => {
+  const pr = await loadPR(pool, req.params.prId)
+  if (!(await canSeeQuotes(req.user, pr.status))) throw httpError(403, LOCKED)
   const data = await abstractOf(req.params.prId, req.params.rid)
   const orgSettings = await withSignatures(pool, await loadOrgSettings(pool), signedCopy(req.user, !data.pr.deleted_at))
   sendPdf(res, `Abstract-of-Quotations-${data.pr.pr_number}-${data.resolution.resolved_on}.pdf`, (doc) =>
@@ -157,13 +163,14 @@ exports.certificates = asyncHandler(async (req, res) => {
   const kind = ['review', 'bids'].includes(req.query.kind) ? req.query.kind : null
   const [rows] = await pool.execute(`
     SELECT c.id, c.cert_no, c.kind, c.created_at, c.signature IS NOT NULL AS signed, u.name AS certified_by_name,
-           pr.id AS pr_id, pr.pr_number, pr.title, pr.department
+           pr.id AS pr_id, pr.pr_number, pr.title, pr.department, pr.status AS pr_status
       ${from} ${kind ? 'AND c.kind = ?' : ''}
      ORDER BY c.id DESC
      LIMIT ${limit} OFFSET ${offset}`, kind ? [...params, kind] : params)
   const total = Number(kind ? counts[kind] : counts.total)
   res.json({
-    data: rows.map(r => ({ ...r, signed: !!r.signed })), total, page, totalPages: Math.max(Math.ceil(total / limit), 1),
+    // A bids certificate lists every supplier's prices, so it is locked like the quotations (utils/quoteAccess.js).
+    data: rows.map(({ pr_status, ...r }) => ({ ...r, signed: !!r.signed, locked: r.kind === 'bids' && !seesQuotes(req.user.role, pr_status) })), total, page, totalPages: Math.max(Math.ceil(total / limit), 1),
     counts: { all: Number(counts.total), review: Number(counts.review), bids: Number(counts.bids) },
   })
 })
@@ -171,6 +178,7 @@ exports.certificates = asyncHandler(async (req, res) => {
 // GET /bac/:prId/certificates/:cid/pdf - the TWG's Certification (Goods and services).
 exports.certificatePdf = asyncHandler(async (req, res) => {
   const data = await certificateOf(pool, req.params.prId, req.params.cid)
+  if (data.cert.kind === 'bids' && !(await canSeeQuotes(req.user, (await loadPR(pool, req.params.prId)).status))) throw httpError(403, LOCKED)
   const orgSettings = await loadOrgSettings(pool)
   sendPdf(res, `TWG-Certification-${data.cert.cert_no.replace(/[^A-Za-z0-9.-]+/g, '-')}.pdf`, (doc) =>
     (data.cert.kind === 'review' ? drawTwgReviewCertificate : drawTwgCertificate)(doc, { ...data, orgSettings }))

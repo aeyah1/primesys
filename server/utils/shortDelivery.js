@@ -94,7 +94,7 @@ async function closeShort(conn, poId, user, { reason, shortAmount = null }) {
   const denied = closeBlock(user, po, pr)
   if (denied) throw httpError(denied.status, denied.message)
   if (!['bidding', 'for_po'].includes(pr.status)) {
-    throw httpError(409, ['bac_review', 'twg_certification'].includes(pr.status) ? 'This PR is with the BAC or the TWG for review. Close the PO once it is back.' : 'This PR is closed')
+    throw httpError(409, ['bac_review', 'twg_certification'].includes(pr.status) ? 'This PR is waiting for its award or the TWG\'s check. Close the PO once it is back in canvass.' : 'This PR is closed')
   }
 
   const lines = await poLines(conn, po.id)

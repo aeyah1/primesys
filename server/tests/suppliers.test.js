@@ -1,4 +1,4 @@
-// Supplier profiles: Procurement and Admin keep them, the BAC reads the list, a quotation links to the
+// Supplier profiles: Procurement and Admin keep them, a quotation links to the
 // profile of its name, and a profile shows each request it quoted on with its award or DQ. Real HTTP
 // against a throwaway database.
 const path = require('path')
@@ -8,7 +8,7 @@ const { db: TEST_DB, base: BASE } = H.configure({ db: 'primesys_suppliers_test_t
 const serverReq = (m) => require(require.resolve(m, { paths: [H.SERVER] }))
 const config = require(path.join(H.SERVER, 'config.js'))
 const jwt    = serverReq('jsonwebtoken')
-const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 5: 'twg', 6: 'bac' }
+const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 5: 'twg', 6: 'procurement' }
 const tok  = (id) => jwt.sign({ id }, config.jwt.secret, { expiresIn: '1h' })
 
 function fixtures() {
@@ -17,7 +17,7 @@ function fixtures() {
   return `
     SET FOREIGN_KEY_CHECKS = 0;
     INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified) VALUES
-      ${U(1, 'Admin One')}, ${U(2, 'Proc One')}, ${U(3, 'Req One')}, ${U(5, 'Twg One')}, ${U(6, 'Bac One')};
+      ${U(1, 'Admin One')}, ${U(2, 'Proc One')}, ${U(3, 'Req One')}, ${U(5, 'Twg One')}, ${U(6, 'Proc Two')};
     INSERT INTO purchase_requests (id, pr_number, title, status, created_by, category, mode_of_procurement) VALUES
       (90, 'PR-S-90', 'Bond paper', 'bidding', 3, 'office_supplies', 'Shopping'),
       (91, 'PR-S-91', 'Printer ink', 'for_po', 3, 'office_supplies', 'Shopping');
@@ -45,9 +45,7 @@ async function run() {
   const A = 'Who keeps them'
   await is(A, 'an End User can\'t read the list (403)', 3, 'GET', '/suppliers', undefined, code(403))
   await is(A, '…nor the TWG (403)', 5, 'GET', '/suppliers', undefined, code(403))
-  await is(A, 'the BAC reads the list', 6, 'GET', '/suppliers', undefined, code(200))
-  await is(A, '…but can\'t add one (403)', 6, 'POST', '/suppliers', { name: 'X' }, code(403))
-  await is(A, '…nor open a profile (403)', 6, 'GET', '/suppliers/1', undefined, code(403))
+  await is(A, 'Procurement reads the list', 6, 'GET', '/suppliers', undefined, code(200))
 
   const P = 'Profiles'
   await is(P, 'a name is required → 400', 2, 'POST', '/suppliers', { address: 'Cantilan' }, code(400))
@@ -74,7 +72,7 @@ async function run() {
   await is(B, '…so', 2, 'GET', `/suppliers/${bravo}`, undefined, (r) => r.status === 200 && r.data.status === 'active' && r.data.status_note === null)
 
   const Q = 'A quotation links by name'
-  await is(Q, 'the BAC enters Alpha\'s quotation in other case', 6, 'PUT', '/canvass/90/bids',
+  await is(Q, 'Procurement enters Alpha\'s quotation in other case', 6, 'PUT', '/canvass/90/bids',
     { bidders: [{ name: 'alpha  trading', prices: [{ pr_item_id: 901, unit_price: 240 }] }, { name: 'Delta Store', prices: [{ pr_item_id: 901, unit_price: 230 }] }] }, code(200))
   await is(Q, '…linked to the profile; a name with none stays unlinked', 6, 'GET', '/canvass/90', undefined,
     (r) => r.status === 200 && r.data.bidders.find(b => b.name === 'alpha trading')?.supplier_id === alpha && r.data.bidders.find(b => b.name === 'Delta Store')?.supplier_id === null)
@@ -82,7 +80,7 @@ async function run() {
   await is(Q, '…so', 6, 'GET', '/canvass/90', undefined, (r) => r.status === 200 && r.data.bidders.every(b => b.supplier_id))
 
   const F = 'A file attached by mistake'
-  const wrong = await is(F, 'the BAC attaches a wrong file', 6, 'POST', '/pr/90/attachments', H.canvassScan(), code(201))
+  const wrong = await is(F, 'Procurement attaches a wrong file', 6, 'POST', '/pr/90/attachments', H.canvassScan(), code(201))
   await is(F, '…and removes it', 6, 'DELETE', `/pr/90/attachments/${wrong.data?.id}`, undefined, code(200))
   await is(F, '…gone from the request', 6, 'GET', '/pr/90/attachments', undefined, (r) => r.status === 200 && !r.data.some(a => a.id === wrong.data?.id))
   const rfq = await is(F, 'Delta\'s RFQ attached', 6, 'POST', '/pr/90/attachments', H.canvassScan(), code(201))
@@ -91,7 +89,7 @@ async function run() {
   await is(F, 'a quotation\'s RFQ file can\'t be removed → 409', 6, 'DELETE', `/pr/90/attachments/${rfq.data?.id}`, undefined, code(409, /RFQ file of Delta Store's quotation/))
 
   const V = 'Inside the request'
-  await is(V, 'while the BAC enters the quotations, its End User sees no supplier profile', 3, 'GET', '/pr/90/suppliers', undefined,
+  await is(V, 'while Procurement enters the quotations, its End User sees no supplier profile', 3, 'GET', '/pr/90/suppliers', undefined,
     (r) => r.status === 200 && r.data.visible === false && r.data.suppliers.length === 0)
   await is(V, 'a completed canvass shows each supplier\'s profile to its End User', 3, 'GET', '/pr/91/suppliers', undefined,
     (r) => r.status === 200 && r.data.visible === true && r.data.suppliers.map(s => s.profile?.name).join() === 'Alpha Trading,Bravo Supply'
@@ -106,7 +104,7 @@ async function run() {
   await is(W, 'the TWG finds Alpha compliant, Delta not', 5, 'PUT', '/twg/90/evaluation', { bids: [
     { bidder_id: ids['alpha trading'], pr_item_id: 901, compliant: true }, { bidder_id: ids['Delta Store'], pr_item_id: 901, compliant: false, remarks: '70 gsm only' }] }, code(200))
   await is(W, '…and certifies', 5, 'POST', '/twg/90/certify', { action: 'certify' }, code(200))
-  await is(W, 'the BAC awards Alpha', 6, 'POST', '/canvass/90/award', { winners: [{ lot: '', bidder_id: ids['alpha trading'] }] }, code(200))
+  await is(W, 'Procurement records the BAC\'s award to Alpha', 6, 'POST', '/canvass/90/award', { winners: [{ lot: '', bidder_id: ids['alpha trading'], criteria: [H.CRITERION] }] }, code(200))
   await is(W, '…its award carries the address, TIN, contact and phone for the PO', 2, 'GET', '/lots/pr/90', undefined,
     (r) => r.status === 200 && r.data.length === 1 && r.data[0].supplier_address === 'Purok 3, Cantilan' && r.data[0].supplier_tin === '123-456-789-000'
            && r.data[0].supplier_contact === 'Ana Reyes' && r.data[0].supplier_phone === '0998 123 4567')

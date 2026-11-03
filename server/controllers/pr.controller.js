@@ -16,12 +16,17 @@ const crypto          = require('crypto')
 const { loadOrgSettings, fundCodeFor, approverFor, requesterFor, FUND_SOURCE_VALUES } = require('../utils/orgSettings')
 const { withSignatures, prSigned } = require('../utils/orgSignatures')
 const { temporaryRef, isTemporary } = require('../utils/prNumber')
-const { requestedBy, requesterOf, resolveDepartment } = require('../utils/departments')
+const { requestedBy, requesterOf, resolveDepartment, pickSection, sectionChoices } = require('../utils/departments')
 const { requesterSignature } = require('../utils/signature')
-const { reviewsCategory, notifyAreaReviewers, areaReviewers } = require('../utils/twgAreas')
+const { IN_AREA, reviewsCategory, notifyAreaReviewers, areaReviewers } = require('../utils/twgAreas')
+const { canSeeQuotes } = require('../utils/quoteAccess')
 const { assertNoBrands } = require('../utils/brandNames')
 const { linesForItems, lockOfficePlans, reviewPr, usablePlans } = require('../utils/ppmpUse')
 const drawPRForm = require('../pdf/prForm')
+
+// SQL over `pr`: whether a certified award still waits for its purchase order (else a request with POs reads Ordered).
+const AWAITING_PO = `EXISTS (SELECT 1 FROM lots wl WHERE wl.purchase_request_id = pr.id AND wl.status = 'awarded'
+                       AND wl.po_id IS NULL AND wl.certified_at IS NOT NULL)`
 
 // Orders the PR list may use (?sort=); anything else falls back to newest.
 // "oldest_approval" puts the longest-waiting TWG approvals first, which is
@@ -88,7 +93,8 @@ exports.list = asyncHandler(async (req, res) => {
            (SELECT COALESCE(SUM(i.quantity * i.estimated_cost), 0) FROM pr_items i WHERE i.pr_id = pr.id) AS estimated_total,
            EXISTS (SELECT 1 FROM purchase_orders px WHERE px.purchase_request_id = pr.id) AS has_any_po,
            EXISTS (SELECT 1 FROM lots lx WHERE lx.purchase_request_id = pr.id)           AS has_lot,
-           EXISTS (SELECT 1 FROM lots la WHERE la.purchase_request_id = pr.id AND la.status = 'awarded') AS has_award
+           EXISTS (SELECT 1 FROM lots la WHERE la.purchase_request_id = pr.id AND la.status = 'awarded') AS has_award,
+           ${AWAITING_PO} AS awaiting_po
     FROM purchase_requests pr
     JOIN users u ON pr.created_by = u.id
     LEFT JOIN users du           ON du.id = pr.deleted_by
@@ -110,6 +116,59 @@ exports.list = asyncHandler(async (req, res) => {
     ...r, permissions: prPermissions(req.user, { ...r, hasPO: !!r.po_id, hasAnyPO: !!has_any_po, hasLot: !!has_lot, hasAward: !!has_award }),
   }))
   res.json({ data, total: cnt[0].total, page: parseInt(page), totalPages: Math.ceil(cnt[0].total / parseInt(limit)) })
+})
+
+// The statuses each role acts on or follows on its "My tasks" home: the End User its own requests until delivered,
+// the TWG its reviews and offer checks, Procurement and admins from the TWG's approval to delivery, Supply the
+// requests ordered or about to be.
+const TASK_STATUSES = {
+  requestor:   ['draft', 'submitted', 'revision_requested', 'twg_review', 'bidding', 'twg_certification', 're_pr', 'bac_review', 'for_po'],
+  twg:         ['submitted', 'twg_certification'],
+  procurement: ['twg_review', 'bidding', 'twg_certification', 're_pr', 'bac_review', 'for_po'],
+  admin:       ['twg_review', 'bidding', 'twg_certification', 're_pr', 'bac_review', 'for_po'],
+  supply:      ['for_po'],
+}
+
+// GET /pr/tasks - the requests on the viewer's plate or that they follow, the longest in their stage first, each with
+// what this user may do; the client sorts them into "Needs you" and "Waiting on others" (lib/nextStep.js).
+exports.tasks = asyncHandler(async (req, res) => {
+  const role = req.user.role
+  const statuses = TASK_STATUSES[role] || []
+  if (!statuses.length) return res.json([])
+  const scope = prScope(req.user)
+  const where = [scope.sql, `pr.status IN (${statuses.map(() => '?').join(', ')})`]
+  const params = [...scope.params, ...statuses]
+  if (role === 'requestor') { where.push('pr.created_by = ?'); params.push(req.user.id) }
+  // The TWG decides only in its review areas.
+  if (role === 'twg') { where.push(IN_AREA); params.push(req.user.id) }
+  const ACTIVE = (col) => `(SELECT ${col} FROM purchase_orders px WHERE px.purchase_request_id = pr.id AND px.po_status = 'active')`
+  const [rows] = await pool.execute(`
+    SELECT pr.id, pr.pr_number, pr.title, pr.status, pr.department, pr.category, pr.created_by, u.name AS created_by_name,
+           pr.recanvass_count, pr.re_pr_count, pr.re_pr_type, pr.twg_reviewed_at, pr.twg_comment,
+           pr.certification_return_reason, pr.recanvass_reason, pr.deleted_at,
+           (SELECT COALESCE(SUM(i.quantity * i.estimated_cost), 0) FROM pr_items i WHERE i.pr_id = pr.id) AS items_total,
+           (SELECT COUNT(*) FROM canvass_bidders cb WHERE cb.pr_id = pr.id) AS quotes,
+           ${ACTIVE('MIN(px.id)')} AS po_id,
+           ${ACTIVE("SUM(px.delivery_status <> 'delivered')")} AS undelivered,
+           ${AWAITING_PO} AS awaiting_po,
+           EXISTS (SELECT 1 FROM purchase_orders px WHERE px.purchase_request_id = pr.id) AS has_any_po,
+           EXISTS (SELECT 1 FROM lots lx WHERE lx.purchase_request_id = pr.id) AS has_lot,
+           EXISTS (SELECT 1 FROM lots la WHERE la.purchase_request_id = pr.id AND la.status = 'awarded') AS has_award,
+           COALESCE((SELECT MAX(sl.created_at) FROM pr_status_logs sl WHERE sl.pr_id = pr.id AND sl.to_status = pr.status), pr.created_at) AS since
+      FROM purchase_requests pr JOIN users u ON u.id = pr.created_by
+     WHERE ${where.join(' AND ')}
+     ORDER BY since ASC, pr.id ASC
+     LIMIT 100`, params)
+  res.json(rows.map(({ has_any_po, has_lot, has_award, undelivered, ...r }) => ({
+    ...r,
+    // Enough of its POs for the client to tell Ordered and a delivery to record.
+    pos: Number(undelivered) > 0 ? [{ po_status: 'active', delivery_status: 'pending', can_record_delivery: role === 'supply' }] : [],
+    permissions: {
+      ...prPermissions(req.user, { ...r, hasPO: !!r.po_id, hasAnyPO: !!has_any_po, hasLot: !!has_lot, hasAward: !!has_award }),
+      twg_review:  role === 'twg' && r.status === 'submitted',
+      twg_certify: role === 'twg' && r.status === 'twg_certification',
+    },
+  })))
 })
 
 exports.stats = asyncHandler(async (req, res) => {
@@ -165,7 +224,8 @@ exports.getById = asyncHandler(async (req, res) => {
               AND sl.from_status IN ('twg_review', 'for_po')) AS rfq_at,
            (SELECT COUNT(*) FROM canvass_bidders cb WHERE cb.pr_id = pr.id) AS quotes,
            u.designation AS created_by_designation,
-           (SELECT COALESCE(SUM(i.quantity * i.estimated_cost), 0) FROM pr_items i WHERE i.pr_id = pr.id) AS items_total
+           (SELECT COALESCE(SUM(i.quantity * i.estimated_cost), 0) FROM pr_items i WHERE i.pr_id = pr.id) AS items_total,
+           ${AWAITING_PO} AS awaiting_po
     FROM purchase_requests pr
     JOIN users u ON pr.created_by = u.id
     LEFT JOIN users du   ON du.id = pr.deleted_by
@@ -215,6 +275,7 @@ exports.getById = asyncHandler(async (req, res) => {
     && req.user.role === 'twg' && await reviewsCategory(pool, req.user.id, pr.category)
   res.json({
     ...pr,
+    items_total,   // the request's budget, shown under its title
     requested_by_signed: !!requested_by_signature,
     signatories: { threshold: approver.threshold, requested: requesterFor(org, items_total, pr), approved: { name: approver.name, designation: approver.designation } },
     // Each active PO with what this user may do with it.
@@ -232,6 +293,8 @@ exports.getById = asyncHandler(async (req, res) => {
       twg_review:  twgDecides && pr.status === 'submitted',
       twg_certify: twgDecides && pr.status === 'twg_certification',
     },
+    // Whether this viewer sees the suppliers' RFQs and quotations (utils/quoteAccess.js).
+    quotes_visible: await canSeeQuotes(req.user, pr.status),
   })
 })
 
@@ -301,8 +364,9 @@ exports.create = asyncHandler(async (req, res) => {
   // Who requested it: as the Fund Administrator typed it, else the office head.
   const requester = requesterOf(req.body, dept, filer)
   if (signature && !requester.name) return res.status(400).json({ message: 'Name who requested it before it is signed' })
-  // Office/Section as printed: what the Fund Administrator typed, else the office's code (free text when no office is on the list).
-  const departmentText = (req.user.role === 'requestor' && department?.trim()) || (dept ? dept.code : (department?.trim() || null))
+  // Office/Section as printed: what the Fund Administrator picked from the office's list (utils/departments.js), else
+  // the office's code; free text only when no office is on the list.
+  const departmentText = dept ? (req.user.role === 'requestor' ? pickSection(dept, department) : dept.code) : (department?.trim() || null)
 
   const { prId, pr_number, category: createdCategory } = await withTransaction(async (conn) => {
     // Submitting straight away: queue on the office's PPMP before writing any rows (utils/ppmpUse.js).
@@ -408,7 +472,8 @@ exports.update = asyncHandler(async (req, res) => {
   // form must name the head of the office it is actually filed under. A PR is
   // only editable before the TWG sees it, so this never rewrites an approved one.
   const [[owner]] = await pool.execute(
-    `SELECT u.name, u.designation, pr.department, pr.department_id, pr.requested_by_name, d.code AS office_code, d.head_name, d.head_designation
+    `SELECT u.name, u.designation, pr.department, pr.department_id, pr.requested_by_name, d.code AS office_code, d.head_name, d.head_designation,
+            d.name AS office_name, d.sections AS office_sections
        FROM purchase_requests pr JOIN users u ON u.id = pr.created_by LEFT JOIN departments d ON d.id = pr.department_id
       WHERE pr.id = ?`,
     [req.params.id])
@@ -427,8 +492,12 @@ exports.update = asyncHandler(async (req, res) => {
   if (signature && !(requester ? requester.name : owner.requested_by_name)) {
     return res.status(400).json({ message: 'Name who requested it before it is signed' })
   }
-  // A Fund Administrator may retype Office/Section (blank prints the office's code); the office itself stays.
-  const departmentText = officeLocked ? ('department' in req.body ? (department?.trim() || owner.office_code || null) : owner.department)
+  // A Fund Administrator may pick another Office/Section from the office's list (blank prints its code; what the
+  // request was filed with may stay); the office itself stays.
+  const ownOffice = owner.department_id ? { code: owner.office_code, name: owner.office_name, sections: owner.office_sections } : null
+  const departmentText = officeLocked
+    ? (!('department' in req.body) ? owner.department
+      : ownOffice ? pickSection(ownOffice, department, owner.department) : (department?.trim() || null))
     : dept === undefined ? (department?.trim() || null) : (dept ? dept.code : (department?.trim() || null))
   // The office and its signatory move together, and only when the request
   // actually names an office: sending it empty clears all three, so a PR can't
@@ -510,24 +579,16 @@ exports.requesters = asyncHandler(async (req, res) => {
 })
 
 // GET /pr/:id/requester-signature - the requester's signature image, how it was made, and when.
-// GET /pr/sections?department_id= - suggestions for "Office / Section": the
-// office's code and name, then what its requests printed there before, newest first.
-// A Fund Administrator always gets their own office's.
+// GET /pr/sections?department_id= - the choices for "Office / Section": the office's code, its name, then the
+// sections the admin listed for it (utils/departments.js sectionChoices). A Fund Administrator always gets their own office's.
 exports.sections = asyncHandler(async (req, res) => {
   const [[me]] = await pool.execute('SELECT department_id FROM users WHERE id = ?', [req.user.id])
   const officeId = req.user.role === 'requestor' ? me?.department_id : (Number(req.query.department_id) || null)
   if (!officeId) return res.json([])
-  const [[office]] = await pool.execute('SELECT code, name FROM departments WHERE id = ?', [officeId])
+  const [[office]] = await pool.execute('SELECT code, name, sections FROM departments WHERE id = ?', [officeId])
   if (!office) return res.json([])
-  const [past] = await pool.execute(
-    `SELECT department AS value, MAX(id) AS latest FROM purchase_requests
-      WHERE department_id = ? AND department IS NOT NULL AND department <> '' AND deleted_at IS NULL
-      GROUP BY department ORDER BY latest DESC LIMIT 20`, [officeId])
-  const out = []
-  for (const [value, note] of [[office.code, 'office code'], [office.name, 'office name'], ...past.map(p => [p.value, 'used before'])]) {
-    if (value && !out.some(x => x.value.toLowerCase() === value.toLowerCase())) out.push({ value, note })
-  }
-  res.json(out)
+  const notes = { [office.code.toLowerCase()]: 'office code', [office.name.toLowerCase()]: 'office name' }
+  res.json(sectionChoices(office).map(value => ({ value, note: notes[value.toLowerCase()] || 'section' })))
 })
 
 exports.requesterSignature = asyncHandler(async (req, res) => {
@@ -538,7 +599,7 @@ exports.requesterSignature = asyncHandler(async (req, res) => {
   res.json(row.image ? row : { image: null, method: null, signed_at: null })
 })
 
-// PATCH /pr/:id/mode - how this purchase is procured. Procurement or the BAC
+// PATCH /pr/:id/mode - how this purchase is procured. Procurement
 // decides it, usually once the TWG has approved and the canvass is being set
 // up, so it is separate from the request's own details. Fixed once a supplier
 // is awarded (prWorkflow.modeBlock).

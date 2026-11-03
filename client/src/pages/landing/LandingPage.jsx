@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
+import BrandMark from '@/components/shared/BrandMark'
 import { useAuth } from '@/context/AuthContext'
 import {
   ArrowRight, UserRound, ClipboardCheck, Building2, Gavel, PackageCheck, ShieldCheck,
@@ -26,7 +27,7 @@ const ROLES = [
 ]
 
 const FEATURES = [
-  { icon: Activity,      title: 'Live status',          text: 'Changes appear without reloading. The next person is notified in the app, and by email for deliveries and reminders.' },
+  { icon: Activity,      title: 'Status at every step', text: 'Each request shows where it is and who has it now. The next person is notified in the app, and by email for deliveries and reminders.' },
   { icon: Printer,       title: 'Forms ready to sign',  text: 'Purchase requests, RFQs, certificates, notices and purchase orders print straight from the record.' },
   { icon: CalendarRange, title: 'PPMP by quarter',      text: 'Requests draw on the office plan quarter by quarter, so nothing goes past what was planned.' },
   { icon: History,       title: 'Full history',         text: 'Every status change keeps who made it and when. Finished requests move to the Archive and stay there.' },
@@ -82,7 +83,7 @@ export default function LandingPage() {
       }`} style={scrolled ? { background: 'color-mix(in srgb, var(--color-surface) 90%, transparent)' } : undefined}>
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-6 px-6 sm:px-8">
           <Link to="/" className="flex items-center gap-3">
-            <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-9 object-contain" />
+            <BrandMark className="size-9" />
             <span>
               <span className={`block text-base font-bold leading-none tracking-tight transition-colors duration-300 ${scrolled ? 'text-[--color-text-primary]' : 'text-white'}`}>PRimeSys</span>
               <span className={`mt-1 block text-[11px] font-medium leading-none transition-colors duration-300 ${scrolled ? 'text-[--color-text-muted]' : 'text-[--color-gold]'}`}>Procurement Management System</span>
@@ -134,7 +135,7 @@ export default function LandingPage() {
               Every purchase request, from PPMP to delivery.
             </h1>
             <p className={`mt-6 max-w-xl text-ui-md leading-relaxed text-white/70 ${ENTER}`} style={{ animationDelay: '160ms' }}>
-              PRimeSys puts End Users, the TWG, the BAC, Procurement and Supply on the same record.
+              PRimeSys puts End Users, the TWG, Procurement and Supply on the same record.
               Anyone involved can see where a request is, who has it now, and what happens next.
             </p>
             <div className={`mt-9 flex flex-wrap items-center gap-3 ${ENTER}`} style={{ animationDelay: '240ms' }}>
@@ -205,7 +206,7 @@ export default function LandingPage() {
       <section className="relative overflow-hidden" style={NAVY_BG}>
         <div className="mx-auto flex max-w-7xl flex-col gap-10 px-6 py-20 sm:px-8 lg:flex-row lg:items-center lg:justify-between lg:py-24">
           <Reveal className="flex items-start gap-6">
-            <img src="/nemsu-logo.png" alt="" className="hidden size-16 shrink-0 object-contain sm:block" />
+            <BrandMark className="hidden size-16 shrink-0 sm:block" decorative />
             <div>
               <h2 className="max-w-xl text-balance font-bold leading-[1.15] tracking-tight text-white text-[clamp(1.75rem,3vw,2.5rem)]">
                 {user ? 'Pick up where you left off.' : 'See where your requests stand.'}
@@ -223,7 +224,7 @@ export default function LandingPage() {
       <footer className="bg-[--color-surface]">
         <div className="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-10 sm:px-8 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-3">
-            <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-8 object-contain" />
+            <BrandMark className="size-8" />
             <div>
               <p className="font-bold leading-tight text-[--color-text-primary]">PRimeSys</p>
               <p className="mt-0.5 text-ui-xs text-[--color-text-muted]">Procurement Management System</p>
