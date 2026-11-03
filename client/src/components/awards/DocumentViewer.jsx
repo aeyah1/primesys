@@ -9,6 +9,7 @@ import { downloadFile, blobErrorMessage } from '@/lib/download'
 import { openPdf } from '@/lib/pdf'
 import api from '@/lib/axios'
 import { previewable } from './ScanViewer'
+import { removedNote } from '@/lib/utils'
 
 const STEPS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3]
 const TOOL = 'inline-flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-semibold transition-colors'
@@ -189,7 +190,7 @@ export default function DocumentViewer({ prId, file }) {
   const { data, isError } = useQuery({
     queryKey: ['canvass-doc', prId, file?.id],
     queryFn: () => api.get(path, { responseType: 'arraybuffer' }).then(r => r.data),
-    enabled: !!file && previewable(file.mimetype),
+    enabled: !!file && !file.removed_at && previewable(file.mimetype),
     staleTime: Infinity,
   })
   const [url, setUrl] = useState(null)
@@ -208,6 +209,7 @@ export default function DocumentViewer({ prId, file }) {
   const download = () => downloadFile(path, file.original_name).catch(async (err) => toast.error(await blobErrorMessage(err, 'Download failed')))
 
   if (!file) return <p className="px-4 py-16 text-center text-sm text-[--color-text-muted]">No canvass documents are attached yet.</p>
+  if (file.removed_at) return <p className="px-4 py-16 text-center text-sm text-[--color-text-secondary]">{file.original_name}: {removedNote(file.removed_at)}</p>
   if (!previewable(file.mimetype) || isError) {
     return (
       <div className="space-y-3 px-4 py-16 text-center">

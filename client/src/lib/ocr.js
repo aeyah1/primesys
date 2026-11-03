@@ -15,38 +15,48 @@ const digitReader = () => (digitWorker ??= import('tesseract.js').then(async ({ 
 }).catch(err => { digitWorker = null; throw err }))
 
 // The picture in black and white, its table's ruled lines whitened: they hide the words in small cells from OCR and read
-// as stray "|" and "]". Otsu's threshold parts what is darker than paper however bright or dim a photo is; a thin dark run
-// longer than a letter could be is a rule, while ink is only what is also well below the paper's brightness, so a shaded
-// cell or the desk around the page stays paper.
+// as stray "|" and "]". Each pixel is weighed against the paper around it (Bradley's local threshold, over a window an
+// eighth of the page wide), so a phone's shadow or dim light over part of the page doesn't turn that part black: a thin
+// run somewhat darker than its surroundings and longer than a letter could be is a rule, and only what is much darker
+// is ink, so a shaded cell or the desk around the page stays paper.
+const RULE = 0.82   // brightness against the window's mean, at or below which a pixel may be a rule
+const INK = 0.62    // and at or below which it is ink
 export function clearRules(canvas) {
   const { width: w, height: h } = canvas
   const ctx = canvas.getContext('2d')
   const img = ctx.getImageData(0, 0, w, h)
   const px = img.data
   const lum = new Uint8Array(w * h)
-  const hist = new Float64Array(256)
-  for (let i = 0; i < w * h; i++) hist[lum[i] = Math.round(px[i * 4] * 0.3 + px[i * 4 + 1] * 0.59 + px[i * 4 + 2] * 0.11)]++
-  let total = 0
-  for (let t = 0; t < 256; t++) total += t * hist[t]
-  let cut = 128, best = -1, below = 0, belowSum = 0
-  for (let t = 0; t < 255; t++) {
-    below += hist[t]
-    belowSum += t * hist[t]
-    const above = w * h - below
-    if (!below || !above) continue
-    const spread = below * above * (belowSum / below - (total - belowSum) / above) ** 2
-    if (spread > best) { best = spread; cut = t }
+  for (let i = 0; i < w * h; i++) lum[i] = Math.round(px[i * 4] * 0.3 + px[i * 4 + 1] * 0.59 + px[i * 4 + 2] * 0.11)
+  // Sums over every rectangle from the corner, so a window's mean costs four lookups.
+  const sum = new Float64Array((w + 1) * (h + 1))
+  for (let y = 0; y < h; y++) {
+    let row = 0
+    for (let x = 0; x < w; x++) {
+      row += lum[y * w + x]
+      sum[(y + 1) * (w + 1) + x + 1] = sum[y * (w + 1) + x + 1] + row
+    }
   }
-  let paper = 255
-  for (let n = 0; paper > 0 && n < w * h * 0.05; paper--) n += hist[paper]
-  const ink = Math.min(cut, Math.round(paper * 0.65))
+  // 1: darker than its surroundings (a rule may be); 2: much darker (ink).
+  const half = Math.max(8, Math.round(w / 16))
+  const dark = new Uint8Array(w * h)
+  for (let y = 0; y < h; y++) {
+    const y0 = Math.max(0, y - half), y1 = Math.min(h, y + half + 1)
+    for (let x = 0; x < w; x++) {
+      const x0 = Math.max(0, x - half), x1 = Math.min(w, x + half + 1)
+      const area = (x1 - x0) * (y1 - y0)
+      const total = sum[y1 * (w + 1) + x1] - sum[y0 * (w + 1) + x1] - sum[y1 * (w + 1) + x0] + sum[y0 * (w + 1) + x0]
+      const v = lum[y * w + x] * area
+      dark[y * w + x] = v <= total * INK ? 2 : v <= total * RULE ? 1 : 0
+    }
+  }
   const rule = new Uint8Array(w * h)
-  const light = (a, b, at, inner) => b < 0 || b >= inner || lum[at(a, b)] > cut
+  const light = (a, b, at, inner) => b < 0 || b >= inner || !dark[at(a, b)]
   const scan = (outer, inner, at, min) => {
     for (let a = 0; a < outer; a++) {
       let run = 0
       for (let b = 0; b <= inner; b++) {
-        if (b < inner && lum[at(b, a)] <= cut) { run++; continue }
+        if (b < inner && dark[at(b, a)]) { run++; continue }
         // Thin along most of it (paper a few pixels to one side), which a shaded cell is not; crossings go with it.
         if (run >= min) {
           let thin = 0
@@ -59,7 +69,7 @@ export function clearRules(canvas) {
   }
   scan(h, w, (x, y) => y * w + x, Math.max(40, Math.round(w * 0.04)))
   scan(w, h, (y, x) => y * w + x, Math.max(30, Math.round(h * 0.03)))
-  for (let i = 0; i < w * h; i++) px[i * 4] = px[i * 4 + 1] = px[i * 4 + 2] = lum[i] <= ink && !rule[i] ? 0 : 255
+  for (let i = 0; i < w * h; i++) px[i * 4] = px[i * 4 + 1] = px[i * 4 + 2] = dark[i] === 2 && !rule[i] ? 0 : 255
   ctx.putImageData(img, 0, 0)
   return canvas
 }

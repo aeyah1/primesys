@@ -10,7 +10,7 @@ const serverReq = (m) => require(require.resolve(m, { paths: [H.SERVER] }))
 const config = require(path.join(H.SERVER, 'config.js'))
 const jwt    = serverReq('jsonwebtoken')
 
-const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 6: 'bac' }
+const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 6: 'procurement' }
 const tok  = (id) => jwt.sign({ id, tv: 0 }, config.jwt.secret, { expiresIn: '1h' })
 const PW = 'Test@1234'
 const WRONG = 'Wrong-Pass-77'
@@ -134,7 +134,9 @@ async function run() {
   t.check(G3, 'a search finds a person, an action, or an item by its number', r.status === 200 && byNumber.data.data.length >= 2
     && byNumber.data.data.every(x => x.target_id === prId), `${show(byNumber)}`)
   r = await http(1, 'GET', `/audit?from=${YEAR + 1}-01-01`)
-  const today = new Date().toISOString().slice(0, 10)
+  // Today on this computer's clock, as the entries are stored (a UTC date is yesterday's here before 8 AM).
+  const now = new Date()
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
   const todays = await http(1, 'GET', `/audit?from=${today}&to=${today}`)
   t.check(G3, 'by dates', r.status === 200 && r.data.total === 0 && todays.data.total > 0, `${show(r)} ${show(todays)}`)
 
@@ -174,6 +176,47 @@ async function run() {
     }
   }
   t.check(G6, 'every data-changing route has a plain-language entry (or is recorded as a sign-in event)', missing.length === 0, missing.join(', '))
+
+  // ── Each person's own history, read only (panel review) ──────────────
+  const G7 = 'Own history'
+  r = await http(1, 'PATCH', '/users/3', { name: 'Req One', role: 'requestor', department_id: 10, designation: 'Fund Administrator' })
+  await settle()
+  t.check(G7, 'an admin edits the End User\'s account (recorded)', r.status === 200, show(r))
+  r = await http(3, 'GET', '/audit/mine?limit=200')
+  const mine = r.data?.data || []
+  t.check(G7, 'the End User reads only their own entries and those about their account', r.status === 200 && mine.length > 0
+    && mine.every(x => x.user_id === 3 || (x.target_type === 'user' && x.target_id === 3)), show(r))
+  t.check(G7, '…newest first', mine.every((x, i) => !i || mine[i - 1].id > x.id), mine.slice(0, 3).map(x => x.id).join())
+  t.check(G7, '…with the failed sign-ins on their account and where they came from', mine.some(x => x.action === 'auth.login_failed' && x.ip),
+    mine.filter(x => x.category === 'sign_in').slice(0, 2).map(x => `${x.action}:${x.ip}`).join())
+  const byAdmin = mine.find(x => x.user_id === 1)
+  t.check(G7, '…the admin\'s change, without the admin\'s address or browser', !!byAdmin && byAdmin.ip === null && byAdmin.device === null, JSON.stringify(byAdmin))
+  r = await http(3, 'GET', '/audit/mine?category=sign_in&limit=200')
+  t.check(G7, 'filtered by kind', r.status === 200 && r.data.data.length > 0 && r.data.data.every(x => x.category === 'sign_in'), show(r))
+  r = await http(2, 'GET', '/audit/mine?user=3&limit=200')
+  t.check(G7, 'asking for someone else\'s still gives one\'s own', r.status === 200 && r.data.data.every(x => x.user_id === 2 || (x.target_type === 'user' && x.target_id === 2)), show(r))
+  t.check(G7, 'not without signing in → 401', (await http(null, 'GET', '/audit/mine')).status === 401)
+  const firstId = (await rows())[0]?.id
+  for (const [who, m, p] of [[3, 'PATCH', `/audit/${firstId}`], [3, 'DELETE', `/audit/${firstId}`], [3, 'DELETE', '/audit/mine'], [1, 'DELETE', `/audit/${firstId}`], [1, 'PATCH', `/audit/${firstId}`]]) {
+    r = await http(who, m, p, m === 'PATCH' ? { summary: 'changed' } : undefined)
+    t.check(G7, `no way to change or delete an entry: ${m} ${p.replace(/\d+$/, ':id')} as ${ROLE[who]} → ${r.status}`, [403, 404].includes(r.status), show(r))
+  }
+  t.check(G7, '…the entries are as they were', (await rows())[0]?.summary !== 'changed')
+
+  // ── Each person's activity in User Management ────────────────────────
+  const G8 = 'User Management activity'
+  await H.sql(TEST_DB, "INSERT INTO pr_status_logs (pr_id, changed_by, from_status, to_status, note) VALUES (?, 2, 'draft', 'submitted', 'Sent for review')", [prId])
+  r = await http(1, 'GET', '/users/2/activity')
+  t.check(G8, 'the admin sees each kind of activity counted', r.status === 200 && r.data.counts.requests >= 2, show(r))
+  t.check(G8, '…and the requests the person moved, with the time', r.data?.transactions?.total === 1
+    && r.data.transactions.data[0].pr_number && r.data.transactions.data[0].to_status === 'submitted' && !!r.data.transactions.data[0].created_at, show(r))
+  const [signed] = await H.sql(TEST_DB, "SELECT user_id FROM audit_logs WHERE action = 'auth.login' ORDER BY id DESC LIMIT 1")
+  if (signed) {
+    r = await http(1, 'GET', `/users/${signed.user_id}/activity`)
+    t.check(G8, 'the last sign-in, with when, the address and the browser (none named by this test client)', !!r.data?.last_sign_in?.at && !!r.data.last_sign_in.ip && 'device' in r.data.last_sign_in, show(r))
+  }
+  t.check(G8, 'only the admin → 403 for others', (await http(2, 'GET', '/users/2/activity')).status === 403)
+  t.check(G8, 'an unknown person → 404', (await http(1, 'GET', '/users/9999/activity')).status === 404)
 
   return t.summary()
 }

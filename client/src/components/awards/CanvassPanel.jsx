@@ -6,14 +6,15 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
-import { fmtCurrency, fmtDate, plural } from '@/lib/utils'
+import { fmtCurrency, fmtDatetime, plural } from '@/lib/utils'
 import { useAuth } from '@/context/AuthContext'
 import api from '@/lib/axios'
 import { lineCents, useRefreshAwards } from './supplier'
 import BidsTable from './BidsTable'
+import { QuotesLockedNote } from './QuotesLocked'
 import AwardList from './AwardList'
 
-/* ── Drop an item that can't be procured, with the reason (the BAC's) ──── */
+/* ── Drop an item that can't be procured, with the reason (Procurement's) ── */
 export function DropItemDialog({ prId, item, onClose }) {
   const refresh = useRefreshAwards(prId)
   const [reason, setReason] = useState('')
@@ -24,7 +25,7 @@ export function DropItemDialog({ prId, item, onClose }) {
   })
   return (
     <Dialog open onOpenChange={v => { if (!v) onClose() }}>
-      <DialogContent title="Drop an Item">
+      <DialogContent title="Drop an item">
         <div className="space-y-3">
           <p className="text-sm text-[--color-text-secondary]">
             <span className="font-semibold text-[--color-text-primary]">{item.item_name}</span> leaves this procurement, so the PR can go on
@@ -40,7 +41,7 @@ export function DropItemDialog({ prId, item, onClose }) {
         <DialogFooter className="px-0 pb-0 pt-6">
           <Button variant="outline" onClick={onClose} disabled={isPending}>Keep it</Button>
           <Button variant="danger" disabled={isPending || !reason.trim()} onClick={() => mutate()}>
-            {isPending ? 'Dropping…' : 'Drop Item'}
+            {isPending ? 'Dropping…' : 'Drop the item'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -61,15 +62,15 @@ function ItemStatus({ item }) {
     return (
       <span className="inline-block rounded-md border border-slate-300 bg-slate-50 px-2 py-1 text-[11px] text-slate-700">
         <span className="font-semibold">Dropped</span>{item.drop_reason ? `: ${item.drop_reason}` : ''}
-        {item.dropped_by_name && <span className="block text-[10px] text-slate-500">by {item.dropped_by_name}, {fmtDate(item.dropped_at)}</span>}
+        {item.dropped_by_name && <span className="block text-[10px] text-slate-500">by {item.dropped_by_name}, {fmtDatetime(item.dropped_at)}</span>}
       </span>
     )
   }
   return <span className="inline-flex rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Needs a winner</span>
 }
 
-/* A PR's canvass, read only (pages/pr/CanvassPage.jsx; the BAC enters the
-   bids on BacBidSheet): each item and its winner, every bid the BAC entered,
+/* A PR's canvass, read only (the request's Canvass & award tab, components/request/CanvassTab.jsx; Procurement enters the
+   bids on BacBidSheet): each item and its winner, every bid Procurement entered,
    then the awards by supplier. pr: { id, pr_number, title, status }. */
 export default function CanvassPanel({ pr }) {
   const prId = String(pr.id)
@@ -153,12 +154,14 @@ export default function CanvassPanel({ pr }) {
         </div>
       )}
 
-      {canvass.bidders.length > 0 && (
+      {canvass.bidders.length > 0 && (canvass.quotes_visible ? (
         <div className="space-y-2">
           <p className="text-xs font-bold uppercase tracking-wider text-[--color-text-secondary]">Every bid</p>
           <BidsTable canvass={canvass} />
         </div>
-      )}
+      ) : (
+        <QuotesLockedNote>Only Procurement sees every supplier's bid. The winners show above once awarded.</QuotesLockedNote>
+      ))}
 
       <AwardList lots={lots} canManage={canManage} prStatus={pr.status} />
 

@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DeliveryStatusBadge, POStatusBadge } from '@/components/shared/StatusBadge'
-import { fmtDate, fmtCurrency } from '@/lib/utils'
+import { fmtDate, fmtDatetime, fmtCurrency } from '@/lib/utils'
 import { openPdf, blobErrorMessage } from '@/lib/download'
 import { useAuth } from '@/context/AuthContext'
 import api from '@/lib/axios'
@@ -54,7 +54,7 @@ export default function PODetailDialog({ poId, onClose }) {
               <div className="flex items-start gap-3 rounded-xl border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
                 <XCircle className="size-4 text-red-600 shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-semibold">Cancelled {fmtDate(po.cancelled_at)}{po.cancelled_by_name ? ` by ${po.cancelled_by_name}` : ''}</p>
+                  <p className="font-semibold">Cancelled {fmtDatetime(po.cancelled_at)}{po.cancelled_by_name ? ` by ${po.cancelled_by_name}` : ''}</p>
                   {po.cancel_reason && <p className="mt-0.5">{po.cancel_reason}</p>}
                 </div>
               </div>
@@ -64,7 +64,7 @@ export default function PODetailDialog({ poId, onClose }) {
               <div className="flex items-start gap-3 rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-800">
                 <Lock className="size-4 text-slate-600 shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-semibold">Balance closed {fmtDate(po.closed_at)}{po.closed_by_name ? ` by ${po.closed_by_name}` : ''}</p>
+                  <p className="font-semibold">Balance closed {fmtDatetime(po.closed_at)}{po.closed_by_name ? ` by ${po.closed_by_name}` : ''}</p>
                   {po.close_reason && <p className="mt-0.5">{po.close_reason}</p>}
                   <p className="mt-1 text-xs text-slate-600">
                     Not delivered, not paid: <strong>{fmtCurrency(po.short_amount)}</strong>
@@ -109,10 +109,10 @@ export default function PODetailDialog({ poId, onClose }) {
                 <span className="font-bold text-blue-800">{fmtCurrency(po.total_amount)}</span>
                 {po.closed_at && <span className="block text-xs font-normal text-[--color-text-muted]">Payable {fmtCurrency(Number(po.total_amount) - Number(po.short_amount || 0))}</span>}
               </Field>
-              <Field label="Issued">{fmtDate(po.issued_date)}{po.issued_by_name ? <span className="block text-xs font-normal text-[--color-text-muted]">by {po.issued_by_name}</span> : null}</Field>
+              <Field label="Issued">{fmtDate(po.issued_date)}<span className="block text-xs font-normal text-[--color-text-muted]">{po.issued_by_name ? `by ${po.issued_by_name}, ` : ''}recorded {fmtDatetime(po.created_at)}</span></Field>
               <Field label="Expected">
                 <span className={po.is_overdue ? 'text-red-700' : ''}>{po.expected_delivery_date ? fmtDate(po.expected_delivery_date) : 'Not set'}</span>
-                {po.rescheduled_at && <span className="block text-xs font-normal text-[--color-text-muted]">Moved {fmtDate(po.rescheduled_at)}: {po.reschedule_reason}</span>}
+                {po.rescheduled_at && <span className="block text-xs font-normal text-[--color-text-muted]">Moved {fmtDatetime(po.rescheduled_at)}: {po.reschedule_reason}</span>}
               </Field>
               {po.delivery_date && <Field label="Delivered">{fmtDate(po.delivery_date)}</Field>}
               {po.supplier_contact && <Field label="Supplier Contact">{po.supplier_contact}</Field>}
@@ -172,22 +172,22 @@ export default function PODetailDialog({ poId, onClose }) {
               </Button>
               {po.permissions?.reschedule && (
                 <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setAction('reschedule')}>
-                  <CalendarDays className="size-3.5" /> Change Expected Date
+                  <CalendarDays className="size-3.5" /> Change the expected date
                 </Button>
               )}
               {po.permissions?.cancel && (
                 <Button variant="outline" size="sm" className="gap-1.5 border-red-300 text-red-600 hover:bg-red-50" onClick={() => setAction('cancel')}>
-                  <XCircle className="size-3.5" /> Cancel PO
+                  <XCircle className="size-3.5" /> Cancel the PO
                 </Button>
               )}
               {po.permissions?.close && (
                 <Button variant="outline" size="sm" className="gap-1.5 border-red-300 text-red-600 hover:bg-red-50" onClick={() => setAction('close')}>
-                  <Lock className="size-3.5" /> Close Balance
+                  <Lock className="size-3.5" /> Close the balance
                 </Button>
               )}
               {po.permissions?.receive && (
                 <Button size="sm" className="gap-1.5" onClick={() => setAction('receive')}>
-                  <Truck className="size-3.5" /> Record Delivery
+                  <Truck className="size-3.5" /> Record a delivery
                 </Button>
               )}
             </div>

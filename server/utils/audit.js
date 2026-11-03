@@ -1,5 +1,4 @@
 const pool = require('../db/pool')
-const { DURATIONS } = require('./quoteAccess')
 const { deviceLabel } = require('./loginDevices')
 
 // The audit log the admin reads (Audit Log page): one row per change anyone makes and per sign-in event. Changes are
@@ -14,7 +13,7 @@ const KEEP_DAYS = 365
 // routes, recorded by securityLog whatever the result, and read marks, which change nothing worth auditing. Item ids come from the address
 // (:id or :prId), or for a creation from the reply. summary may be a function of the request, reading only fixed values.
 const TWG_REVIEW = { approve: 'Approved a purchase request (TWG)', revise: 'Asked for a revision of a purchase request (TWG)', reject: 'Rejected a purchase request (TWG)' }
-const TWG_CERTIFY = { certify: 'Certified the bids (TWG)', recanvass: 'Ordered a re-canvass (TWG)', return: 'Returned the canvass to the BAC (TWG)', repr: 'Proposed a Re-PR (TWG)' }
+const TWG_CERTIFY = { certify: 'Certified the bids (TWG)', recanvass: 'Ordered a re-canvass (TWG)', return: 'Returned the canvass to Procurement (TWG)', repr: 'Proposed a Re-PR (TWG)' }
 const STATUS_WORDS = { draft: 'draft', submitted: 'submitted to the TWG', revision_requested: 'returned for revision', cancelled: 'cancelled', bidding: 'back in canvass', for_po: 'ready for PO', completed: 'completed' }
 const ROUTES = {
   'POST /api/pr':                              ['requests', 'Created a purchase request', 'pr'],
@@ -37,10 +36,9 @@ const ROUTES = {
   'PUT /api/canvass/:prId/bids':               ['canvass', 'Saved a quotation', 'pr'],
   'DELETE /api/canvass/:prId/bidders/:bidderId': ['canvass', 'Removed a quotation', 'pr'],
   'POST /api/canvass/:prId/send':              ['canvass', 'Sent the canvass to the TWG', 'pr'],
-  'POST /api/canvass/:prId/award':             ['canvass', 'Awarded the winners', 'pr'],
+  'POST /api/canvass/:prId/award':             ['canvass', 'Recorded the award', 'pr'],
   'POST /api/canvass/:prId/reopen':            ['canvass', 'Took the canvass back', 'pr'],
   'POST /api/canvass/:prId/re-pr':             ['canvass', 'Acted on a proposed Re-PR', 'pr'],
-  'PUT /api/rfqs/access':                      ['canvass', (req) => req.rfqAction || (req.body?.open ? `Tried to open the RFQs${DURATIONS[req.body?.hours] ? ` for ${DURATIONS[req.body.hours]}` : ''}` : 'Tried to lock the RFQs'), null],
   'POST /api/canvass/:prId/items/:itemId/drop':    ['canvass', 'Dropped an item from the canvass', 'pr'],
   'POST /api/canvass/:prId/items/:itemId/restore': ['canvass', 'Restored a dropped item', 'pr'],
   'PATCH /api/lots/:id':                       ['canvass', 'Edited a lot', 'lot'],
@@ -79,9 +77,16 @@ const ROUTES = {
   'PATCH /api/settings':                       ['settings', 'Changed the organization settings', null],
   'PUT /api/settings/signatures':              ['settings', 'Saved the organization signatures', null],
   'DELETE /api/settings/signatures':           ['settings', 'Removed an organization signature', null],
+  'PUT /api/maintenance':                      ['settings', (req) => req.maintenanceAction || 'Tried to set maintenance', null],
+  'DELETE /api/maintenance':                   ['settings', (req) => req.maintenanceAction || 'Tried to end maintenance', null],
   'PATCH /api/auth/me':                        ['account', 'Updated their profile', null],
   'PUT /api/auth/me/signature':                ['account', 'Saved their signature', null],
   'DELETE /api/auth/me/signature':             ['account', 'Removed their signature', null],
+  'PUT /api/auth/face':                        { skip: true },   // face_enrolled / face_replaced
+  'DELETE /api/auth/face':                     { skip: true },   // face_removed
+  'POST /api/auth/face/check':                 { skip: 'always' },   // face_check, face_check_failed
+  'POST /api/auth/login/face':                 { skip: 'always' },
+  'DELETE /api/users/:id/face':                { skip: true },   // face_reset_by_admin
   'PATCH /api/auth/password':                  { skip: 'always' },   // password_changed
   'DELETE /api/auth/devices/:id':              { skip: 'always' },   // device_removed
   'POST /api/auth/login':                      { skip: 'always' },   // login, login_failed, ...
@@ -118,6 +123,12 @@ const EVENTS = {
   password_reset_completed: ['sign_in', 'Reset their password by email'],
   password_changed:         ['account', 'Changed their password'],
   device_removed:           ['account', 'Removed a remembered device'],
+  face_enrolled:            ['account', 'Set up their face check (consented)'],
+  face_replaced:            ['account', 'Set up their face check again'],
+  face_removed:             ['account', 'Removed their face check'],
+  face_check:               ['sign_in', 'Passed a face check'],
+  face_check_failed:        ['sign_in', 'Face check did not match', { outcome: 'refused' }],
+  face_reset_by_admin:      ['users', 'Removed the face check of a user account'],
   user_created:             ['users', 'Created a user account'],
   user_deleted:             ['users', 'Deleted a user account'],
   account_approved:         ['users', 'Approved a sign-up'],
@@ -163,6 +174,7 @@ function fromSecurityEvent(event, details = {}) {
     event === 'login_code_exemption' && (details.skip ? 'no code from now on' : 'code required again'),
     event === 'twg_areas_set' && Array.isArray(details.areas) && details.areas.join(', '),
     details.newDevice && `on ${details.newDevice}`,
+    details.face && 'with a face check',
     event === 'logout' && details.reason === 'idle' && 'automatically, after 30 minutes without activity',
     details.reason && event !== 'logout' && `reason: ${details.reason}`,
     details.limiter && `limit: ${details.limiter}`,
@@ -171,6 +183,18 @@ function fromSecurityEvent(event, details = {}) {
     userId: actor, action: `auth.${event}`, category, summary, targetType: about ? (office ? 'office' : 'user') : null, targetId: about ?? null,
     outcome: opts.outcome || 'ok', detail: facts.join('; ') || null, ip: details.ip,
   })
+}
+
+// The route that answered ({ path: base + route path, params }), worked out from the request's own address: when a
+// request fails, Express has put back req.baseUrl and req.params by the time its reply goes out.
+function routeOf(req) {
+  if (!req.route) return null
+  if (typeof req.route.path !== 'string') return { path: `${req.baseUrl}${req.route.path}`, params: req.params }
+  const parts = req.originalUrl.split('?')[0].split('/').filter(Boolean)
+  const tail = req.route.path.split('/').filter(Boolean)
+  const base = parts.slice(0, Math.max(parts.length - tail.length, 0))
+  const params = Object.fromEntries(tail.flatMap((seg, i) => (seg.startsWith(':') ? [[seg.slice(1), parts[base.length + i]]] : [])))
+  return { path: `/${base.join('/')}${req.route.path === '/' ? '' : req.route.path}`, params }
 }
 
 // Records every data-changing request when its reply goes out, from the route that answered it: done (2xx), refused
@@ -185,14 +209,16 @@ function auditTrail(req, res, next) {
   }
   res.on('finish', () => {
     try {
-      if (!req.route) return
-      const key = `${req.method} ${req.baseUrl}${req.route.path === '/' ? '' : req.route.path}`
+      // A request refused for maintenance changed nothing and is no fault.
+      const route = routeOf(req)
+      if (!route || res.locals.maintenance) return
+      const key = `${req.method} ${route.path}`
       const spec = ROUTES[key]
       const status = res.statusCode
       const outcome = status < 400 ? 'ok' : status === 401 || status === 403 ? 'refused' : status >= 500 ? 'error' : null
       if (!outcome || spec?.skip === 'always' || (spec?.skip && outcome === 'ok')) return
-      const [category, summary, targetType] = spec && !spec.skip ? spec : ['other', `${req.method} ${req.baseUrl}${req.route.path}`, null]
-      const fromUrl = Number(req.params.prId ?? req.params.id)
+      const [category, summary, targetType] = spec && !spec.skip ? spec : ['other', key, null]
+      const fromUrl = Number(route.params.prId ?? route.params.id)
       const targetId = Number.isInteger(fromUrl) && fromUrl > 0 ? fromUrl : res.locals.auditId
       record({
         userId: req.user?.id, action: key, category, summary: typeof summary === 'function' ? summary(req) : summary,
@@ -212,4 +238,4 @@ async function pruneAudit() {
   if (r.affectedRows) console.info(`[audit] removed ${r.affectedRows} entries older than ${KEEP_DAYS} days`)
 }
 
-module.exports = { ROUTES, EVENTS, KEEP_DAYS, ROLE_WORDS, auditTrail, fromSecurityEvent, pruneAudit }
+module.exports = { ROUTES, EVENTS, KEEP_DAYS, ROLE_WORDS, record, auditTrail, fromSecurityEvent, pruneAudit, routeOf }

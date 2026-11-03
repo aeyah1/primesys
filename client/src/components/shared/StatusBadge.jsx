@@ -1,16 +1,18 @@
 import { RefreshCcw, Undo2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import {
-  PR_STATUS_LABELS, PR_STATUS_COLORS, PR_STATUS_HELP,
+  PR_STATUS_LABELS, PR_STATUS_COLORS, PR_STATUS_HELP, prStatusKey,
   DELIVERY_STATUS_COLORS, DELIVERY_STATUS_LABELS,
   LOT_STATUS_LABELS, LOT_STATUS_COLORS,
   CATEGORY_LABELS, CATEGORY_COLORS,
 } from '@/lib/utils'
 
-export function PRStatusBadge({ status }) {
+// A request's status in plain words; given the request itself (`pr`), one whose every award has its PO reads Ordered.
+export function PRStatusBadge({ status, pr }) {
+  const key = pr ? prStatusKey(pr) : status
   return (
-    <Badge className={PR_STATUS_COLORS[status] || 'bg-slate-50 text-slate-600 border-slate-300'} title={PR_STATUS_HELP[status]}>
-      {PR_STATUS_LABELS[status] || status}
+    <Badge className={PR_STATUS_COLORS[key] || 'bg-slate-50 text-slate-600 border-slate-300'} title={PR_STATUS_HELP[key]}>
+      {PR_STATUS_LABELS[key] || key}
     </Badge>
   )
 }
@@ -52,17 +54,10 @@ export function DeliveryStatusBadge({ status }) {
   )
 }
 
+// A role is named, not colored: colors are kept for what needs attention.
 export function RoleBadge({ role }) {
-  const map = {
-    admin:       'bg-purple-50 text-purple-700 border-purple-300',
-    procurement: 'bg-blue-50 text-blue-700 border-blue-300',
-    requestor:   'bg-teal-50 text-teal-700 border-teal-300',
-    supply:      'bg-orange-50 text-orange-700 border-orange-300',
-    twg:         'bg-cyan-50 text-cyan-700 border-cyan-300',
-    bac:         'bg-indigo-50 text-indigo-700 border-indigo-300',
-  }
-  const labels = { admin: 'Admin', procurement: 'Procurement', requestor: 'End User', supply: 'Supply Officer', twg: 'TWG', bac: 'BAC' }
-  return <Badge className={`whitespace-nowrap ${map[role] || 'bg-slate-50 text-slate-600 border-slate-300'}`}>{labels[role] || role}</Badge>
+  const labels = { admin: 'Admin', procurement: 'Procurement', requestor: 'End User', supply: 'Supply Officer', twg: 'TWG' }
+  return <Badge className="whitespace-nowrap bg-[--color-canvas] text-[--color-text-secondary] border-[--color-border-strong]">{labels[role] || role}</Badge>
 }
 
 export function LotStatusBadge({ status }) {

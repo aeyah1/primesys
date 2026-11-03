@@ -13,10 +13,12 @@ import api from '@/lib/axios'
 // PR items are picked from the office's Final PPMP in effect (server/utils/ppmpUse.js has the rules).
 
 // The PPMPs a request for this office may draw on, with what is left of each line; prId leaves out that request's own holds.
-export function usePpmpPlans({ departmentId, prId } = {}) {
+// enabled: false for roles the server doesn't show PPMPs to (Supply).
+export function usePpmpPlans({ departmentId, prId, enabled = true } = {}) {
   const { data: plans = [], isLoading } = useQuery({
     queryKey: ['ppmp-lines', departmentId ?? null, prId ?? null],
     queryFn: () => api.get('/ppmp/lines', { params: { department_id: departmentId || undefined, pr_id: prId || undefined } }).then(r => r.data),
+    enabled,
   })
   const lineById = new Map(plans.flatMap(p => p.lines.map(l => [l.id, { ...l, fiscal_year: p.fiscal_year }])))
   return { plans, isLoading, lineById }

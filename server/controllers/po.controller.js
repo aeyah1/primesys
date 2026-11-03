@@ -331,7 +331,7 @@ exports.close = asyncHandler(async (req, res) => {
   const again = balances.length
     ? ` ${balances.length === 1 ? 'Its undelivered item goes' : `Its ${balances.length} undelivered items go`} back to canvass for a new award.`
     : ''
-  const [others] = await pool.execute("SELECT id FROM users WHERE role IN ('supply', 'bac') AND is_active = 1")
+  const [others] = await pool.execute("SELECT id FROM users WHERE role IN ('supply', 'procurement') AND is_active = 1")
   const recipients = [...new Set([pr.created_by, ...others.map(u => u.id)])].filter(id => id !== req.user.id)
   await Promise.all(recipients.map(id => notify(req.io, id,
     `${po.po_number} for PR ${pr.pr_number} was closed: ${po.supplier_name} could not deliver the rest.${again}`,

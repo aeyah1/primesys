@@ -1,6 +1,6 @@
 # PRimeSys
 
-Web-based procurement monitoring system for NEMSU Cantilan Campus. Tracks the full lifecycle: purchase requests → TWG review → canvass & award → PO issuance → delivery. How it works in plain language: [docs/flow.md](docs/flow.md); the technical overview is [docs/overview.md](docs/overview.md).
+Web-based procurement management system for NEMSU Cantilan Campus. Tracks the full lifecycle: purchase requests → TWG review → canvass & award → PO issuance → delivery. How it works in plain language: [docs/flow.md](docs/flow.md); the technical overview is [docs/overview.md](docs/overview.md).
 
 ## Stack
 
@@ -121,9 +121,14 @@ mysql -u root -p primesys < add_session_key.sql
 mysql -u root -p primesys < add_user_devices.sql
 mysql -u root -p primesys < add_skip_login_code.sql
 mysql -u root -p primesys < add_audit_logs.sql
+mysql -u root -p primesys < add_spec_check.sql
+mysql -u root -p primesys < remove_bac_role.sql
+mysql -u root -p primesys < add_department_sections.sql
+mysql -u root -p primesys < add_file_retention.sql
+mysql -u root -p primesys < add_face_check.sql
 ```
 
-Apply only the ones your database is missing. The last fifteen need MariaDB (XAMPP); several of the earlier ones are one-shot `ALTER`s that fail if run twice. `add_user_columns.sql`, `add_missing_tables.sql`, and `add_twg_role.sql` would erase the `requestor` and `twg` roles on a newer database, so they stop with an error and change nothing when the database already has either role.
+Apply only the ones your database is missing. The last twenty need MariaDB (XAMPP); several of the earlier ones are one-shot `ALTER`s that fail if run twice. `add_user_columns.sql`, `add_missing_tables.sql`, and `add_twg_role.sql` would erase the `requestor` and `twg` roles on a newer database, so they stop with an error and change nothing when the database already has either role.
 
 ### 3. Configure environment
 
@@ -177,7 +182,7 @@ The tests need the local MariaDB running (XAMPP, `root` with no password, or set
 - TWG reviews every submitted PR: approve (`twg_review`), send back for changes (`revision_requested`), or reject (`rejected`).
 - Each TWG member reviews only the categories an admin assigns them (review areas, set in User Management). A PR goes to the reviewers of its category, and any one of them decides. If no active TWG member covers a category, admins are notified and the admin dashboard shows a warning. `add_twg_assignments.sql` gives every existing TWG member all areas.
 - A PR's items and details are locked for every role once it is submitted. To get an approved PR changed, Procurement returns it for revision (a reason is required) before any supplier is awarded; the requestor edits it and it goes through the TWG again.
-- Canvass: the BAC types in each supplier's quotation (a unit price per PR item, from the canvasser's returned RFQs) and sends them to the TWG, which marks each bid compliant or non-compliant (with the reason) and certifies them. The BAC then awards each lot (a section of the PR's items; a PR without sections is one lot) to one supplier that bid on all of it, by default the lowest total of the bidders compliant on the whole lot; a supplier the TWG found non-compliant on any of the lot's items can't be awarded it. Each supplier's awards get their own purchase order, whose supplier and total come from the awards on the server. An award can't exceed the approved budget (the PR's estimate) of its items. An item no one can supply can be dropped, with a reason, and the BAC can take a certified canvass back to correct bids or add new quotations.
+- Canvass: Procurement types in each supplier's quotation (a unit price per PR item, from the canvasser's returned RFQs) and sends them to the TWG, which marks each bid compliant or non-compliant (with the reason) and certifies them. The BAC has no account: it chooses each lot's winner (a section of the PR's items; a PR without sections is one lot) at its own meeting, on its approved criteria, and Procurement records that award with the criteria it applied (the admin keeps the list under Organization). The system picks and recommends no one; a supplier the TWG found non-compliant on any of the lot's items can't be awarded it. Each supplier's awards get their own purchase order, whose supplier and total come from the awards on the server. An award can't exceed the approved budget (the PR's estimate) of its items. An item no one can supply can be dropped, with a reason, and Procurement can take a certified canvass back to correct bids or add new quotations. Suppliers' RFQs and prices are seen only by Procurement, admins, and the TWG while it checks the offers.
 - A PR stays in `bidding` while any item needs an award (a supplier's PO can already be out for the others), moves to `for_po` once every item is awarded or dropped, and to `completed` once every PO is fully delivered. Cancelling a supplier's PO (before delivery) cancels only its awards; their items go back to canvass.
 - Procurement or admin can cancel a PR while it has no active PO (`cancelled`); its awards are cancelled with it. While the TWG has it (`submitted`, `revision_requested`), only an admin can cancel or delete it.
 - A PR can be deleted only until its canvass starts (`bidding`, `twg_certification`, `bac_review` and later are cancelled instead). Deleting someone else's PR needs a reason; it is logged, kept on the PR, and whoever filed it is told, with the TWG reviewers of its area or Procurement when it was in their queue.

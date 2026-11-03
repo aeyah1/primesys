@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { Ban, CheckCircle2, Undo2, AlertTriangle, Star, FileText } from 'lucide-react'
+import { Ban, CheckCircle2, Undo2, AlertTriangle, FileText } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -16,7 +16,7 @@ import { DropItemDialog } from './CanvassPanel'
 
 const TEXTAREA = 'w-full rounded-md border border-[--color-border] bg-[--color-surface] px-3 py-2 text-sm text-[--color-text-primary] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent resize-y'
 
-// The BAC takes a certified canvass back to correct its bids, with the reason.
+// Procurement takes a certified canvass back to correct its bids, with the reason.
 function ReopenDialog({ prId, onClose }) {
   const refresh = useRefreshAwards(prId)
   const [reason, setReason] = useState('')
@@ -43,22 +43,22 @@ function ReopenDialog({ prId, onClose }) {
   )
 }
 
-/* The BAC's award once the TWG has certified the bids (or the canvass came
-   straight to the award, canvass.twg_skipped), a lot at a time: each
-   lot goes to one supplier that bid on all of it. The system recommends the
-   lowest total of the bidders the TWG found compliant on the whole lot (without the TWG, of all of them) and
-   picks it to start with; the BAC may pick another compliant one (a reason is optional,
-   and is noted on the award), never one the TWG found non-compliant on an item of the lot.
-   A lot's award can't exceed its approved budget.
-   Award opens the review (AwardReviewDialog); confirming adopts a BAC Resolution, or below the resolution threshold records the
+/* Procurement records the BAC's award once the TWG has certified the bids (or the canvass came
+   straight to the award, canvass.twg_skipped), a lot at a time: each lot goes to one supplier that bid
+   on all of it. The BAC chooses offline, on its approved criteria; the system picks no one. For each lot
+   Procurement picks the supplier the BAC chose and ticks the criteria it applied (canvass.award_criteria,
+   the admin's list), with the BAC's remark if any; never a supplier the TWG found non-compliant on an item
+   of the lot. A lot's award can't exceed its approved budget.
+   Review opens AwardReviewDialog; confirming adopts a BAC Resolution, or below the resolution threshold records the
    award on the Abstract alone (canvass.award_document); the request is then Ready for purchase order.
    pr: { id }; canvass: GET /canvass/:prId. */
 export default function BacAwardSheet({ pr, canvass }) {
   const prId = String(pr.id)
   const refresh = useRefreshAwards(prId)
-  const { bidders, award_document: doc, twg_skipped: skipped } = canvass
+  const { bidders, award_document: doc, twg_skipped: skipped, award_criteria: criteriaList = [] } = canvass
   const lots = lotsWithItems(canvass).map(l => ({ ...l, pending: l.items.filter(i => i.state === 'pending') })).filter(l => l.pending.length)
-  const [picks, setPicks] = useState(() => Object.fromEntries(lots.map(l => [l.label, l.recommended_bidder_id])))
+  const [picks, setPicks] = useState({})
+  const [criteria, setCriteria] = useState({})
   const [reasons, setReasons] = useState({})
   const [notes, setNotes] = useState('')
   const [dropping, setDropping] = useState(null)
@@ -66,36 +66,41 @@ export default function BacAwardSheet({ pr, canvass }) {
   const [reviewing, setReviewing] = useState(false)
 
   // Each lot's pick, its total, its budget (as the server checks them), the item the TWG found the pick
-  // non-compliant on, and the bids that could be awarded it: those on the whole lot, compliant, within its
-  // budget, the recommended one first, then the cheapest.
+  // non-compliant on, the criteria ticked, and the bids that could be awarded it: those on the whole lot,
+  // not found non-compliant, of which `within` stay within its budget.
   const failedOn = (b, l) => l.pending.find(i => b.evaluation?.[i.id]?.compliant === false)
   const chosen = lots.map(l => {
     const budget = l.pending.reduce((s, i) => s + lineCents(i.quantity, i.estimated_cost), 0)
     const bidder = bidders.find(b => b.id === picks[l.label])
     const total = bidder ? totalOf(bidder, l.pending) : null
-    const within = bidders.filter(b => !failedOn(b, l)).map(b => ({ b, total: totalOf(b, l.pending) }))
-      .filter(x => x.total != null && !(budget > 0 && x.total > budget))
-      .sort((a, b) => (b.b.id === l.recommended_bidder_id) - (a.b.id === l.recommended_bidder_id) || a.total - b.total)
-    return { lot: l, bidder: total != null ? bidder : null, total, budget, within, over: total != null && budget > 0 && total > budget,
-      failed: total != null ? failedOn(bidder, l) : null }
+    const eligible = bidders.filter(b => !failedOn(b, l)).map(b => ({ b, total: totalOf(b, l.pending) })).filter(x => x.total != null)
+    const within = eligible.filter(x => !(budget > 0 && x.total > budget))
+    return { lot: l, bidder: total != null ? bidder : null, total, budget, eligible, within, over: total != null && budget > 0 && total > budget,
+      failed: total != null ? failedOn(bidder, l) : null, criteria: criteriaList.filter(c => criteria[l.label]?.includes(c)) }
   })
   const unpicked = chosen.find(c => !c.bidder)
   const failing = chosen.find(c => c.failed)
   const over = chosen.find(c => c.bidder && c.over)
-  const block = (unpicked && (unpicked.lot.recommended_bidder_id
-      ? `Pick the supplier of ${unpicked.lot.name}, or drop its items if no bid can be awarded.`
+  const unticked = chosen.find(c => c.bidder && !c.criteria.length)
+  const block = (unpicked && (unpicked.eligible.length
+      ? `Pick the supplier the BAC chose for ${unpicked.lot.name}, or drop its items if no bid can be awarded.`
       : skipped
         ? `No supplier can be awarded all of ${unpicked.lot.name}. Drop an item, or take it back to the canvass for new quotations.`
         : `No supplier is compliant on all of ${unpicked.lot.name}. Drop a non-compliant item, or take it back to the canvass for new quotations.`))
     || (failing && `The TWG found ${failing.bidder.name}'s offer for "${failing.failed.item_name}" non-compliant, so it can't be awarded ${failing.lot.name}. Pick a compliant supplier, drop the item, or take it back to the canvass.`)
     || (over && (over.within.length
-      ? `${over.bidder.name}'s total for ${over.lot.name} is above its approved budget. Pick a bid within it, such as ${over.within[0].b.name} (${fmtCurrency(over.within[0].total / 100)}).`
+      ? `${over.bidder.name}'s total for ${over.lot.name} is above its approved budget. Only a bid within it can be awarded.`
       : `Every bid for ${over.lot.name} is above its approved budget (${fmtCurrency(over.budget / 100)}). Drop an item, or take it back to the canvass.`))
+    || (unticked && `Tick the criteria the BAC applied in choosing ${unticked.bidder.name} for ${unticked.lot.name}.`)
+  const tick = (lot, c) => setCriteria(x => {
+    const now = x[lot.label] || []
+    return { ...x, [lot.label]: now.includes(c) ? now.filter(v => v !== c) : [...now, c] }
+  })
   const awarded = chosen.reduce((s, c) => s + (c.total || 0), 0)
   const budget = chosen.reduce((s, c) => s + c.budget, 0)
 
   // Under a lot: a pick the TWG found non-compliant, or above its budget, can't be awarded, so it says so
-  // instead of asking for a remark; any other pick takes the BAC's remark, and one other than the recommended says so.
+  // instead; any other pick takes the criteria the BAC applied, at least one, and its remark if any.
   const lotNote = (lot) => {
     const c = chosen.find(x => x.lot.label === lot.label)
     if (c?.failed) {
@@ -116,25 +121,31 @@ export default function BacAwardSheet({ pr, canvass }) {
       )
     }
     if (!c?.bidder) return null
-    const recommended = c.bidder.id === lot.recommended_bidder_id
     return (
-      <div className="flex flex-wrap items-center gap-2">
-        {!recommended && (
-          <p className="flex items-center gap-1 text-[11px] text-amber-700">
-            <AlertTriangle className="size-3 shrink-0" />
-            Not the recommended bid.
-          </p>
-        )}
-        <Input value={reasons[lot.label] || ''} maxLength={500} aria-label={`Remarks on awarding ${lot.name} to ${c.bidder.name}`}
-          placeholder={recommended ? 'Remarks (optional), e.g. Lowest compliant quotation' : 'Remarks (optional): why this supplier'}
-          onChange={e => setReasons(r => ({ ...r, [lot.label]: e.target.value }))} className="h-8 max-w-md flex-1 text-xs" />
+      <div className="space-y-2">
+        <fieldset>
+          <legend className="text-[11px] font-semibold text-[--color-text-primary]">
+            Why the BAC chose {c.bidder.name} <span className="font-normal text-[--color-text-muted]">(tick at least one)</span>
+          </legend>
+          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+            {criteriaList.map(k => (
+              <label key={k} className="flex items-center gap-1.5 text-xs text-[--color-text-secondary]">
+                <input type="checkbox" className="size-3.5 accent-[--color-brand]" checked={c.criteria.includes(k)} onChange={() => tick(lot, k)} />
+                {k}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <Input value={reasons[lot.label] || ''} maxLength={500} aria-label={`The BAC's remarks on awarding ${lot.name} to ${c.bidder.name}`}
+          placeholder="The BAC's remarks (optional)"
+          onChange={e => setReasons(r => ({ ...r, [lot.label]: e.target.value }))} className="h-8 max-w-md text-xs" />
       </div>
     )
   }
 
   const { mutate: award, isPending } = useMutation({
     mutationFn: () => api.post(`/canvass/${prId}/award`, {
-      winners: chosen.map(c => ({ lot: c.lot.label, bidder_id: c.bidder.id, reason: reasons[c.lot.label]?.trim() || undefined })),
+      winners: chosen.map(c => ({ lot: c.lot.label, bidder_id: c.bidder.id, criteria: c.criteria, reason: reasons[c.lot.label]?.trim() || undefined })),
       notes: notes.trim() || undefined,
     }),
     onSuccess: ({ data }) => { toast.success(data.message); setReviewing(false); refresh() },
@@ -145,12 +156,13 @@ export default function BacAwardSheet({ pr, canvass }) {
     <div className="space-y-4">
       <div className="grid grid-cols-1 gap-4 2xl:grid-cols-5">
         <section className="space-y-3 2xl:col-span-3">
-          <h3 className="text-ui-sm font-bold uppercase tracking-wide text-[--color-text-secondary]">Pick each lot's winner</h3>
+          <h3 className="text-ui-sm font-bold uppercase tracking-wide text-[--color-text-secondary]">Record the BAC's choice for each lot</h3>
           <p className="text-xs text-[--color-text-secondary]">
-            Each lot goes to one supplier that bid on all of it. <Star className="inline size-3 -mt-0.5 fill-amber-400 text-amber-500" /> marks
+            The BAC chooses each lot's supplier at its own meeting, on its approved criteria; nothing is picked for you.
+            Each lot goes to one supplier that bid on all of it. Pick the one the BAC chose and tick the criteria it applied.
             {skipped
-              ? ' the system\'s recommendation, the lowest total. The TWG did not evaluate these bids, so you may pick any supplier that bid on the whole lot.'
-              : ' the system\'s recommendation, the lowest total of the bidders compliant on the whole lot. You may pick any of them, but not a supplier the TWG found non-compliant on an item of the lot.'}
+              ? ' The TWG did not evaluate these bids, so any supplier that bid on the whole lot can be recorded.'
+              : ' A supplier the TWG found non-compliant on an item of the lot can\'t be awarded it.'}
           </p>
           <BidsTable canvass={canvass} pick={picks} onPick={(lot, id) => setPicks(x => ({ ...x, [lot.label]: id }))} lotNote={lotNote}
             action={(i) => i.state === 'pending' && (
@@ -186,7 +198,7 @@ export default function BacAwardSheet({ pr, canvass }) {
         <div className="space-y-1.5">
           <Label htmlFor="award-notes">Notes on the {doc?.kind === 'abstract' ? 'award' : 'resolution'} <span className="text-[--color-text-muted] font-normal text-xs">(optional)</span></Label>
           <textarea id="award-notes" value={notes} onChange={e => setNotes(e.target.value)} rows={2} maxLength={2000} className={TEXTAREA}
-            placeholder="e.g. Lowest calculated and responsive offers" />
+            placeholder="e.g. Decided by the BAC at its meeting of 5 November 2026" />
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
           {block && <p className="mr-auto flex items-center gap-1.5 text-xs text-amber-700"><AlertTriangle className="size-3.5 shrink-0" /> {block}</p>}
@@ -194,7 +206,7 @@ export default function BacAwardSheet({ pr, canvass }) {
             <Undo2 className="size-3.5" /> Take back to the canvass
           </Button>
           <Button className="gap-1.5" disabled={isPending || !!block} onClick={() => setReviewing(true)}>
-            <CheckCircle2 className="size-3.5" /> Review and award
+            <CheckCircle2 className="size-3.5" /> Review and record
           </Button>
         </div>
       </section>

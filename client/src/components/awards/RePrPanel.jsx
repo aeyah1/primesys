@@ -8,9 +8,9 @@ import { RE_PR_TYPES } from '@/lib/utils'
 import api from '@/lib/axios'
 import { useRefreshAwards } from './supplier'
 
-/* A Re-PR the TWG proposed because every supplier was DQ, waiting for the BAC:
-   why, and for the BAC, sending it to the End User (an optional note) or
-   returning it to the TWG (a reason). pr: GET /pr/:id; canAct: the BAC may decide. */
+/* A Re-PR the TWG proposed because every supplier was DQ, waiting for Procurement:
+   why, and for Procurement, sending it to the End User (an optional note) or
+   returning it to the TWG (a reason). pr: GET /pr/:id; canAct: Procurement may decide. */
 export default function RePrPanel({ pr, canAct }) {
   const [action, setAction] = useState(null)   // 'send' | 'return'
   const [note, setNote] = useState('')
@@ -31,7 +31,7 @@ export default function RePrPanel({ pr, canAct }) {
       {pr.re_pr_reason && <p className="pl-6 whitespace-pre-wrap">{pr.re_pr_reason}</p>}
       <p className="pl-6 text-xs text-red-800">
         Every supplier was DQ, so the request goes back to its End User to change.{' '}
-        {canAct ? 'Check it, then send it to the End User, or return it to the TWG if the offers need another look.' : 'The BAC checks it, then sends it to the End User.'}
+        {canAct ? 'Check it, then send it to the End User, or return it to the TWG if the offers need another look.' : 'Procurement checks it, then sends it to the End User.'}
       </p>
       {canAct && (
         <div className="flex flex-wrap gap-2 pl-6 pt-1">

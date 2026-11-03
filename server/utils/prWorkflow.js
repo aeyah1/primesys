@@ -18,11 +18,12 @@ const { requesterNotice } = require('./requesterNotice')
 //   { status, created_by, deleted_at, hasPO (an active PO), hasAnyPO (any PO,
 //     including cancelled ones), hasLot, hasAward (an awarded lot), itemCount (when known) }
 
+// Plain words for what is happening, the same as the client's (client/src/lib/utils.js PR_STATUS_LABELS).
 const STATUS_LABELS = {
-  draft: 'Draft', submitted: 'Submitted', twg_review: 'Approved by TWG',
-  revision_requested: 'Revision Requested', rejected: 'Rejected by TWG', bidding: 'Canvass',
-  bac_review: 'BAC award', twg_certification: 'TWG certification', re_pr: 'Re-PR (BAC check)',
-  for_po: 'Ready for PO', completed: 'Completed', cancelled: 'Cancelled',
+  draft: 'Draft', submitted: 'TWG review', twg_review: 'Ready for canvass',
+  revision_requested: 'Returned for changes', rejected: 'Not approved', bidding: 'Canvass',
+  bac_review: 'Choosing the supplier', twg_certification: 'TWG checking offers', re_pr: 'Re-PR proposed',
+  for_po: 'Ready for purchase order', completed: 'Completed', cancelled: 'Cancelled',
 }
 
 const EDITORS = ['requestor', 'procurement', 'admin']
@@ -46,12 +47,13 @@ const CANVASS_STAGES = ['bidding', 'twg_certification', 'bac_review', 're_pr']
 //
 // After the TWG approves, Procurement starts the canvass (Canvass, status
 // bidding), done outside the system by the canvasser, who gives the returned
-// RFQs to the BAC; the BAC enters every bid and sends them to the TWG (TWG
+// RFQs to Procurement; Procurement enters every bid and sends them to the TWG (TWG
 // certification); the TWG marks each bid compliant or not and certifies them
-// (BAC award) or returns them to the BAC's canvass; the BAC picks the winners
-// and awards (Ready for PO), or takes the canvass back to correct it (utils/canvassBids.js).
-// When every supplier is DQ the TWG may instead propose a Re-PR (re_pr): the
-// BAC sends it to the End User to change the request (revision_requested) or
+// (Choosing the supplier) or returns them to the canvass; the BAC chooses the
+// winners offline and Procurement records its award (Ready for PO), or takes the
+// canvass back to correct it (utils/canvassBids.js).
+// When every supplier is DQ the TWG may instead propose a Re-PR (re_pr):
+// Procurement sends it to the End User to change the request (revision_requested) or
 // returns it to the TWG (utils/rePr.js).
 // From then on the awards decide
 // (syncPRProgress): an item needing an award again (an award or PO cancelled,
@@ -65,12 +67,12 @@ const TRANSITIONS = {
   revision_requested: { submitted: { roles: EDITORS, owner: true }, cancelled: { roles: ADMIN } },
   twg_review:         { bidding: { via: 'canvass' }, revision_requested: { roles: STAFF, reason: true },
                         cancelled: { roles: STAFF } },
-  bidding:            { twg_certification: { via: 'bac' }, bac_review: { via: 'bac' }, for_po: { via: 'award' },
+  bidding:            { twg_certification: { via: 'steps' }, bac_review: { via: 'steps' }, for_po: { via: 'award' },
                         revision_requested: { roles: STAFF, reason: true, noAward: true },
                         cancelled: { roles: STAFF, noPO: true } },
   twg_certification:  { bac_review: { via: 'twg' }, bidding: { via: 'twg' }, re_pr: { via: 'twg' }, cancelled: { roles: ADMIN, noPO: true } },
-  bac_review:         { for_po: { via: 'bac' }, bidding: { via: 'bac' }, cancelled: { roles: STAFF, noPO: true } },
-  re_pr:              { revision_requested: { via: 'bac' }, twg_certification: { via: 'bac' }, cancelled: { roles: STAFF, noPO: true } },
+  bac_review:         { for_po: { via: 'steps' }, bidding: { via: 'steps' }, cancelled: { roles: STAFF, noPO: true } },
+  re_pr:              { revision_requested: { via: 'steps' }, twg_certification: { via: 'steps' }, cancelled: { roles: STAFF, noPO: true } },
   for_po:             { bidding: { roles: STAFF, noPO: true, alsoVia: 'award' }, completed: { via: 'delivery' },
                         cancelled: { roles: STAFF, noPO: true } },
   // Rejected stays on record, but its End User may reopen it to change and resubmit, so a long request isn't retyped.
@@ -79,7 +81,7 @@ const TRANSITIONS = {
   cancelled: {},
 }
 const PR_STATUSES = Object.keys(TRANSITIONS)
-const VIA_LABELS  = { twg: 'a TWG review', award: 'the awards', delivery: 'a completed delivery', canvass: 'starting the canvass', bac: 'the BAC' }
+const VIA_LABELS  = { twg: 'a TWG review', award: 'the awards', delivery: 'a completed delivery', canvass: 'starting the canvass', steps: 'the canvass steps' }
 
 // A PR's items and details change only before the TWG has it: while it is a
 // draft or returned for revision. From submission on it is locked for every
@@ -152,13 +154,13 @@ function deleteBlock(user, pr) {
   return null
 }
 
-// The mode of procurement: Procurement's or the BAC's call, fixed once a
+// The mode of procurement: Procurement's call, fixed once a
 // supplier is awarded, because it prints on the BAC Resolution and the PO. A
 // mode never set can still be filled in, since awards made before it was
 // required would otherwise block the rest for good.
 function modeBlock(user, pr) {
   if (pr.deleted_at) return DELETED
-  if (![...STAFF, 'bac'].includes(user.role)) return deny(403, 'Only Procurement or the BAC can set the mode of procurement')
+  if (!STAFF.includes(user.role)) return deny(403, 'Only Procurement can set the mode of procurement')
   if (FINAL.includes(pr.status)) return deny(409, 'This PR is closed, so its mode of procurement is kept as it is')
   if (pr.hasAward && pr.mode_of_procurement) return deny(409, 'A supplier is already awarded on this PR, so its mode of procurement is fixed')
   return null

@@ -17,7 +17,7 @@ import { receivedText } from '@/components/delivery/shared'
 import { PoDeliveries } from '@/components/delivery/DeliveryRow'
 import PODetailDialog from '@/components/delivery/PODetailDialog'
 import { useAuth } from '@/context/AuthContext'
-import { fmtDate, fmtCurrency, localToday, plural } from '@/lib/utils'
+import { fmtDate, fmtDatetime, fmtCurrency, localToday, plural } from '@/lib/utils'
 import { openPdf, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
 
@@ -124,7 +124,7 @@ export default function PurchaseOrders({ pr, canManage }) {
     <Card id="purchase-order" className="scroll-mt-4">
       <CardHeader className="flex flex-row items-center gap-2">
         <ShoppingCart className="size-4 text-[--color-text-muted]" />
-        <CardTitle>Purchase Orders</CardTitle>
+        <CardTitle>Purchase orders</CardTitle>
         {pos.length > 1 && <span className="text-xs text-[--color-text-muted]">({pos.length}, one per supplier)</span>}
       </CardHeader>
       <CardContent className="space-y-5">
@@ -170,7 +170,7 @@ export default function PurchaseOrders({ pr, canManage }) {
             </div>
             {po.rescheduled_at && (
               <p className="text-ui-xs text-[--color-text-secondary]">
-                <span className="font-semibold">Expected date moved {fmtDate(po.rescheduled_at)}:</span> {po.reschedule_reason}
+                <span className="font-semibold">Expected date moved {fmtDatetime(po.rescheduled_at)}:</span> {po.reschedule_reason}
               </p>
             )}
             {po.delivery_notes && <p className="text-ui-xs text-[--color-text-secondary] leading-relaxed">{po.delivery_notes}</p>}
@@ -178,7 +178,7 @@ export default function PurchaseOrders({ pr, canManage }) {
               <p className="flex items-start gap-2 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-ui-xs text-slate-800">
                 <Lock className="size-3.5 shrink-0 mt-0.5" />
                 <span>
-                  <span className="font-semibold">Balance closed {fmtDate(po.closed_at)}:</span> {po.close_reason}
+                  <span className="font-semibold">Balance closed {fmtDatetime(po.closed_at)}:</span> {po.close_reason}
                   {' '}Not delivered, not paid: {fmtCurrency(po.short_amount)}
                   {Number(po.penalty_amount) > 0 ? `; late-delivery penalty ${fmtCurrency(po.penalty_amount)}` : ''}.
                 </span>
@@ -193,7 +193,7 @@ export default function PurchaseOrders({ pr, canManage }) {
                 )}
                 {po.can_cancel && (
                   <Button variant="outline" size="sm" className="gap-1.5 border-red-300 text-red-600 hover:bg-red-50" onClick={() => setAction({ kind: 'cancel', po })}>
-                    <XCircle className="size-3.5" /> Cancel PO
+                    <XCircle className="size-3.5" /> Cancel the PO
                   </Button>
                 )}
                 {po.can_close && (
@@ -201,17 +201,17 @@ export default function PurchaseOrders({ pr, canManage }) {
                 )}
                 {po.can_close && (
                   <Button variant="outline" size="sm" className="gap-1.5 border-red-300 text-red-600 hover:bg-red-50" onClick={() => setAction({ kind: 'close', po })}>
-                    <Lock className="size-3.5" /> Close Balance
+                    <Lock className="size-3.5" /> Close the balance
                   </Button>
                 )}
                 {po.can_reschedule && (
                   <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setAction({ kind: 'reschedule', po })}>
-                    <CalendarDays className="size-3.5" /> Change Expected Date
+                    <CalendarDays className="size-3.5" /> Change the expected date
                   </Button>
                 )}
                 {po.can_record_delivery && (
                   <Button size="sm" className="gap-1.5" onClick={() => setAction({ kind: 'receive', po })}>
-                    <Truck className="size-3.5" /> Record Delivery
+                    <Truck className="size-3.5" /> Record a delivery
                   </Button>
                 )}
               </div>
@@ -244,7 +244,7 @@ export default function PurchaseOrders({ pr, canManage }) {
             <p className="text-ui-xs font-semibold text-[--color-text-muted] uppercase tracking-wide">Cancelled purchase orders</p>
             {pr.cancelled_pos.map(c => (
               <div key={c.id} className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-ui-xs text-red-800">
-                <span className="font-mono font-semibold">{c.po_number}</span> · {c.supplier_name} · cancelled {fmtDate(c.cancelled_at)}
+                <span className="font-mono font-semibold">{c.po_number}</span> · {c.supplier_name} · cancelled {fmtDatetime(c.cancelled_at)}
                 {c.cancelled_by_name ? ` by ${c.cancelled_by_name}` : ''}
                 {c.cancel_reason && <p className="mt-0.5 text-red-700">{c.cancel_reason}</p>}
               </div>

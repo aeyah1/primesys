@@ -46,7 +46,7 @@ export default function DevicesCard() {
                     {d.tag === here && <span className="ml-2 rounded-full bg-[--color-brand-light] px-2 py-0.5 text-[10px] font-semibold text-[--color-brand]">This browser</span>}
                   </p>
                   <p className="text-[11px] text-[--color-text-muted]">
-                    Added {fmtDate(d.created_at)} · last used {fmtDatetime(d.last_used_at)} · remembered until {fmtDate(d.trusted_until)}
+                    Added {fmtDatetime(d.created_at)} · last used {fmtDatetime(d.last_used_at)} · remembered until {fmtDate(d.trusted_until)}
                   </p>
                 </div>
                 <Button variant="outline" size="sm" className="gap-1.5" disabled={isPending} onClick={() => ask(d)}>

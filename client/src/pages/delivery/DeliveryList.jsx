@@ -1,32 +1,35 @@
-import { useState, useMemo } from 'react'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useState } from 'react'
+import { useQuery, useMutation, keepPreviousData } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import {
-  Plus, Pencil, Search, AlertTriangle, Trash2,
-  Package, CheckCircle, TruckIcon, Paperclip, Send,
-} from 'lucide-react'
+import { Plus, Pencil, Trash2, Paperclip, Send, PackageCheck, AlertTriangle } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { useAuth } from '@/context/AuthContext'
-import { Card, CardContent } from '@/components/ui/card'
+import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '@/components/ui/select'
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableEmpty } from '@/components/ui/table'
-import { Skeleton } from '@/components/ui/skeleton'
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table'
 import { DeliveryStatusBadge } from '@/components/shared/StatusBadge'
+import PageHeader from '@/components/shared/PageHeader'
+import { TabBar, Tab, Toolbar, SearchBox, ListCount, SkeletonRows, EmptyRow, Pager } from '@/components/shared/ListParts'
 import AttachmentsPanel from '@/components/shared/AttachmentsPanel'
 import ReceiveDialog from '@/components/delivery/ReceiveDialog'
+import PODetailDialog from '@/components/delivery/PODetailDialog'
 import { qty, TEXTAREA, useRefreshDeliveries } from '@/components/delivery/shared'
-import { fmtDate, localToday } from '@/lib/utils'
+import useUrlParams from '@/hooks/useUrlParams'
+import { fmtDate, fmtDatetime, localToday } from '@/lib/utils'
 import api from '@/lib/axios'
 
+// The views, named as the delivery badges read: a record that completed its PO, or one that brought part of it.
 const TABS = [
   { key: 'all',      label: 'All' },
-  { key: 'complete', label: 'Complete' },
-  { key: 'partial',  label: 'Partial' },
+  { key: 'complete', label: 'Completed the order' },
+  { key: 'partial',  label: 'Part of the order' },
 ]
+const PAGE_SIZE = 20
+const COLS = 8
 
 // What a delivery brought: its items, or (a PO issued before deliveries were
 // counted by item) whether it was all or part of the PO.
@@ -34,14 +37,18 @@ const broughtText = (d) => d.items?.length
   ? d.items.map(i => `${i.item_name} × ${qty(i.quantity)}`).join(', ')
   : d.status === 'complete' ? 'Everything on the PO' : 'Part of the PO'
 
+// Every delivery recorded on a purchase order, newest first; a row opens its PO.
 export default function DeliveryList() {
   const { user } = useAuth()
   const refresh  = useRefreshDeliveries()
   const today    = localToday()
 
-  const [search, setSearch]         = useState('')
-  const [tab, setTab]               = useState('all')
+  const [params, update] = useUrlParams()
+  const tab  = TABS.some(t => t.key === params.get('status')) ? params.get('status') : 'all'
+  const page = Math.max(parseInt(params.get('page')) || 1, 1)
+  const [search, setSearch]         = useState(params.get('q') || '')
   const [receiving, setReceiving]   = useState(false)
+  const [viewingPo, setViewingPo]   = useState(null)
   const [editing, setEditing]       = useState(null)
   const [form, setForm]             = useState({ delivered_date: '', status: 'complete', notes: '' })
   const [deleting, setDeleting]     = useState(null)
@@ -49,17 +56,18 @@ export default function DeliveryList() {
   const [noting, setNoting]         = useState(null)
   const [note, setNote]             = useState('')
 
-  const { data: deliveries = [], isLoading } = useQuery({
-    queryKey: ['deliveries', search],
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['deliveries', { search, tab, page }],
     queryFn: () => {
-      const params = new URLSearchParams()
-      if (search) params.set('search', search)
-      params.set('limit', '200')
-      return api.get(`/delivery?${params}`).then(r => r.data?.data ?? [])
+      const q = new URLSearchParams({ page, limit: PAGE_SIZE })
+      if (search) q.set('search', search)
+      if (tab !== 'all') q.set('status', tab)
+      return api.get(`/delivery?${q}`).then(r => r.data)
     },
+    placeholderData: keepPreviousData,
   })
-  // Overdue purchase orders (nothing or only part delivered past the expected
-  // date) are counted on the server; the list lives on the Purchase Orders page.
+  const rows = data?.data ?? []
+  // Overdue purchase orders are counted on the server; their list is on the Purchase Orders page.
   const { data: poCounts } = useQuery({
     queryKey: ['po-list', 'counts'],
     queryFn:  () => api.get('/po?view=overdue&limit=1').then(r => r.data.counts),
@@ -68,18 +76,9 @@ export default function DeliveryList() {
   const isStaff   = ['procurement', 'admin'].includes(user?.role)
   const isSupply  = user?.role === 'supply'
   const canRecord = isStaff || isSupply
+  const overdue   = poCounts?.overdue ?? 0
 
-  // Stats (from the full search result, before the tab filter)
-  const stats = useMemo(() => ({
-    total:    deliveries.length,
-    complete: deliveries.filter(d => d.status === 'complete').length,
-    partial:  deliveries.filter(d => d.status === 'partial').length,
-  }), [deliveries])
-  const overdue = poCounts?.overdue ?? 0
-
-  const filtered = useMemo(() => deliveries.filter(d => tab === 'all' || d.status === tab), [deliveries, tab])
-
-  const { mutate: update, isPending: isUpdating } = useMutation({
+  const { mutate: save, isPending: isUpdating } = useMutation({
     mutationFn: ({ id, body }) => api.patch(`/delivery/${id}`, body),
     onSuccess: () => { toast.success('Delivery updated'); refresh(); setEditing(null) },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to update delivery'),
@@ -102,216 +101,119 @@ export default function DeliveryList() {
   // On a PO with lines the status follows the quantities received, so only
   // the date and notes change here; an older PO's record also has its status.
   const statusEditable = editing && Number(editing.line_count) === 0 && !editing.locked
-  const saveEdit = () => update({
+  const saveEdit = () => save({
     id: editing.id,
     body: { delivered_date: form.delivered_date, notes: form.notes, ...(statusEditable ? { status: form.status } : {}) },
   })
   const notesOk = !statusEditable || form.status !== 'partial' || !!form.notes.trim()   // the server requires notes for a partial delivery
 
-  const STAT_CARDS = [
-    { key: 'all',      label: 'Total Deliveries', value: stats.total,    icon: TruckIcon,   bg: 'bg-blue-50',  color: 'text-blue-600' },
-    { key: 'complete', label: 'Complete',         value: stats.complete, icon: CheckCircle, bg: 'bg-blue-50',  color: 'text-blue-600' },
-    { key: 'partial',  label: 'Partial',          value: stats.partial,  icon: Package,     bg: 'bg-amber-50', color: 'text-amber-600' },
-  ]
   const iconBtn = 'p-1.5 rounded-lg text-[--color-text-muted] hover:text-[--color-brand] hover:bg-[--color-overlay] transition-colors'
 
   return (
-    <div className="space-y-4">
-      <h2 className="text-ui-2xl font-bold text-[--color-text-primary]">Deliveries</h2>
-
-      {/* Stats strip */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 card-grid">
-        {STAT_CARDS.map(({ key, label, value, icon: Icon, bg, color }) => (
-          <Card key={key} className="cursor-pointer hover:shadow-sm transition-shadow" onClick={() => setTab(key)}>
-            <CardContent className="p-4 flex items-center gap-3">
-              <div className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${bg}`}>
-                <Icon className={`size-5 ${color}`} />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-[--color-text-primary] leading-none">{value}</p>
-                <p className="text-xs text-[--color-text-muted] mt-1">{label}</p>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-        <Link to="/po?view=overdue" className="block">
-          <Card className={`h-full hover:shadow-sm transition-shadow ${overdue > 0 ? 'border-red-300' : ''}`}>
-            <CardContent className="p-4 flex items-center gap-3">
-              <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-red-50">
-                <AlertTriangle className="size-5 text-red-600" />
-              </div>
-              <div>
-                <p className={`text-2xl font-bold leading-none ${overdue > 0 ? 'text-red-700' : 'text-[--color-text-primary]'}`}>{overdue}</p>
-                <p className="text-xs text-[--color-text-muted] mt-1">Overdue POs</p>
-              </div>
-            </CardContent>
-          </Card>
-        </Link>
-      </div>
-
-      {/* Toolbar */}
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="relative flex-1 max-w-72">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-[--color-text-muted]" />
-          <Input
-            placeholder="Search PO, PR or supplier…"
-            value={search}
-            onChange={e => { setSearch(e.target.value); setTab('all') }}
-            className="pl-9"
-          />
-        </div>
-        {canRecord && (
-          <Button onClick={() => setReceiving(true)}>
-            <Plus className="size-4" /> Record Delivery
+    <div className="space-y-5">
+      <PageHeader title="Deliveries" sub="Every delivery recorded on a purchase order: what arrived, when, and who received it. Open one to see its purchase order.">
+        {overdue > 0 && (
+          <Button asChild variant="secondary" className="gap-1.5 border-red-300 text-red-700">
+            <Link to="/po?view=overdue"><AlertTriangle className="size-4" /> {overdue} overdue purchase order{overdue === 1 ? '' : 's'}</Link>
           </Button>
         )}
-      </div>
+        {canRecord && <Button className="gap-1.5" onClick={() => setReceiving(true)}><Plus className="size-4" /> Record a delivery</Button>}
+      </PageHeader>
 
-      {/* Status tabs + table */}
-      <Card>
-        <div className="flex items-center gap-1 px-4 pt-3 border-b border-[--color-border]">
-          {TABS.map(t => {
-            const count = stats[t.key === 'all' ? 'total' : t.key]
-            return (
-              <button
-                key={t.key}
-                onClick={() => setTab(t.key)}
-                className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium border-b-2 transition-colors mb-[-1px] ${
-                  tab === t.key
-                    ? 'border-[--color-brand] text-[--color-brand]'
-                    : 'border-transparent text-[--color-text-muted] hover:text-[--color-text-primary]'
-                }`}
-              >
-                {t.label}
-                {count > 0 && (
-                  <span className={`text-xs rounded-full px-1.5 py-0.5 font-semibold ${
-                    tab === t.key
-                      ? 'bg-[--color-brand-light] text-[--color-brand]'
-                      : 'bg-[--color-surface-raised] text-[--color-text-muted]'
-                  }`}>
-                    {count}
-                  </span>
-                )}
-              </button>
-            )
-          })}
-        </div>
+      <Card className="overflow-hidden">
+        <TabBar>
+          {TABS.map(t => (
+            <Tab key={t.key} active={tab === t.key} count={data?.counts?.[t.key] ?? 0} onClick={() => update({ status: t.key === 'all' ? '' : t.key, page: '' })}>
+              {t.label}
+            </Tab>
+          ))}
+        </TabBar>
+        <Toolbar end={<ListCount n={data?.total} one="delivery" many="deliveries" />}>
+          <SearchBox value={search} placeholder="Search by PO number, PR number or supplier" onChange={v => { setSearch(v); update({ q: v, page: '' }) }} />
+        </Toolbar>
 
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>PO / Supplier</TableHead>
-                <TableHead>PR / Project</TableHead>
-                <TableHead>What Arrived</TableHead>
-                <TableHead>Delivered</TableHead>
-                <TableHead>Received By</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Notes</TableHead>
-                <TableHead />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {isLoading
-                ? Array(5).fill(0).map((_, i) => (
-                    <TableRow key={i}>
-                      {Array(8).fill(0).map((_, j) => (
-                        <TableCell key={j}><Skeleton className="h-4" /></TableCell>
-                      ))}
-                    </TableRow>
-                  ))
-                : filtered.length === 0
-                  ? <TableEmpty
-                      colSpan={8}
-                      message={search ? 'No deliveries match your search.' : tab === 'all' ? 'No deliveries recorded yet.' : `No ${tab} deliveries.`}
-                    />
-                  : filtered.map(d => (
-                      <TableRow key={d.id} className={d.status === 'partial' ? 'bg-amber-50/50 hover:bg-amber-50' : undefined}>
-                        {/* PO / Supplier */}
-                        <TableCell>
-                          <Link to={`/po?po=${d.po_id}`} className="font-semibold text-[--color-brand] hover:underline leading-tight block">
-                            {d.po_number}
-                          </Link>
-                          <span className="text-xs text-[--color-text-muted] mt-0.5 block">{d.supplier_name}</span>
-                        </TableCell>
-
-                        {/* PR / Project */}
-                        <TableCell>
-                          <Link
-                            to={`/pr/${d.pr_id}`}
-                            className="text-sm font-medium text-[--color-text-primary] hover:text-[--color-brand] hover:underline leading-tight block"
-                          >
-                            {d.pr_number}
-                          </Link>
-                          <span className="text-xs text-[--color-text-muted] mt-0.5 block truncate max-w-44" title={d.project_name}>
-                            {d.project_name}
-                          </span>
-                        </TableCell>
-
-                        {/* What arrived */}
-                        <TableCell className="max-w-56">
-                          <span className="block text-xs text-[--color-text-secondary] line-clamp-2" title={broughtText(d)}>{broughtText(d)}</span>
-                        </TableCell>
-
-                        <TableCell className="text-[--color-text-secondary] text-sm whitespace-nowrap">{fmtDate(d.delivered_date)}</TableCell>
-                        <TableCell className="text-[--color-text-secondary] text-sm">{d.received_by_name}</TableCell>
-                        <TableCell><DeliveryStatusBadge status={d.status === 'complete' ? 'delivered' : 'partial'} /></TableCell>
-
-                        {/* Notes */}
-                        <TableCell className="max-w-44">
-                          {d.notes
-                            ? <span className="truncate block text-xs text-[--color-text-muted]" title={d.notes}>{d.notes}</span>
-                            : <span className="text-[--color-text-muted] text-xs">—</span>
-                          }
-                        </TableCell>
-
-                        {/* Actions */}
-                        <TableCell>
-                          <div className="flex items-center gap-1">
-                            {canRecord && (
-                              <button onClick={() => setAttachDelivery(d)} className={iconBtn} title="Invoices and proof of delivery">
-                                <Paperclip className="size-3.5" />
-                              </button>
-                            )}
-                            {isSupply && (
-                              <button
-                                onClick={() => { setNoting(d); setNote('') }}
-                                className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-[--color-brand] hover:bg-[--color-brand-light] transition-colors"
-                                title="Send a note about this delivery"
-                              >
-                                <Send className="size-3.5" /> Note
-                              </button>
-                            )}
-                            {isStaff && (
-                              <button onClick={() => openEdit(d)} className={`${iconBtn} hover:text-[--color-text-primary]`} title="Edit">
-                                <Pencil className="size-3.5" />
-                              </button>
-                            )}
-                            {/* A fully delivered PO's records are kept (server rule) */}
-                            {isStaff && !d.locked && (
-                              <button
-                                onClick={() => setDeleting(d)}
-                                className="p-1.5 rounded-lg text-[--color-text-muted] hover:text-red-600 hover:bg-red-50 transition-colors"
-                                title="Remove"
-                              >
-                                <Trash2 className="size-3.5" />
-                              </button>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))
-              }
-            </TableBody>
-          </Table>
-        </CardContent>
+        <Table framed={false}>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Delivered</TableHead>
+              <TableHead>PO No.</TableHead>
+              <TableHead>Request</TableHead>
+              <TableHead>What arrived</TableHead>
+              <TableHead>Received by</TableHead>
+              <TableHead>Delivery</TableHead>
+              <TableHead>Notes</TableHead>
+              <TableHead className="w-28" />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {isLoading ? <SkeletonRows cols={COLS} />
+              : isError ? <EmptyRow cols={COLS} error="The deliveries could not be loaded. Refresh the page to try again." />
+              : !rows.length ? (
+                <EmptyRow cols={COLS} icon={PackageCheck} title={search ? 'No delivery matches your search' : 'No delivery here yet'}
+                  sub={search ? 'Try another PO number, PR number or supplier.' : 'Deliveries appear here once the Supply Office records them.'} />
+              )
+              : rows.map(d => (
+                  <TableRow key={d.id} className="cursor-pointer" onClick={() => setViewingPo(d.po_id)}>
+                    <TableCell className="whitespace-nowrap text-ui-xs text-[--color-text-secondary]">{fmtDate(d.delivered_date)}</TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      <span className="font-mono font-semibold text-[--color-brand]">{d.po_number}</span>
+                      <span className="block text-[11px] text-[--color-text-muted]">{d.supplier_name}</span>
+                    </TableCell>
+                    <TableCell className="max-w-56">
+                      <Link to={`/pr/${d.pr_id}?tab=orders`} onClick={e => e.stopPropagation()}
+                        className="font-mono text-ui-xs font-semibold text-[--color-text-secondary] hover:text-[--color-brand] hover:underline">{d.pr_number}</Link>
+                      <span className="block truncate text-[11px] text-[--color-text-muted]" title={d.project_name}>{d.project_name}</span>
+                    </TableCell>
+                    <TableCell className="max-w-64">
+                      <span className="line-clamp-2 text-ui-xs text-[--color-text-secondary]" title={broughtText(d)}>{broughtText(d)}</span>
+                    </TableCell>
+                    <TableCell className="text-ui-xs text-[--color-text-secondary]">{d.received_by_name}<span className="block text-[11px] text-[--color-text-muted]">recorded {fmtDatetime(d.created_at)}</span></TableCell>
+                    <TableCell><DeliveryStatusBadge status={d.status === 'complete' ? 'delivered' : 'partial'} /></TableCell>
+                    <TableCell className="max-w-48">
+                      {d.notes
+                        ? <span className="block truncate text-ui-xs text-[--color-text-muted]" title={d.notes}>{d.notes}</span>
+                        : <span className="text-ui-xs text-[--color-text-muted]">None</span>}
+                    </TableCell>
+                    <TableCell onClick={e => e.stopPropagation()}>
+                      <div className="flex items-center justify-end gap-1">
+                        {canRecord && (
+                          <button onClick={() => setAttachDelivery(d)} className={iconBtn} title="Invoices and proof of delivery" aria-label="Invoices and proof of delivery">
+                            <Paperclip className="size-3.5" />
+                          </button>
+                        )}
+                        {isSupply && (
+                          <button onClick={() => { setNoting(d); setNote('') }} title="Send a note about this delivery"
+                            className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-[--color-brand] transition-colors hover:bg-[--color-brand-light]">
+                            <Send className="size-3.5" /> Note
+                          </button>
+                        )}
+                        {isStaff && (
+                          <button onClick={() => openEdit(d)} className={iconBtn} title="Edit" aria-label="Edit the delivery">
+                            <Pencil className="size-3.5" />
+                          </button>
+                        )}
+                        {/* A fully delivered PO's records are kept (server rule) */}
+                        {isStaff && !d.locked && (
+                          <button onClick={() => setDeleting(d)} title="Remove" aria-label="Remove the delivery record"
+                            className="rounded-lg p-1.5 text-[--color-text-muted] transition-colors hover:bg-red-50 hover:text-red-600">
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+          </TableBody>
+        </Table>
+        <Pager page={page} totalPages={data?.totalPages} summary={`${data?.total} deliveries`} onPage={(n) => update({ page: n > 1 ? n : '' })} />
       </Card>
 
+      <PODetailDialog poId={viewingPo} onClose={() => setViewingPo(null)} />
       {canRecord && <ReceiveDialog open={receiving} onClose={() => setReceiving(false)} />}
 
       {/* Edit (procurement / admin): a correction of the date or notes */}
       <Dialog open={!!editing} onOpenChange={(o) => { if (!o) setEditing(null) }}>
-        <DialogContent title="Edit Delivery" description={editing ? `${editing.po_number}, delivered ${fmtDate(editing.delivered_date)}` : ''}>
+        <DialogContent title="Edit the delivery" description={editing ? `${editing.po_number}, delivered ${fmtDate(editing.delivered_date)}` : ''}>
           <div className="space-y-4">
             <div className="rounded-lg border border-[--color-border] bg-[--color-canvas] px-3 py-2.5 text-xs text-[--color-text-secondary]">
               <span className="font-semibold text-[--color-text-primary]">What arrived: </span>{editing && broughtText(editing)}
@@ -356,7 +258,7 @@ export default function DeliveryList() {
           <DialogFooter>
             <Button variant="secondary" onClick={() => setEditing(null)}>Cancel</Button>
             <Button onClick={saveEdit} disabled={isUpdating || !form.delivered_date || !notesOk}>
-              {isUpdating ? 'Saving…' : 'Save Changes'}
+              {isUpdating ? 'Saving…' : 'Save changes'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -383,7 +285,7 @@ export default function DeliveryList() {
 
       {/* Supply Officer note: kept on the record and sent to procurement and the requestor */}
       <Dialog open={!!noting} onOpenChange={(o) => { if (!o) setNoting(null) }}>
-        <DialogContent title="Send a Note" description={noting ? `${noting.po_number} · ${noting.supplier_name}, delivered ${fmtDate(noting.delivered_date)}` : ''}>
+        <DialogContent title="Send a note" description={noting ? `${noting.po_number} · ${noting.supplier_name}, delivered ${fmtDate(noting.delivered_date)}` : ''}>
           <div className="space-y-4 pt-1">
             <div className="space-y-1.5">
               <Label>Note <span className="text-red-500">*</span></Label>
@@ -391,14 +293,14 @@ export default function DeliveryList() {
                 placeholder="e.g. One monitor arrived with a cracked screen; the supplier will replace it"
                 onChange={e => setNote(e.target.value)} />
             </div>
-            <p className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2.5 text-xs text-sky-800">
+            <p className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs text-blue-800">
               Procurement and the End User are notified. A note doesn't change what was delivered; when more goods arrive, record them as a delivery.
             </p>
           </div>
           <DialogFooter>
             <Button variant="secondary" onClick={() => setNoting(null)}>Cancel</Button>
             <Button className="gap-2" disabled={isSendingNote || !note.trim()} onClick={() => sendNote({ id: noting.id, notes: note.trim() })}>
-              <Send className="size-3.5" /> {isSendingNote ? 'Sending…' : 'Send Note'}
+              <Send className="size-3.5" /> {isSendingNote ? 'Sending…' : 'Send the note'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -406,7 +308,7 @@ export default function DeliveryList() {
 
       {/* Delete confirm */}
       <Dialog open={!!deleting} onOpenChange={(o) => { if (!o) setDeleting(null) }}>
-        <DialogContent title="Remove Delivery Record">
+        <DialogContent title="Remove the delivery record">
           <div className="pt-2 space-y-3">
             <p className="text-sm text-[--color-text-secondary]">
               Remove the delivery record for{' '}
@@ -420,7 +322,7 @@ export default function DeliveryList() {
           <DialogFooter>
             <Button variant="secondary" onClick={() => setDeleting(null)} disabled={isRemoving}>Cancel</Button>
             <Button variant="danger" onClick={() => remove(deleting.id)} disabled={isRemoving}>
-              {isRemoving ? 'Removing…' : 'Remove Record'}
+              {isRemoving ? 'Removing…' : 'Remove the record'}
             </Button>
           </DialogFooter>
         </DialogContent>

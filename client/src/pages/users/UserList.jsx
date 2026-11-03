@@ -1,10 +1,9 @@
 import { Fragment, useState } from 'react'
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import {
-  Search, UserX, UserCheck, UserPlus, Pencil,
-  Trash2, BadgeCheck, Ban, KeyRound, Eye, EyeOff, ClipboardCheck, AlertTriangle, ArrowUpDown, ScrollText, Copy,
+  Users, UserX, UserCheck, UserPlus, Pencil,
+  Trash2, BadgeCheck, Ban, KeyRound, Eye, EyeOff, ClipboardCheck, AlertTriangle, ArrowUpDown, ScrollText, Copy, ScanFace,
 } from 'lucide-react'
-import { Link } from 'react-router-dom'
 import { toast } from '@/lib/toast'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -12,12 +11,15 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableEmpty } from '@/components/ui/table'
-import { Skeleton } from '@/components/ui/skeleton'
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { RoleBadge } from '@/components/shared/StatusBadge'
-import { FilterChip, Tab, Pager } from '@/components/shared/ListParts'
-import { fmtDate, CATEGORY_LABELS } from '@/lib/utils'
+import PageHeader from '@/components/shared/PageHeader'
+import UserActivityDialog from '@/components/users/UserActivityDialog'
+import { TabBar, Tab, Toolbar, SearchBox, ListCount, SkeletonRows, EmptyRow, Pager } from '@/components/shared/ListParts'
+import { fmtDate, fmtDatetime, CATEGORY_LABELS } from '@/lib/utils'
+import { useConfirm } from '@/components/shared/ConfirmDialog'
+import { FACE_ROLES } from '@/hooks/useMyFace'
 import { useAuth } from '@/context/AuthContext'
 import useUrlParams from '@/hooks/useUrlParams'
 import api from '@/lib/axios'
@@ -33,13 +35,12 @@ const ROLE_TABS = [
   { key: 'admin',       label: 'Admins' },
   { key: 'twg',         label: 'TWG' },
   { key: 'procurement', label: 'Procurement' },
-  { key: 'bac',         label: 'BAC' },
   { key: 'supply',      label: 'Supply' },
   { key: 'requestor',   label: 'End Users' },
 ]
 const GROUP_ORDER = ROLE_TABS.slice(1).map(t => t.key)
 const GROUP_LABELS = {
-  admin: 'Admins', twg: 'TWG members', procurement: 'Procurement officers', bac: 'BAC members', supply: 'Supply officers', requestor: 'End Users',
+  admin: 'Admins', twg: 'TWG members', procurement: 'Procurement officers', supply: 'Supply officers', requestor: 'End Users',
 }
 const STATUSES = [
   { key: '',           label: 'Any status' },
@@ -128,6 +129,7 @@ export default function UserList() {
   })
 
   const [editForm, setEditForm]   = useState({ name: '', email: '', role: 'requestor', newPassword: '', areas: [], department_id: '', designation: '', skip_login_code: false })
+  const [activityUser, setActivityUser] = useState(null)   // whose activity is open
   const [invite, setInvite]       = useState(null)   // a new account whose email could not be sent, with its link
   const [showEditPw, setShowEditPw] = useState(false)
 
@@ -207,6 +209,21 @@ export default function UserList() {
     onSuccess: () => toast.success('Password reset successfully'),
     onError: (err) => toast.error(err?.response?.data?.message || 'Failed to reset password'),
   })
+
+  // A staff member's face check, removed when their face changed or their camera can't read it (server/utils/faceCheck.js).
+  const confirm = useConfirm()
+  const { mutate: resetFace, isPending: resettingFace } = useMutation({
+    mutationFn: (id) => api.delete(`/users/${id}/face`),
+    onSuccess: () => {
+      toast.success('Face check removed', { description: 'While face checks are on, they set it up again at their next sign-in.' })
+      setEditUser(u => ({ ...u, face_enrolled_at: null }))
+      refreshUsers()
+    },
+    onError: (err) => toast.error(err?.response?.data?.message || 'The face check couldn\'t be removed'),
+  })
+  const askResetFace = async () => {
+    if (await confirm({ title: `Remove ${editUser.name}'s face check?`, message: 'Their face measurements are deleted, and they set up a new face check.', confirmLabel: 'Remove', danger: true })) resetFace(editUser.id)
+  }
 
   const { mutate: deleteUserMutation, isPending: deleting } = useMutation({
     mutationFn: (id) => api.delete(`/users/${id}`),
@@ -289,24 +306,13 @@ export default function UserList() {
   const filtered = !!(search || status || area || tab !== 'all')
 
   return (
-    <div className="space-y-4">
-      <h2 className="text-ui-2xl font-bold text-[--color-text-primary]">User Management</h2>
-      <div className="flex items-center justify-between gap-4">
-        <div className="relative max-w-72">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-[--color-text-muted]" />
-          <Input
-            placeholder="Search by name, username, or email…"
-            value={search}
-            onChange={e => { setSearch(e.target.value); update({ q: e.target.value, page: '' }) }}
-            className="pl-9"
-          />
-        </div>
+    <div className="space-y-5">
+      <PageHeader title="User Management" sub="Every account in PRimeSys: add people, set their role and office, approve sign-ups, and open each person's activity.">
         {/* On a role tab, a new account starts with that role. */}
-        <Button onClick={() => { setAddForm({ ...EMPTY_ADD, role: tab === 'all' ? EMPTY_ADD.role : tab }); setAddOpen(true) }} className="gap-2">
-          <UserPlus className="size-4" />
-          Add User
+        <Button onClick={() => { setAddForm({ ...EMPTY_ADD, role: tab === 'all' ? EMPTY_ADD.role : tab }); setAddOpen(true) }} className="gap-1.5">
+          <UserPlus className="size-4" /> Add user
         </Button>
-      </div>
+      </PageHeader>
 
       {/* TWG review areas: who reviews which category, and areas nobody covers */}
       {(tab === 'all' || tab === 'twg') && coverage.length > 0 && (
@@ -345,53 +351,44 @@ export default function UserList() {
         </Card>
       )}
 
-      <Card>
-        <div className="flex items-center gap-1 px-4 pt-3 border-b border-[--color-border] overflow-x-auto">
+      <Card className="overflow-hidden">
+        <TabBar>
           {ROLE_TABS.map(t => (
             <Tab key={t.key} active={tab === t.key} count={counts?.roles?.[t.key] ?? 0}
               onClick={() => update({ role: t.key === 'all' ? '' : t.key, area: '', sort: '', page: '' })}>
               {t.label}
             </Tab>
           ))}
-        </div>
+        </TabBar>
 
-        {/* Status filter (and review areas on the TWG tab) with counts, and the sort order */}
-        <div className="px-4 py-3 border-b border-[--color-border] space-y-2.5">
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div className="flex flex-wrap gap-1.5">
-              {STATUSES.map(s => (
-                <FilterChip key={s.key || 'any'} active={status === s.key} count={counts?.status?.[s.key || 'all'] ?? 0}
-                  onClick={() => update({ status: s.key, page: '' })}>
-                  {s.label}
-                </FilterChip>
-              ))}
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <ArrowUpDown className="size-3.5 text-[--color-text-muted]" />
-              <Select value={sort} onValueChange={v => update({ sort: v, page: '' })}>
-                <SelectTrigger className="h-8 w-44 text-ui-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {sorts.map(s => <SelectItem key={s.key} value={s.key} className="text-ui-xs">{s.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
+        {/* Search, status (and review areas on the TWG tab) with counts, and the order */}
+        <Toolbar end={<ListCount n={data?.total} one="user" />}>
+          <SearchBox value={search} placeholder="Search by name, username or email" onChange={v => { setSearch(v); update({ q: v, page: '' }) }} />
+          <Select value={status || 'any'} onValueChange={v => update({ status: v === 'any' ? '' : v, page: '' })}>
+            <SelectTrigger className="h-9 w-56 text-ui-xs" aria-label="Status"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {STATUSES.map(s => <SelectItem key={s.key || 'any'} value={s.key || 'any'} className="text-ui-xs">{s.label} ({counts?.status?.[s.key || 'all'] ?? 0})</SelectItem>)}
+            </SelectContent>
+          </Select>
           {tab === 'twg' && (
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="text-ui-xs font-medium text-[--color-text-muted] mr-1">Review area</span>
-              <FilterChip active={!area} count={counts?.roles?.twg ?? 0} onClick={() => update({ area: '', page: '' })}>All areas</FilterChip>
-              {AREA_KEYS.map(k => (
-                <FilterChip key={k} active={area === k} count={counts?.areas?.[k] ?? 0} onClick={() => update({ area: k, page: '' })}>
-                  {CATEGORY_LABELS[k]}
-                </FilterChip>
-              ))}
-              <FilterChip active={area === 'none'} count={counts?.areas?.none ?? 0} onClick={() => update({ area: 'none', page: '' })}>No areas</FilterChip>
-            </div>
+            <Select value={area || 'all'} onValueChange={v => update({ area: v === 'all' ? '' : v, page: '' })}>
+              <SelectTrigger className="h-9 w-56 text-ui-xs" aria-label="Review area"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all" className="text-ui-xs">All review areas ({counts?.roles?.twg ?? 0})</SelectItem>
+                {AREA_KEYS.map(k => <SelectItem key={k} value={k} className="text-ui-xs">{CATEGORY_LABELS[k]} ({counts?.areas?.[k] ?? 0})</SelectItem>)}
+                <SelectItem value="none" className="text-ui-xs">No areas ({counts?.areas?.none ?? 0})</SelectItem>
+              </SelectContent>
+            </Select>
           )}
-        </div>
+          <Select value={sort} onValueChange={v => update({ sort: v, page: '' })}>
+            <SelectTrigger className="h-9 w-48 gap-2 text-ui-xs" aria-label="Order"><ArrowUpDown className="size-3.5 text-[--color-text-muted]" /><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {sorts.map(s => <SelectItem key={s.key} value={s.key} className="text-ui-xs">{s.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </Toolbar>
 
-        <CardContent className="p-0">
-          <Table>
+          <Table framed={false}>
             <TableHeader>
               <TableRow>
                 <TableHead>Name</TableHead>
@@ -401,25 +398,21 @@ export default function UserList() {
                 <TableHead>Status</TableHead>
                 <TableHead>Approval</TableHead>
                 <TableHead>Joined</TableHead>
-                <TableHead>Actions</TableHead>
+                <TableHead className="w-48" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading
-                ? Array(6).fill(0).map((_, i) => (
-                    <TableRow key={i}>
-                      {Array(8).fill(0).map((_, j) => <TableCell key={j}><Skeleton className="h-4" /></TableCell>)}
-                    </TableRow>
-                  ))
+                ? <SkeletonRows cols={8} rows={6} />
                 : users.length === 0
-                  ? <TableEmpty colSpan={8} message={filtered ? 'No users match these filters.' : 'No users found.'} />
+                  ? <EmptyRow cols={8} icon={Users} title={filtered ? 'No user matches these filters' : 'No users yet'} sub={filtered ? 'Clear or change a filter.' : 'Use Add User to create an account.'} />
                   : users.map((u, i) => (
                     <Fragment key={u.id}>
                       {grouped && (i === 0 || users[i - 1].role !== u.role) && (
                         <GroupRow role={u.role} count={counts?.roles?.[u.role] ?? 0}
                           continued={i === 0 && groupStart(u.role) < (page - 1) * PAGE_SIZE} />
                       )}
-                      <TableRow>
+                      <TableRow className="cursor-pointer" onClick={() => openEdit(u)}>
                         <TableCell className="font-medium">
                           {u.name}
                           {!!u.skip_login_code && u.role !== 'admin' && <span className="ml-2 rounded-full border border-amber-300 bg-amber-50 px-1.5 py-px text-[10px] font-semibold text-amber-800" title="Signs in without the emailed code">No sign-in code</span>}
@@ -430,7 +423,7 @@ export default function UserList() {
                             : <span className="text-ui-xs text-[--color-text-muted] italic">none</span>
                           }
                         </TableCell>
-                        <TableCell className="text-[--color-text-secondary]">{u.email || '—'}</TableCell>
+                        <TableCell className="text-[--color-text-secondary]">{u.email || 'None'}</TableCell>
                         <TableCell>
                           <RoleBadge role={u.role} />
                           {u.role === 'requestor' && (
@@ -461,14 +454,14 @@ export default function UserList() {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-[--color-text-muted]">{fmtDate(u.created_at)}</TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1">
+                        <TableCell onClick={e => e.stopPropagation()}>
+                          <div className="flex items-center justify-end gap-1">
                             <Button variant="ghost" size="icon" onClick={() => openEdit(u)} title="Edit user">
                               <Pencil className="size-4 text-[--color-text-muted]" />
                             </Button>
-                            {/* Their history in the Audit Log: what they did, and what was done to their account. */}
-                            <Button asChild variant="ghost" size="icon" title="Activity" aria-label={`Activity of ${u.name}`}>
-                              <Link to={`/audit?user=${u.id}`}><ScrollText className="size-4 text-[--color-text-muted]" /></Link>
+                            {/* Their activity, read only: last sign-in, audit trail, sign-ins and transactions (UserActivityDialog). */}
+                            <Button variant="ghost" size="icon" title="Activity" aria-label={`Activity of ${u.name}`} onClick={() => setActivityUser(u)}>
+                              <ScrollText className="size-4 text-[--color-text-muted]" />
                             </Button>
                             {!u.is_verified && (
                               <>
@@ -504,12 +497,11 @@ export default function UserList() {
           </Table>
           <Pager page={page} totalPages={data?.totalPages} summary={`${data?.total} users`}
             onPage={(n) => update({ page: n > 1 ? n : '' })} />
-        </CardContent>
       </Card>
 
       {/* ── Add User Dialog ── */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <DialogContent title="Add New User">
+        <DialogContent title="Add a user">
           <form onSubmit={handleAdd} className="space-y-4 pt-2">
             <div className="space-y-1.5">
               <Label htmlFor="add-name">Full Name <span className="text-red-500">*</span></Label>
@@ -561,10 +553,9 @@ export default function UserList() {
                   <SelectItem value="requestor">End User</SelectItem>
                   <SelectItem value="supply">Supply Officer</SelectItem>
                   <SelectItem value="twg">TWG (Technical Working Group)</SelectItem>
-                  <SelectItem value="bac">BAC (Bids and Awards Committee)</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-[11px] text-[--color-text-muted]">One person, one account: don't give someone who files requests (End User) a TWG or BAC account too, so nobody reviews or awards their own request.</p>
+              <p className="text-[11px] text-[--color-text-muted]">One person, one account: don't give someone who files requests (End User) a TWG or Procurement account too, so nobody reviews or awards their own request.</p>
             </div>
 
             {addForm.role === 'twg' && (
@@ -582,7 +573,7 @@ export default function UserList() {
                   <SelectContent>
                     {addForm.role !== 'requestor' && <SelectItem value="none">No office</SelectItem>}
                     {departments.map(d => (
-                      <SelectItem key={d.id} value={String(d.id)}>{d.code} — {d.name}</SelectItem>
+                      <SelectItem key={d.id} value={String(d.id)}>{d.code}: {d.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -599,7 +590,7 @@ export default function UserList() {
             </div>
             <p className="text-[11px] text-[--color-text-muted] -mt-1">
               An End User handles one office; an office may have several. The PR form's
-              "Requested by" names that office's head; set heads under Settings &gt; Organization.
+              "Requested by" names that office's head; set heads on the Organization page.
             </p>
 
             <div className="rounded-lg border border-[--color-border] bg-[--color-canvas] px-4 py-3 text-ui-xs text-[--color-text-secondary]">
@@ -640,7 +631,7 @@ export default function UserList() {
 
       {/* ── Edit User Dialog ── */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent title="Edit User">
+        <DialogContent title="Edit the user">
           <form onSubmit={handleEdit} className="space-y-4 pt-2">
             {editUser && (
               <div className="rounded-lg border border-[--color-border] bg-[--color-canvas] px-4 py-3 space-y-0.5">
@@ -666,7 +657,7 @@ export default function UserList() {
               <Label htmlFor="edit-username">
                 Username
                 {!editUser?.username && (
-                  <span className="ml-1.5 text-[10px] font-normal text-amber-600">not set — user can only log in with email</span>
+                  <span className="ml-1.5 text-[10px] font-normal text-amber-600">not set: they sign in with their email</span>
                 )}
               </Label>
               <Input
@@ -701,10 +692,9 @@ export default function UserList() {
                   <SelectItem value="requestor">End User</SelectItem>
                   <SelectItem value="supply">Supply Officer</SelectItem>
                   <SelectItem value="twg">TWG (Technical Working Group)</SelectItem>
-                  <SelectItem value="bac">BAC (Bids and Awards Committee)</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-[11px] text-[--color-text-muted]">One person, one account: don't give someone who files requests (End User) a TWG or BAC account too, so nobody reviews or awards their own request.</p>
+              <p className="text-[11px] text-[--color-text-muted]">One person, one account: don't give someone who files requests (End User) a TWG or Procurement account too, so nobody reviews or awards their own request.</p>
             </div>
 
             {editForm.role === 'twg' && (
@@ -722,7 +712,7 @@ export default function UserList() {
                   <SelectContent>
                     {editForm.role !== 'requestor' && <SelectItem value="none">No office</SelectItem>}
                     {departments.map(d => (
-                      <SelectItem key={d.id} value={String(d.id)}>{d.code} — {d.name}</SelectItem>
+                      <SelectItem key={d.id} value={String(d.id)}>{d.code}: {d.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -739,7 +729,7 @@ export default function UserList() {
             </div>
             <p className="text-[11px] text-[--color-text-muted] -mt-1">
               An End User handles one office; an office may have several. The PR form's
-              "Requested by" names that office's head; set heads under Settings &gt; Organization.
+              "Requested by" names that office's head; set heads on the Organization page.
             </p>
 
             <div className="space-y-1.5">
@@ -782,10 +772,27 @@ export default function UserList() {
               </label>
             )}
 
+            {FACE_ROLES.includes(editUser?.role) && (
+              <div className="flex items-start gap-2.5 rounded-lg border border-[--color-border] px-3 py-2.5">
+                <ScanFace className="mt-0.5 size-4 shrink-0 text-[--color-text-muted]" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-ui-sm font-medium text-[--color-text-primary]">Face check</span>
+                  <span className="block text-[11px] text-[--color-text-muted]">
+                    {editUser.face_enrolled_at
+                      ? `Set up ${fmtDatetime(editUser.face_enrolled_at)}. Remove it when their face has changed or their camera can't read it.`
+                      : 'Not set up. They set it up themselves in Settings, Security.'}
+                  </span>
+                </span>
+                {editUser.face_enrolled_at && (
+                  <Button type="button" variant="outline" size="sm" disabled={resettingFace} onClick={askResetFace}>Remove</Button>
+                )}
+              </div>
+            )}
+
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
               <Button type="submit" disabled={updating || resetting}>
-                {(updating || resetting) ? 'Saving…' : 'Save Changes'}
+                {(updating || resetting) ? 'Saving…' : 'Save changes'}
               </Button>
             </DialogFooter>
           </form>
@@ -794,7 +801,7 @@ export default function UserList() {
 
       {/* ── Turn a sign-up down ── */}
       <Dialog open={!!rejectUser} onOpenChange={(open) => { if (!open) setRejectUser(null) }}>
-        <DialogContent title="Turn Sign-up Down">
+        <DialogContent title="Turn the sign-up down">
           <form
             onSubmit={(e) => { e.preventDefault(); if (rejectReason.trim()) rejectUserMutation({ id: rejectUser.id, reason: rejectReason.trim() }) }}
             className="space-y-3 pt-2"
@@ -820,7 +827,7 @@ export default function UserList() {
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setRejectUser(null)} disabled={rejecting}>Cancel</Button>
               <Button type="submit" className="bg-red-600 hover:bg-red-700 text-white border-0" disabled={rejecting || !rejectReason.trim()}>
-                {rejecting ? 'Sending...' : 'Turn Down'}
+                {rejecting ? 'Sending...' : 'Turn it down'}
               </Button>
             </DialogFooter>
           </form>
@@ -829,7 +836,7 @@ export default function UserList() {
 
       {/* ── Delete Confirm Dialog ── */}
       <Dialog open={!!deleteUser} onOpenChange={(open) => { if (!open) setDeleteUser(null) }}>
-        <DialogContent title="Delete User">
+        <DialogContent title="Delete the user">
           <div className="space-y-3 pt-2">
             <p className="text-ui-sm text-[--color-text-secondary]">
               Are you sure you want to delete{' '}
@@ -844,11 +851,13 @@ export default function UserList() {
               onClick={() => deleteUserMutation(deleteUser.id)}
               disabled={deleting}
             >
-              {deleting ? 'Deleting…' : 'Delete User'}
+              {deleting ? 'Deleting…' : 'Delete the user'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {activityUser && <UserActivityDialog person={activityUser} onClose={() => setActivityUser(null)} />}
     </div>
   )
 }

@@ -1,30 +1,32 @@
 import { NavLink, Link, useLocation } from 'react-router-dom'
 import {
-  LayoutDashboard, FileText, ShoppingCart,
+  Inbox, FileText, ShoppingCart,
   Users, ChevronRight, Bell, Archive,
-  LogOut, Settings as SettingsIcon, Gavel, AlarmClock, BookOpen,
-  ClipboardCheck, BarChart3, Scale, FilePlus, PackageCheck, Building2, ListChecks, FileBadge, Store, FileStack, ScrollText, Lock,
+  LogOut, Settings as SettingsIcon, AlarmClock, BookOpen,
+  BarChart3, FilePlus, PackageCheck, Building2, ListChecks, FileBadge, Store, FileStack, ScrollText, Award, Wrench, History,
 } from 'lucide-react'
+import BrandMark from '@/components/shared/BrandMark'
 import { useAuth } from '@/context/AuthContext'
 import useSignOut from '@/hooks/useSignOut'
-import useRfqAccess from '@/hooks/useRfqAccess'
+import { useTasks } from '@/components/dashboard/MyTasks'
 import { cn } from '@/lib/utils'
 
-// One menu per role. Every role starts on its Dashboard; "My Work" holds what it
-// acts on (its to-do list right below the Dashboard), "Records" what it looks up.
-const HOME          = { to: '/dashboard',     label: 'Dashboard',       icon: LayoutDashboard, end: true }
+// One menu per role, the same shape for all. Every role starts on My tasks (what needs it, each with its button);
+// "My Work" holds the lists it works from, "Records" what it looks up.
+const HOME          = { to: '/dashboard',     label: 'My tasks',        icon: Inbox, end: true, tasks: true }
 const NOTIFICATIONS = { to: '/notifications', label: 'Notifications',   icon: Bell }
 const REMINDERS     = { to: '/reminders',     label: 'Reminders',       icon: AlarmClock }
 const GUIDE         = { to: '/guide',         label: 'User Guide',      icon: BookOpen }
-const ALL_REQUESTS  = { to: '/pr',            label: 'All Requests',    icon: FileText }
+const ALL_REQUESTS  = { to: '/pr',            label: 'Requests',        icon: FileText }
 const ORDERS        = { to: '/po',            label: 'Purchase Orders', icon: ShoppingCart }
 const PPMP          = { to: '/ppmp',          label: 'PPMP',            icon: ListChecks }
 const REPORTS       = { to: '/reports',       label: 'Reports',         icon: BarChart3 }
 const ARCHIVE       = { to: '/archive',       label: 'Archive',         icon: Archive }
 const CERTIFICATES  = { to: '/certificates',  label: 'Certificates',    icon: FileBadge }
 const SUPPLIERS     = { to: '/suppliers',     label: 'Suppliers',       icon: Store }
-const RFQS          = { to: '/rfqs',          label: 'RFQ History',     icon: FileStack, rfqs: true }
-const ACCOUNT       = { label: 'Account', items: [{ to: '/settings', label: 'Settings', icon: SettingsIcon }] }
+const RFQS          = { to: '/rfqs',          label: 'RFQ History',     icon: FileStack }
+const AWARDS        = { to: '/awards',        label: 'Awards',          icon: Award }
+const ACCOUNT       = { label: 'Account', items: [{ to: '/settings', label: 'Settings', icon: SettingsIcon }, { to: '/activity', label: 'My activity', icon: History }] }
 const records       = (...items) => ({ label: 'Records', items })
 
 function menuFor(role) {
@@ -33,23 +35,21 @@ function menuFor(role) {
       return [{ label: 'My Work', items: [HOME, { to: '/my-requests', label: 'My Requests', icon: FileText }, { to: '/pr/create', label: 'New Request', icon: FilePlus }] },
               records(PPMP, ARCHIVE), { label: 'Help', items: [NOTIFICATIONS, GUIDE] }, ACCOUNT]
     case 'twg':
-      return [{ label: 'My Work', items: [HOME, { to: '/twg/reviews', label: 'Review & Certify', icon: ClipboardCheck }] },
+      return [{ label: 'My Work', items: [HOME, ALL_REQUESTS] },
               records(CERTIFICATES, PPMP, ARCHIVE), { label: 'Help', items: [NOTIFICATIONS, GUIDE] }, ACCOUNT]
     case 'procurement':
-      return [{ label: 'My Work', items: [HOME, { to: '/bidding', label: 'Work Queue', icon: Gavel }, ALL_REQUESTS, ORDERS] },
-              records(SUPPLIERS, RFQS, CERTIFICATES, PPMP, REPORTS, ARCHIVE), { label: 'Help', items: [NOTIFICATIONS, REMINDERS, GUIDE] }, ACCOUNT]
-    case 'bac':
-      return [{ label: 'My Work', items: [HOME, { to: '/bac', label: 'For Evaluation', icon: Scale }] },
-              records(RFQS, CERTIFICATES, PPMP, ARCHIVE), { label: 'Help', items: [NOTIFICATIONS, GUIDE] }, ACCOUNT]
+      return [{ label: 'My Work', items: [HOME, ALL_REQUESTS, ORDERS] },
+              records(SUPPLIERS, RFQS, AWARDS, CERTIFICATES, PPMP, REPORTS, ARCHIVE), { label: 'Help', items: [NOTIFICATIONS, REMINDERS, GUIDE] }, ACCOUNT]
     case 'supply':
-      return [{ label: 'My Work', items: [HOME, ORDERS, { to: '/delivery', label: 'Received', icon: PackageCheck }] },
+      return [{ label: 'My Work', items: [HOME, ORDERS, { to: '/delivery', label: 'Deliveries', icon: PackageCheck }] },
               records(ARCHIVE), { label: 'Help', items: [NOTIFICATIONS, GUIDE] }, ACCOUNT]
     case 'admin':
-      return [{ label: 'Overview', items: [HOME, ALL_REQUESTS] }, records(SUPPLIERS, RFQS, CERTIFICATES, PPMP, REPORTS, ARCHIVE),
+      return [{ label: 'My Work', items: [HOME, ALL_REQUESTS] }, records(SUPPLIERS, RFQS, AWARDS, CERTIFICATES, PPMP, REPORTS, ARCHIVE),
               { label: 'Administration', items: [
                 { to: '/users', label: 'User Management', icon: Users },
                 { to: '/audit', label: 'Audit Log', icon: ScrollText },
-                { to: '/settings?tab=organization', label: 'Organization', icon: Building2 },
+                { to: '/organization', label: 'Organization', icon: Building2 },
+                { to: '/maintenance', label: 'Maintenance', icon: Wrench },
               ] },
               { label: 'Help', items: [NOTIFICATIONS, REMINDERS, GUIDE] }, ACCOUNT]
     default:
@@ -57,9 +57,8 @@ function menuFor(role) {
   }
 }
 
-// Whether a menu link is the current page. A link with a query (the admin's
-// Organization, /settings?tab=organization) needs its query to match too, and
-// a plain link to the same page gives way to it.
+// Whether a menu link is the current page. A link with a query needs its query to match too, and a plain link to the
+// same page gives way to it.
 function isCurrent(item, items, { pathname, search }) {
   const [path, query] = item.to.split('?')
   const onPath = item.end ? pathname === path : pathname === path || pathname.startsWith(path + '/')
@@ -70,16 +69,14 @@ function isCurrent(item, items, { pathname, search }) {
   return !items.some(o => o !== item && o.to.startsWith(path + '?') && matches(o.to.split('?')[1]))
 }
 
-const ROLE_LABELS = { admin: 'Administrator', procurement: 'Procurement', requestor: 'End User', supply: 'Supply Officer', twg: 'Technical Working Group', bac: 'Bids and Awards Committee' }
+const ROLE_LABELS = { admin: 'Administrator', procurement: 'Procurement', requestor: 'End User', supply: 'Supply Officer', twg: 'Technical Working Group' }
 
 export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }) {
   const { user } = useAuth()
   const signOut = useSignOut()
   const groups = menuFor(user?.role)
-  // Procurement and admins see RFQ History locked until the BAC opens the RFQs.
-  const staffRole = ['procurement', 'admin'].includes(user?.role)
-  const { data: rfqAccess } = useRfqAccess(staffRole)
-  const rfqLocked = staffRole && rfqAccess && !rfqAccess.open
+  const { needs } = useTasks()
+  const needsCount = needs.length
   const location = useLocation()
   const allItems = groups.flatMap(g => g.items)
   const initials = user?.name?.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase() || 'U'
@@ -114,12 +111,12 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
         collapsed ? 'px-0 justify-center' : 'px-5'
       )}>
         <div className="flex size-10 shrink-0 items-center justify-center">
-          <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-8 object-contain" />
+          <BrandMark className="size-8" />
         </div>
         {!collapsed && (
           <div>
             <p className="text-white font-bold text-base leading-tight tracking-tight">PRimeSys</p>
-            <p className="text-[#ECB22E] text-xs mt-0.5 font-medium">Procurement System</p>
+            <p className="text-[#ECB22E] text-[11px] mt-0.5 font-medium whitespace-nowrap">Procurement Management System</p>
           </div>
         )}
       </div>
@@ -160,8 +157,10 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
                       {!collapsed && (
                         <span className="truncate transition-all duration-200">{item.label}</span>
                       )}
-                      {!collapsed && item.rfqs && rfqLocked && (
-                        <Lock className="ml-auto size-3.5 shrink-0 opacity-70" aria-label="Locked by the BAC" />
+                      {!collapsed && item.tasks && needsCount > 0 && (
+                        <span className={cn('ml-auto rounded-full px-2 text-[11px] font-bold leading-5',
+                          isCurrent(item, allItems, location) ? 'bg-[--color-brand] text-white' : 'bg-[#ECB22E] text-[hsl(225,75%,10%)]')}
+                          aria-label={`${needsCount} need you`}>{needsCount}</span>
                       )}
                     </>
                   )}

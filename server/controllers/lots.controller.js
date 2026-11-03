@@ -136,7 +136,7 @@ exports.update = asyncHandler(async (req, res) => {
 // Lots & Awards work queue
 // PRs by what they need next. A PR awarded in part can be in more than one:
 //   to_canvass   approved by the TWG, canvass not started yet
-//   needs_award  with the BAC: the bids to enter (in canvass), or the winners to pick
+//   needs_award  with Procurement: the bids to enter (in canvass), or the award to record
 //   with_twg     the TWG evaluates and certifies the bids
 //   awaiting_po  certified awards with no purchase order yet
 //   po_issued    at least one active purchase order

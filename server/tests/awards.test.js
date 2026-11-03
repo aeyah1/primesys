@@ -13,7 +13,7 @@ const serverReq = (m) => require(require.resolve(m, { paths: [H.SERVER] }))
 const config = require(path.join(H.SERVER, 'config.js'))
 const jwt    = serverReq('jsonwebtoken')
 
-const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 4: 'supply', 5: 'requestor', 6: 'bac', 7: 'twg' }
+const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 4: 'supply', 5: 'requestor', 6: 'procurement', 7: 'twg' }
 const tok  = (id) => jwt.sign({ id, role: ROLE[id] }, config.jwt.secret, { expiresIn: '1h' })
 const LONG = 'Desktop computer set with 24-inch monitor, keyboard, mouse and UPS; '.repeat(6).slice(0, 400)
 
@@ -188,7 +188,7 @@ async function run() {
   await is(G5, 'a reason over 500 characters → 400', 2, 'PATCH', `/lots/${B}`, { status: 'cancelled', reason: 'r'.repeat(501) }, code(400))
   await is(G5, 'cancel one award, with the reason: back in canvass', 2, 'PATCH', `/lots/${B}`, { status: 'cancelled', reason: 'Recorded twice' }, code(200, /back in canvass/))
   await is(G5, '…the reason and who cancelled stay on the award', 2, 'GET', '/lots/pr/70', undefined,
-    (r) => r.status === 200 && r.data.find(l => l.id === B).notes === 'Cancelled by Proc One: Recorded twice')
+    (r) => r.status === 200 && r.data.find(l => l.id === B).notes.split('\n').pop() === 'Cancelled by Proc One: Recorded twice')
   await is(G5, '…its item needs a winner again', 2, 'GET', '/canvass/70', undefined,
     (r) => r.status === 200 && r.data.items.find(i => i.id === 703).state === 'pending')
   await is(G5, 'cancel the certified award of a Ready for PO PR → back in canvass', 2, 'PATCH', '/lots/1', { status: 'cancelled', reason: 'Supplier backed out' },

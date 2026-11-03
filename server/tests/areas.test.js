@@ -109,6 +109,11 @@ async function run() {
   await is(G2, 'member with no areas yet: empty queue', 8, 'GET', '/twg/pending?category=hardware', undefined, (r) => r.status === 200 && ids(r).length === 0)
   await is(G2, 'stats count only the member\'s areas', 5, 'GET', '/twg/stats', undefined,
     (r) => r.status === 200 && r.data.pending === 1 && r.data.areas.join() === 'hardware' && r.data.pending_by_area[0].pending === 1)
+  // A request drafted long ago, submitted 5 hours ago and returned 3 hours ago: 2 hours of review, not the drafting time.
+  await H.sql(TEST_DB, "UPDATE purchase_requests SET created_at = NOW() - INTERVAL 30 DAY WHERE id = 68")
+  await H.sql(TEST_DB, "INSERT INTO pr_status_logs (pr_id, changed_by, from_status, to_status, created_at) VALUES (68, 1, 'draft', 'submitted', NOW() - INTERVAL 5 HOUR)")
+  await H.sql(TEST_DB, "UPDATE pr_status_logs SET created_at = NOW() - INTERVAL 3 HOUR WHERE pr_id = 68 AND to_status = 'revision_requested'")
+  await is(G2, 'the average review time runs from the submission to the decision', 5, 'GET', '/twg/stats', undefined, (r) => r.status === 200 && r.data.avg_review_hours === 2)
 
   // Who decides
   const G3 = 'Only the area decides'

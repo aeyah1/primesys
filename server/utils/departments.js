@@ -38,7 +38,7 @@ async function resolveDepartment(db, { departmentId, userId }) {
   }
   if (!id) return null
   const [[dept]] = await db.execute(
-    'SELECT id, code, name, head_name, head_designation, is_active FROM departments WHERE id = ?', [id])
+    'SELECT id, code, name, head_name, head_designation, sections, is_active FROM departments WHERE id = ?', [id])
   if (!dept) throw httpError(400, 'That department no longer exists')
   // A retired department may stay on the PRs already filed under it, but no new
   // PR may be filed for one.
@@ -46,4 +46,29 @@ async function resolveDepartment(db, { departmentId, userId }) {
   return dept
 }
 
-module.exports = { requestedBy, requesterOf, resolveDepartment }
+// The sections an admin typed, one per line: trimmed, blanks and repeats dropped; 400 when one is too long to print.
+function cleanSections(text) {
+  const lines = String(text ?? '').split(/\r?\n/).map(s => s.trim()).filter(Boolean)
+  const long = lines.find(s => s.length > 150)
+  if (long) throw httpError(400, `A section is at most 150 characters ("${long.slice(0, 40)}...")`)
+  return lines.filter((s, i) => lines.findIndex(x => x.toLowerCase() === s.toLowerCase()) === i)
+}
+
+// What a request's Office / Section may read for office `dept`: its code, its name, then its sections.
+function sectionChoices(dept) {
+  const all = [dept.code, dept.name, ...cleanSections(dept.sections)].map(s => String(s || '').trim()).filter(Boolean)
+  return all.filter((s, i) => all.findIndex(x => x.toLowerCase() === s.toLowerCase()) === i)
+}
+
+// The Office / Section to print: the office's code when blank, `current` (what the request was filed with) as it is,
+// else one of sectionChoices as the list spells it; 400 for anything else.
+function pickSection(dept, typed, current = null) {
+  const value = String(typed ?? '').trim()
+  if (!value) return dept.code
+  if (current && value === current) return current
+  const match = sectionChoices(dept).find(s => s.toLowerCase() === value.toLowerCase())
+  if (!match) throw httpError(400, `Pick the Office / Section from ${dept.code}'s list`)
+  return match
+}
+
+module.exports = { requestedBy, requesterOf, resolveDepartment, cleanSections, sectionChoices, pickSection }

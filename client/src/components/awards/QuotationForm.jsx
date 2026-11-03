@@ -28,7 +28,7 @@ async function readFile(data, kind) {
 
 const without = (set, id) => new Set([...set].filter(x => x !== id))
 
-/* Under the file: reading it, then what it filled in for the BAC to check against it, what it left to type, or why it
+/* Under the file: reading it, then what it filled in for Procurement to check against it, what it left to type, or why it
    filled nothing (another request's RFQ). */
 function ReadNote({ reading, unreadable, filled, total, prNumber }) {
   if (reading) {
@@ -47,6 +47,7 @@ function ReadNote({ reading, unreadable, filled, total, prNumber }) {
     filled.specs.size && `what was offered for ${filled.specs.size} item${filled.specs.size === 1 ? '' : 's'}`].filter(Boolean)
   // A scan's words may be misread, so what was offered is never filled from one (lib/rfq.js matchRfq).
   const offers = filled.ocr && 'Offered specifications are not read from a scan or photo: type what the supplier wrote for each item, or leave it blank for As specified.'
+    + ' A photo reads best taken straight above the whole page, flat, in even light, with the prices written clearly.'
   if (!parts.length) {
     return <p className="text-[11px] text-[--color-text-muted]">{filled.unsure ? `No price could be read for sure from this ${from}.` : 'Nothing more to fill in from this file.'} Type the quotation from it.{offers && ` ${offers}`}</p>
   }
@@ -63,7 +64,7 @@ function ReadNote({ reading, unreadable, filled, total, prNumber }) {
 }
 
 /* Under the supplier's name: the supplier read from its RFQ file and whether
-   it is in the supplier list, so the BAC picks the profile in one click; once
+   it is in the supplier list, so Procurement picks the profile in one click; once
    the name is a profile's, its details (and a warning when it is blacklisted). */
 function SupplierMatch({ name, read, profiles, onUse }) {
   const profile = profiles.find(p => nameKey(p.name) === nameKey(name))
@@ -104,7 +105,7 @@ function SupplierMatch({ name, read, profiles, onUse }) {
 const SELECT = 'w-full h-10 rounded-md border border-[--color-border] bg-[--color-surface] px-3 text-sm text-[--color-text-primary] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent'
 const FILES = '.pdf,.jpg,.jpeg,.png,.webp,.xlsx,.docx,.csv'
 
-/* One supplier's quotation, typed by the BAC from its returned RFQ: the RFQ
+/* One supplier's quotation, typed by Procurement from its returned RFQ: the RFQ
    file (attached to the request, or one already attached), the supplier
    (matched to the supplier list, SupplierMatch), the RFQ No., and for each item still to award it offered what it offered (blank
    for as specified, for the TWG to check) and its unit price (blank for no
@@ -174,8 +175,10 @@ export default function QuotationForm({ prId, prNumber, canvass, quotation, onFi
   const upload = async (file) => {
     setUploading(true)
     try {
+      // Marked as a supplier's RFQ, so only those who may see quotations see it.
       const form = new FormData()
       form.append('file', file)
+      form.append('rfq', '1')
       const { data } = await api.post(`/pr/${prId}/attachments`, form)
       await qc.invalidateQueries({ queryKey: [`pr-attachments-${prId}`] })
       qc.invalidateQueries({ queryKey: ['canvass', prId] })

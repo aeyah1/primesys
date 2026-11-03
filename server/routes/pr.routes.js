@@ -7,6 +7,7 @@ const files       = require('../controllers/prAttachments.controller')
 const suppliers   = require('../controllers/suppliers.controller')
 const auth        = require('../middleware/auth.middleware')
 const authorize   = require('../middleware/authorize.middleware')
+const requireFace = require('../middleware/face.middleware')
 const { handle, textRule, moneyRule, quantityRule, dateRule, idRule, oneOfRule } = require('../middleware/validate')
 const { FUND_SOURCE_VALUES } = require('../utils/orgSettings')
 const { PROCUREMENT_MODES } = require('../utils/procurementModes')
@@ -76,6 +77,7 @@ router.use(auth)
 
 router.get('/',          c.list)
 router.get('/stats',     c.stats)
+router.get('/tasks',     c.tasks)
 router.get('/reads',     c.listReads)
 // Suggestions for "Requested by": the office head and who requested for it before.
 router.get('/requesters', authorize('procurement', 'admin', 'requestor'), c.requesters)
@@ -116,6 +118,7 @@ router.patch('/:id/status',
   body('status').notEmpty().withMessage('Status is required'),
   textRule('notes', 'Note', 2000),
   handle,
+  requireFace.when(req => req.body.status === 'cancelled'),
   c.updateStatus
 )
 
@@ -127,15 +130,15 @@ router.patch('/:id',
   c.update
 )
 
-// How the purchase is procured: Procurement's or the BAC's call, not the requestor's.
+// How the purchase is procured: Procurement's call, not the requestor's.
 router.patch('/:id/mode',
-  authorize('procurement', 'admin', 'bac'), prAccess,
+  authorize('procurement', 'admin'), prAccess,
   oneOfRule('mode_of_procurement', 'Pick a valid mode of procurement', PROCUREMENT_MODES, { required: true }),
   handle,
   c.setProcurementMode)
 
 // Deleting someone else's request takes the reason (required in the controller), told to whoever filed it.
-router.delete('/:id', authorize('admin', 'procurement', 'requestor'), prAccess, textRule('reason', 'Reason', 500), handle, c.remove)
+router.delete('/:id', authorize('admin', 'procurement', 'requestor'), prAccess, textRule('reason', 'Reason', 500), handle, requireFace, c.remove)
 
 // Remind procurement: requestor / procurement / admin, at most 1 reminder per PR per hour
 router.post('/:id/remind',
@@ -160,13 +163,13 @@ router.get('/:id/logs', prRead, c.getLogs)
 router.get('/:id/attachments',                    prRead, files.listAttachments)
 router.get('/:id/attachments/:attachId/download', prRead, files.downloadAttachment)
 router.post('/:id/attachments',
-  authorize('procurement', 'admin', 'requestor', 'supply', 'bac'),
+  authorize('procurement', 'admin', 'requestor', 'supply'),
   prAccess,        // before multer, so a blocked upload never writes a file
   upload.single('file'),
   files.uploadAttachment
 )
 router.delete('/:id/attachments/:attachId',
-  authorize('procurement', 'admin', 'bac'),
+  authorize('procurement', 'admin'),
   prAccess,
   files.deleteAttachment
 )

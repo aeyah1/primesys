@@ -23,7 +23,7 @@ function fixtures() {
     SET FOREIGN_KEY_CHECKS = 0;
     INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified) VALUES
       ${U(1, 'admin1', 'admin')}, ${U(2, 'proc1', 'procurement')}, ${U(3, 'reqA', 'requestor')},
-      ${U(4, 'reqB', 'requestor')}, ${U(5, 'sup1', 'supply')}, ${U(6, 'twg1', 'twg')}, ${U(7, 'bac1', 'bac')};
+      ${U(4, 'reqB', 'requestor')}, ${U(5, 'sup1', 'supply')}, ${U(6, 'twg1', 'twg')}, ${U(7, 'bac1', 'procurement')};
     INSERT INTO purchase_requests (id, pr_number, title, status, created_by, twg_reviewed_by) VALUES
       ${P(12, 'draft', 3)}, ${P(13, 'submitted', 3)}, ${P(14, 'revision_requested', 3, 6)},
       ${P(15, 'twg_review', 3, 6)}, ${P(16, 'completed', 3, 6)}, ${P(17, 'rejected', 3, 6)},
@@ -67,7 +67,7 @@ function fixtures() {
 
 const config = require(path.join(SERVER, 'config.js'))
 const jwt    = serverReq('jsonwebtoken')
-const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 4: 'requestor', 5: 'supply', 6: 'twg', 7: 'bac' }
+const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 4: 'requestor', 5: 'supply', 6: 'twg', 7: 'procurement' }
 const tok  = (id) => jwt.sign({ id, name: `u${id}`, username: `u${id}`, email: `u${id}@p2.invalid`, role: ROLE[id], supplier_id: null }, config.jwt.secret, { expiresIn: '1h' })
 async function http(who, method, p, body) {
   const headers = { Authorization: `Bearer ${tok(who)}` }

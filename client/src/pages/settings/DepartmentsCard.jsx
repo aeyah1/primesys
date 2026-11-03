@@ -13,7 +13,7 @@ import api from '@/lib/axios'
 // The offices that file purchase requests. Each carries the head who signs
 // "Requested by" on the printed form; leave the head blank to print an empty
 // line for signing by hand. Admin only.
-const EMPTY = { code: '', name: '', head_name: '', head_designation: '' }
+const EMPTY = { code: '', name: '', head_name: '', head_designation: '', sections: '' }
 
 export default function DepartmentsCard() {
   const qc = useQueryClient()
@@ -95,6 +95,9 @@ export default function DepartmentsCard() {
                       ? <>Signs as <strong className="text-[--color-text-secondary]">{d.head_name}</strong>{d.head_designation ? `, ${d.head_designation}` : ''}</>
                       : <span className="text-amber-600">No head recorded: "Requested by" prints blank unless the End User types it</span>}
                   </p>
+                  {d.sections && (
+                    <p className="text-[11px] text-[--color-text-muted] mt-1">Sections: {d.sections.split('\n').join(', ')}</p>
+                  )}
                   {(d.user_count > 0 || d.pr_count > 0) && (
                     <p className="text-[11px] text-[--color-text-muted] mt-1">
                       {d.user_count} {d.user_count === 1 ? 'person' : 'people'} · {d.pr_count} purchase {d.pr_count === 1 ? 'request' : 'requests'}
@@ -148,8 +151,18 @@ export default function DepartmentsCard() {
                 </div>
               </div>
               <p className="text-[11px] text-[--color-text-muted]">
-                The code is what prints in the form's Office/Section cell.
+                The code prints in the form's Office/Section cell unless the End User picks the office name or one of its sections.
               </p>
+
+              <div className="space-y-1.5 pt-1">
+                <Label htmlFor="dep-sections">Sections</Label>
+                <textarea id="dep-sections" rows={3} value={editing.sections || ''} onChange={e => setE('sections', e.target.value)}
+                  placeholder={'One per line, e.g.\nFaculty Room\nComputer Laboratory'}
+                  className="w-full rounded-md border border-[--color-border] bg-[--color-surface] px-3 py-2 text-sm text-[--color-text-primary] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent resize-y" />
+                <p className="text-[11px] text-[--color-text-muted]">
+                  With the code and the office name, these are the choices its End Users pick from for a request's Office/Section.
+                </p>
+              </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                 <div className="space-y-1.5">

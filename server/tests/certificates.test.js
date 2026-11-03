@@ -7,7 +7,7 @@ const { db: TEST_DB, base: BASE } = H.configure({ db: 'primesys_certificates_tes
 const serverReq = (m) => require(require.resolve(m, { paths: [H.SERVER] }))
 const config = require(path.join(H.SERVER, 'config.js'))
 const jwt    = serverReq('jsonwebtoken')
-const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 4: 'supply', 5: 'twg', 6: 'bac', 7: 'twg' }
+const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 4: 'supply', 5: 'twg', 6: 'procurement', 7: 'twg' }
 const tok  = (id) => jwt.sign({ id }, config.jwt.secret, { expiresIn: '1h' })
 
 function fixtures() {
@@ -69,7 +69,11 @@ async function run() {
   await is(S, 'search by title', 1, '/bac/certificates?search=chairs', (r) => ids(r) === '2')
   await is(S, 'the TWG\'s search stays in its areas', 5, '/bac/certificates?search=chairs', (r) => ids(r) === '')
   await is(S, 'paged', 1, '/bac/certificates?limit=2&page=2', (r) => ids(r) === '2,1' && r.data.totalPages === 2)
-  await is(S, 'each one still prints', 5, '/bac/40/certificates/3/pdf', (r) => r.status === 200)
+  await is(S, 'a request-checked certificate still prints for the TWG', 5, '/bac/40/certificates/1/pdf', (r) => r.status === 200)
+  await is(S, '…a bids certificate doesn\'t once its check is done (403)', 5, '/bac/40/certificates/3/pdf', (r) => r.status === 403)
+  await is(S, 'the list leaves it open for an admin', 1, '/bac/certificates?kind=bids', (r) => r.data.data[0]?.locked === false)
+  await is(S, '…and for Procurement', 6, '/bac/certificates?kind=bids', (r) => r.data.data[0]?.id === 3 && r.data.data[0].locked === false)
+  await is(S, 'Procurement prints it', 6, '/bac/40/certificates/3/pdf', (r) => r.status === 200)
   return t.summary()
 }
 

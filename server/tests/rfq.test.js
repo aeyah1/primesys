@@ -134,7 +134,7 @@ async function run() {
     ['the telefax',                 'Telefax No.: 086-212-5132'],
     ['the website',                 'Website: www.nemsu.edu.ph'],
   ]) t.check('Letterhead', `carries ${label}`, has(p1, value), value)
-  t.check('Letterhead', 'the seal is embedded', /\/Subtype\s*\/Image/.test(buf.toString('latin1')))
+  t.check('Letterhead', 'no university seal is printed (not authorised)', !/\/Subtype\s*\/Image/.test(buf.toString('latin1')))
 
   // ── The request itself ──────────────────────────────────────────────
   t.check('The request', 'a date line', has(p1, 'Date:'))
@@ -244,8 +244,8 @@ async function run() {
   const docx = rfqDocx({ pr: PR, orgSettings: ORG, items: [...BLINDS, ...SUPPLIES, I('LOT B', 'pc', 'Folder & clip <long>', 1, 10)] })
   const parts = unzip(docx)
   const xml = parts.get('word/document.xml')?.toString('utf8') || ''
-  t.check(D, 'a Word package with its document, styles and the seal', ['[Content_Types].xml', '_rels/.rels', 'word/document.xml', 'word/styles.xml', 'word/_rels/document.xml.rels', 'word/media/seal.png'].every(n => parts.has(n)),
-    [...parts.keys()].join(', '))
+  t.check(D, 'a Word package with its document and styles, no seal', ['[Content_Types].xml', '_rels/.rels', 'word/document.xml', 'word/styles.xml', 'word/_rels/document.xml.rels'].every(n => parts.has(n))
+    && ![...parts.keys()].some(n => n.startsWith('word/media/')), [...parts.keys()].join(', '))
   // Every element opened is closed, in order (what Word needs to open the file at all).
   const balance = (() => {
     const stack = []
@@ -262,7 +262,7 @@ async function run() {
   t.check(D, 'each lot\'s quotation number', words.includes('CSO 2026-001 - LOT A') && words.includes('CSO 2026-001 - LOT B'))
   t.check(D, 'the supplier lines say what to write', words.includes('Name of Supplier / Company') && words.includes('Business Address'))
   t.check(D, 'the letterhead', ['NORTH EASTERN MINDANAO STATE UNIVERSITY', 'Cantilan Campus', 'Telefax No.: 086-212-5132', 'Website: www.nemsu.edu.ph'].every(x => words.includes(x)))
-  t.check(D, 'the seal on each page', (xml.match(/<a:blip r:embed="rIdImg1"\/>/g) || []).length === 2 && /Target="media\/seal\.png"/.test(parts.get('word/_rels/document.xml.rels').toString()))
+  t.check(D, 'no picture on any page', !/<a:blip /.test(xml))
   t.check(D, 'the BAC Vice Chairman and the five notes', words.includes('ANA C. GARCIA, Ph. D.') && words.includes('5. G-EPS Registration Certificate'))
   t.check(D, 'the items, with their specifications', words.includes('Window 1') && words.includes('Width = 401 cm x Height = 280 cm') && words.includes('Data File storage box with cover'))
   t.check(D, 'special characters are kept, escaped', xml.includes('Folder &amp; clip &lt;long&gt;'), (xml.match(/Folder[^<]{0,30}/) || [])[0])

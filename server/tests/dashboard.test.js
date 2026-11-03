@@ -8,7 +8,7 @@ const serverReq = (m) => require(require.resolve(m, { paths: [H.SERVER] }))
 const config = require(path.join(H.SERVER, 'config.js'))
 const jwt    = serverReq('jsonwebtoken')
 
-const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 4: 'requestor', 5: 'bac' }
+const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 4: 'requestor', 5: 'procurement', 6: 'twg', 7: 'twg' }
 const tok  = (id) => jwt.sign({ id, tv: 0 }, config.jwt.secret, { expiresIn: '1h' })
 const YEAR = new Date().getFullYear()
 
@@ -27,6 +27,9 @@ function fixtures() {
   return `
     SET FOREIGN_KEY_CHECKS = 0;
     INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified) VALUES ${Object.keys(ROLE).map(U).join(', ')};
+    -- Two TWG members: one reviews hardware (the requests below), the other furniture only.
+    ${H.twgAreas([6], ['hardware'])}
+    ${H.twgAreas([7], ['furniture'])}
     INSERT INTO quarters (id, label, year, start_date, end_date) VALUES
       (1, 'Q1', ${YEAR}, '${YEAR}-01-01', '${YEAR}-03-31'), (2, 'Q2', ${YEAR}, '${YEAR}-04-01', '${YEAR}-06-30'),
       (3, 'Q3', ${YEAR}, '${YEAR}-07-01', '${YEAR}-09-30'), (4, 'Q4', ${YEAR}, '${YEAR}-10-01', '${YEAR}-12-31');
@@ -37,8 +40,8 @@ function fixtures() {
       (1, 'Spread over its months', 'pc', 4, 50, '2,11', NULL, NULL, NULL, NULL),
       (1, 'Unscheduled', 'pc', 8, 10, NULL, NULL, NULL, NULL, NULL),
       (2, 'Draft line', 'pc', 1, 99999, '1', 1, 0, 0, 0);
-    INSERT INTO purchase_requests (id, pr_number, title, status, created_by, quarter_id, created_at) VALUES
-      ${PRS.map(([id, by, status, days]) => `(${id}, 'REQ-00000${id}', 'Request ${id}', '${status}', ${by}, 1, NOW() - INTERVAL ${days + 1} DAY)`).join(',\n      ')};
+    INSERT INTO purchase_requests (id, pr_number, title, status, created_by, quarter_id, category, created_at) VALUES
+      ${PRS.map(([id, by, status, days]) => `(${id}, 'REQ-00000${id}', 'Request ${id}', '${status}', ${by}, 1, 'hardware', NOW() - INTERVAL ${days + 1} DAY)`).join(',\n      ')};
     INSERT INTO pr_items (pr_id, item_name, quantity, estimated_cost) VALUES
       ${PRS.map(([id, , , , cost]) => `(${id}, 'Thing', 1, ${cost})`).join(', ')};
     INSERT INTO pr_status_logs (pr_id, changed_by, from_status, to_status, created_at) VALUES
@@ -83,8 +86,20 @@ async function run() {
   const S = 'Scope'
   await get(S, 'a Fund Administrator sees only their own', 3, '/dashboard', r => ids(r) === '1,5' && r.data.amounts.requested === 3000, '1,5 / 3000')
   await get(S, '…and another one theirs', 4, '/dashboard', r => ids(r) === '3' && r.data.stuck === 0 && r.data.amounts.ordered === 0, '3')
-  await get(S, 'the BAC sees requests the TWG approved', 5, '/dashboard', r => ids(r) === '5,3', '5,3')
   await get(S, 'not without signing in', null, '/dashboard', r => r.status === 401, '401')
+
+  // My tasks: the requests each role acts on or follows, longest in their stage first, within its scope.
+  const T = 'My tasks'
+  const tasks = (r) => (Array.isArray(r.data) ? r.data : []).map(p => p.id).join()
+  await get(T, 'an End User: their own open requests, longest waiting first', 3, '/pr/tasks', r => tasks(r) === '1,5,2', '1,5,2')
+  await get(T, '…another End User only theirs (cancelled left out)', 4, '/pr/tasks', r => tasks(r) === '3', '3')
+  await get(T, 'Procurement: from the TWG approval on', 2, '/pr/tasks', r => tasks(r) === '5,3', '5,3')
+  const twg = await get(T, 'a TWG member: reviews in their areas', 6, '/pr/tasks', r => tasks(r) === '1', '1')
+  t.check(T, '…marked as theirs to review', twg.data?.[0]?.permissions?.twg_review === true, JSON.stringify(twg.data?.[0]?.permissions))
+  await get(T, 'a TWG member of another area sees none', 7, '/pr/tasks', r => r.status === 200 && tasks(r) === '', 'none')
+  await get(T, 'a request with an open delivery carries its PO', 2, '/pr/tasks',
+    r => { const p = r.data.find(x => x.id === 5); return Boolean(p?.po_id) && p.pos.length === 1 }, 'po_id and one PO')
+  await get(T, 'not without signing in', null, '/pr/tasks', r => r.status === 401, '401')
 
   return t.summary()
 }

@@ -6,7 +6,7 @@ const { supplierKey } = require('../utils/awardWorkflow')
 const { AWARDED, DQ } = require('../utils/canvassBids')
 
 // The supplier profiles Procurement and Admin keep
-// A quotation the BAC enters is linked to the profile of the same name
+// A quotation Procurement enters is linked to the profile of the same name
 // (canvass_bidders.supplier_id, utils/canvassBids.js), so a profile shows every
 // request the supplier quoted on, what it was awarded and where it was DQ.
 
@@ -14,7 +14,6 @@ const FIELDS = ['name', 'address', 'tin', 'philgeps_no', 'contact_person', 'desi
 const COLUMNS = 's.id, s.name, s.address, s.tin, s.philgeps_no, s.contact_person, s.designation, s.phone, s.email, s.status, s.status_note, s.created_at, s.updated_at'
 
 // GET /suppliers?search=&status=&page= - the list with each one's quotations, awards and DQs.
-// The BAC reads it too, to fill a quotation from a profile.
 exports.list = asyncHandler(async (req, res) => {
   const { page, limit, offset } = paging(req.query, { defaultLimit: 25, maxLimit: 200 })
   const where = []
@@ -62,7 +61,7 @@ exports.profile = asyncHandler(async (req, res) => {
   res.json(profile)
 })
 
-// The PR stages after the BAC has sent the quotations, when the request shows its suppliers' profiles.
+// The PR stages after Procurement has sent the quotations, when the request shows its suppliers' profiles.
 const QUOTED = ['twg_certification', 'bac_review', 're_pr', 'for_po', 'completed']
 
 // GET /pr/:id/suppliers - for anyone who may see the PR: each supplier that quoted on it with its
@@ -88,7 +87,7 @@ function valuesOf(body) {
   return values
 }
 
-// Links the BAC's earlier quotations under this name to the profile.
+// Links the earlier quotations under this name to the profile.
 const linkQuotations = (db, id, name) => db.execute('UPDATE canvass_bidders SET supplier_id = ? WHERE supplier_id IS NULL AND LOWER(name) = ?', [id, supplierKey(name)])
 
 const duplicate = (err, name) => {
