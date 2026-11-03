@@ -316,7 +316,7 @@ exports.listAttachments = async (req, res) => {
       FROM delivery_attachments da
       LEFT JOIN users u ON da.uploaded_by = u.id
       WHERE da.delivery_id = ?
-      ORDER BY da.created_at ASC
+      ORDER BY da.created_at ASC, da.id ASC
     `, [req.params.id])
     res.json(rows)
   } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
