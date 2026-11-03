@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Eye, EyeOff, AtSign, Lock, AlertCircle, Clock, ShieldAlert, Loader2, LogOut } from 'lucide-react'
+import { Eye, EyeOff, AtSign, Lock, AlertCircle, Clock, ShieldAlert, Loader2, LogOut, WifiOff, Wrench } from 'lucide-react'
 import CaptchaField, { captchaEnabled } from '@/components/shared/CaptchaField'
 import { useAuth } from '@/context/AuthContext'
 import { Button } from '@/components/ui/button'
@@ -10,7 +10,9 @@ import HeroPreview from '@/pages/landing/HeroPreview'
 import { ENTER } from '@/pages/landing/LandingParts'
 import AuthLayout, { PanelIntro } from './AuthLayout'
 import LoginCodeStep from './LoginCodeStep'
+import LoginFaceStep from './LoginFaceStep'
 import { deviceKey, forgetDeviceKey } from '@/lib/device'
+import { useMaintenance, whenOf, windowOf } from '@/hooks/useMaintenance'
 import api from '@/lib/axios'
 
 const LOCKOUT_PAUSE_S = 30
@@ -20,8 +22,10 @@ const ALERTS = {
   lockout:     { icon: Clock,       tone: 'amber',  title: 'Too many sign-in attempts', text: 'Please wait a few minutes before trying again. Forgot your password? You can reset it.' },
   credentials: { icon: AlertCircle, tone: 'red',    title: "Couldn't sign you in" },
   pending:     { icon: Clock,       tone: 'blue',   title: 'Waiting for approval' },
-  inactive:    { icon: ShieldAlert, tone: 'orange', title: 'Account deactivated', text: 'Your account has been deactivated. Contact your administrator.' },
-  server:      { icon: AlertCircle, tone: 'red',    title: 'Something went wrong', text: 'Unable to reach the server. Please try again in a moment.' },
+  inactive:    { icon: ShieldAlert, tone: 'red',    title: 'Account deactivated', text: 'Your account has been deactivated. Contact your administrator.' },
+  server:      { icon: AlertCircle, tone: 'red',    title: 'Something went wrong', text: 'The server had a problem. Please try again in a moment; if it keeps happening, tell your administrator.' },
+  offline:     { icon: WifiOff,     tone: 'amber',  title: "PRimeSys can't be reached", text: 'Check your internet connection and try again. If it is working, the server may be waking up: give it up to a minute.' },
+  maintenance: { icon: Wrench,      tone: 'blue',   title: 'Under maintenance' },
   captcha:     { icon: ShieldAlert, tone: 'amber',  title: 'Verification needed', text: 'Complete the verification check above the Sign in button, then try again.' },
   ended:       { icon: LogOut,      tone: 'blue',   title: 'You were signed out' },
   mail:        { icon: AlertCircle, tone: 'red',    title: "Couldn't send the sign-in code" },
@@ -38,7 +42,6 @@ const TONES = {
   amber:  { box: 'border-amber-300 bg-amber-50',   icon: 'text-amber-600',  title: 'text-amber-800',  text: 'text-amber-700' },
   red:    { box: 'border-red-300 bg-red-50',       icon: 'text-red-600',    title: 'text-red-800',    text: 'text-red-700' },
   blue:   { box: 'border-blue-300 bg-blue-50',     icon: 'text-blue-600',   title: 'text-blue-800',   text: 'text-blue-700' },
-  orange: { box: 'border-orange-300 bg-orange-50', icon: 'text-orange-600', title: 'text-orange-800', text: 'text-orange-700' },
 }
 
 export default function Login() {
@@ -55,8 +58,12 @@ export default function Login() {
   const onCaptcha = useCallback((token) => setCaptcha(token), [])
   // Set once the password is right on a browser the account hasn't verified: the emailed code comes next.
   const [challenge, setChallenge] = useState(null)
+  // Set when a staff sign-in ends with a face check (server/utils/faceCheck.js).
+  const [faceStep, setFaceStep] = useState(null)
   const timerRef = useRef(null)
   const enter = (data) => { login(data); navigate('/dashboard', { replace: true }) }
+  const next = (data) => (data.face ? setFaceStep(data) : enter(data))
+  const startOver = () => { setChallenge(null); setFaceStep(null); setForm(p => ({ ...p, password: '' })); setCaptcha('') }
 
   useEffect(() => {
     if (countdown <= 0) {
@@ -84,14 +91,18 @@ export default function Login() {
       if (data.verify) setChallenge(data)
       else {
         if (!remember) forgetDeviceKey()   // the server forgot this browser too
-        enter(data)
+        next(data)
       }
     } catch (err) {
       const res  = err.response
       const data = res?.data || {}
       // A check is good for one try, so a new one is shown after every failed sign-in.
       if (captchaEnabled) { setCaptcha(''); setCaptchaKey(k => k + 1) }
-      if (res?.status === 400 && data.type === 'captcha') {
+      if (!res) {
+        setError({ type: 'offline' })
+      } else if (res.status === 503 && data.type === 'maintenance') {
+        setError({ type: 'maintenance', message: `Only administrators can sign in now${data.end ? `; PRimeSys should be back by ${whenOf(data.end)}` : ''}.${data.note ? ` ${data.note}` : ''}` })
+      } else if (res.status === 400 && data.type === 'captcha') {
         setError({ type: 'captcha' })
       } else if (res?.status === 429) {
         // The server doesn't say how long; pause the form briefly so a retry
@@ -114,6 +125,7 @@ export default function Login() {
     }
   }
 
+  const { maintenance: m } = useMaintenance()
   const isLocked = countdown > 0
   const notice = error && ALERTS[error.type]
   const tone = notice && TONES[notice.tone]
@@ -132,14 +144,28 @@ export default function Login() {
 
   return (
     <AuthLayout panel={panel} switchText="No account yet?" switchTo="/register" switchLabel="Create one">
-      <h1 className={`text-ui-3xl font-bold tracking-tight text-[--color-text-primary] ${ENTER}`}>{challenge ? 'Confirm it\'s you' : 'Sign in'}</h1>
+      <h1 className={`text-ui-3xl font-bold tracking-tight text-[--color-text-primary] ${ENTER}`}>{challenge || faceStep ? 'Confirm it\'s you' : 'Sign in'}</h1>
       <p className={`mt-2 text-ui-base text-[--color-text-secondary] ${ENTER}`} style={{ animationDelay: '60ms' }}>
-        {challenge ? 'One more step, the first time on this browser.' : 'Use your username or email and your password.'}
+        {faceStep ? 'One more step for staff accounts.' : challenge ? 'One more step, the first time on this browser.' : 'Use your username or email and your password.'}
       </p>
 
-      {challenge ? (
-        <LoginCodeStep challenge={challenge} onDone={enter}
-          onBack={() => { setChallenge(null); setForm(p => ({ ...p, password: '' })); setCaptcha('') }} />
+      {/* Maintenance under way or coming up (server/utils/maintenance.js). */}
+      {(m?.state === 'on' || m?.state === 'scheduled') && (
+        <p role="status" className="mt-6 flex items-start gap-2.5 rounded-md border border-blue-300 bg-blue-50 p-3.5 text-ui-xs text-blue-800">
+          <Wrench className="mt-0.5 size-4 shrink-0 text-blue-600" />
+          <span>
+            {m.state === 'on'
+              ? <><span className="font-semibold">PRimeSys is under maintenance{m.end ? ` until ${whenOf(m.end)}` : ''}.</span> Only administrators can sign in now.</>
+              : <><span className="font-semibold">Maintenance {windowOf(m)}.</span> PRimeSys will be unavailable then.</>}
+            {m.message ? ` ${m.message}` : ''}
+          </span>
+        </p>
+      )}
+
+      {faceStep ? (
+        <LoginFaceStep challenge={faceStep} onDone={enter} onBack={startOver} />
+      ) : challenge ? (
+        <LoginCodeStep challenge={challenge} onDone={next} onBack={startOver} />
       ) : (
       <form onSubmit={submit} className="mt-8 space-y-5">
         <div className={ENTER} style={{ animationDelay: '120ms' }}>

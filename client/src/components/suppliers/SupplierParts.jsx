@@ -67,7 +67,7 @@ export function SupplierDialog({ supplier, onClose, onSaved }) {
               <input type="checkbox" className="size-4 accent-red-600" checked={form.status === 'blacklisted'}
                 onChange={e => set('status', e.target.checked ? 'blacklisted' : 'active')} />
               <span className="font-medium text-[--color-text-primary]">Blacklisted</span>
-              <span className="text-xs text-[--color-text-muted]">(the BAC is warned when it enters this supplier's quotation)</span>
+              <span className="text-xs text-[--color-text-muted]">(Procurement is warned when it enters this supplier's quotation)</span>
             </label>
             {form.status === 'blacklisted' && (
               <Input value={form.status_note} maxLength={500} onChange={e => set('status_note', e.target.value)} placeholder="Why, e.g. failed to deliver PO-2026-014" aria-label="Why it is blacklisted" />
@@ -89,16 +89,16 @@ function Detail({ icon: Icon, label, value }) {
       <Icon className="mt-0.5 size-4 shrink-0 text-[--color-text-muted]" />
       <div className="min-w-0">
         <p className="text-[10px] font-semibold uppercase tracking-wider text-[--color-text-muted]">{label}</p>
-        <p className={`mt-0.5 text-ui-sm ${value ? 'text-[--color-text-primary]' : 'text-[--color-text-muted]'}`}>{value || 'Not given'}</p>
+        <p className={`mt-0.5 text-ui-sm [overflow-wrap:anywhere] ${value ? 'text-[--color-text-primary]' : 'text-[--color-text-muted]'}`}>{value || 'Not given'}</p>
       </div>
     </div>
   )
 }
 
-// A supplier's details, as on its profile.
+// A supplier's details, as on its profile; as many columns as the space it sits in holds.
 export function SupplierDetails({ supplier: s }) {
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="grid grid-cols-[repeat(auto-fill,minmax(13rem,1fr))] gap-4">
       <Detail icon={MapPin} label="Business address" value={s.address} />
       <Detail icon={User} label="Contact person" value={s.contact_person ? `${s.contact_person}${s.designation ? `, ${s.designation}` : ''}` : null} />
       <Detail icon={Phone} label="Phone" value={s.phone} />

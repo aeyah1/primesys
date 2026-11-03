@@ -1,10 +1,12 @@
 import { lazy, Suspense, useEffect } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import AppLayout from '@/components/layout/AppLayout'
 import LandingPage from '@/pages/landing/LandingPage'
 import Login from '@/pages/auth/Login'
 import PageSkeleton from '@/components/shared/PageSkeleton'
+import ErrorBoundary from '@/components/shared/ErrorBoundary'
+import { MaintenanceGate } from '@/components/shared/Maintenance'
 
 // Lazy-loaded routes — split into separate chunks. The landing page and login
 // stay eager because they're the most common cold-entry points.
@@ -21,10 +23,8 @@ const MyRequests        = page(() => import('@/pages/pr/MyRequests'))
 const PRCreate          = page(() => import('@/pages/pr/PRUpload'))
 const PRDetail          = page(() => import('@/pages/pr/PRDetail'))
 const PREdit            = page(() => import('@/pages/pr/PREdit'))
-const CanvassPage       = page(() => import('@/pages/pr/CanvassPage'))
 const POList            = page(() => import('@/pages/po/POList'))
 const DeliveryList      = page(() => import('@/pages/delivery/DeliveryList'))
-const Bidding           = page(() => import('@/pages/bidding/Bidding'))
 const ReportsPage       = page(() => import('@/pages/reports/ReportsPage'))
 const UserList          = page(() => import('@/pages/users/UserList'))
 const AuditLogPage      = page(() => import('@/pages/audit/AuditLogPage'))
@@ -32,9 +32,10 @@ const ArchivePage       = page(() => import('@/pages/archive/ArchivePage'))
 const RemindersPage     = page(() => import('@/pages/reminders/RemindersPage'))
 const NotificationsPage = page(() => import('@/pages/notifications/NotificationsPage'))
 const SettingsPage      = page(() => import('@/pages/settings/Settings'))
+const MyActivityPage    = page(() => import('@/pages/activity/MyActivityPage'))
+const OrganizationPage  = page(() => import('@/pages/settings/OrganizationPage'))
+const MaintenancePage   = page(() => import('@/pages/settings/MaintenancePage'))
 const GuidePage         = page(() => import('@/pages/guide/GuidePage'))
-const TwgReviewList     = page(() => import('@/pages/twg/TwgReviewList'))
-const TwgReviewDetail   = page(() => import('@/pages/twg/TwgReviewDetail'))
 const BacApprovals      = page(() => import('@/pages/bac/BacApprovals'))
 const CertificatesPage  = page(() => import('@/pages/certificates/CertificatesPage'))
 const SupplierList      = page(() => import('@/pages/suppliers/SupplierList'))
@@ -66,6 +67,12 @@ function ProtectedRoute({ children, roles }) {
   return children
 }
 
+// An old address of a request's part (its canvass page, the TWG's review page): the request page, at that tab.
+function ToRequest({ tab }) {
+  const { id } = useParams()
+  return <Navigate to={`/pr/${id}${tab ? `?tab=${tab}` : ''}`} replace />
+}
+
 function PublicRoute({ children }) {
   const { user, loading } = useAuth()
   if (loading) return <PageSkeleton />
@@ -75,56 +82,65 @@ function PublicRoute({ children }) {
 
 export default function App() {
   const { user } = useAuth()
+  const { pathname } = useLocation()
   usePreloadPages(Boolean(user))
 
   return (
-    <Suspense fallback={<PageSkeleton />}>
-      <Routes>
-        <Route path="/"         element={<LandingPage />} />
-        <Route path="/login"           element={<PublicRoute><Login /></PublicRoute>} />
-        <Route path="/register"        element={<PublicRoute><Register /></PublicRoute>} />
-        <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
-        <Route path="/reset-password"  element={<PublicRoute><ResetPassword /></PublicRoute>} />
+    <ErrorBoundary full resetKey={pathname}>
+      <Suspense fallback={<PageSkeleton />}>
+        <Routes>
+          <Route path="/"         element={<LandingPage />} />
+          <Route path="/login"           element={<PublicRoute><Login /></PublicRoute>} />
+          <Route path="/register"        element={<PublicRoute><Register /></PublicRoute>} />
+          <Route path="/forgot-password" element={<PublicRoute><ForgotPassword /></PublicRoute>} />
+          <Route path="/reset-password"  element={<PublicRoute><ResetPassword /></PublicRoute>} />
 
-        <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
-          <Route path="dashboard" element={<Dashboard />} />
+          <Route element={<ProtectedRoute><MaintenanceGate><AppLayout /></MaintenanceGate></ProtectedRoute>}>
+            <Route path="dashboard" element={<Dashboard />} />
 
-          <Route path="pr"          element={<PRList />} />
-          <Route path="my-requests" element={<ProtectedRoute roles={['requestor']}><MyRequests /></ProtectedRoute>} />
-          <Route path="pr/create"  element={<ProtectedRoute roles={['procurement','admin','requestor']}><PRCreate /></ProtectedRoute>} />
-          <Route path="pr/:id"     element={<PRDetail />} />
-          <Route path="pr/:id/canvass" element={<ProtectedRoute roles={['procurement','admin','bac']}><CanvassPage /></ProtectedRoute>} />
-          <Route path="pr/:id/edit" element={<ProtectedRoute roles={['procurement','admin','requestor']}><PREdit /></ProtectedRoute>} />
+            <Route path="pr"          element={<PRList />} />
+            <Route path="my-requests" element={<ProtectedRoute roles={['requestor']}><MyRequests /></ProtectedRoute>} />
+            <Route path="pr/create"  element={<ProtectedRoute roles={['procurement','admin','requestor']}><PRCreate /></ProtectedRoute>} />
+            <Route path="pr/:id"     element={<PRDetail />} />
+            {/* The canvass and the TWG's review are tabs and steps of the request page now; old links land there. */}
+            <Route path="pr/:id/canvass" element={<ToRequest tab="canvass" />} />
+            <Route path="pr/:id/edit" element={<ProtectedRoute roles={['procurement','admin','requestor']}><PREdit /></ProtectedRoute>} />
 
-          <Route path="po"         element={<ProtectedRoute roles={['procurement','admin','supply']}><POList /></ProtectedRoute>} />
-          <Route path="delivery"   element={<ProtectedRoute roles={['procurement','admin','supply']}><DeliveryList /></ProtectedRoute>} />
-          <Route path="bidding"    element={<ProtectedRoute roles={['procurement','admin']}><Bidding /></ProtectedRoute>} />
-          <Route path="archive"       element={<ArchivePage />} />
-          <Route path="history"       element={<Navigate to="/archive" replace />} />
-          <Route path="reminders"     element={<ProtectedRoute roles={['admin','procurement']}><RemindersPage /></ProtectedRoute>} />
-          <Route path="notifications" element={<NotificationsPage />} />
-          <Route path="settings"      element={<SettingsPage />} />
-          <Route path="guide"         element={<GuidePage />} />
-          <Route path="profile"       element={<Navigate to="/settings" replace />} />
-          <Route path="reports"       element={<ProtectedRoute roles={['admin','procurement']}><ReportsPage /></ProtectedRoute>} />
-          <Route path="users"         element={<ProtectedRoute roles={['admin']}><UserList /></ProtectedRoute>} />
-          <Route path="audit"         element={<ProtectedRoute roles={['admin']}><AuditLogPage /></ProtectedRoute>} />
-          <Route path="quarters"      element={<Navigate to="/settings?tab=organization" replace />} />
+            <Route path="po"         element={<ProtectedRoute roles={['procurement','admin','supply']}><POList /></ProtectedRoute>} />
+            <Route path="delivery"   element={<ProtectedRoute roles={['procurement','admin','supply']}><DeliveryList /></ProtectedRoute>} />
+            {/* The old to-do lists: My tasks is everyone's to-do list now. */}
+            <Route path="bidding"    element={<Navigate to="/dashboard" replace />} />
+            <Route path="archive"       element={<ArchivePage />} />
+            <Route path="history"       element={<Navigate to="/archive" replace />} />
+            <Route path="reminders"     element={<ProtectedRoute roles={['admin','procurement']}><RemindersPage /></ProtectedRoute>} />
+            <Route path="notifications" element={<NotificationsPage />} />
+            <Route path="settings"      element={<SettingsPage />} />
+            <Route path="activity"      element={<MyActivityPage />} />
+            <Route path="guide"         element={<GuidePage />} />
+            <Route path="profile"       element={<Navigate to="/settings" replace />} />
+            <Route path="reports"       element={<ProtectedRoute roles={['admin','procurement']}><ReportsPage /></ProtectedRoute>} />
+            <Route path="users"         element={<ProtectedRoute roles={['admin']}><UserList /></ProtectedRoute>} />
+            <Route path="audit"         element={<ProtectedRoute roles={['admin']}><AuditLogPage /></ProtectedRoute>} />
+            <Route path="organization"  element={<ProtectedRoute roles={['admin']}><OrganizationPage /></ProtectedRoute>} />
+            <Route path="maintenance"   element={<ProtectedRoute roles={['admin']}><MaintenancePage /></ProtectedRoute>} />
+            <Route path="quarters"      element={<Navigate to="/organization" replace />} />
 
-          <Route path="twg/reviews"     element={<ProtectedRoute roles={['twg']}><TwgReviewList /></ProtectedRoute>} />
-          <Route path="twg/reviews/:id" element={<ProtectedRoute roles={['twg']}><TwgReviewDetail /></ProtectedRoute>} />
-          <Route path="bac"             element={<ProtectedRoute roles={['bac','admin','procurement']}><BacApprovals /></ProtectedRoute>} />
-          <Route path="certificates"    element={<ProtectedRoute roles={['twg','bac','admin','procurement']}><CertificatesPage /></ProtectedRoute>} />
-          <Route path="suppliers"       element={<ProtectedRoute roles={['admin','procurement']}><SupplierList /></ProtectedRoute>} />
-          <Route path="suppliers/:id"   element={<ProtectedRoute roles={['admin','procurement']}><SupplierProfile /></ProtectedRoute>} />
-          <Route path="rfqs"            element={<ProtectedRoute roles={['bac','admin','procurement']}><RfqHistory /></ProtectedRoute>} />
-          <Route path="ppmp"            element={<ProtectedRoute roles={['requestor','admin','procurement','bac','twg']}><PpmpList /></ProtectedRoute>} />
-          <Route path="ppmp/:id"        element={<ProtectedRoute roles={['requestor','admin','procurement','bac','twg']}><PpmpDetail /></ProtectedRoute>} />
-          <Route path="ppmp/:id/edit"   element={<ProtectedRoute roles={['requestor']}><PpmpEdit /></ProtectedRoute>} />
-        </Route>
+            <Route path="twg/reviews"     element={<Navigate to="/dashboard" replace />} />
+            <Route path="twg/reviews/:id" element={<ToRequest />} />
+            <Route path="awards"          element={<ProtectedRoute roles={['admin','procurement']}><BacApprovals /></ProtectedRoute>} />
+            <Route path="bac"             element={<Navigate to="/awards" replace />} />
+            <Route path="certificates"    element={<ProtectedRoute roles={['twg','admin','procurement']}><CertificatesPage /></ProtectedRoute>} />
+            <Route path="suppliers"       element={<ProtectedRoute roles={['admin','procurement']}><SupplierList /></ProtectedRoute>} />
+            <Route path="suppliers/:id"   element={<ProtectedRoute roles={['admin','procurement']}><SupplierProfile /></ProtectedRoute>} />
+            <Route path="rfqs"            element={<ProtectedRoute roles={['admin','procurement']}><RfqHistory /></ProtectedRoute>} />
+            <Route path="ppmp"            element={<ProtectedRoute roles={['requestor','admin','procurement','twg']}><PpmpList /></ProtectedRoute>} />
+            <Route path="ppmp/:id"        element={<ProtectedRoute roles={['requestor','admin','procurement','twg']}><PpmpDetail /></ProtectedRoute>} />
+            <Route path="ppmp/:id/edit"   element={<ProtectedRoute roles={['requestor']}><PpmpEdit /></ProtectedRoute>} />
+          </Route>
 
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </Suspense>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Suspense>
+    </ErrorBoundary>
   )
 }

@@ -54,8 +54,8 @@ export function evaluationBlock(marks, canvass) {
   return null
 }
 
-/* The TWG's evaluation of a canvass: every bid the BAC entered, under its item,
-   with what the bidder offered (as the BAC typed it from the RFQ; the TWG may
+/* The TWG's evaluation of a canvass: every bid Procurement entered, under its item,
+   with what the bidder offered (as Procurement typed it from the RFQ; the TWG may
    correct it), marked Compliant or Non-Compliant (with the reason), a bidder
    non-compliant on everything it offered marked DQ, and the canvasser's files
    beside it, with a remark on each DQ bidder. The marks are reported to the

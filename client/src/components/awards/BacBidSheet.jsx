@@ -14,12 +14,12 @@ import { DropItemDialog } from './CanvassPanel'
 
 const ICON = 'p-1.5 rounded-lg text-[--color-text-muted] transition-colors'
 
-/* The BAC's canvass for a PR in canvass: each supplier's quotation, typed in
+/* Procurement's canvass for a PR in canvass: each supplier's quotation, typed in
    one at a time from its returned RFQ (QuotationForm), listed with its file,
    how many items it quoted and its total; the system compares them lot by lot
    (BidsTable). Send to the TWG hands the complete canvass over for its
    evaluation (optional: needed for items like IT equipment); Go to award skips it.
-   The winners are picked next (BacAwardSheet). pr: { id }; canvass: GET /canvass/:prId. */
+   The BAC's winners are recorded next (BacAwardSheet). pr: { id }; canvass: GET /canvass/:prId. */
 export default function BacBidSheet({ pr, canvass }) {
   const prId = String(pr.id)
   const qc = useQueryClient()

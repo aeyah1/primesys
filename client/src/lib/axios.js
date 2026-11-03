@@ -20,11 +20,28 @@ api.interceptors.request.use((config) => {
   return config
 })
 
+// A critical action the server holds until a face check (server/middleware/face.middleware.js): FaceCheckDialog asks for
+// one, and once it passes the action is sent again; actions held together share one check.
+let askFace = null
+let asking = null
+export const setFaceAsker = (fn) => { askFace = fn }
+async function afterFaceCheck(err) {
+  asking ??= askFace(err.response.data).finally(() => { asking = null })
+  if (await asking) return api({ ...err.config, faceChecked: true })
+  throw err
+}
+
 api.interceptors.response.use(
   (res) => res,
   (err) => {
+    const status = err.response?.status
+    if (status === 428 && err.response.data?.type === 'face' && askFace && !err.config?.faceChecked) return afterFaceCheck(err)
     const isAuthEndpoint = err.config?.url?.includes('/auth/')
-    if (err.response?.status === 401 && !isAuthEndpoint) signedOut(err.response.data?.message)
+    if (status === 401 && !isAuthEndpoint) signedOut(err.response.data?.message)
+    // Refused for maintenance: the maintenance page shows (useMaintenance). No answer at all, or a gateway error: the
+    // server or the internet is down, so the connection banner shows (ConnectionBanner).
+    if (status === 503 && err.response.data?.type === 'maintenance') window.dispatchEvent(new Event('primesys:maintenance'))
+    else if (!axios.isCancel(err) && (!err.response || status === 502 || status === 504)) window.dispatchEvent(new Event('primesys:unreachable'))
     return Promise.reject(err)
   }
 )

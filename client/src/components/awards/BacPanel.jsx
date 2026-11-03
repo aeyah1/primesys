@@ -6,10 +6,11 @@ import { fmtCurrency, fmtDate, plural } from '@/lib/utils'
 import { openPdf, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
 import { awardRecordName } from './supplier'
+import { LockedChip } from './QuotesLocked'
 
-/* Where a canvass stands between the BAC and the TWG. part 'status': returned
-   by the TWG (the BAC corrects the bids, BacBidSheet), with the TWG for its
-   evaluation, or certified and waiting for the BAC's award (BacAwardSheet).
+/* Where a canvass stands between Procurement and the TWG. part 'status': returned
+   by the TWG (Procurement corrects the bids, BacBidSheet), with the TWG for its
+   evaluation, or certified and waiting for the BAC's award to be recorded (BacAwardSheet).
    part 'resolutions': each award, in a BAC Resolution or (below the resolution
    threshold) on the Abstract alone, with its Abstract and Notices of Award. */
 export default function BacPanel({ prId, part = 'status' }) {
@@ -19,7 +20,7 @@ export default function BacPanel({ prId, part = 'status' }) {
   })
   if (!data) return null
   if (part === 'resolutions' && !data.resolutions.length) {
-    return <p className="text-sm text-[--color-text-muted]">The BAC has not awarded this request yet.</p>
+    return <p className="text-sm text-[--color-text-muted]">No award is recorded on this request yet.</p>
   }
 
   const can = data.permissions
@@ -48,10 +49,12 @@ export default function BacPanel({ prId, part = 'status' }) {
                       <FileText className="size-3.5" /> Resolution
                     </Button>
                   )}
-                  <Button size="sm" variant="outline" className="gap-1.5"
-                    onClick={() => print(`/bac/${prId}/resolutions/${r.id}/abstract`, 'Abstract of sealed Quotations')}>
-                    <FileText className="size-3.5" /> Abstract
-                  </Button>
+                  {data.quotes_visible ? (
+                    <Button size="sm" variant="outline" className="gap-1.5"
+                      onClick={() => print(`/bac/${prId}/resolutions/${r.id}/abstract`, 'Abstract of sealed Quotations')}>
+                      <FileText className="size-3.5" /> Abstract
+                    </Button>
+                  ) : <LockedChip label="Abstract" />}
                 </div>
               )}
             </div>
@@ -76,30 +79,30 @@ export default function BacPanel({ prId, part = 'status' }) {
       {data.certification_return_reason && (
         <p className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           <AlertTriangle className="size-4 shrink-0 mt-0.5" />
-          <span><span className="font-semibold">Returned by the TWG:</span> {data.certification_return_reason}. The BAC corrects the bids and sends the canvass again.</span>
+          <span><span className="font-semibold">Returned by the TWG:</span> {data.certification_return_reason}. Procurement corrects the bids and sends the canvass again.</span>
         </p>
       )}
 
       {data.recanvass_reason && (
         <p className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           <AlertTriangle className="size-4 shrink-0 mt-0.5" />
-          <span><span className="font-semibold">Re-canvass ordered by the TWG:</span> {data.recanvass_reason}. The canvasser gets new quotations; the BAC enters them and sends the canvass again.</span>
+          <span><span className="font-semibold">Re-canvass ordered by the TWG:</span> {data.recanvass_reason}. The canvasser gets new quotations; Procurement enters them and sends the canvass again.</span>
         </p>
       )}
 
       {data.status === 'twg_certification' && (
-        <p className="flex items-center gap-2 rounded-xl border border-teal-300 bg-teal-50 px-4 py-3 text-sm text-teal-900">
+        <p className="flex items-center gap-2 rounded-xl border border-blue-300 bg-blue-50 px-4 py-3 text-sm text-blue-900">
           <ShieldCheck className="size-4 shrink-0" />
           <span><span className="font-semibold">With the TWG.</span> It checks every bid against the required specifications, marks each compliant or not, and certifies them or orders a re-canvass.</span>
         </p>
       )}
 
       {data.status === 'bac_review' && (
-        <p className="flex items-center gap-2 rounded-xl border border-indigo-300 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
+        <p className="flex items-center gap-2 rounded-xl border border-blue-300 bg-blue-50 px-4 py-3 text-sm text-blue-900">
           <ShieldCheck className="size-4 shrink-0" />
           {data.twg_skipped
-            ? <span><span className="font-semibold">Ready for the award, without the TWG.</span> The BAC picks each lot's winner; the system recommends the lowest total.</span>
-            : <span><span className="font-semibold">Certified by the TWG.</span> The BAC picks each lot's winner; the system recommends the lowest compliant total.</span>}
+            ? <span><span className="font-semibold">Ready for the award, without the TWG.</span> The BAC chooses each lot's winner at its meeting; Procurement records it with the criteria applied.</span>
+            : <span><span className="font-semibold">Certified by the TWG.</span> The BAC chooses each lot's winner at its meeting; Procurement records it with the criteria applied.</span>}
         </p>
       )}
     </div>

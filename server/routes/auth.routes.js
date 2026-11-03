@@ -8,6 +8,10 @@ const { handle, passwordRule, textRule, idRule } = require('../middleware/valida
 const pool      = require('../db/pool')
 const securityLog = require('../utils/securityLog')
 const config    = require('../config')
+const { closedForMaintenance } = require('../utils/maintenance')
+const faceC     = require('../controllers/face.controller')
+const requireFace = require('../middleware/face.middleware')
+const { STAFF } = require('../utils/faceCheck')
 
 // Abuse limits, one per job (all keyed by client IP, all answer 429)
 // The global API limiter in index.js still applies on top. Values come from
@@ -71,6 +75,7 @@ router.get('/registration-info', async (req, res, next) => {
 })
 
 router.post('/register',
+  closedForMaintenance,
   registerLimiter,
   onlyRegisterFields,
   nameRule('first_name', 'First name'),
@@ -107,10 +112,21 @@ router.post('/login/verify',
   c.verifyLogin
 )
 router.post('/login/resend', emailLimiter, ticketRule, handle, c.resendLoginCode)
+// A face check (utils/faceCheck.js): up to ten readings of the face, 128 numbers each, checked by the controller.
+const samplesRule = body('samples').isArray({ min: 1, max: 10 }).withMessage('Look at the camera until the face check finishes')
+// The face check that finishes a staff sign-in while face checks are on; failed ones count as failed sign-ins.
+router.post('/login/face',
+  loginLimiter,
+  body('ticket').isString().matches(/^[a-f0-9]{64}$/).withMessage('Sign in again'),
+  samplesRule,
+  handle,
+  c.verifyFace
+)
 router.post('/logout', auth, c.logout)
 router.get('/devices',        auth, c.myDevices)
 router.delete('/devices/:id', auth, param('id').isInt({ min: 1 }).withMessage('Device not found'), handle, c.removeDevice)
 router.post('/forgot-password',
+  closedForMaintenance,
   emailLimiter,
   body('email').isString().withMessage('A valid email address is required').bail()
     .trim().isEmail().withMessage('A valid email address is required'),
@@ -118,6 +134,7 @@ router.post('/forgot-password',
   c.forgotPassword
 )
 router.post('/reset-password',
+  closedForMaintenance,
   body('token').isString().notEmpty().withMessage('Token is required'),
   passwordRule('password'),
   handle,
@@ -140,6 +157,18 @@ router.put('/me/signature',    auth, twgOnly,
   body('image').isString().withMessage('The signature must be a PNG image').isLength({ max: 200_000 }).withMessage('The signature image is too large'),
   handle, c.saveMySignature)
 router.delete('/me/signature', auth, twgOnly, c.removeMySignature)
+
+// A staff member's own face check: set up with their consent and password, removed after a check, and passed before
+// critical actions. Nobody reads the measurements back, not even their owner.
+const staffOnly = authorize(...STAFF)
+router.get('/face',         auth, faceC.status)
+router.put('/face',         auth, staffOnly,
+  samplesRule,
+  body('password').isString().notEmpty().withMessage('Enter your password'),
+  body('consent').custom(v => v === true).withMessage('Read the notice and agree to it first'),
+  handle, faceC.enrol)
+router.delete('/face',      auth, staffOnly, requireFace, faceC.remove)
+router.post('/face/check',  auth, staffOnly, samplesRule, handle, faceC.check)
 
 router.patch('/password',
   auth,

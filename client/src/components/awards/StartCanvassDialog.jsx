@@ -32,8 +32,8 @@ export default function StartCanvassDialog({ pr, onClose, onStarted }) {
   const { mutate, isPending } = useMutation({
     mutationFn: () => api.post(`/canvass/${pr.id}/start`, { mode_of_procurement: mode, ...(assigned ? {} : { pr_number: number.trim() }) }),
     onSuccess: ({ data }) => {
-      toast.success(`${data.pr_number} is in canvass`, { description: 'Print the RFQ for the canvasser, then record the winners.' })
-      for (const key of [['lot-queue'], ['pr', String(pr.id)], ['pr-list'], ['pr-stats'], ['canvass', String(pr.id)], ['bac'], ['pr-logs', String(pr.id)]]) {
+      toast.success(`${data.pr_number} is in canvass`, { description: 'Print the RFQ for the canvasser, then enter the quotations when they come back.' })
+      for (const key of [['lot-queue'], ['pr', String(pr.id)], ['pr-list'], ['pr-stats'], ['canvass', String(pr.id)], ['bac'], ['pr-logs', String(pr.id)], ['pr-tasks']]) {
         qc.invalidateQueries({ queryKey: key })
       }
       onStarted?.()
@@ -44,8 +44,8 @@ export default function StartCanvassDialog({ pr, onClose, onStarted }) {
 
   return (
     <Dialog open onOpenChange={v => { if (!v) onClose() }}>
-      <DialogContent title="Start the Canvass"
-        description={`${pr.pr_number}${pr.title ? `: ${pr.title}` : ''}. The canvasser canvasses the suppliers with the printed RFQ and gives the returned RFQs to the BAC.`}>
+      <DialogContent title="Start the canvass"
+        description={`${pr.pr_number}${pr.title ? `: ${pr.title}` : ''}. The canvasser canvasses the suppliers with the printed RFQ and gives the returned RFQs back to Procurement.`}>
         {!canvass ? (
           <div className="space-y-3">{Array(2).fill(0).map((_, i) => <Skeleton key={i} className="h-10" />)}</div>
         ) : (

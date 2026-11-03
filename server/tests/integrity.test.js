@@ -11,7 +11,7 @@ const serverReq = (m) => require(require.resolve(m, { paths: [H.SERVER] }))
 const config = require(path.join(H.SERVER, 'config.js'))
 const jwt    = serverReq('jsonwebtoken')
 
-const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 4: 'requestor', 5: 'supply', 6: 'twg', 7: 'bac' }
+const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 4: 'requestor', 5: 'supply', 6: 'twg', 7: 'procurement' }
 const tok  = (id) => jwt.sign({ id, role: ROLE[id] }, config.jwt.secret, { expiresIn: '1h' })
 
 function fixtures() {
@@ -165,10 +165,10 @@ async function run() {
   await is(G5, 'recanvass (Ready for PO → Bidding)', 2, 'PATCH', '/pr/52/status', { status: 'bidding', notes: 'Supplier price expired' }, code(200))
   await is(G5, '…the old award is cancelled', 2, 'GET', '/lots/pr/52', undefined, (r) => r.status === 200 && r.data.length === 1 && r.data[0].status === 'cancelled')
   await is(G5, '…and the log says so', 2, 'GET', '/pr/52/logs', undefined, (r) => r.status === 200 && r.data.some(l => l.to_status === 'bidding' && /1 award cancelled/.test(l.note)))
-  await is(G5, '…no PO before a new award → 409', 2, 'POST', '/po', { purchase_request_id: 52, issued_date: '2026-09-12' }, code(409, /certification/))
+  await is(G5, '…no PO before a new award → 409', 2, 'POST', '/po', { purchase_request_id: 52, issued_date: '2026-09-12' }, code(409, /Record the BAC's award/))
   let through = 'ok'
   try { await H.award(BASE, tok, 52, { bac: 7, twg: 6 }, [{ name: 'S52 New', prices: { 4: 400 } }]) } catch (e) { through = e.message }
-  t.check(G5, 'the new supplier\'s bid, certified by the TWG and awarded by the BAC', through === 'ok', through)
+  t.check(G5, 'the new supplier\'s bid, certified by the TWG and its award recorded', through === 'ok', through)
   const po52 = await is(G5, 'issue the PO', 2, 'POST', '/po', { purchase_request_id: 52, issued_date: '2026-09-12' }, code(201))
   await is(G5, '…from the new award only (not the old supplier or a combined total)', 2, 'GET', `/po/${po52.data?.id}`, undefined,
     (r) => r.status === 200 && r.data.supplier_name === 'S52 New' && Number(r.data.total_amount) === 400)

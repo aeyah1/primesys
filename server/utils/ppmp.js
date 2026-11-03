@@ -2,9 +2,9 @@ const crypto    = require('crypto')
 const httpError = require('./httpError')
 
 // PPMP rules: the Fund Administrator (role requestor) uploads their own office's; it is in effect once signed and complete;
-// admins, Procurement, the BAC, and the TWG (to compare a request with it) read. An admin may withdraw one put in effect by
+// admins, Procurement, and the TWG (to compare a request with it) read. An admin may withdraw one put in effect by
 // mistake, while no request draws on it.
-const READERS = ['admin', 'procurement', 'bac', 'twg']
+const READERS = ['admin', 'procurement', 'twg']
 
 // The office a user handles, or null.
 async function officeOf(db, userId) {

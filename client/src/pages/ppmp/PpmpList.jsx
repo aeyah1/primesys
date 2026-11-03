@@ -1,18 +1,18 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Upload, ShieldCheck, AlertTriangle, Info, CalendarClock } from 'lucide-react'
-import { Card, CardContent } from '@/components/ui/card'
+import { Upload, ShieldCheck, AlertTriangle, Info, CalendarClock, ListChecks, Building2 } from 'lucide-react'
+import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableEmpty } from '@/components/ui/table'
-import { Skeleton } from '@/components/ui/skeleton'
-import { Tab } from '@/components/shared/ListParts'
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table'
+import PageHeader from '@/components/shared/PageHeader'
+import { TabBar, Tab, Toolbar, ListCount, SkeletonRows, EmptyRow } from '@/components/shared/ListParts'
 import { PpmpStatusBadge, shownStatus } from '@/components/ppmp/PpmpStatusBadge'
 import PpmpUploadDialog from '@/components/ppmp/PpmpUploadDialog'
 import Notice from '@/components/ppmp/PpmpNotice'
 import { useAuth } from '@/context/AuthContext'
-import { fmtCurrency, fmtDate, plural } from '@/lib/utils'
+import { fmtCurrency, fmtDatetime, plural } from '@/lib/utils'
 import api from '@/lib/axios'
 
 const THIS_YEAR = new Date().getFullYear()
@@ -34,7 +34,7 @@ const STANDING = {
   none:          { label: 'No PPMP', tone: 'border-[--color-border] bg-[--color-overlay] text-[--color-text-secondary]', requests: 'Not until a Final PPMP is uploaded' },
 }
 
-// The PPMPs this user may see: a Fund Administrator's own office's, or every office's for Procurement, BAC, and admins.
+// The PPMPs this user may see: a Fund Administrator's own office's, or every office's for Procurement, the TWG and admins.
 export default function PpmpList() {
   const { user } = useAuth()
   const keeper = user?.role === 'requestor'
@@ -54,34 +54,28 @@ export default function PpmpList() {
   const cols = keeper ? 8 : 9
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h2 className="text-ui-lg font-bold text-[--color-text-primary]">Project Procurement Management Plans</h2>
-          <p className="text-ui-sm text-[--color-text-secondary] mt-0.5">
-            {keeper
-              ? 'Your office\'s PPMP, uploaded as its softcopy. Once it is complete, it is in effect and your purchase requests draw on it.'
-              : 'Each office\'s PPMP, uploaded by its End User as a softcopy. You can view it, open the original file, and print it.'}
-          </p>
-        </div>
-        {keeper && <Button onClick={() => setOpen(true)} className="gap-2"><Upload className="size-4" /> Upload PPMP</Button>}
-      </div>
+    <div className="space-y-5">
+      <PageHeader title="PPMP" sub={keeper
+        ? 'Your office\'s Project Procurement Management Plan, uploaded as its softcopy. Once it is in effect, your requests draw on it.'
+        : 'Each office\'s Project Procurement Management Plan, uploaded by its End User. Open one to view it, its original file, or print it.'}>
+        {keeper && <Button onClick={() => setOpen(true)} className="gap-1.5"><Upload className="size-4" /> Upload PPMP</Button>}
+      </PageHeader>
 
       {keeper && !isLoading && <><OwnStanding rows={rows} /><NextYearDue rows={rows} /></>}
 
-      <Card>
+      <Card className="overflow-hidden">
         {!keeper && (
-          <div className="flex items-center gap-1 px-4 pt-3 border-b border-[--color-border] overflow-x-auto">
+          <TabBar>
             {[['ppmps', 'PPMPs'], ['coverage', 'Office coverage']].map(([key, label]) => (
               <Tab key={key} active={tab === key} onClick={() => setTab(key)}>{label}</Tab>
             ))}
-          </div>
+          </TabBar>
         )}
 
         {tab === 'coverage' ? <Coverage /> : (
           <>
             {(years.length > 1 || !keeper) && (
-              <div className="flex items-center gap-2 flex-wrap px-4 py-3 border-b border-[--color-border]">
+              <Toolbar end={<ListCount n={shown.length} one="PPMP" />}>
                 {years.length > 1 && (
                   <Select value={year} onValueChange={setYear}>
                     <SelectTrigger className="h-9 w-36"><SelectValue /></SelectTrigger>
@@ -99,10 +93,9 @@ export default function PpmpList() {
                     </SelectContent>
                   </Select>
                 )}
-              </div>
+              </Toolbar>
             )}
-            <CardContent className="p-0">
-              <Table>
+              <Table framed={false}>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Fiscal Year</TableHead>
@@ -118,11 +111,10 @@ export default function PpmpList() {
                 </TableHeader>
                 <TableBody>
                   {isLoading
-                    ? Array(3).fill(0).map((_, i) => (
-                        <TableRow key={i}>{Array(cols).fill(0).map((_, j) => <TableCell key={j}><Skeleton className="h-4" /></TableCell>)}</TableRow>
-                      ))
+                    ? <SkeletonRows cols={cols} rows={3} />
                     : !shown.length
-                      ? <TableEmpty colSpan={cols} message={rows.length ? 'No PPMP matches these filters.' : keeper ? 'No PPMP yet. Upload your office\'s PPMP softcopy to start.' : 'No office has uploaded a PPMP yet.'} />
+                      ? <EmptyRow cols={cols} icon={ListChecks} title={rows.length ? 'No PPMP matches these filters' : 'No PPMP yet'}
+                          sub={rows.length ? 'Pick another year or status.' : keeper ? 'Use Upload PPMP to add your office\'s softcopy.' : 'No office has uploaded a PPMP yet.'} />
                       : shown.map(r => (
                         <TableRow key={r.id} className="cursor-pointer" onClick={() => navigate(`/ppmp/${r.id}`)}>
                           <TableCell className="font-semibold">FY {r.fiscal_year}</TableCell>
@@ -146,12 +138,11 @@ export default function PpmpList() {
                             {r.removal_requested && <p className="mt-1 text-[10px] font-semibold text-red-700">Removal asked for</p>}
                             {r.signed_kind && r.status !== 'draft' && <p className="mt-1 text-[10px] text-[--color-text-muted]">Signed {r.signed_kind === 'digital' ? 'digitally' : 'on paper'}</p>}
                           </TableCell>
-                          <TableCell className="text-[--color-text-muted]">{fmtDate(r.updated_at)}</TableCell>
+                          <TableCell className="text-[--color-text-muted]">{fmtDatetime(r.updated_at)}</TableCell>
                         </TableRow>
                       ))}
                 </TableBody>
               </Table>
-            </CardContent>
           </>
         )}
       </Card>
@@ -208,7 +199,7 @@ function Coverage() {
 
   return (
     <>
-      <div className="flex items-center gap-3 flex-wrap px-4 py-3 border-b border-[--color-border]">
+      <Toolbar>
         <Select value={String(year)} onValueChange={v => setYear(Number(v))}>
           <SelectTrigger className="h-9 w-36"><SelectValue /></SelectTrigger>
           <SelectContent>
@@ -220,9 +211,8 @@ function Coverage() {
             <span className="font-semibold text-[--color-text-primary]">{ready} of {offices.length}</span> offices have a Final PPMP in effect for FY {year}.
           </p>
         )}
-      </div>
-      <CardContent className="p-0">
-        <Table>
+      </Toolbar>
+        <Table framed={false}>
           <TableHeader>
             <TableRow>
               <TableHead>Office</TableHead>
@@ -233,9 +223,9 @@ function Coverage() {
           </TableHeader>
           <TableBody>
             {isLoading
-              ? Array(3).fill(0).map((_, i) => <TableRow key={i}>{Array(4).fill(0).map((_, j) => <TableCell key={j}><Skeleton className="h-4" /></TableCell>)}</TableRow>)
+              ? <SkeletonRows cols={4} rows={3} />
               : !offices.length
-                ? <TableEmpty colSpan={4} message="No offices yet. An admin adds them under Settings > Organization." />
+                ? <EmptyRow cols={4} icon={Building2} title="No offices yet" sub="An admin adds them on the Organization page." />
                 : offices.map(o => {
                   const s = STANDING[o.state]
                   const shownPlan = o.in_effect || o.pending
@@ -265,7 +255,6 @@ function Coverage() {
                 })}
           </TableBody>
         </Table>
-      </CardContent>
     </>
   )
 }

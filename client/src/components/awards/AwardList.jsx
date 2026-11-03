@@ -45,7 +45,7 @@ function EditLotDialog({ lot, onClose }) {
         <DialogFooter className="px-0 pb-0 pt-6">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button disabled={isPending || !form.awarded_to.trim()} onClick={save}>
-            {isPending ? 'Saving…' : 'Save Changes'}
+            {isPending ? 'Saving…' : 'Save changes'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -53,12 +53,12 @@ function EditLotDialog({ lot, onClose }) {
   )
 }
 
-// Where an award stands: awarded by the BAC, certified by the TWG (an older one may be waiting for the BAC).
+// Where an award stands: awarded by the BAC, certified by the TWG (an older one may be waiting for its award).
 function ReviewChip({ lot }) {
   if (lot.status !== 'awarded' || lot.po_id) return null
-  const [text, cls] = lot.certified_at ? ['Certified by the TWG', 'border-teal-300 bg-teal-50 text-teal-800']
-    : lot.resolution_id ? ['Awarded by the BAC', 'border-indigo-300 bg-indigo-50 text-indigo-800']
-    : ['Waiting for the BAC', 'border-[--color-border-strong] bg-white text-[--color-text-secondary]']
+  const [text, cls] = lot.certified_at ? ['Certified by the TWG', 'border-blue-300 bg-blue-50 text-blue-800']
+    : lot.resolution_id ? ['Awarded by the BAC', 'border-blue-300 bg-blue-50 text-blue-800']
+    : ['Waiting for its award', 'border-[--color-border-strong] bg-white text-[--color-text-secondary]']
   return (
     <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${cls}`}>
       {lot.certified_at && <ShieldCheck className="size-3" />} {text}
@@ -94,7 +94,7 @@ function CancelAwardDialog({ lot, prStatus, onClose }) {
         <DialogFooter className="px-0 pb-0 pt-6">
           <Button variant="outline" onClick={onClose} disabled={isPending}>Keep the award</Button>
           <Button variant="danger" disabled={isPending || !reason.trim()} onClick={() => mutate()}>
-            {isPending ? 'Cancelling…' : 'Cancel Award'}
+            {isPending ? 'Cancelling…' : 'Cancel the award'}
           </Button>
         </DialogFooter>
       </DialogContent>

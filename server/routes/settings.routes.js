@@ -3,8 +3,10 @@ const { body } = require('express-validator')
 const c        = require('../controllers/settings.controller')
 const auth     = require('../middleware/auth.middleware')
 const authorize = require('../middleware/authorize.middleware')
+const requireFace = require('../middleware/face.middleware')
 const { handle, textRule, moneyRule } = require('../middleware/validate')
 const { PR_PREFIX, MAX_CANVASSERS } = require('../utils/orgSettings')
+const fileCrypto = require('../utils/fileCrypto')
 
 // The RFQ's canvassers arrive as a JSON list of { name, designation }, each sized like the other signatories.
 function canvassersError(value) {
@@ -74,8 +76,15 @@ router.patch('/',  auth, authorize('admin'),
   textRule('bac_chairman_name', 'BAC Chairman name', 150),
   textRule('bac_chairman_designation', 'BAC Chairman designation', 150),
   textRule('bac_members', 'BAC members', 2000),
+  textRule('award_criteria', 'Award criteria', 2000),
+  body('file_retention_days').optional({ values: 'falsy' }).isInt({ min: 0, max: 3650 })
+    .withMessage('Keep files 0 to 3650 days after a request is finished (0 keeps them)'),
+  // Face checks for staff: on only with the key that keeps faces encrypted.
+  body('face_check').optional({ values: 'null' }).isIn(['0', '1']).withMessage('Face checks must be on or off').bail()
+    .custom(v => v === '0' || fileCrypto.enabled()).withMessage('Set FILE_ENCRYPTION_KEY on the server first: faces are kept encrypted with it'),
 
   handle,
+  requireFace,
   c.update)
 
 // The officials' saved signatures: the admin's alone to see, save, and remove (utils/orgSignatures.js).
@@ -84,7 +93,7 @@ router.get('/signatures',    auth, authorize('admin'), c.signatures)
 router.put('/signatures',    auth, authorize('admin'), signer,
   body('image').isString().withMessage('The signature must be a PNG image').isLength({ max: 200_000 }).withMessage('The signature image is too large'),
   body('consent').isBoolean({ strict: true }).withMessage('Confirm that the person agreed'),
-  handle, c.saveSignature)
-router.delete('/signatures', auth, authorize('admin'), signer, handle, c.removeSignature)
+  handle, requireFace, c.saveSignature)
+router.delete('/signatures', auth, authorize('admin'), signer, handle, requireFace, c.removeSignature)
 
 module.exports = router

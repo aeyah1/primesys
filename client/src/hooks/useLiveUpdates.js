@@ -85,10 +85,6 @@ export function useLiveUpdates() {
           if (id) refresh(['ppmp', id])
           break
 
-        // The BAC opened or locked the RFQ History.
-        case 'rfqs':
-          refresh(['rfq-access'], ['rfqs'])
-          break
 
         // The admin changed this account (its office): reload it, and what follows the office.
         case 'account':

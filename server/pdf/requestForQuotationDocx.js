@@ -1,7 +1,6 @@
-const fs = require('fs')
-const { p, gap, run, table, pageBreak, document, image } = require('../utils/docx')
+const { p, gap, run, table, pageBreak, document } = require('../utils/docx')
 const { canvassersOf } = require('../utils/orgSettings')
-const { lotsOf, COLS, SEAL, REQUEST_TEXT, NOTES, TERMS, ACCEPT_TEXT, ADDRESSEE, amount, qty } = require('./requestForQuotation')
+const { lotsOf, COLS, REQUEST_TEXT, NOTES, TERMS, ACCEPT_TEXT, ADDRESSEE, amount, qty } = require('./requestForQuotation')
 
 // The Request for Quotation as a Word document: the same form as requestForQuotation.js (one page per lot, the
 // letterhead, the item table with its offer and price columns left blank, the supplier's terms and the canvassers), to
@@ -17,10 +16,9 @@ function lotBody({ pr, org, lot }) {
   const s = (key, fallback = '') => (org[key] || '').trim() || fallback
   const out = []
 
-  // Letterhead: the seal on the left, the campus centred between two equal columns.
-  const seal = fs.existsSync(SEAL)
+  // Letterhead: the campus centred between two equal columns (no seal without the university's authorisation).
   out.push(table([{ cells: [
-    { content: seal ? p(image('seal', 56)) : p(''), vAlign: 'top' },
+    { content: p(''), vAlign: 'top' },
     { content: [
       p('Republic of the Philippines', { align: 'center', size: 10 }),
       p(s('entity_full_name', 'NORTH EASTERN MINDANAO STATE UNIVERSITY'), { align: 'center', b: true, size: 11 }),
@@ -111,6 +109,5 @@ module.exports = function requestForQuotationDocx({ pr, orgSettings = {}, items 
   const lots = lotsOf(pr, items)
   if (!lots.length) lots.push({ label: '', items: [], abc: 0, quotationNo: String(pr.pr_number || ''), index: 0 })
   const body = lots.map((lot, i) => (i ? pageBreak() : '') + lotBody({ pr, org: orgSettings, lot })).join('')
-  const images = fs.existsSync(SEAL) ? { seal: fs.readFileSync(SEAL) } : {}
-  return document(body, { images, margin: MARGIN, font: 'Times New Roman', size: 9 })
+  return document(body, { margin: MARGIN, font: 'Times New Roman', size: 9 })
 }

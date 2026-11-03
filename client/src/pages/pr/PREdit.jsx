@@ -1,7 +1,7 @@
 import { useState, useEffect, Fragment } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Package, Plus, Trash2, Send } from 'lucide-react'
+import { Package, Plus, Trash2, Send } from 'lucide-react'
 import ItemCategorySelector from '@/components/shared/ItemCategorySelector'
 import RequestContextForm from '@/components/shared/RequestContextForm'
 import { requesterPayload } from '@/components/shared/RequesterFields'
@@ -16,6 +16,7 @@ import { fmtCurrency, CATEGORY_FORM, buildItemNotes, groupItemsBySection, FUND_S
 import { SectionNameInput, SectionHeaderRow } from '@/components/shared/ItemSections'
 import CategorySpecFields from '@/components/shared/CategorySpecFields'
 import { useAuth } from '@/context/AuthContext'
+import PageHeader from '@/components/shared/PageHeader'
 import api from '@/lib/axios'
 import ReviewSubmitDialog from '@/components/shared/ReviewSubmitDialog'
 import { usePpmpPlans, takenByKey, lineChecks, PpmpLineNote, PpmpItemField, NoPpmpNotice, quarterOf } from '@/components/ppmp/PpmpLinePicker'
@@ -286,19 +287,12 @@ export default function PREdit() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
-          <ArrowLeft className="size-4" />
-        </Button>
-        <div>
-          <h2 className="text-ui-xl font-bold text-[--color-text-primary]">Edit Purchase Request</h2>
-          <p className="text-ui-xs text-[--color-text-muted] mt-0.5 font-mono">{pr.pr_number}</p>
-        </div>
-      </div>
+      <PageHeader title="Edit Request" sub={`${pr.pr_number}${pr.title ? `: ${pr.title}` : ''}`} back={{ to: `/pr/${pr.id}`, label: `Back to ${pr.pr_number}` }} />
 
       <form onSubmit={handleSubmit} className="space-y-5">
 
-        {/* Request Context */}
+        <div className="grid items-start gap-5 xl:grid-cols-2">
+        {/* Request context */}
         <Card>
           <CardHeader>
             <CardTitle>About your request</CardTitle>
@@ -320,7 +314,7 @@ export default function PREdit() {
               </Label>
               <ItemCategorySelector value={form.category} onChange={setCategory} />
               <p className="text-[11px] text-[--color-text-muted]">
-                Sets the wording below and the starting kind for each item — change any item that differs.
+                Sets the wording below and the starting kind for each item; change any item that differs.
                 Which TWG area reviews this request is worked out from the items themselves.
               </p>
             </div>
@@ -378,13 +372,14 @@ export default function PREdit() {
             )}
           </CardContent>
         </Card>
+        </div>
 
         {/* Item List */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-3">
             <div className="flex items-center gap-2">
               <Package className="size-4 text-[--color-text-muted]" />
-              <CardTitle>Item List</CardTitle>
+              <CardTitle>Items</CardTitle>
               {items.length > 0 && (
                 <span className="text-xs text-[--color-text-muted] font-normal">
                   ({items.length} {items.length === 1 ? 'item' : 'items'})
@@ -431,7 +426,7 @@ export default function PREdit() {
                   {processed.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="px-6 py-12 text-center text-sm text-[--color-text-muted]">
-                        No items yet — use the form below to add items.
+                        No items yet. Use the form below to add them.
                       </td>
                     </tr>
                   ) : (
@@ -520,7 +515,7 @@ export default function PREdit() {
               <div className="px-4 py-4"><NoPpmpNotice requestor={isRequestor} /></div>
             ) : (
             <div className="bg-[--color-canvas] px-4 py-4 space-y-3">
-              <p className="text-xs font-semibold text-[--color-text-muted] uppercase tracking-wide">Add Item</p>
+              <p className="text-xs font-semibold text-[--color-text-muted] uppercase tracking-wide">Add item</p>
               {rePr && (
                 <label className="flex items-center gap-2 text-xs font-medium text-[--color-text-secondary]">
                   <input type="checkbox" checked={draft.off_plan} className="accent-amber-600"
@@ -639,7 +634,8 @@ export default function PREdit() {
           </CardContent>
         </Card>
 
-        <div className="flex justify-end gap-3">
+        {/* The buttons stay in view while the form scrolls. */}
+        <div className="sticky bottom-0 z-10 flex flex-wrap justify-end gap-3 rounded-xl border border-[--color-border] bg-[--color-surface] px-4 py-3 shadow-md">
           <Button type="button" variant="outline" size="lg" onClick={() => navigate(-1)} className="px-8">
             Cancel
           </Button>

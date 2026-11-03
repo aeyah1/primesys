@@ -34,21 +34,32 @@ export const fmtDatetime = (d) => {
   return new Date(d).toLocaleString('en-PH', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-// In workflow order, which charts and lists follow; keep in sync with server/utils/prWorkflow.js.
+// What a file removed under the retention rule says in its place (server utils/retention.js).
+export const removedNote = (at) => `Removed ${fmtDatetime(at)} under the retention rule; the office keeps the paper original.`
+
+// In workflow order, which charts and lists follow; keep in sync with server/utils/prWorkflow.js. Plain words for what is
+// happening, the same on every badge, list, filter and notice. `ordered` is not stored: a Ready for purchase order request
+// whose every award has its PO reads Ordered (prStatusKey).
 export const PR_STATUS_LABELS = {
   draft:              'Draft',
-  submitted:          'Submitted',
-  revision_requested: 'Revision Requested',
-  twg_review:         'Approved by TWG',
+  submitted:          'TWG review',
+  revision_requested: 'Returned for changes',
+  twg_review:         'Ready for canvass',
   bidding:            'Canvass',
-  twg_certification:  'TWG certification',
-  bac_review:         'BAC award',
-  re_pr:              'Re-PR (BAC check)',
-  for_po:             'Ready for PO',
+  twg_certification:  'TWG checking offers',
+  bac_review:         'Choosing the supplier',
+  re_pr:              'Re-PR proposed',
+  for_po:             'Ready for purchase order',
+  ordered:            'Ordered',
   completed:          'Completed',
-  rejected:           'Rejected by TWG',
+  rejected:           'Not approved',
   cancelled:          'Cancelled',
 }
+
+// The status key a request reads as: its own, or `ordered` once every award has its purchase order (GET /pr rows and
+// GET /pr/:id give awaiting_po, and po_id or pos).
+export const prStatusKey = (pr) => (pr?.status === 'for_po' && pr.awaiting_po != null && !Number(pr.awaiting_po)
+  && (pr.po_id || pr.pos?.some(po => po.po_status !== 'cancelled')) ? 'ordered' : pr?.status)
 
 // Why the TWG sends a request back to its End User (a Re-PR); keep in sync with server/utils/rePr.js.
 export const RE_PR_TYPES = {
@@ -60,32 +71,44 @@ export const RE_PR_TYPES = {
 // One-line plain explanation of each status, shown when hovering a status badge.
 export const PR_STATUS_HELP = {
   draft:              'Not sent yet. Only the person who created it can see it.',
-  submitted:          'Waiting for the Technical Working Group (TWG) to check it.',
-  twg_review:         'The TWG approved it. Waiting for the Procurement Office.',
-  revision_requested: 'The TWG asked for changes before it can go on.',
-  rejected:           'The TWG did not approve it. It will not go further.',
-  bidding:            'The canvasser is asking suppliers for prices; the BAC enters the bids, for the TWG to check when needed.',
-  bac_review:         'The Bids and Awards Committee chooses the winners.',
+  submitted:          'The Technical Working Group (TWG) is checking its specifications.',
+  twg_review:         'The TWG approved it. The Procurement Office starts the canvass next.',
+  revision_requested: 'Sent back to its End User to change, then submit again.',
+  rejected:           'The TWG did not approve it. Its End User may change it and submit it again.',
+  bidding:            'The canvasser is getting suppliers\' prices; Procurement enters them.',
   twg_certification:  'The TWG is checking every offer against the specifications.',
-  re_pr:              'No offer met the specifications. The TWG proposed a Re-PR; the BAC checks it, then the End User changes the request.',
-  for_po:             'A supplier was chosen. The purchase order comes next, then delivery.',
+  bac_review:         'The Bids and Awards Committee is choosing the supplier of each lot.',
+  re_pr:              'No offer met the specifications. The TWG proposed a Re-PR; Procurement checks it, then the End User changes the request.',
+  for_po:             'A supplier was chosen. The Procurement Office issues the purchase order next.',
+  ordered:            'The purchase order was issued. The Supply Office records the delivery.',
   completed:          'Everything was delivered. Done.',
-  cancelled:          'Stopped by the Procurement Office. It will not go further.',
+  cancelled:          'Stopped. It will not go further.',
+}
+
+// Four colors, by meaning: blue moving (someone has it), amber sent back (someone must fix it), green done, red stopped;
+// gray for a draft. The same tones mark notices and deliveries.
+export const TONES = {
+  moving:  'bg-blue-50 text-blue-700 border-blue-300',
+  back:    'bg-amber-50 text-amber-800 border-amber-300',
+  done:    'bg-emerald-50 text-emerald-700 border-emerald-300',
+  stopped: 'bg-red-50 text-red-700 border-red-300',
+  draft:   'bg-slate-50 text-slate-600 border-slate-300',
 }
 
 export const PR_STATUS_COLORS = {
-  draft:              'bg-slate-50 text-slate-600 border-slate-300',
-  submitted:          'bg-blue-50 text-blue-700 border-blue-300',
-  twg_review:         'bg-cyan-50 text-cyan-700 border-cyan-300',
-  revision_requested: 'bg-amber-50 text-amber-700 border-amber-300',
-  rejected:           'bg-red-50 text-red-700 border-red-300',
-  bidding:            'bg-orange-50 text-orange-700 border-orange-300',
-  bac_review:         'bg-indigo-50 text-indigo-700 border-indigo-300',
-  twg_certification:  'bg-teal-50 text-teal-700 border-teal-300',
-  re_pr:              'bg-red-50 text-red-700 border-red-300',
-  for_po:             'bg-violet-50 text-violet-700 border-violet-300',
-  completed:          'bg-emerald-50 text-emerald-700 border-emerald-300',
-  cancelled:          'bg-rose-50 text-rose-700 border-rose-300',
+  draft:              TONES.draft,
+  submitted:          TONES.moving,
+  twg_review:         TONES.moving,
+  revision_requested: TONES.back,
+  rejected:           TONES.stopped,
+  bidding:            TONES.moving,
+  twg_certification:  TONES.moving,
+  bac_review:         TONES.moving,
+  re_pr:              TONES.back,
+  for_po:             TONES.moving,
+  ordered:            TONES.moving,
+  completed:          TONES.done,
+  cancelled:          TONES.stopped,
 }
 
 export const LOT_STATUS_LABELS = {
@@ -105,14 +128,14 @@ export const LOT_STATUS_COLORS = {
 }
 
 export const DELIVERY_STATUS_COLORS = {
-  pending:   'bg-amber-50 text-amber-700 border-amber-300',
-  partial:   'bg-orange-50 text-orange-700 border-orange-300',
-  delivered: 'bg-emerald-50 text-emerald-700 border-emerald-300',
+  pending:   TONES.moving,
+  partial:   TONES.moving,
+  delivered: TONES.done,
 }
 
 export const DELIVERY_STATUS_LABELS = {
-  pending:   'Pending Delivery',
-  partial:   'Partial Delivery',
+  pending:   'Waiting for delivery',
+  partial:   'Partly delivered',
   delivered: 'Delivered',
 }
 
@@ -127,14 +150,9 @@ export const CATEGORY_LABELS = {
   event_supplies:  'Event Supplies',
 }
 
-export const CATEGORY_COLORS = {
-  hardware:        'bg-blue-50 text-blue-700 border-blue-300',
-  office_supplies: 'bg-slate-50 text-slate-700 border-slate-300',
-  lab_educational: 'bg-teal-50 text-teal-700 border-teal-300',
-  furniture:       'bg-amber-50 text-amber-700 border-amber-300',
-  food_catering:   'bg-orange-50 text-orange-700 border-orange-300',
-  event_supplies:  'bg-purple-50 text-purple-700 border-purple-300',
-}
+// A category is named, not colored (colors mean something needs attention).
+const CATEGORY_TONE = 'bg-[--color-canvas] text-[--color-text-secondary] border-[--color-border-strong]'
+export const CATEGORY_COLORS = Object.fromEntries(Object.keys(CATEGORY_LABELS).map(k => [k, CATEGORY_TONE]))
 
 // Per-category vocabulary for the Add Item form (label, placeholder, unit list).
 // Drives PRUpload / PREdit / PRDetail so the form reads naturally for each category.
@@ -150,7 +168,7 @@ export const CATEGORY_FORM = {
   },
   office_supplies: {
     sectionLabel:       'Section / Office',
-    sectionPlaceholder: 'e.g. Administrative Office — Q2 Supplies',
+    sectionPlaceholder: 'e.g. Administrative Office, Q2 Supplies',
     itemLabel:          'Supply Item',
     itemPlaceholder:    'e.g. Bond paper A4 / Black ink cartridge',
     units: ['ream','box','pack','pc','pair','set','bottle','roll','sheet'],
@@ -158,7 +176,7 @@ export const CATEGORY_FORM = {
   },
   lab_educational: {
     sectionLabel:       'Subject / Module / Lab',
-    sectionPlaceholder: 'e.g. Chemistry Lab — Semester 1',
+    sectionPlaceholder: 'e.g. Chemistry Lab, Semester 1',
     itemLabel:          'Material',
     itemPlaceholder:    'e.g. Compound microscope 1000x / Chemistry textbook',
     units: ['pc','set','box','bottle','kg','L','ream','pack','bag'],
@@ -166,7 +184,7 @@ export const CATEGORY_FORM = {
   },
   furniture: {
     sectionLabel:       'Room / Location',
-    sectionPlaceholder: 'e.g. Faculty Room — 2nd Floor',
+    sectionPlaceholder: 'e.g. Faculty Room, 2nd Floor',
     itemLabel:          'Furniture Item',
     itemPlaceholder:    'e.g. Ergonomic office chair / Conference table 8-seater',
     units: ['pc','set','pair','unit'],
@@ -184,7 +202,7 @@ export const CATEGORY_FORM = {
     sectionLabel:       'Event / Activity',
     sectionPlaceholder: 'e.g. Foundation Day Celebration',
     itemLabel:          'Supply',
-    itemPlaceholder:    'e.g. Tarpaulin 3x5ft — Welcome Banner',
+    itemPlaceholder:    'e.g. Tarpaulin 3x5ft, Welcome Banner',
     units: ['pc','set','pair','roll','lot','unit'],
     defaultUnit: 'pc',
   },
@@ -229,7 +247,7 @@ export const CATEGORY_FIELDS = {
     { key: 'dimensions',    label: 'Size / Dimensions',  placeholder: 'e.g. 4ft × 8ft, 3m × 5m' },
     { key: 'material',      label: 'Material',           placeholder: 'e.g. PVC vinyl, fabric, tarpaulin' },
     { key: 'customization', label: 'Customization', type: 'textarea',
-      placeholder: 'e.g.\nFull color print, single side\nText: "Welcome to NEMSU!"\nLogo: NEMSU seal' },
+      placeholder: 'e.g.\nFull color print, single side\nText: "Welcome to NEMSU!"\nLogo: the office logo' },
   ],
 }
 
@@ -329,11 +347,11 @@ export const CATEGORY_HELP = {
 }
 
 // Source of fund. The campus draws on three, each with its own code; the code
-// itself is configurable in Settings > Organization (server: utils/orgSettings.js).
+// itself is configurable on the Organization page (server: utils/orgSettings.js).
 export const FUND_SOURCES = [
-  { value: 'STF', label: 'STF — Special Trust Fund',         settingKey: 'fund_code_stf' },
-  { value: 'GAA', label: 'GAA — General Appropriations Act', settingKey: 'fund_code_gaa' },
-  { value: 'IGP', label: 'IGP — Income Generating Project',  settingKey: 'fund_code_igp' },
+  { value: 'STF', label: 'STF: Special Trust Fund',         settingKey: 'fund_code_stf' },
+  { value: 'GAA', label: 'GAA: General Appropriations Act', settingKey: 'fund_code_gaa' },
+  { value: 'IGP', label: 'IGP: Income Generating Project',  settingKey: 'fund_code_igp' },
 ]
 
 // The code that will print on the form for the chosen source.

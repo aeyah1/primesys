@@ -1,5 +1,3 @@
-const fs   = require('fs')
-const path = require('path')
 const { M } = require('../utils/pdfHelpers')
 const { drawSignature } = require('../utils/signature')
 
@@ -16,7 +14,6 @@ const ROW_H  = 13
 const PAD    = 3
 const FS     = 9
 const BOTTOM = 792 - M
-const SEAL   = path.join(__dirname, '..', 'assets', 'nemsu-seal.png')
 
 // Peso amounts print as bare grouped numbers, as the campus's forms do.
 const amount = (v) => (v === null || v === undefined || v === '' || Number.isNaN(Number(v))
@@ -79,14 +76,10 @@ function forms(doc) {
   }
 
   // The block every form but the Purchase Request opens with. Returns the y
-  // to carry on from. The campus's paper also carries its ISO 9001 and UKAS
-  // marks on the right; those images are not in the repository, so that space
-  // is left clear.
+  // to carry on from. The campus's paper also carries the university seal and its
+  // ISO 9001 and UKAS marks; none is printed without the university's authorisation.
   const letterhead = (org, title, top = M) => {
     const s = (key, fallback = '') => (org[key] || '').trim() || fallback
-    if (fs.existsSync(SEAL)) {
-      try { doc.image(SEAL, M + 18, top, { width: 52, height: 52 }) } catch { /* not fatal */ }
-    }
     const centre = { width: pageW(), align: 'center' }
     doc.font('Times-Roman').fontSize(9.5).fillColor(BLACK).text('Republic of the Philippines', M, top + 1, centre)
     doc.font('Times-Bold').fontSize(11).text(s('entity_full_name', 'NORTH EASTERN MINDANAO STATE UNIVERSITY'), M, top + 14, centre)

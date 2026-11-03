@@ -2,6 +2,7 @@ const pool         = require('../db/pool')
 const asyncHandler = require('../utils/asyncHandler')
 const { SETTING_KEYS, loadOrgSettings } = require('../utils/orgSettings')
 const signatures   = require('../utils/orgSignatures')
+const fileCrypto   = require('../utils/fileCrypto')
 
 // What the PR form shows to everyone else, with the threshold and the two approvers it prints (the
 // campus rule on who requests and approves); the other signatories and numbering are the admin's to see.
@@ -14,6 +15,8 @@ exports.get = asyncHandler(async (req, res) => {
   for (const row of rows) {
     if (req.user.role === 'admin' || FORM_KEYS.includes(row.setting_key)) out[row.setting_key] = row.setting_value
   }
+  // Whether stored files are encrypted (FILE_ENCRYPTION_KEY is set), for the admin's Records card; not a setting.
+  if (req.user.role === 'admin') out.file_encryption = fileCrypto.enabled() ? 'on' : 'off'
   res.json(out)
 })
 

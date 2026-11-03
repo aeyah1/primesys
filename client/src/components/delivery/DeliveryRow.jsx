@@ -4,7 +4,7 @@ import { Paperclip, ChevronDown, ChevronRight, Truck } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DeliveryStatusBadge } from '@/components/shared/StatusBadge'
 import AttachmentsPanel from '@/components/shared/AttachmentsPanel'
-import { fmtDate, plural } from '@/lib/utils'
+import { fmtDate, fmtDatetime, plural } from '@/lib/utils'
 import api from '@/lib/axios'
 import { qty } from './shared'
 
@@ -17,7 +17,7 @@ export function DeliveryRow({ d, canUpload = false, canDelete = false, openFiles
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-semibold text-[--color-text-primary]">
-            {fmtDate(d.delivered_date)} <span className="font-normal text-[--color-text-muted]">· received by {d.received_by_name || 'someone'}</span>
+            {fmtDate(d.delivered_date)} <span className="font-normal text-[--color-text-muted]">· received by {d.received_by_name || 'someone'}, recorded {fmtDatetime(d.created_at)}</span>
           </p>
           <p className="text-xs text-[--color-text-secondary] mt-0.5">
             {d.items.length ? d.items.map(i => `${i.item_name} × ${qty(i.quantity)}`).join(', ') : d.status === 'complete' ? 'Everything on the PO' : 'Part of the PO'}

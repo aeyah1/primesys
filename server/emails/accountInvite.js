@@ -29,7 +29,7 @@ module.exports = function accountInviteEmail({ name, username, role, setUrl, day
       </p>
 
       <p style="margin:0;">Sincerely,</p>
-      <p style="margin:4px 0 0;font-weight:700;">PrimeSys Support Team</p>
+      <p style="margin:4px 0 0;font-weight:700;">PRimeSys Support Team</p>
     </div>
   `
 }

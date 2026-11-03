@@ -18,6 +18,7 @@ const accountInviteEmail = require('../emails/accountInvite')
 const { issueResetToken } = require('../utils/resetLink')
 const { ROLE_WORDS } = require('../utils/audit')
 const crypto = require('crypto')
+const faceCheck = require('../utils/faceCheck')
 
 const INVITE_DAYS = 3
 
@@ -46,6 +47,33 @@ exports.twgCoverage = async (req, res) => {
   try { res.json(await coverage(pool)) } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
 }
 
+// GET /users/:id/activity?page= - one person's record for User Management: their last sign-in (when, address,
+// browser), how many audit entries they have of each kind, and their transaction history (every request they moved,
+// newest first, paged). Their full audit trail is GET /audit?user=:id.
+exports.activity = async (req, res) => {
+  try {
+    const [[person]] = await pool.execute('SELECT id FROM users WHERE id = ?', [req.params.id])
+    if (!person) return res.status(404).json({ message: 'User not found' })
+    const { page, limit, offset } = paging(req.query, { defaultLimit: 20, maxLimit: 100 })
+    const [[lastSignIn]] = await pool.execute(
+      "SELECT created_at AS at, ip, device FROM audit_logs WHERE user_id = ? AND action = 'auth.login' ORDER BY id DESC LIMIT 1", [person.id])
+    const [kinds] = await pool.execute(
+      "SELECT category, COUNT(*) AS n FROM audit_logs WHERE user_id = ? OR (target_type = 'user' AND target_id = ?) GROUP BY category", [person.id, person.id])
+    const [rows] = await pool.execute(`
+      SELECT l.id, l.created_at, l.from_status, l.to_status, l.note, pr.id AS pr_id, pr.pr_number, pr.title
+        FROM pr_status_logs l JOIN purchase_requests pr ON pr.id = l.pr_id
+       WHERE l.changed_by = ? ORDER BY l.id DESC LIMIT ${limit} OFFSET ${offset}`, [person.id])
+    const [[{ total }]] = await pool.execute('SELECT COUNT(*) AS total FROM pr_status_logs WHERE changed_by = ?', [person.id])
+    res.json({
+      last_sign_in: lastSignIn || null,
+      counts: Object.fromEntries(kinds.map(k => [k.category, Number(k.n)])),
+      transactions: { data: rows, total: Number(total), page, totalPages: Math.max(Math.ceil(total / limit), 1) },
+    })
+  } catch (err) {
+    console.error(err); res.status(500).json({ message: 'Internal server error' })
+  }
+}
+
 // A TWG account's review areas are saved with the account (checked in the
 // route). Any other role has none.
 async function saveAreas(conn, userId, role, areas, byId) {
@@ -58,7 +86,7 @@ async function saveAreas(conn, userId, role, areas, byId) {
   return true
 }
 
-const VALID_ROLES = ['admin', 'procurement', 'requestor', 'supply', 'twg', 'bac']
+const VALID_ROLES = ['admin', 'procurement', 'requestor', 'supply', 'twg']
 
 // User Management list: role tabs, status and TWG-area filters, and these
 // orders. "role" groups staff first in workflow order, then requestors, the
@@ -67,7 +95,7 @@ const USER_SORTS = {
   newest: 'u.created_at DESC, u.id DESC',
   oldest: 'u.created_at ASC, u.id ASC',
   name:   'u.name ASC, u.id ASC',
-  role:   "FIELD(u.role, 'admin', 'twg', 'procurement', 'bac', 'supply', 'requestor'), u.name ASC, u.id ASC",
+  role:   "FIELD(u.role, 'admin', 'twg', 'procurement', 'supply', 'requestor'), u.name ASC, u.id ASC",
 }
 const STATUS_FILTERS = {
   active:     'u.is_active = 1',
@@ -101,7 +129,7 @@ exports.list = async (req, res) => {
     const list = where('search', 'role', 'status', 'area')
     const [rows] = await pool.execute(
       `SELECT u.id, u.name, u.username, u.email, u.role, u.is_active, u.is_verified, u.created_at, u.skip_login_code,
-              u.designation, u.department_id, d.code AS department_code, d.name AS department_name,
+              u.face_enrolled_at, u.designation, u.department_id, d.code AS department_code, d.name AS department_name,
               (SELECT GROUP_CONCAT(ta.category) FROM twg_assignments ta WHERE ta.user_id = u.id) AS twg_areas
        FROM users u
        LEFT JOIN departments d ON d.id = u.department_id
@@ -181,6 +209,8 @@ exports.update = async (req, res) => {
     if (email)                       { extra.push('email = ?');         extraValues.push(email) }
     const skip = typeof req.body.skip_login_code === 'boolean' ? req.body.skip_login_code : null
     if (skip !== null)               { extra.push('skip_login_code = ?'); extraValues.push(skip ? 1 : 0) }
+    // An End User takes no face check, so a staff member made one no longer keeps face measurements.
+    if (!faceCheck.isStaff(role))    extra.push('face_template = NULL', 'face_enrolled_at = NULL')
 
     const officeId = 'department_id' in req.body ? (req.body.department_id || null) : current[0].department_id
     const areasSaved = await withTransaction(async (conn) => {
@@ -338,6 +368,8 @@ exports.toggleActive = async (req, res) => {
     await withTransaction(async (conn) => {
       if (!rows[0].is_active && rows[0].is_verified) await assertOffice(conn, rows[0])
       await conn.execute('UPDATE users SET is_active = NOT is_active WHERE id = ?', [id])
+      // A deactivated account no longer needs its face measurements (utils/faceCheck.js); back in use, it sets them up again.
+      if (rows[0].is_active) await conn.execute('UPDATE users SET face_template = NULL, face_enrolled_at = NULL WHERE id = ?', [id])
     })
     invalidateUserCache(id)
     const nowActive = !rows[0].is_active
@@ -367,5 +399,17 @@ exports.remove = async (req, res) => {
     invalidateUserCache(rows[0].id)
     securityLog('user_deleted', { userId: rows[0].id, by: req.user.id })
     res.json({ message: 'User deleted' })
+  } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
+}
+
+// DELETE /users/:id/face - removes a person's face measurements (a changed face, a camera that can't read it); while face
+// checks are on, they set it up again at their next sign-in.
+exports.resetFace = async (req, res) => {
+  try {
+    const [r] = await pool.execute('UPDATE users SET face_template = NULL, face_enrolled_at = NULL WHERE id = ? AND face_template IS NOT NULL', [req.params.id])
+    if (!r.affectedRows) return res.status(404).json({ message: 'This person has no face check set up' })
+    faceCheck.forget(Number(req.params.id))
+    securityLog('face_reset_by_admin', { userId: Number(req.params.id), by: req.user.id })
+    res.json({ message: 'Face check removed' })
   } catch (err) { console.error(err); res.status(500).json({ message: 'Internal server error' }) }
 }

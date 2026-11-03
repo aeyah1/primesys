@@ -11,7 +11,7 @@ import DocumentViewer from './DocumentViewer'
    the newest first, one opened whole in the page (DocumentViewer): the latest
    PDF or picture unless another is picked. Shown beside the bid sheets and the TWG's evaluation.
    prId: the PR; shown / onShow (optional): the file opened, kept by the page;
-   canRemove: each file has a remove button, for one attached by mistake (the BAC while it enters the bids). */
+   canRemove: each file has a remove button, for one attached by mistake (Procurement while it enters the bids). */
 export default function CanvassFiles({ prId, shown: kept, onShow, canRemove = false }) {
   const qc = useQueryClient()
   const confirm = useConfirm()
@@ -24,7 +24,7 @@ export default function CanvassFiles({ prId, shown: kept, onShow, canRemove = fa
     queryFn: () => api.get(`/pr/${prId}/attachments`).then(r => r.data),
   })
   const docs = [...files].reverse()
-  const current = docs.find(f => f.id === shown) || docs.find(f => previewable(f.mimetype)) || docs[0]
+  const current = docs.find(f => f.id === shown) || docs.find(f => !f.removed_at && previewable(f.mimetype)) || docs[0]
 
   const remove = async (f) => {
     if (!(await confirm({ title: 'Remove this file?', message: `${f.original_name} is deleted from the request.`, confirmLabel: 'Remove', danger: true }))) return

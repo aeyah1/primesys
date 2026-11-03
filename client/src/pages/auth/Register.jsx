@@ -95,7 +95,7 @@ export default function Register() {
       </PanelIntro>
       <PanelSteps steps={JOIN_STEPS} />
       <p className={`mt-10 max-w-md text-ui-sm text-white/45 ${ENTER}`} style={{ animationDelay: '800ms' }}>
-        TWG, BAC, Procurement and Supply accounts are set up by the administrator.
+        TWG, Procurement and Supply accounts are set up by the administrator.
       </p>
     </>
   )

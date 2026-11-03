@@ -40,14 +40,14 @@ export default function CloseBalanceDialog({ poId, onClose }) {
 
   return (
     <Dialog open onOpenChange={v => { if (!v) onClose() }}>
-      <DialogContent title="Close the Undelivered Balance" description={po ? `${po.po_number} · ${po.supplier_name}` : 'Loading…'} className="max-w-2xl">
+      <DialogContent title="Close the undelivered balance" description={po ? `${po.po_number} · ${po.supplier_name}` : 'Loading…'} className="max-w-2xl">
         {!po ? (
           <div className="space-y-3">{Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
         ) : (
           <div className="space-y-4">
             <p className="text-sm text-[--color-text-secondary]">
               Use this when the supplier can't deliver the rest. What arrived is kept and paid for; the items below are not paid,
-              and they go back to canvass, then to the BAC and the TWG, for a new award. This can't be undone.
+              and they go back to canvass for a new award, chosen by the BAC and checked by the TWG when needed. This can't be undone.
             </p>
 
             <div className="rounded-lg border border-[--color-border] overflow-x-auto">

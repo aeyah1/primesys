@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label'
 import { useAuth } from '@/context/AuthContext'
 import api from '@/lib/axios'
 import DevicesCard from './DevicesCard'
+import FaceCard from './FaceCard'
 
 export default function SecurityTab() {
   const { replaceToken } = useAuth()
@@ -43,7 +44,7 @@ export default function SecurityTab() {
   const canSubmit = form.current && form.next && form.confirm && matches && !tooShort && !isPending
 
   return (
-    <div className="space-y-6">
+    <div className="grid items-start gap-5 xl:grid-cols-2">
       <Card>
         <CardHeader>
           <CardTitle>Change password</CardTitle>
@@ -103,6 +104,7 @@ export default function SecurityTab() {
         </CardContent>
       </Card>
       <DevicesCard />
+      <FaceCard />
     </div>
   )
 }

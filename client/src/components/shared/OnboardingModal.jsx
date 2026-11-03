@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import BrandMark from '@/components/shared/BrandMark'
 import { useAuth } from '@/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import {
@@ -34,7 +35,7 @@ const SLIDES = {
       Icon:  Eye,
       color: 'from-blue-400 to-indigo-400',
       title: 'Track Your PR',
-      body:  'Your Dashboard shows what needs you and where each request is: Submitted → Approved by TWG → Canvass → Ready for PO → Completed. My Requests lists them all, and you\'ll get a notification at every stage.',
+      body:  'My tasks, your home, shows what needs you and where each request is: TWG review → Ready for canvass → Canvass → Choosing the supplier → Ready for purchase order → Ordered → Completed. My Requests lists them all, and you\'ll get a notification at every stage.',
     },
     {
       Icon:  CheckCircle,
@@ -55,19 +56,19 @@ const SLIDES = {
       Icon:  FileText,
       color: 'from-amber-400 to-orange-400',
       title: 'Canvass TWG-Approved PRs',
-      body:  'Your Dashboard shows what waits and the next requests to canvass. In the Work Queue, requests the TWG approved wait under To canvass; click Start canvass to give it its PR number and set the mode, then print the RFQ for the canvasser.',
+      body:  'My tasks, your home, lists what needs you: requests the TWG approved show with a Start canvass button; it gives the PR its number and mode, then you print the RFQ for the canvasser.',
     },
     {
       Icon:  Gavel,
       color: 'from-purple-400 to-pink-400',
-      title: 'Sign the RFQ, Then the BAC Has It',
-      body:  'Sign the printed RFQ by hand and give it to the canvasser, who gives the returned RFQs to the BAC. The BAC enters the bids, the TWG checks every offer, and the BAC picks the winners; then each supplier gets its own purchase order.',
+      title: 'Sign the RFQ, Then Enter the Quotations',
+      body:  'Sign the printed RFQ by hand and give it to the canvasser, who brings the returned RFQs back to you. You enter the bids, the TWG checks every offer when needed, the BAC chooses the winners at its meeting, and you record its award with the criteria it applied; then each supplier gets its own purchase order.',
     },
     {
       Icon:  ShoppingCart,
       color: 'from-blue-600 to-indigo-500',
       title: 'Issue a Purchase Order',
-      body:  'Open the PR (now Ready for PO) and issue the PO with supplier info and expected delivery date. The Supply Officer and the End User are notified automatically.',
+      body:  'Open the PR (now Ready for purchase order) and issue the PO with supplier info and expected delivery date. The Supply Officer and the End User are notified automatically.',
     },
     {
       Icon:  CheckCircle,
@@ -88,7 +89,7 @@ const SLIDES = {
       Icon:  Bell,
       color: 'from-amber-400 to-orange-400',
       title: 'Get Notified of New POs',
-      body:  'When a Purchase Order is issued, you\'ll get a real-time notification. Your dashboard lists what is still to receive, soonest due first, and counts the overdue POs.',
+      body:  'When a Purchase Order is issued, you\'ll get a notification. Your dashboard lists what is still to receive, soonest due first, and counts the overdue POs.',
     },
     {
       Icon:  Package,
@@ -120,26 +121,26 @@ const SLIDES = {
     {
       Icon:  ClipboardCheck,
       color: 'from-amber-400 to-orange-400',
-      title: 'Your Review Queue',
-      body:  'When an End User submits a PR, it lands under To review in Review & Certify. Open it to see every item, quantity, unit cost, and attachment.',
+      title: 'My tasks',
+      body:  'When an End User submits a request in your review areas, it shows under Needs you on My tasks, with a Review request button. The request opens with every item beside its PPMP line.',
     },
     {
       Icon:  CheckCircle,
       color: 'from-emerald-400 to-teal-400',
-      title: 'Approve & Forward',
-      body:  'If the specifications are correct, click Approve & Forward. The PR moves to Procurement\'s queue for the canvass. Later, you check every supplier\'s offer in its canvass and certify them, under To certify.',
+      title: 'Approve',
+      body:  'Open a request: the gold Your next step panel says what to do. If the specifications are correct, click Approve. The PR moves to Procurement\'s queue for the canvass. Later, you check every supplier\'s offer in its canvass and certify them, under To certify.',
     },
     {
       Icon:  RotateCcw,
       color: 'from-amber-500 to-yellow-400',
-      title: 'Request a Revision',
-      body:  'If something needs to change, click Request Revision and explain what the End User should fix. They get notified and can resubmit after editing. If the request can\'t go ahead, click Reject and give the reason.',
+      title: 'Return for changes',
+      body:  'If something needs to change, click Return for changes and explain what the End User should fix. They get notified and can resubmit after editing. If the request can\'t go ahead, click Reject and give the reason.',
     },
     {
       Icon:  CheckCircle,
       color: 'from-cyan-500 to-blue-500',
       title: 'You\'re all set!',
-      body:  'Open Review & Certify to start: it opens on whichever has work waiting. Your dashboard shows pending count, weekly activity, and your recent decisions. The User Guide has more details.',
+      body:  'Start from My tasks: it lists what waits for you, then your counts and recent decisions. The User Guide has more details.',
     },
   ],
 
@@ -153,8 +154,8 @@ const SLIDES = {
     {
       Icon:  ClipboardCheck,
       color: 'from-amber-400 to-orange-400',
-      title: 'For Evaluation',
-      body:  'Requests in canvass wait under For Evaluation, right below your Dashboard. Open one and add each supplier\'s quotation: attach its returned RFQ, then type the supplier, the RFQ No. and its prices. Then send it to the TWG, or go straight to the award.',
+      title: 'My tasks',
+      body:  'Requests in canvass show under Needs you on My tasks. Click Enter quotations and add each supplier\'s quotation: attach its returned RFQ, then type the supplier, the RFQ No. and its prices. Then send it to the TWG, or go straight to the award.',
     },
     {
       Icon:  CheckCircle,
@@ -181,19 +182,19 @@ const SLIDES = {
       Icon:  Users,
       color: 'from-blue-400 to-indigo-400',
       title: 'Manage Users',
-      body:  'Go to User Management to create accounts, assign roles (Admin, Procurement, End User, Supply, TWG, BAC), and activate or deactivate users. Public sign-up always creates End Users.',
+      body:  'Go to User Management to create accounts, assign roles (Admin, Procurement, End User, Supply, TWG), and activate or deactivate users. Public sign-up always creates End Users.',
     },
     {
       Icon:  Calendar,
       color: 'from-amber-400 to-orange-400',
       title: 'Offices and their PPMPs',
-      body:  'Under Organization, list the campus offices and their heads. Each office\'s End User uploads its PPMP; the quarters, and what each one is budgeted, follow from it on their own.',
+      body:  'On the Organization page (under Administration in the menu), list the campus offices and their heads. Each office\'s End User uploads its PPMP; the quarters, and what each one is budgeted, follow from it on their own.',
     },
     {
       Icon:  Shield,
       color: 'from-blue-600 to-indigo-500',
       title: 'Full System View',
-      body:  'You supervise: All Requests shows every request, and finished ones stay in the Archive. TWG reviews and BAC approvals belong to their members. Use Reports for system-wide analytics.',
+      body:  'You supervise: Requests shows every request, and finished ones stay in the Archive. TWG reviews belong to its members, and Procurement records the awards the BAC decides. Use Reports for system-wide analytics.',
     },
     {
       Icon:  CheckCircle,
@@ -268,7 +269,7 @@ export default function OnboardingModal({ forceShow = false, onClose }) {
           {/* Icon */}
           {slide.logo ? (
             <div className="mb-6 flex size-24 items-center justify-center animate-scale-in-fast">
-              <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-20 object-contain" />
+              <BrandMark className="size-20" />
             </div>
           ) : (
             <div className={`mb-6 flex size-20 items-center justify-center rounded-2xl bg-gradient-to-br ${slide.color} shadow-lg animate-scale-in-fast`}>

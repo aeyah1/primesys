@@ -6,29 +6,30 @@ const { adoptResolution } = require('./bacWorkflow')
 const { issueCertificate } = require('./twgCertificate')
 const { normalise, sectionsOf } = require('./itemSections')
 const { prName } = require('./requesterNotice')
-const { loadOrgSettings, awardDocumentFor } = require('./orgSettings')
+const { loadOrgSettings, awardDocumentFor, awardCriteriaOf } = require('./orgSettings')
 
 // The canvass bids of a PR
 // The canvasser canvasses the suppliers on paper and gives the returned RFQs
-// to the BAC, which types in each supplier's quotation, one at a time (its
+// to Procurement, which types in each supplier's quotation, one at a time (its
 // name, the RFQ No., the RFQ file attached to the PR, and for each item it
 // offered its unit price and what it offered), and sends the canvass to the TWG
 // (TWG certification) when its items need a technical evaluation (such as IT
-// equipment), else straight to its award (BAC award, sendToAward). The TWG
-// marks each bid compliant or non-compliant, with the offered specification
-// (correcting the BAC's if need be) and the reason, and certifies them in a
-// certificate that lists every bid (BAC award), or orders a re-canvass when no
-// offer for a lot is compliant (twg.controller). A supplier non-compliant on
-// every item it offered is DQ (disqualified). The BAC then picks the winner of
-// each lot (a section of the PR's items; a PR without lots is one lot) among
-// the bidders compliant on all of it, or without the TWG any bidder on all of
-// it; the system recommends the lowest total. Awarding records one award per
-// lot in a BAC Resolution (Ready for PO). Bids are only entered and changed in
-// canvass, on the items still needing an award.
+// equipment), else straight to its award (Choosing the supplier, sendToAward).
+// The TWG marks each bid compliant or non-compliant, with the offered
+// specification (correcting Procurement's if need be) and the reason, and
+// certifies them in a certificate that lists every bid, or orders a re-canvass
+// when no offer for a lot is compliant (twg.controller). A supplier
+// non-compliant on every item it offered is DQ (disqualified). The BAC then
+// chooses offline, on its approved criteria, the winner of each lot (a section
+// of the PR's items; a PR without lots is one lot) among the bidders compliant
+// on all of it, or without the TWG any bidder on all of it; the system picks no
+// one. Procurement records that award with the criteria the BAC applied, one
+// award per lot in a BAC Resolution (Ready for PO). Bids are only entered and
+// changed in canvass, on the items still needing an award.
 
 const ref = (b) => `${b.bidder_id}:${b.pr_item_id}`
 
-// What the BAC's award of a PR is recorded on: { kind: 'resolution' | 'abstract', abc, threshold }.
+// What the award of a PR is recorded on: { kind: 'resolution' | 'abstract', abc, threshold }.
 // The request's approved budget (its items not dropped) at or above the threshold takes a BAC Resolution.
 async function awardDocumentOf(db, prId) {
   const [[{ abc }]] = await db.execute(
@@ -77,21 +78,11 @@ function lotsOf(items) {
 const totalOf = (bidder, items) => (items.every(i => bidder.prices[i.id] != null)
   ? items.reduce((sum, i) => sum + lineCents(i.quantity, bidder.prices[i.id]), 0) : null)
 
-// The bidder the system recommends for a lot's items still to award: the
-// lowest total among those that bid on every one with every bid compliant (the
-// first on a tie), or null while there is none. Without the TWG's evaluation
-// (`checked` false) every bid counts, but one the TWG found non-compliant in an earlier round.
-function recommendedOf(items, bidders, { checked = true } = {}) {
-  let best = null
-  for (const b of bidders) {
-    if (!items.length || !items.every(i => (checked ? b.evaluation[i.id]?.compliant === true : b.evaluation[i.id]?.compliant !== false))) continue
-    const total = totalOf(b, items)
-    if (total != null && (!best || total < best.total)) best = { bidder: b, total }
-  }
-  return best?.bidder ?? null
-}
+// Whether some bidder offered every one of a lot's items with every bid found compliant by the TWG.
+const hasCompliantOffer = (items, bidders) => items.length > 0
+  && bidders.some(b => totalOf(b, items) != null && items.every(i => b.evaluation[i.id]?.compliant === true))
 
-// Whether the canvass with the BAC for its award skipped the TWG: it came there straight from the canvass.
+// Whether the canvass waiting for its award skipped the TWG: it came there straight from the canvass.
 async function twgSkipped(db, prId) {
   const [[last]] = await db.execute(
     "SELECT from_status FROM pr_status_logs WHERE pr_id = ? AND to_status = 'bac_review' ORDER BY id DESC LIMIT 1", [prId])
@@ -99,11 +90,11 @@ async function twgSkipped(db, prId) {
 }
 
 // How many canvass documents (the canvasser's returned RFQs and abstract) were
-// attached since this canvass started; a return by the TWG or the BAC doesn't restart it.
+// attached since this canvass started; a return by the TWG doesn't restart it.
 async function canvassDocuments(db, prId) {
   const [[{ files }]] = await db.execute(
     `SELECT COUNT(*) AS files FROM pr_attachments a JOIN users u ON u.id = a.uploaded_by
-      WHERE a.pr_id = ? AND u.role IN ('bac', 'procurement', 'admin')
+      WHERE a.pr_id = ? AND u.role IN ('procurement', 'admin')
         AND a.created_at >= COALESCE((SELECT MAX(sl.created_at) FROM pr_status_logs sl
                                        WHERE sl.pr_id = ? AND sl.to_status = 'bidding' AND sl.from_status IN ('twg_review', 'for_po')), '1970-01-01')`,
     [prId, prId])
@@ -230,19 +221,19 @@ async function sendBlock(db, pr) {
   return null
 }
 
-// The BAC sends the complete canvass to the TWG, on a PR the caller locked.
+// Procurement sends the complete canvass to the TWG, on a PR the caller locked.
 async function sendToTwg(conn, pr, user) {
   const blocked = await sendBlock(conn, pr)
   if (blocked) throw httpError(blocked.status, blocked.message)
-  await changePRStatus(pr.id, 'twg_certification', { user, via: 'bac', note: 'Canvass sent to the TWG for evaluation', conn })
+  await changePRStatus(pr.id, 'twg_certification', { user, via: 'steps', note: 'Canvass sent to the TWG for evaluation', conn })
 }
 
-// The BAC takes the complete canvass straight to its award, without the TWG's evaluation, on a PR the caller locked.
+// Procurement takes the complete canvass straight to its award, without the TWG's evaluation, on a PR the caller locked.
 async function sendToAward(conn, pr, user) {
   const blocked = await sendBlock(conn, pr)
   if (blocked) throw httpError(blocked.status, blocked.message)
   await changePRStatus(pr.id, 'bac_review', {
-    user, via: 'bac', conn, note: 'Canvass sent to the award without the TWG\'s evaluation',
+    user, via: 'steps', conn, note: 'Canvass sent to the award without the TWG\'s evaluation',
     notice: `The suppliers' offers for ${prName(pr)} are in. The BAC chooses the suppliers next.`,
   })
 }
@@ -281,7 +272,7 @@ async function saveEvaluation(conn, pr, evaluations = [], dq = []) {
 // The TWG certifies its evaluation of every open bid, on a PR the caller
 // locked: each bid is marked, a non-compliant one with its reason, and every
 // lot has an offer compliant on all of it (else the TWG orders a re-canvass).
-// Issues the certificate and sends the PR to the BAC for the award; the End
+// Issues the certificate and sends the PR on to its award; the End
 // User hears how many suppliers were DQ. Resolves with { id, cert_no }.
 async function certifyBids(conn, pr, user, { certNo, signature, comment }) {
   if (pr.deleted_at || pr.status !== 'twg_certification') throw httpError(409, 'This PR is not with the TWG for certification')
@@ -293,7 +284,7 @@ async function certifyBids(conn, pr, user, { certNo, signature, comment }) {
   if (unexplained) throw httpError(409, `State why ${unexplained.name}'s bid is non-compliant`)
   const lots = lotsOf(open)
   const bidders = await biddersOf(conn, pr.id)
-  const bare = lots.find(l => !recommendedOf(l.items, bidders))
+  const bare = lots.find(l => !hasCompliantOffer(l.items, bidders))
   if (bare) throw httpError(409, `No offer ${lots.length > 1 ? `for ${bare.name} ` : ''}is compliant. Choose Re-canvass and give the reason.`)
   const certificate = await issueCertificate(conn, { prId: pr.id, user, certNo, signature })
   await conn.execute(
@@ -351,19 +342,20 @@ async function recordWinner(conn, pr, w, user) {
   return { ...lot, awarded_to: supplier, awarded_amount: (amount / 100).toFixed(2), items: w.items.length }
 }
 
-// The BAC awards the certified bids (or those sent straight to the award) on a PR the caller locked, a lot at a time:
-// winners: [{ lot (its label, '' for a PR without lots), bidder_id, reason }],
+// Procurement records the BAC's award of the certified bids (or those sent straight to the award) on a PR the caller
+// locked, a lot at a time: winners: [{ lot (its label, '' for a PR without lots), bidder_id, criteria, reason }],
 // one for every lot with an item still needing an award (or its items are
 // dropped). Any bidder that bid on every such item of the lot, none of them found
-// non-compliant by the TWG, may win it; a pick other than the recommended one is noted on its award, with the BAC's
-// reason if given. Records an award per lot, with the details from the winner's supplier profile, certified by the TWG's latest
+// non-compliant by the TWG, may win it; each award names the criteria the BAC applied (at least one, from the
+// campus's list, orgSettings.awardCriteriaOf), with the BAC's remark if given. Records an award per lot, with the details from the winner's supplier profile, certified by the TWG's latest
 // certificate (none when the TWG was skipped), adopts a BAC Resolution for them (below the resolution threshold, the Abstract of sealed
 // Quotations alone: awardDocumentOf), and makes the PR Ready for PO. Resolves with { resolution, lots }.
 async function awardBids(conn, pr, user, { winners = [], notes = null }) {
-  if (pr.deleted_at || pr.status !== 'bac_review') throw httpError(409, 'The BAC awards once the bids are certified by the TWG or sent straight to the award')
+  if (pr.deleted_at || pr.status !== 'bac_review') throw httpError(409, 'The award is recorded once the bids are certified by the TWG or sent straight to the award')
   const { items } = await itemStates(conn, pr.id)
   const bidders = await biddersOf(conn, pr.id)
   const checked = !(await twgSkipped(conn, pr.id))
+  const allowed = awardCriteriaOf(await loadOrgSettings(conn))
   const picks = lotsOf(items.filter(i => i.state === 'pending')).map(lot => {
     const pick = winners.find(w => normalise(w.lot).toLowerCase() === lot.label.toLowerCase())
     const bidder = bidders.find(b => b.id === pick?.bidder_id)
@@ -376,10 +368,12 @@ async function awardBids(conn, pr, user, { winners = [], notes = null }) {
         + `so it can't be awarded ${lot.name}. Pick a compliant supplier, drop the item, or take it back to the canvass.`)
     }
     const reason = pick.reason?.trim() || null
-    const recommended = recommendedOf(lot.items, bidders, { checked })
-    const why = recommended && recommended.id !== bidder.id ? [`${lot.name}: chosen over the recommended lowest ${checked ? 'compliant ' : ''}bid of ${recommended.name}`] : []
-    if (why.length && reason) why[0] += `. The BAC's reason: ${reason}`
-    return { lot, bidder, reason, notes: why.join('\n') }
+    const ticked = (Array.isArray(pick.criteria) ? pick.criteria : []).map(c => String(c).trim()).filter(Boolean)
+    if (!ticked.length) throw httpError(400, `Tick the criteria the BAC applied in awarding ${lot.name}`)
+    const unknown = ticked.find(c => !allowed.includes(c))
+    if (unknown) throw httpError(400, `"${unknown}" is not one of the award criteria. Reload the page and tick them again.`)
+    const basis = allowed.filter(c => ticked.includes(c))
+    return { lot, bidder, reason, notes: `Basis: ${basis.join('; ')}${reason ? `. ${reason}` : ''}` }
   })
 
   const lots = []
@@ -402,7 +396,7 @@ async function awardBids(conn, pr, user, { winners = [], notes = null }) {
       [resolution.id, cert?.created_at ?? new Date(), cert?.certified_by ?? null, cert?.id ?? null, ...lots.map(l => l.id)])
   }
   await changePRStatus(pr.id, 'for_po', {
-    user, via: 'bac', conn,
+    user, via: 'steps', conn,
     note: !resolution ? 'No item left to award'
       : resolution.kind === 'abstract' ? 'Awarded by the BAC on the Abstract of sealed Quotations'
         : `Awarded by the BAC in Resolution No. ${resolution.resolution_number}`,
@@ -410,17 +404,17 @@ async function awardBids(conn, pr, user, { winners = [], notes = null }) {
   return { resolution, lots }
 }
 
-// The BAC takes a canvass waiting for its award back to correct its bids, on a PR the caller
+// Procurement takes a canvass waiting for its award back to correct its bids, on a PR the caller
 // locked; it is sent on again from the canvass (unchanged bids keep the TWG's evaluation).
 async function reopenCanvass(conn, pr, user, reason) {
-  if (pr.deleted_at || pr.status !== 'bac_review') throw httpError(409, 'Only a canvass waiting for the BAC\'s award can be taken back')
+  if (pr.deleted_at || pr.status !== 'bac_review') throw httpError(409, 'Only a canvass waiting for its award can be taken back')
   await changePRStatus(pr.id, 'bidding', {
-    user, via: 'bac', note: `Taken back to the canvass by the BAC: ${reason}`, conn,
-    notice: `The BAC took ${prName(pr)} back to the canvass to check the offers again: ${reason}.`,
+    user, via: 'steps', note: `Taken back to the canvass by Procurement: ${reason}`, conn,
+    notice: `Procurement took ${prName(pr)} back to the canvass to check the offers again: ${reason}.`,
   })
 }
 
 module.exports = {
-  biddersOf, lotsOf, recommendedOf, twgSkipped, canvassDocuments, saveBids, removeBidder, sendBlock, sendToTwg, sendToAward,
+  biddersOf, lotsOf, twgSkipped, canvassDocuments, saveBids, removeBidder, sendBlock, sendToTwg, sendToAward,
   openBids, saveEvaluation, certifyBids, awardBids, reopenCanvass, awardDocumentOf, AWARDED, DQ,
 }

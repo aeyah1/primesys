@@ -12,8 +12,6 @@ const { IN_AREA } = require('../utils/twgAreas')
 //                 utils/twgAreas.js) that are in a TWG stage or were reviewed
 //                 by the TWG, plus any PR they made a TWG decision on. Never drafts.
 // supply      -> PRs with an awarded lot or a purchase order
-// bac         -> PRs the TWG approved (from Approved by TWG on, and ones
-//                 cancelled after that approval), for the canvasses they review
 // requestor   -> only PRs they created (also the fallback for unknown roles)
 //
 // Everyone can also see PRs they created themselves. Deleted PRs are archived:
@@ -38,15 +36,6 @@ function roleScope(user) {
                                      OR rl.from_status = 'twg_certification'))
                   OR (${IN_AREA} AND (pr.status IN (${TWG_STAGES}) OR pr.twg_reviewed_by IS NOT NULL)))))`,
         params: [user.id, user.id, user.id],
-      }
-    case 'bac':
-      return {
-        sql: `(pr.created_by = ?
-               OR pr.status IN ('twg_review', 'bidding', 'bac_review', 'twg_certification', 're_pr', 'for_po', 'completed')
-               OR (pr.re_pr_count > 0 AND pr.status <> 'draft')
-               OR (pr.status = 'cancelled' AND EXISTS (SELECT 1 FROM pr_status_logs bl
-                                                        WHERE bl.pr_id = pr.id AND bl.to_status = 'twg_review')))`,
-        params: [user.id],
       }
     case 'supply':
       return {

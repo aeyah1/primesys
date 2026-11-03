@@ -4,31 +4,23 @@ import {
   PieChart, Pie, Cell, Legend, AreaChart, Area,
 } from 'recharts'
 import { useState } from 'react'
-import { Download, Printer } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Download, Printer, FileText, Wallet, Clock, CheckCircle2 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
+import PageHeader from '@/components/shared/PageHeader'
+import { Figure } from '@/components/shared/StatsCard'
 import { fmtCurrency, PR_STATUS_LABELS, CATEGORY_LABELS } from '@/lib/utils'
 import { openPdf, downloadCSV } from '@/lib/download'
 import api from '@/lib/axios'
 
+// The brand's navy in steps from dark to light, and its gold, so the categories read apart without a rainbow.
 const CATEGORY_COLORS = [
-  '#166534', '#15803d', '#16a34a', '#b45309',
-  '#d97706', '#0f766e', '#7c3aed', '#be123c',
+  'hsl(222,62%,24%)', 'hsl(222,52%,38%)', 'hsl(222,46%,52%)', 'hsl(42,82%,55%)',
+  'hsl(222,44%,66%)', 'hsl(42,70%,72%)', 'hsl(222,40%,80%)', 'hsl(220,10%,60%)',
 ]
-
-function StatCard({ label, value, sub }) {
-  return (
-    <Card>
-      <CardContent className="py-5 px-6">
-        <p className="text-ui-xs font-medium text-[--color-text-muted] uppercase tracking-wide">{label}</p>
-        <p className="text-ui-2xl font-bold text-[--color-text-primary] mt-1">{value}</p>
-        {sub && <p className="text-ui-xs text-[--color-text-secondary] mt-0.5">{sub}</p>}
-      </CardContent>
-    </Card>
-  )
-}
 
 const fmtK = (v) => {
   if (v >= 1_000_000) return `₱${(v / 1_000_000).toFixed(1)}M`
@@ -46,6 +38,7 @@ export default function ReportsPage() {
 
   if (isLoading) return (
     <div className="space-y-5">
+      <PageHeader title="Reports" sub="Spending, plans and where every request stands, for the campus." />
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
       </div>
@@ -120,19 +113,15 @@ export default function ReportsPage() {
   const statusCounts = Object.fromEntries(byStatus.map(s => [s.status, parseInt(s.count)]))
   const statusChartData = Object.keys(PR_STATUS_LABELS)
     .filter(s => s !== 'cancelled' && statusCounts[s])
-    .map(s => ({ name: PR_STATUS_LABELS[s], value: statusCounts[s] }))
+    .map(s => ({ key: s, name: PR_STATUS_LABELS[s], value: statusCounts[s] }))
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h2 className="text-ui-xl font-bold text-[--color-text-primary]">Reports & Analytics</h2>
-          <p className="text-ui-xs text-[--color-text-secondary] mt-0.5">Procurement spending and pipeline overview</p>
-        </div>
-        {!isLoading && data && (
-          <div className="flex items-center gap-2 shrink-0">
+      <PageHeader title="Reports" sub="Spending, plans and where every request stands, for the campus. Print the summary or export the figures.">
+        {data && (
+          <>
             <Select value={period} onValueChange={setPeriod}>
-              <SelectTrigger className="h-8 w-[150px] text-ui-xs"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="h-9 w-[170px] text-ui-xs" aria-label="Period of the printed summary"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="ytd">This year so far</SelectItem>
                 {byQuarter.filter(q => q.start_date && q.end_date).map(q => (
@@ -140,27 +129,27 @@ export default function ReportsPage() {
                 ))}
               </SelectContent>
             </Select>
-            <Button variant="secondary" size="sm" className="gap-1.5" onClick={printSummary}>
-              <Printer className="size-3.5" /> Print summary
+            <Button variant="secondary" className="gap-1.5" onClick={exportReport}>
+              <Download className="size-4" /> Export CSV
             </Button>
-            <Button variant="secondary" size="sm" className="gap-1.5" onClick={exportReport}>
-              <Download className="size-3.5" /> Export CSV
+            <Button className="gap-1.5" onClick={printSummary}>
+              <Printer className="size-4" /> Print summary
             </Button>
-          </div>
+          </>
         )}
-      </div>
+      </PageHeader>
 
       {/* Stat Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard label="Total PRs" value={totals.total_prs ?? 0} />
-        <StatCard label="Total Spending" value={fmtCurrency(totals.total_spending)} />
-        <StatCard label="In Progress" value={totals.in_progress ?? 0} sub="bidding → delivery" />
-        <StatCard label="Completed" value={totals.completed ?? 0} sub="fully delivered PRs" />
+        <Figure icon={FileText} label="Requests" value={totals.total_prs ?? 0} />
+        <Figure icon={Wallet} label="Spending" value={fmtCurrency(totals.total_spending)} detail="on active purchase orders" />
+        <Figure icon={Clock} label="In progress" value={totals.in_progress ?? 0} detail="from canvass to delivery" />
+        <Figure icon={CheckCircle2} label="Completed" value={totals.completed ?? 0} detail="delivered in full" />
       </div>
 
       {/* Quarterly Spending Bar Chart */}
       <Card>
-        <CardHeader><CardTitle>Spending by Quarter</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Spending by quarter</CardTitle></CardHeader>
         <CardContent>
           {quarterChartData.length === 0
             ? <p className="text-center text-ui-sm text-[--color-text-muted] py-10">No data yet</p>
@@ -186,7 +175,7 @@ export default function ReportsPage() {
         {/* Category Pie Chart */}
         <Card>
           <CardHeader>
-            <CardTitle>Spending by Category</CardTitle>
+            <CardTitle>Spending by category</CardTitle>
             <p className="text-ui-xs text-[--color-text-muted]">Active purchase orders, by PR category</p>
           </CardHeader>
           <CardContent>
@@ -217,7 +206,7 @@ export default function ReportsPage() {
 
         {/* Monthly Trend Area Chart */}
         <Card>
-          <CardHeader><CardTitle>Monthly Trend (Last 12 months)</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Monthly spending (last 12 months)</CardTitle></CardHeader>
           <CardContent>
             {monthlyChartData.length === 0
               ? <p className="text-center text-ui-sm text-[--color-text-muted] py-10">No data yet</p>
@@ -246,14 +235,15 @@ export default function ReportsPage() {
 
       {/* PR Status Breakdown */}
       <Card>
-        <CardHeader><CardTitle>PR Status Breakdown</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Where the requests are</CardTitle></CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
             {statusChartData.map(s => (
-              <div key={s.name} className="rounded-xl border border-[--color-border] bg-[--color-canvas] px-4 py-4 text-center">
+              <Link key={s.key} to={`/pr?status=${s.key}`} title={`Open the ${s.name} requests`}
+                className="rounded-xl border border-[--color-border-strong] bg-[--color-canvas] px-4 py-4 text-center transition-all hover:-translate-y-0.5 hover:border-[--color-brand] hover:shadow-sm">
                 <p className="text-ui-2xl font-bold text-[--color-text-primary]">{s.value}</p>
                 <p className="text-xs text-[--color-text-muted] mt-1 leading-snug">{s.name}</p>
-              </div>
+              </Link>
             ))}
           </div>
         </CardContent>
@@ -261,7 +251,7 @@ export default function ReportsPage() {
 
       {/* Quarterly Table */}
       <Card>
-        <CardHeader><CardTitle>Quarter Summary</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Quarter summary</CardTitle></CardHeader>
         <CardContent className="p-0">
           <table className="w-full text-ui-sm">
             <thead className="border-b border-[--color-border] bg-[--color-brand-light]/50">
@@ -283,7 +273,7 @@ export default function ReportsPage() {
                     <td className="px-6 py-3.5 font-semibold text-[--color-text-primary]">{q.label} {q.year}</td>
                     <td className="px-6 py-3.5 text-right text-[--color-text-secondary]">{q.pr_count}</td>
                     <td className="px-6 py-3.5 text-right font-semibold text-[--color-text-primary]">{fmtCurrency(spending)}</td>
-                    <td className="px-6 py-3.5 text-right text-[--color-text-secondary]">{budget ? fmtCurrency(budget) : '—'}</td>
+                    <td className="px-6 py-3.5 text-right text-[--color-text-secondary]">{budget ? fmtCurrency(budget) : 'None'}</td>
                     <td className="px-6 py-3.5 text-right">
                       {pct !== null ? (
                         <div className="flex items-center justify-end gap-2">
@@ -293,7 +283,7 @@ export default function ReportsPage() {
                           </div>
                           <span className="text-xs text-[--color-text-secondary]">{pct.toFixed(0)}%</span>
                         </div>
-                      ) : '—'}
+                      ) : 'None'}
                     </td>
                   </tr>
                 )

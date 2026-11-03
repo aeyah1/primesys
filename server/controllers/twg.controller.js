@@ -1,6 +1,6 @@
 // TWG (Technical Working Group) controller - isolated from pr.controller.
 // Owns the review of a requestor's submission before the canvass, and the
-// evaluation and certification of the canvass's bids before the BAC's award.
+// evaluation and certification of the canvass's bids before the award.
 
 const pool         = require('../db/pool')
 const notify       = require('../utils/notify')
@@ -8,7 +8,7 @@ const asyncHandler = require('../utils/asyncHandler')
 const httpError    = require('../utils/httpError')
 const withTransaction    = require('../db/transaction')
 const { loadPR, changePRStatus } = require('../utils/prWorkflow')
-const { notifyBac }      = require('../utils/bacWorkflow')
+const { notifyProcurement } = require('../utils/bacWorkflow')
 const { prName }         = require('../utils/requesterNotice')
 const { RE_PR_TYPES, proposeRePr } = require('../utils/rePr')
 const { saveEvaluation, certifyBids } = require('../utils/canvassBids')
@@ -190,16 +190,16 @@ exports.saveEvaluation = asyncHandler(async (req, res) => {
 
 // POST /twg/:prId/certify - body: { action: 'certify' | 'recanvass' | 'return' | 'repr', comment, re_pr_type, cert_no, signature, sign_method }
 // The TWG decides the canvass result. Certifying (every bid marked compliant
-// or not) issues the certificate and the BAC picks the winners next;
+// or not) issues the certificate and Procurement records the BAC's award next;
 // a re-canvass (no offer for a lot is compliant) sends it back to canvass
-// for new quotations; returning gives the canvass back to the BAC to correct
-// its entries; a Re-PR (every supplier DQ, utils/rePr.js) sends it to the BAC
+// for new quotations; returning gives the canvass back to Procurement to correct
+// its entries; a Re-PR (every supplier DQ, utils/rePr.js) sends it to Procurement
 // to go back to the End User. All but certifying need a comment.
 exports.certifyPR = asyncHandler(async (req, res) => {
   const { action } = req.body
   const comment = req.body.comment?.trim() || null
   if (!['certify', 'recanvass', 'return', 'repr'].includes(action)) return res.status(400).json({ message: 'Action must be "certify", "recanvass", "return" or "repr"' })
-  if (action === 'return' && !comment) return res.status(400).json({ message: 'A comment is required when returning it to the BAC' })
+  if (action === 'return' && !comment) return res.status(400).json({ message: 'A comment is required when returning it to Procurement' })
   if (action === 'recanvass' && !comment) return res.status(400).json({ message: 'Give the reason for the re-canvass' })
   const denied = await notReviewer(req.user, req.params.prId)
   if (denied) return res.status(denied.status).json({ message: denied.message })
@@ -219,7 +219,7 @@ exports.certifyPR = asyncHandler(async (req, res) => {
       note: `${recanvass ? 'Re-canvass ordered by the TWG' : 'Returned by the TWG'}: ${comment}`,
       notice: recanvass
         ? `The TWG found no offer for ${prName(pr)} that meets your specifications: ${comment}. It goes back to canvass for new quotations.`
-        : `The TWG returned the offers for ${prName(pr)} to the BAC to correct: ${comment}.`,
+        : `The TWG returned the offers for ${prName(pr)} to Procurement to correct: ${comment}.`,
     })
     // A re-canvass stays counted on the request for good (its "Re-canvassed" marker).
     await conn.execute(`UPDATE purchase_requests SET certification_return_reason = ?, recanvass_reason = ?${recanvass ? ', recanvass_count = LEAST(recanvass_count + 1, 255)' : ''} WHERE id = ?`,
@@ -229,25 +229,22 @@ exports.certifyPR = asyncHandler(async (req, res) => {
 
   const prLabel = pr.title ? `${pr.pr_number} — ${pr.title}` : pr.pr_number
   if (action === 'return') {
-    await notifyBac(req.io, pr.id, pr.pr_number, `PR ${prLabel} was returned by the TWG: ${comment}`)
-    return res.json({ message: 'Returned to the BAC' })
+    await notifyProcurement(req.io, pr.id, pr.pr_number, `PR ${prLabel} was returned by the TWG: ${comment}`)
+    return res.json({ message: 'Returned to Procurement' })
   }
   if (action === 'recanvass') {
-    // Procurement prints the RFQ for the canvasser again; the BAC enters the new quotations.
-    const [procs] = await pool.execute("SELECT id FROM users WHERE role = 'procurement' AND is_active = 1")
-    await Promise.all(procs.map(p => notify(req.io, p.id,
-      `The TWG ordered a re-canvass of PR ${prLabel}: ${comment}. Give the canvasser the RFQ again.`, 'warning', pr.id, 'pr')))
-    await notifyBac(req.io, pr.id, pr.pr_number,
-      `The TWG ordered a re-canvass of PR ${prLabel}: ${comment}. Enter the new quotations, then send the canvass again.`)
-    return res.json({ message: 'Sent back to canvass for new quotations. The End User, Procurement and the BAC are told.' })
+    // Procurement prints the RFQ for the canvasser again and enters the new quotations.
+    await notifyProcurement(req.io, pr.id, pr.pr_number,
+      `The TWG ordered a re-canvass of PR ${prLabel}: ${comment}. Give the canvasser the RFQ again, enter the new quotations, then send the canvass again.`)
+    return res.json({ message: 'Sent back to canvass for new quotations. The End User and Procurement are told.' })
   }
   if (action === 'repr') {
-    await notifyBac(req.io, pr.id, pr.pr_number,
+    await notifyProcurement(req.io, pr.id, pr.pr_number,
       `The TWG proposed a Re-PR of PR ${prLabel} (${RE_PR_TYPES[req.body.re_pr_type]}): ${comment}. Check it, then send it to the End User or return it to the TWG.`)
-    return res.json({ message: 'Re-PR proposed. The BAC checks it, then sends it to the End User.' })
+    return res.json({ message: 'Re-PR proposed. Procurement checks it, then sends it to the End User.' })
   }
-  await notifyBac(req.io, pr.id, pr.pr_number, `The TWG certified the bids of PR ${prLabel} (Cert. No. ${certificate.cert_no}). Pick the winners and award.`)
-  res.json({ message: `Certified in Cert. No. ${certificate.cert_no}. The BAC picks the winners next.`, certificate })
+  await notifyProcurement(req.io, pr.id, pr.pr_number, `The TWG certified the bids of PR ${prLabel} (Cert. No. ${certificate.cert_no}). Record the BAC's award.`)
+  res.json({ message: `Certified in Cert. No. ${certificate.cert_no}. Procurement records the BAC's award next.`, certificate })
 })
 
 // GET /twg/stats - dashboard tiles for the TWG dashboard, counted over this
@@ -282,11 +279,14 @@ exports.stats = asyncHandler(async (req, res) => {
     WHERE changed_by = ? AND created_at >= ${sevenDaysAgo}
   `, [req.user.id])
 
-  // Average review time across all completed TWG actions (in hours).
+  // Average review time (in hours): from each submission to the TWG's decision on it (approve, return or reject), so a
+  // request's drafting time doesn't count and the figure is never below zero.
   const [[avgRow]] = await pool.execute(`
-    SELECT AVG(TIMESTAMPDIFF(MINUTE, pr.created_at, pr.twg_reviewed_at)) AS avg_minutes
-    FROM purchase_requests pr
-    WHERE pr.twg_reviewed_at IS NOT NULL
+    SELECT AVG(TIMESTAMPDIFF(MINUTE,
+             (SELECT MAX(s.created_at) FROM pr_status_logs s WHERE s.pr_id = l.pr_id AND s.to_status = 'submitted' AND s.created_at <= l.created_at),
+             l.created_at)) AS avg_minutes
+    FROM pr_status_logs l
+    WHERE l.from_status = 'submitted' AND l.to_status IN ('twg_review', 'revision_requested', 'rejected')
   `)
   const avgHours = avgRow.avg_minutes ? Number((avgRow.avg_minutes / 60).toFixed(1)) : null
 

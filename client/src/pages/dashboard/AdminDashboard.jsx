@@ -1,8 +1,8 @@
 ﻿import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import {
-  FileText, Users, Settings, CheckCircle2,
-  TrendingUp, Wallet, ShieldCheck, AlertCircle, AlertTriangle, ShieldAlert,
+  FileText, Users, CheckCircle2,
+  TrendingUp, Wallet, AlertCircle, AlertTriangle, ShieldAlert, Building2,
 } from 'lucide-react'
 import {
   BarChart, Bar,
@@ -11,19 +11,18 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { StatsCard } from '@/components/shared/StatsCard'
 import { PRStatusBadge, MarkerBadges } from '@/components/shared/StatusBadge'
-import { SpendingTrendCard, WaitingCard, useDashboard } from '@/components/dashboard/DashboardParts'
-import { fmtDate, fmtCurrency, PR_STATUS_LABELS } from '@/lib/utils'
+import { DashboardHeader, SpendingTrendCard, StatLink } from '@/components/dashboard/DashboardParts'
+import MyTasks from '@/components/dashboard/MyTasks'
+import { fmtDatetime, fmtCurrency, PR_STATUS_LABELS } from '@/lib/utils'
 import api from '@/lib/axios'
 
 const ROLE_META = [
   { key: 'procurement', label: 'Procurement',    color: 'bg-blue-500' },
-  { key: 'requestor',   label: 'End User',       color: 'bg-teal-500' },
-  { key: 'supply',      label: 'Supply Officer',  color: 'bg-orange-500' },
-  { key: 'twg',         label: 'TWG',             color: 'bg-cyan-500' },
-  { key: 'bac',         label: 'BAC',             color: 'bg-indigo-500' },
-  { key: 'admin',       label: 'Admin',           color: 'bg-purple-500' },
+  { key: 'requestor',   label: 'End User',       color: 'bg-blue-500' },
+  { key: 'supply',      label: 'Supply Officer',  color: 'bg-amber-500' },
+  { key: 'twg',         label: 'TWG',             color: 'bg-blue-500' },
+  { key: 'admin',       label: 'Admin',           color: 'bg-blue-500' },
 ]
 
 function SectionHeader({ title, action }) {
@@ -80,8 +79,6 @@ export default function AdminDashboard() {
     queryFn: () => api.get('/pr?limit=8').then(r => r.data),
   })
 
-  const waiting = useDashboard()
-
   const { data: coverage = [] } = useQuery({
     queryKey: ['twg-coverage'],
     queryFn: () => api.get('/users/twg-coverage').then(r => r.data),
@@ -108,7 +105,8 @@ export default function AdminDashboard() {
   const maxRoleCount = Math.max(...roleCounts.map(r => r.count), 1)
 
 
-  const statusChartData = Object.entries(PR_STATUS_LABELS).map(([key, name]) => ({ name, value: stats?.[key] ?? 0 }))
+  // Stored statuses only (Ordered is read from a request's purchase orders, not counted here).
+  const statusChartData = Object.entries(PR_STATUS_LABELS).filter(([key]) => key !== 'ordered').map(([key, name]) => ({ name, value: stats?.[key] ?? 0 }))
 
   const activeQuarters = (report?.byQuarter ?? []).filter(q => q.budget > 0).slice(0, 4)
   const totalSpending  = report?.totals?.total_spending ?? 0
@@ -116,31 +114,19 @@ export default function AdminDashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-start justify-between flex-wrap gap-4">
-        <div>
-          <div className="flex items-center gap-2.5 mb-1">
-            <div className="flex size-8 items-center justify-center rounded-lg bg-[--color-brand-light]">
-              <ShieldCheck className="size-4 text-[--color-brand]" />
-            </div>
-            <h2 className="text-ui-2xl font-bold text-[--color-text-primary]">System Overview</h2>
-          </div>
-          <p className="text-ui-sm text-[--color-text-secondary]">
-            Full visibility across all procurement activity
-          </p>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <Button asChild variant="secondary" size="sm" className="gap-1.5">
-            <Link to="/users"><Users className="size-3.5" /> Manage Users</Link>
-          </Button>
-          <Button asChild variant="secondary" size="sm" className="gap-1.5">
-            <Link to="/reports"><TrendingUp className="size-3.5" /> Reports</Link>
-          </Button>
-          <Button asChild size="sm" className="gap-1.5">
-            <Link to="/settings"><Settings className="size-3.5" /> Settings</Link>
-          </Button>
-        </div>
-      </div>
+      <DashboardHeader sub="What needs an admin, and an overview of all procurement activity.">
+        <Button asChild variant="secondary" size="sm" className="gap-1.5">
+          <Link to="/users"><Users className="size-3.5" /> User Management</Link>
+        </Button>
+        <Button asChild variant="secondary" size="sm" className="gap-1.5">
+          <Link to="/reports"><TrendingUp className="size-3.5" /> Reports</Link>
+        </Button>
+        <Button asChild variant="secondary" size="sm" className="gap-1.5">
+          <Link to="/organization"><Building2 className="size-3.5" /> Organization</Link>
+        </Button>
+      </DashboardHeader>
+
+      <MyTasks />
 
       {flagged > 0 && (
         <div className="flex items-start gap-3 rounded-xl border border-red-300 bg-red-50 px-4 py-3">
@@ -148,13 +134,14 @@ export default function AdminDashboard() {
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-red-800">Repeated failed sign-ins in the last 24 hours</p>
             <p className="text-xs text-red-700 mt-0.5">
-              Someone may be guessing passwords. If the people named didn't make these attempts, ask them to change their password.
+              Someone may be guessing passwords or trying someone else's face check. If the people named didn't make these
+              attempts, ask them to change their password.
             </p>
             <ul className="mt-2 space-y-1 text-xs text-red-800">
               {alerts.accounts.map(a => (
                 <li key={`u${a.user_id}`}>
                   <Link to={`/audit?user=${a.user_id}&category=sign_in`} className="font-semibold hover:underline">{a.name || a.username || `User #${a.user_id}`}</Link>
-                  : {a.failures} failed sign-ins, the last {fmtDate(a.last_at)}
+                  : {a.failures} failed sign-ins or face checks, the last {fmtDatetime(a.last_at)}
                 </li>
               ))}
               {alerts.addresses.map(a => (
@@ -167,7 +154,25 @@ export default function AdminDashboard() {
             {alerts.locked > 0 && <p className="text-xs text-red-700 mt-1.5">{alerts.locked} account {alerts.locked === 1 ? 'lock' : 'locks'} after repeated failures.</p>}
           </div>
           <Button asChild variant="secondary" size="sm" className="shrink-0">
-            <Link to="/audit?category=sign_in&outcome=refused">Open Audit Log</Link>
+            <Link to="/audit?category=sign_in&outcome=refused">Open the Audit Log</Link>
+          </Button>
+        </div>
+      )}
+
+      {/* Changes the server failed (audit outcome "error"); the admins are emailed too (server/utils/errorAlert.js). */}
+      {alerts?.errors > 0 && (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
+          <AlertTriangle className="size-4 text-amber-700 mt-0.5 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-amber-900">
+              {alerts.errors} {alerts.errors === 1 ? 'change' : 'changes'} failed with a server error in the last 24 hours
+            </p>
+            <p className="text-xs text-amber-800 mt-0.5">
+              The people involved saw a "could not be done" message. The admins were emailed; the server log has the details.
+            </p>
+          </div>
+          <Button asChild variant="secondary" size="sm" className="shrink-0">
+            <Link to="/audit?outcome=error">See them</Link>
           </Button>
         </div>
       )}
@@ -201,38 +206,35 @@ export default function AdminDashboard() {
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 card-grid">
-        <StatsCard
-          title="Total PRs"
+        <StatLink to="/pr"
+          title="Requests"
           value={stats?.total ?? 0}
           icon={FileText}
           color="brand"
           sub={`${stats?.cancelled ?? 0} cancelled`}
         />
-        <StatsCard
-          title="Total Users"
+        <StatLink to="/users"
+          title="Users"
           value={totalUsers}
           icon={Users}
-          color="violet"
+          color="blue"
           sub={`${userCounts?.status?.active ?? 0} active`}
         />
-        <StatsCard
-          title="Total Spending"
+        <StatLink to="/reports"
+          title="Spending"
           value={fmtCurrency(totalSpending)}
           icon={Wallet}
-          color="teal"
+          color="blue"
           sub="across all POs"
         />
-        <StatsCard
-          title="Completed PRs"
+        <StatLink to="/pr?status=completed"
+          title="Completed"
           value={completedPRs}
           icon={CheckCircle2}
           color="green"
           sub={stats?.total ? `${((completedPRs / stats.total) * 100).toFixed(0)}% of total` : undefined}
         />
       </div>
-
-      <WaitingCard data={waiting.data} isLoading={waiting.isLoading}
-        empty="Open requests appear here, the one waiting longest in its stage first." />
 
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -241,7 +243,7 @@ export default function AdminDashboard() {
         <Card>
           <CardHeader>
             <SectionHeader
-              title="Users by Role"
+              title="Users by role"
               action={
                 <Button variant="ghost" size="sm" asChild>
                   <Link to="/users">Manage</Link>
@@ -291,7 +293,7 @@ export default function AdminDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2">
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>Recent Purchase Requests</CardTitle>
+            <CardTitle>Recent requests</CardTitle>
             <Button variant="ghost" size="sm" asChild><Link to="/pr">View all</Link></Button>
           </CardHeader>
           <CardContent className="p-0">
@@ -325,9 +327,9 @@ export default function AdminDashboard() {
                         : null
                       }
                       <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-[--color-text-muted] hidden sm:block">{fmtDate(pr.created_at)}</span>
+                        <span className="text-[10px] text-[--color-text-muted] hidden sm:block">{fmtDatetime(pr.created_at)}</span>
                         <MarkerBadges pr={pr} />
-                        <PRStatusBadge status={pr.status} />
+                        <PRStatusBadge pr={pr} />
                       </div>
                     </div>
                   </Link>
@@ -338,7 +340,7 @@ export default function AdminDashboard() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>Budget Utilisation</CardTitle>
+            <CardTitle>Budget used</CardTitle>
             <Button variant="ghost" size="sm" asChild><Link to="/ppmp">PPMPs</Link></Button>
           </CardHeader>
           <CardContent className="space-y-5">
@@ -369,7 +371,7 @@ export default function AdminDashboard() {
         <CardHeader className="flex flex-row items-center justify-between">
           <div className="flex items-center gap-2">
             <TrendingUp className="size-4 text-[--color-text-muted]" />
-            <CardTitle>PR Status Distribution</CardTitle>
+            <CardTitle>Where the requests are</CardTitle>
           </div>
           <div className="flex items-center gap-3 text-[10px] text-[--color-text-muted]">
             <span>{stats?.total ?? 0} total</span>
@@ -400,7 +402,7 @@ export default function AdminDashboard() {
       {(report?.byCategory ?? []).length > 0 && (
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>Spending by Category</CardTitle>
+            <CardTitle>Spending by category</CardTitle>
             <Button variant="ghost" size="sm" asChild><Link to="/reports">Full breakdown</Link></Button>
           </CardHeader>
           <CardContent className="space-y-3">

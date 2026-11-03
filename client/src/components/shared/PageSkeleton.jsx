@@ -1,4 +1,5 @@
 import { useLocation } from 'react-router-dom'
+import BrandMark from '@/components/shared/BrandMark'
 import { Skeleton } from '@/components/ui/skeleton'
 
 // Suspense fallback shown while a lazy route chunk loads.
@@ -24,7 +25,7 @@ function AppSkeleton() {
       >
         <div className="flex items-center gap-3 border-b border-white/10 h-[70px] px-5">
           <div className="flex size-10 items-center justify-center">
-            <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-8 object-contain" />
+            <BrandMark className="size-8" />
           </div>
           <div className="space-y-1.5">
             <Skeleton className="h-3 w-24 bg-white/15" />
@@ -51,7 +52,7 @@ function AppSkeleton() {
 
         {/* Content area */}
         <main className="flex-1 overflow-hidden px-4 sm:px-6 lg:px-10 py-6 lg:py-8">
-          <div className="max-w-6xl mx-auto space-y-5">
+          <div className="space-y-5">
             {/* Page title block */}
             <div className="space-y-2">
               <Skeleton className="h-7 w-56" />
@@ -92,7 +93,7 @@ function AuthSkeleton() {
       >
         <div className="flex items-center gap-3">
           <div className="flex size-11 items-center justify-center">
-            <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-9 object-contain" />
+            <BrandMark className="size-9" />
           </div>
           <div className="space-y-1.5">
             <Skeleton className="h-3 w-24 bg-white/15" />

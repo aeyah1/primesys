@@ -80,7 +80,7 @@ export default function ReceiveDialog({ poId: givenId, open, onClose }) {
 
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) onClose() }}>
-      <DialogContent title="Record Delivery" description={po ? `${po.po_number} · ${po.supplier_name} · PR ${po.pr_number}` : 'Record the goods that arrived on a purchase order.'} className="max-w-2xl">
+      <DialogContent title="Record a delivery" description={po ? `${po.po_number} · ${po.supplier_name} · PR ${po.pr_number}` : 'Record the goods that arrived on a purchase order.'} className="max-w-2xl">
         <div className="space-y-5">
           {!givenId && (
             <div className="space-y-1.5">
@@ -211,7 +211,7 @@ export default function ReceiveDialog({ poId: givenId, open, onClose }) {
         <DialogFooter className="px-0 pb-0 pt-6">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button disabled={!canSave} onClick={submit} className="gap-2">
-            <Truck className="size-4" /> {isPending ? 'Recording…' : 'Record Delivery'}
+            <Truck className="size-4" /> {isPending ? 'Recording…' : 'Record the delivery'}
           </Button>
         </DialogFooter>
       </DialogContent>
