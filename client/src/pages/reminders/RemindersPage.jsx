@@ -1,13 +1,16 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Bell, Plus, CheckCircle2, Trash2, Clock, Link2, Pencil } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Bell, Plus, CheckCircle2, Trash2, Link2, Pencil } from 'lucide-react'
 import { toast } from '@/lib/toast'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Skeleton } from '@/components/ui/skeleton'
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table'
+import PageHeader from '@/components/shared/PageHeader'
+import { TabBar, Tab, SkeletonRows, EmptyRow } from '@/components/shared/ListParts'
 import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { fmtDatetime } from '@/lib/utils'
 import { useAuth } from '@/context/AuthContext'
@@ -15,8 +18,8 @@ import api from '@/lib/axios'
 import { useConfirm } from '@/components/shared/ConfirmDialog'
 
 const TABS = [
-  { key: 'mine',    label: 'My Reminders' },
-  { key: 'created', label: 'Created by Me' },
+  { key: 'mine',    label: 'For me' },
+  { key: 'created', label: 'Set by me' },
 ]
 
 function toDateObj(dateStr) {
@@ -133,7 +136,7 @@ function ReminderForm({ initial, onSubmit, isPending, onCancel }) {
               <SelectItem value="">None</SelectItem>
               {prList.map(p => (
                 <SelectItem key={p.id} value={String(p.id)}>
-                  {p.pr_number}{p.title ? ` — ${p.title}` : ''}
+                  {p.pr_number}{p.title ? `: ${p.title}` : ''}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -149,7 +152,7 @@ function ReminderForm({ initial, onSubmit, isPending, onCancel }) {
               <SelectItem value="">None</SelectItem>
               {filteredLots.map(l => (
                 <SelectItem key={l.id} value={String(l.id)}>
-                  {l.lot_number}{l.title ? ` — ${l.title}` : ''}
+                  {l.lot_number}{l.title ? `: ${l.title}` : ''}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -161,252 +164,168 @@ function ReminderForm({ initial, onSubmit, isPending, onCancel }) {
         {onCancel && <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>}
         <Button type="submit" disabled={isPending} className="gap-2">
           <Bell className="size-4" />
-          {isPending ? 'Saving…' : 'Save Reminder'}
+          {isPending ? 'Saving…' : 'Save the reminder'}
         </Button>
       </div>
     </form>
   )
 }
 
-function ReminderCard({ r, tab }) {
+// Where a reminder stands: done, overdue, its email sent, or waiting for its time.
+function ReminderState({ r }) {
+  if (r.is_done) return <span className="inline-flex rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-800">Done</span>
+  if (isPast(r.remind_at)) return <span className="inline-flex rounded-full border border-red-300 bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700">Overdue</span>
+  if (r.is_sent) return <span className="inline-flex rounded-full border border-blue-300 bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-800">Email sent</span>
+  return <span className="inline-flex rounded-full border border-[--color-border-strong] bg-[--color-overlay] px-2 py-0.5 text-[11px] font-semibold text-[--color-text-secondary]">Waiting</span>
+}
+
+// One reminder's row, with marking it done, editing and deleting where allowed.
+function ReminderRow({ r, tab, onEdit }) {
   const confirm = useConfirm()
   const qc = useQueryClient()
-  const [editing, setEditing] = useState(false)
   const { user } = useAuth()
-
-  const invalidate = () => {
-    qc.invalidateQueries({ queryKey: ['reminders', 'mine'] })
-    qc.invalidateQueries({ queryKey: ['reminders', 'created'] })
-  }
+  const invalidate = () => qc.invalidateQueries({ queryKey: ['reminders'] })
 
   const { mutate: markDone, isPending: marking } = useMutation({
     mutationFn: () => api.patch(`/reminders/${r.id}/done`),
     onSuccess: () => { toast.success('Marked as done'); invalidate() },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed'),
   })
-
   const { mutate: remove, isPending: removing } = useMutation({
     mutationFn: () => api.delete(`/reminders/${r.id}`),
     onSuccess: () => { toast.success('Reminder deleted'); invalidate() },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed'),
   })
-
-  const { mutate: update, isPending: updating } = useMutation({
-    mutationFn: (body) => api.patch(`/reminders/${r.id}`, body),
-    onSuccess: () => { toast.success('Reminder updated'); setEditing(false); invalidate() },
-    onError: (err) => toast.error(err.response?.data?.message || 'Failed'),
-  })
-
   const overdue = isPast(r.remind_at) && !r.is_done
   const canEdit = Number(r.created_by) === Number(user?.id) || user?.role === 'admin'
+  const iconBtn = 'rounded-lg p-1.5 text-[--color-text-muted] transition-colors'
 
   return (
-    <>
-      <div className={`rounded-xl border px-5 py-4 transition-colors ${
-        r.is_done
-          ? 'border-[--color-border] bg-[--color-canvas] opacity-60'
-          : overdue
-            ? 'border-red-200 bg-red-50'
-            : 'border-[--color-border] bg-[--color-surface]'
-      }`}>
-        <div className="flex items-start gap-3">
-          <div className="mt-0.5 shrink-0">
-            {r.is_done
-              ? <CheckCircle2 className="size-5 text-blue-500" />
-              : overdue
-                ? <Clock className="size-5 text-red-500" />
-                : <Bell className="size-5 text-[--color-brand]" />
-            }
-          </div>
-
-          <div className="flex-1 min-w-0">
-            <p className={`text-ui-sm font-semibold ${r.is_done ? 'line-through text-[--color-text-muted]' : 'text-[--color-text-primary]'}`}>
-              {r.title}
-            </p>
-            {r.note && (
-              <p className="text-ui-xs text-[--color-text-secondary] mt-0.5 leading-relaxed">{r.note}</p>
-            )}
-
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5">
-              <span className={`text-[10px] font-medium ${overdue && !r.is_done ? 'text-red-600' : 'text-[--color-text-muted]'}`}>
-                {overdue && !r.is_done ? 'Overdue · ' : ''}{fmtDatetime(r.remind_at)}
-              </span>
-
-              {tab === 'mine' && (
-                <span className="text-[10px] text-[--color-text-muted]">
-                  From {r.created_by_name}
-                </span>
-              )}
-              {tab === 'created' && (
-                <span className="text-[10px] text-[--color-text-muted]">
-                  To {r.assigned_to_name}
-                </span>
-              )}
-
-              {(r.pr_number || r.lot_number) && (
-                <span className="flex items-center gap-1 text-[10px] text-[--color-brand] font-medium">
-                  <Link2 className="size-3" />
-                  {r.pr_number}{r.lot_number ? ` / ${r.lot_number}` : ''}
-                </span>
-              )}
-
-              {r.is_sent && !r.is_done && (
-                <span className="text-[10px] text-blue-600 font-medium">Email sent</span>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-1 shrink-0">
-            {!r.is_done && canEdit && (
-              <button onClick={() => setEditing(true)}
-                className="p-1.5 rounded-lg text-[--color-text-muted] hover:text-[--color-text-primary] hover:bg-overlay transition-colors">
-                <Pencil className="size-3.5" />
-              </button>
-            )}
-            {!r.is_done && (
-              <button onClick={() => markDone()} disabled={marking}
-                className="p-1.5 rounded-lg text-[--color-text-muted] hover:text-blue-600 hover:bg-blue-50 transition-colors">
-                <CheckCircle2 className="size-3.5" />
-              </button>
-            )}
-            {canEdit && (
-              <button
-                onClick={async () => {
-                  if (await confirm({ title: 'Delete this reminder?', message: `"${r.title}" is deleted.`, confirmLabel: 'Delete', danger: true })) remove()
-                }}
-                disabled={removing}
-                className="p-1.5 rounded-lg text-[--color-text-muted] hover:text-red-500 hover:bg-red-50 transition-colors">
-                <Trash2 className="size-3.5" />
-              </button>
-            )}
-          </div>
+    <TableRow className={r.is_done ? 'opacity-60' : ''}>
+      <TableCell className={`whitespace-nowrap text-ui-xs ${overdue ? 'font-semibold text-red-700' : 'text-[--color-text-secondary]'}`}>{fmtDatetime(r.remind_at)}</TableCell>
+      <TableCell className="max-w-96">
+        <p className={`font-semibold ${r.is_done ? 'line-through text-[--color-text-muted]' : ''}`}>{r.title}</p>
+        {r.note && <p className="mt-0.5 text-ui-xs text-[--color-text-secondary]">{r.note}</p>}
+      </TableCell>
+      <TableCell className="text-ui-xs text-[--color-text-secondary]">{tab === 'mine' ? r.created_by_name : r.assigned_to_name}</TableCell>
+      <TableCell className="whitespace-nowrap text-ui-xs">
+        {r.pr_number
+          ? <Link to={`/pr/${r.pr_id}`} className="inline-flex items-center gap-1 font-mono font-semibold text-[--color-brand] hover:underline"><Link2 className="size-3" />{r.pr_number}{r.lot_number ? ` / ${r.lot_number}` : ''}</Link>
+          : <span className="text-[--color-text-muted]">None</span>}
+      </TableCell>
+      <TableCell><ReminderState r={r} /></TableCell>
+      <TableCell>
+        <div className="flex items-center justify-end gap-1">
+          {!r.is_done && (
+            <button onClick={() => markDone()} disabled={marking} title="Mark as done" aria-label="Mark as done" className={`${iconBtn} hover:bg-emerald-50 hover:text-emerald-700`}>
+              <CheckCircle2 className="size-4" />
+            </button>
+          )}
+          {!r.is_done && canEdit && (
+            <button onClick={() => onEdit(r)} title="Edit" aria-label="Edit the reminder" className={`${iconBtn} hover:bg-[--color-overlay] hover:text-[--color-text-primary]`}>
+              <Pencil className="size-3.5" />
+            </button>
+          )}
+          {canEdit && (
+            <button disabled={removing} title="Delete" aria-label="Delete the reminder" className={`${iconBtn} hover:bg-red-50 hover:text-red-600`}
+              onClick={async () => { if (await confirm({ title: 'Delete this reminder?', message: `"${r.title}" is deleted.`, confirmLabel: 'Delete', danger: true })) remove() }}>
+              <Trash2 className="size-3.5" />
+            </button>
+          )}
         </div>
-      </div>
-
-      <Dialog open={editing} onOpenChange={setEditing}>
-        <DialogContent className="max-w-lg" title="Edit Reminder">
-          <ReminderForm
-            initial={{
-              title: r.title, note: r.note || '',
-              remind_at: r.remind_at ? toLocalInput(r.remind_at) : '',
-              assigned_to: String(r.assigned_to), pr_id: String(r.pr_id || ''), lot_id: String(r.lot_id || ''),
-            }}
-            onSubmit={update}
-            isPending={updating}
-            onCancel={() => setEditing(false)}
-          />
-        </DialogContent>
-      </Dialog>
-    </>
+      </TableCell>
+    </TableRow>
   )
 }
 
+const COLS = 6
+
+// Email reminders: the ones sent to this user, and the ones they set for someone; new and edited ones in a window.
 export default function RemindersPage() {
   const qc = useQueryClient()
   const { user } = useAuth()
   const [tab, setTab] = useState('mine')
-  const [showCreate, setShowCreate] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [editing, setEditing] = useState(null)
 
-  const { data: reminders = [], isLoading } = useQuery({
+  const { data: reminders = [], isLoading, isError } = useQuery({
     queryKey: ['reminders', tab],
     queryFn: () => api.get(`/reminders?view=${tab}`).then(r => r.data),
   })
-
-  const { mutate: create, isPending: creating } = useMutation({
-    mutationFn: (body) => api.post('/reminders', body),
-    onSuccess: () => {
-      toast.success('Reminder created — email will be sent at the scheduled time')
-      setShowCreate(false)
-      qc.invalidateQueries({ queryKey: ['reminders', tab] })
-    },
-    onError: (err) => toast.error(err.response?.data?.message || 'Failed to create reminder'),
+  const { data: other = [] } = useQuery({
+    queryKey: ['reminders', tab === 'mine' ? 'created' : 'mine'],
+    queryFn: () => api.get(`/reminders?view=${tab === 'mine' ? 'created' : 'mine'}`).then(r => r.data),
   })
+  const counts = { [tab]: reminders.filter(r => !r.is_done).length, [tab === 'mine' ? 'created' : 'mine']: other.filter(r => !r.is_done).length }
+  const invalidate = () => qc.invalidateQueries({ queryKey: ['reminders'] })
 
-  const pending  = reminders.filter(r => !r.is_done)
-  const done     = reminders.filter(r => r.is_done)
+  const { mutate: create, isPending: saving } = useMutation({
+    mutationFn: (body) => api.post('/reminders', body),
+    onSuccess: () => { toast.success('Reminder saved: the email goes out at the time you set'); setCreating(false); invalidate() },
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed to create the reminder'),
+  })
+  const { mutate: update, isPending: updating } = useMutation({
+    mutationFn: (body) => api.patch(`/reminders/${editing.id}`, body),
+    onSuccess: () => { toast.success('Reminder updated'); setEditing(null); invalidate() },
+    onError: (err) => toast.error(err.response?.data?.message || 'Failed'),
+  })
+  // Waiting ones first, soonest first; then the done ones.
+  const rows = [...reminders].sort((a, b) => Number(a.is_done) - Number(b.is_done) || toDateObj(a.remind_at) - toDateObj(b.remind_at))
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h2 className="text-ui-2xl font-bold text-[--color-text-primary] flex items-center gap-2">
-            <Bell className="size-5" /> Reminders
-          </h2>
-          <p className="text-ui-sm text-[--color-text-secondary] mt-0.5">
-            {user?.role === 'requestor'
-              ? 'Schedule email reminders for yourself'
-              : 'Schedule email reminders for yourself or a colleague'}
-          </p>
-        </div>
-        <Button onClick={() => setShowCreate(true)} className="gap-2">
-          <Plus className="size-4" /> New Reminder
-        </Button>
-      </div>
+      <PageHeader title="Reminders" sub={user?.role === 'requestor'
+        ? 'Email reminders you set for yourself, sent at the time you pick.'
+        : 'Email reminders you set for yourself or a colleague, sent at the time you pick.'}>
+        <Button onClick={() => setCreating(true)} className="gap-1.5"><Plus className="size-4" /> New reminder</Button>
+      </PageHeader>
 
-      {/* Tabs */}
-      <div className="flex border-b border-[--color-border]">
-        {TABS.map(t => (
-          <button key={t.key} onClick={() => setTab(t.key)}
-            className={`px-4 py-2.5 text-ui-sm font-medium transition-colors border-b-2 -mb-px ${
-              tab === t.key
-                ? 'border-[--color-brand] text-[--color-brand]'
-                : 'border-transparent text-[--color-text-muted] hover:text-[--color-text-primary]'
-            }`}>
-            {t.label}
-            {t.key === 'mine' && pending.length > 0 && tab !== 'mine'
-              ? null
-              : t.key === 'mine' && tab === 'mine' && pending.length > 0
-                ? <span className="ml-2 inline-flex items-center justify-center rounded-full bg-[--color-brand] text-white text-[10px] w-4 h-4">{pending.length}</span>
-                : null
-            }
-          </button>
-        ))}
-      </div>
+      <Card className="overflow-hidden">
+        <TabBar>
+          {TABS.map(t => <Tab key={t.key} active={tab === t.key} count={counts[t.key]} onClick={() => setTab(t.key)}>{t.label}</Tab>)}
+        </TabBar>
+        <Table framed={false}>
+          <TableHeader>
+            <TableRow>
+              <TableHead>When</TableHead>
+              <TableHead>Reminder</TableHead>
+              <TableHead>{tab === 'mine' ? 'From' : 'To'}</TableHead>
+              <TableHead>About</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="w-28" />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {isLoading ? <SkeletonRows cols={COLS} rows={3} />
+              : isError ? <EmptyRow cols={COLS} error="The reminders could not be loaded. Refresh the page to try again." />
+              : !rows.length ? (
+                <EmptyRow cols={COLS} icon={Bell}
+                  title={tab === 'mine' ? 'No reminder for you' : 'You have not set a reminder yet'}
+                  sub={tab === 'mine' ? 'Reminders a colleague sets for you, and the ones you set for yourself, appear here.' : 'Use New Reminder to set one.'} />
+              )
+              : rows.map(r => <ReminderRow key={r.id} r={r} tab={tab} onEdit={setEditing} />)}
+          </TableBody>
+        </Table>
+      </Card>
 
-      {/* Create form */}
-      {showCreate && (
-        <Card>
-          <CardHeader className="flex flex-row items-center gap-2 pb-3">
-            <Bell className="size-4 text-[--color-text-muted]" />
-            <CardTitle>New Reminder</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ReminderForm onSubmit={create} isPending={creating} onCancel={() => setShowCreate(false)} />
-          </CardContent>
-        </Card>
-      )}
-
-      {/* List */}
-      {isLoading ? (
-        <div className="space-y-3">
-          {Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-20 rounded-xl" />)}
-        </div>
-      ) : !reminders.length ? (
-        <div className="rounded-xl border border-[--color-border] bg-[--color-surface] px-6 py-16 text-center">
-          <Bell className="size-10 text-[--color-text-muted] mx-auto mb-3" />
-          <p className="text-ui-sm font-semibold text-[--color-text-primary]">
-            {tab === 'mine' ? 'No reminders assigned to you' : 'You haven\'t created any reminders yet'}
-          </p>
-          <p className="text-ui-xs text-[--color-text-muted] mt-1">
-            {tab === 'mine' ? 'Ask a teammate to set one, or create one for yourself.' : 'Click "New Reminder" to get started.'}
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-5">
-          {pending.length > 0 && (
-            <div className="space-y-2">
-              {pending.map(r => <ReminderCard key={r.id} r={r} tab={tab} />)}
-            </div>
+      <Dialog open={creating} onOpenChange={setCreating}>
+        <DialogContent className="max-w-2xl" title="New reminder">
+          <ReminderForm onSubmit={create} isPending={saving} onCancel={() => setCreating(false)} />
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!editing} onOpenChange={(o) => { if (!o) setEditing(null) }}>
+        <DialogContent className="max-w-2xl" title="Edit the reminder">
+          {editing && (
+            <ReminderForm
+              initial={{
+                title: editing.title, note: editing.note || '',
+                remind_at: editing.remind_at ? toLocalInput(editing.remind_at) : '',
+                assigned_to: String(editing.assigned_to), pr_id: String(editing.pr_id || ''), lot_id: String(editing.lot_id || ''),
+              }}
+              onSubmit={update} isPending={updating} onCancel={() => setEditing(null)} />
           )}
-
-          {done.length > 0 && (
-            <div className="space-y-2">
-              <p className="text-xs font-semibold text-[--color-text-muted] uppercase tracking-wide">Completed</p>
-              {done.map(r => <ReminderCard key={r.id} r={r} tab={tab} />)}
-            </div>
-          )}
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

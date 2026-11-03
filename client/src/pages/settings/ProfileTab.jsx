@@ -45,14 +45,14 @@ export default function ProfileTab() {
   const dirty = name.trim() !== (user?.name || '') || designation.trim() !== (user?.designation || '')
 
   return (
-    <div className="space-y-5">
+    <div className="grid items-start gap-5 xl:grid-cols-2">
       <Card>
         <CardHeader>
           <CardTitle>Account</CardTitle>
           <CardDescription>Read-only information from your registration</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <Row label="Username" value={user?.username || '—'} />
+          <Row label="Username" value={user?.username || 'None'} />
           <Row label="Email"    value={user?.email} />
           <Row
             label="Role"
@@ -62,7 +62,7 @@ export default function ProfileTab() {
               </Badge>
             }
           />
-          <Row label="Member since" value={user?.created_at ? fmtDate(user.created_at) : '—'} />
+          <Row label="Member since" value={user?.created_at ? fmtDate(user.created_at) : 'Unknown'} />
         </CardContent>
       </Card>
 

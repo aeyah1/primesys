@@ -23,8 +23,13 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => res,
   (err) => {
+    const status = err.response?.status
     const isAuthEndpoint = err.config?.url?.includes('/auth/')
-    if (err.response?.status === 401 && !isAuthEndpoint) signedOut(err.response.data?.message)
+    if (status === 401 && !isAuthEndpoint) signedOut(err.response.data?.message)
+    // Refused for maintenance: the maintenance page shows (useMaintenance). No answer at all, or a gateway error: the
+    // server or the internet is down, so the connection banner shows (ConnectionBanner).
+    if (status === 503 && err.response.data?.type === 'maintenance') window.dispatchEvent(new Event('primesys:maintenance'))
+    else if (!axios.isCancel(err) && (!err.response || status === 502 || status === 504)) window.dispatchEvent(new Event('primesys:unreachable'))
     return Promise.reject(err)
   }
 )

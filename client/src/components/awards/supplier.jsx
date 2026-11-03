@@ -62,7 +62,7 @@ export const Optional = () => <span className="text-[--color-text-muted] font-no
 export function useRefreshAwards(prId) {
   const qc = useQueryClient()
   return () => {
-    for (const key of [['canvass', prId], ['lots'], ['lot-queue'], ['pr', prId], ['pr-list'], ['pr-stats'], ['pr-logs', prId], ['po-list'], ['bac'], ['twg']]) {
+    for (const key of [['canvass', prId], ['lots'], ['lot-queue'], ['pr', prId], ['pr-list'], ['pr-stats'], ['pr-logs', prId], ['po-list'], ['bac'], ['twg'], ['pr-tasks']]) {
       qc.invalidateQueries({ queryKey: key })
     }
   }

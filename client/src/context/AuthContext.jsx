@@ -21,6 +21,8 @@ export function AuthProvider({ children }) {
     api.get('/auth/me')
       .then(({ data }) => setUser(data))
       .catch((err) => {
+        // Only a refused session signs out; a server that is down, busy or paused keeps the saved profile, and the page says why.
+        if (err.response?.status !== 401 && localStorage.getItem('primesys_user')) return
         // Why the session ended, for the login page (signed in elsewhere, password changed).
         if (err.response?.status === 401 && err.response.data?.message) sessionStorage.setItem('primesys_notice', err.response.data.message)
         localStorage.removeItem('primesys_token')

@@ -36,6 +36,7 @@ export function DialogContent({ className, children, title, description, ...prop
   )
 }
 
+// The buttons under a dialog's body, right-aligned; the body's own padding frames them.
 export function DialogFooter({ className, children }) {
-  return <div className={cn('flex justify-end gap-3 px-6 pb-6', className)}>{children}</div>
+  return <div className={cn('flex flex-wrap justify-end gap-3 pt-6', className)}>{children}</div>
 }

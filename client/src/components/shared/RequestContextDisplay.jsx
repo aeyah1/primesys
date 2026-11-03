@@ -6,9 +6,9 @@ import { fmtDate, fmtCurrency } from '@/lib/utils'
 
 const PURPOSE_TYPE_COLORS = {
   personal: 'bg-blue-50 text-blue-700 border-blue-300',
-  event:    'bg-orange-50 text-orange-700 border-orange-300',
+  event:    'bg-amber-50 text-amber-700 border-amber-300',
   office:   'bg-slate-50 text-slate-700 border-slate-300',
-  project:  'bg-purple-50 text-purple-700 border-purple-300',
+  project:  'bg-blue-50 text-blue-700 border-blue-300',
 }
 
 const PURPOSE_TYPE_ICONS = Object.fromEntries(PURPOSE_TYPES.map(t => [t.value, t.icon]))
@@ -59,9 +59,9 @@ export function RequestContextFields({ pr, className = '' }) {
         icon={UserCheck}
         label="Requested by"
         value={fixed
-          ? `${fixed.name}${fixed.designation ? ` — ${fixed.designation}` : ''} (fixed above ${fmtCurrency(pr.signatories.threshold)})`
+          ? `${fixed.name}${fixed.designation ? `, ${fixed.designation}` : ''} (fixed above ${fmtCurrency(pr.signatories.threshold)})`
           : pr.requested_by_name
-            ? `${pr.requested_by_name}${pr.requested_by_designation ? ` — ${pr.requested_by_designation}` : ''}${pr.requested_by_signed ? ' (signed)' : ''}`
+            ? `${pr.requested_by_name}${pr.requested_by_designation ? `, ${pr.requested_by_designation}` : ''}${pr.requested_by_signed ? ' (signed)' : ''}`
             : null}
       />
 
@@ -85,7 +85,7 @@ export function RequestContextFields({ pr, className = '' }) {
   )
 }
 
-// Display block used on PRDetail and TwgReviewDetail. Skips fields with no value
+// Display block used on the request page. Skips fields with no value
 // so a sparse PR doesn't render empty rows.
 export default function RequestContextDisplay({ pr }) {
   if (!hasRequestContext(pr)) return null
@@ -95,7 +95,7 @@ export default function RequestContextDisplay({ pr }) {
       <CardHeader className="flex flex-row items-center justify-between pb-3">
         <div className="flex items-center gap-2">
           <ClipboardList className="size-4 text-[--color-text-muted]" />
-          <CardTitle>Request Context</CardTitle>
+          <CardTitle>Request context</CardTitle>
         </div>
         {pr.purpose_type && <PurposeTypeBadge type={pr.purpose_type} />}
       </CardHeader>
