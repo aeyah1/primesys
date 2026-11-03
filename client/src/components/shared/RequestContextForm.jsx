@@ -50,15 +50,18 @@ export default function RequestContextForm({ value = {}, onChange, followOffice 
     queryFn:  () => api.get('/departments').then(r => r.data),
     staleTime: 5 * 60_000,
   })
-  // A Fund Administrator's suggestions for Office / Section: their office's code and name, and what was printed before.
+  // A Fund Administrator's choices for Office / Section: their office's code, its name, and the sections the admin
+  // listed; a request filed with something else keeps it as one more choice.
   const { data: sections = [] } = useQuery({
     queryKey: ['pr-sections', 'own'],
     queryFn: () => api.get('/pr/sections').then(r => r.data),
     enabled: ownOffice,
     staleTime: 60_000,
   })
-  // Until something is typed, a Fund Administrator's request prints their office's code (as Requested by names the head);
-  // on a new request it follows a new office the administrator assigns, unless they typed their own.
+  const filed = value.department && !sections.some(s => s.value.toLowerCase() === value.department.toLowerCase())
+  const choices = filed && sections.length ? [...sections, { value: value.department, note: 'as filed' }] : sections
+  // Until one is picked, a Fund Administrator's request prints their office's code (as Requested by names the head);
+  // on a new request it follows a new office the administrator assigns, unless they picked their own.
   const shownCode = useRef(null)
   useEffect(() => {
     if (!ownOffice || !user.department_code) return
@@ -73,19 +76,21 @@ export default function RequestContextForm({ value = {}, onChange, followOffice 
         <Label htmlFor="ctx-department">
           Office / Section
           <span className="ml-1 font-normal text-[--color-text-muted] text-xs">
-            {ownOffice ? '(type it, or pick from the list)' : '(the office this request is for)'}
+            {ownOffice ? '(pick from your office\'s list)' : '(the office this request is for)'}
           </span>
         </Label>
         {ownOffice ? (
           user.department_code ? (
             <>
-              <Input id="ctx-department" list="ctx-sections" maxLength={150} autoComplete="off" placeholder={user.department_code}
-                value={value.department || ''} onChange={e => onChange({ department: e.target.value, department_touched: true })} />
-              <datalist id="ctx-sections">
-                {sections.map(s => <option key={s.value} value={s.value}>{s.note}</option>)}
-              </datalist>
+              <Select value={value.department || user.department_code} onValueChange={(v) => onChange({ department: v, department_touched: true })}>
+                <SelectTrigger id="ctx-department"><SelectValue placeholder={user.department_code} /></SelectTrigger>
+                <SelectContent>
+                  {choices.map(s => <SelectItem key={s.value} value={s.value}>{s.value}</SelectItem>)}
+                </SelectContent>
+              </Select>
               <p className="text-[11px] text-[--color-text-muted]">
-                Printed on the form's Office/Section line. Left blank, it prints {user.department_code}. Your items still come from {user.department_code}'s PPMP.
+                Printed on the form's Office/Section line: {user.department_code}, its full name, or one of its sections. The administrator
+                keeps the list of sections; ask them to add one that is missing. Your items still come from {user.department_code}'s PPMP.
               </p>
             </>
           ) : (
@@ -103,7 +108,7 @@ export default function RequestContextForm({ value = {}, onChange, followOffice 
             </SelectTrigger>
             <SelectContent>
               {departments.map(d => (
-                <SelectItem key={d.id} value={String(d.id)}>{d.code} — {d.name}</SelectItem>
+                <SelectItem key={d.id} value={String(d.id)}>{d.code}: {d.name}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -116,7 +121,7 @@ export default function RequestContextForm({ value = {}, onChange, followOffice 
               onChange={(e) => set('department', e.target.value)}
             />
             <p className="text-[11px] text-[--color-text-muted]">
-              No offices have been set up yet. An admin adds them under Settings &gt; Organization.
+              No offices have been set up yet. An admin adds them on the Organization page.
             </p>
           </>
         )}

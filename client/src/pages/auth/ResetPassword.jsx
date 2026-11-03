@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useSearchParams, useNavigate } from 'react-router-dom'
 import { Lock, Eye, EyeOff, CheckCircle2, AlertCircle } from 'lucide-react'
+import BrandMark from '@/components/shared/BrandMark'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -60,7 +61,7 @@ export default function ResetPassword() {
       <div className="w-full max-w-sm mx-auto py-8">
         <div className="flex items-center gap-2.5 mb-8">
           <div className="flex size-9 items-center justify-center">
-            <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-7 object-contain" />
+            <BrandMark className="size-7" />
           </div>
           <span className="font-bold text-xl text-[--color-text-primary] tracking-tight">PRimeSys</span>
         </div>

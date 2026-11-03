@@ -37,6 +37,9 @@ function validate() {
   if (storage.url && (!/^(https:\/\/|http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$)/.test(storage.url) || !storage.key || !/^[\w.-]+$/.test(storage.bucket))) {
     throw new Error('SUPABASE_URL must start with https:// (http:// only for localhost) and needs SUPABASE_SECRET_KEY and a valid SUPABASE_BUCKET')
   }
+  if (storage.fileKey && !/^[0-9a-f]{64}$/i.test(storage.fileKey)) {
+    throw new Error('FILE_ENCRYPTION_KEY must be 64 hex characters (make one with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))")')
+  }
 }
 
 const int = (name, fallback) => {
@@ -114,6 +117,8 @@ const config = {
     url:    optional('SUPABASE_URL', '').trim().replace(/\/+$/, ''),
     key:    optional('SUPABASE_SECRET_KEY', '').trim(),
     bucket: optional('SUPABASE_BUCKET', 'uploads').trim(),
+    // 64 hex characters (32 bytes): every stored file is then encrypted with it (utils/fileCrypto.js). Losing it loses the files.
+    fileKey: optional('FILE_ENCRYPTION_KEY', '').trim(),
   },
 
 }

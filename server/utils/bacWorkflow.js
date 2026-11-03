@@ -1,22 +1,21 @@
 const pool   = require('../db/pool')
 const notify = require('./notify')
 
-// Bids and Awards Committee rules
-// The canvass is done outside the system. The canvasser gives the returned
-// RFQs to the BAC, which enters the bids and sends them to the TWG; once the
-// TWG certifies them the BAC awards (utils/canvassBids.js), each award round
-// adopting a BAC Resolution.
+// Award records
+// The canvass is done outside the system and the BAC decides offline. The canvasser gives the returned RFQs to
+// Procurement, which enters the bids and sends them to the TWG; once the TWG certifies them Procurement records the
+// BAC's award (utils/canvassBids.js), each award round adopting a BAC Resolution.
 
-// Who may read the BAC's queue and print its documents (only the BAC awards; admins supervise).
-const BAC_READERS = ['bac', 'admin', 'procurement']
+// Who may read the award queue and print its documents (only Procurement records the award; admins supervise).
+const BAC_READERS = ['procurement', 'admin']
 
-// Tells the BAC a PR waits for it. With no active BAC member the admins are
-// warned instead, since nobody could award it.
-async function notifyBac(io, prId, prNumber, message) {
-  const [members] = await pool.execute("SELECT id FROM users WHERE role = 'bac' AND is_active = 1")
-  if (members.length) return Promise.all(members.map(u => notify(io, u.id, message, 'info', prId, 'pr')))
+// Tells Procurement a PR waits for it. With no active Procurement officer the admins are
+// warned instead, since nobody could record the award.
+async function notifyProcurement(io, prId, prNumber, message) {
+  const [officers] = await pool.execute("SELECT id FROM users WHERE role = 'procurement' AND is_active = 1")
+  if (officers.length) return Promise.all(officers.map(u => notify(io, u.id, message, 'info', prId, 'pr')))
   const [admins] = await pool.execute("SELECT id FROM users WHERE role = 'admin' AND is_active = 1")
-  const warning = `PR ${prNumber} waits for the BAC, but no BAC member is active. Assign one in User Management.`
+  const warning = `PR ${prNumber} waits for Procurement, but no Procurement officer is active. Assign one in User Management.`
   return Promise.all(admins.map(u => notify(io, u.id, warning, 'warning', prId, 'pr')))
 }
 
@@ -54,4 +53,4 @@ async function adoptResolution(conn, prId, userId, notes = null, kind = 'resolut
   }
 }
 
-module.exports = { BAC_READERS, notifyBac, adoptResolution }
+module.exports = { BAC_READERS, notifyProcurement, adoptResolution }

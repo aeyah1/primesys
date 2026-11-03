@@ -1,4 +1,4 @@
--- PRimeSys: Web-Based Procurement Monitoring System
+-- PRimeSys: Web-Based Procurement Management System
 -- Complete database for a FRESH local install (XAMPP / MariaDB 10.4+)
 --
 -- Import this ONE file, either:
@@ -34,6 +34,8 @@ CREATE TABLE `departments` (
   `name`             VARCHAR(150) NOT NULL,
   `head_name`        VARCHAR(150) NULL,
   `head_designation` VARCHAR(150) NULL,
+  -- Its sections, one per line: with its code and name, the choices for a request's Office / Section.
+  `sections`         TEXT         NULL,
   `is_active`        TINYINT(1)   NOT NULL DEFAULT 1,
   `created_at`       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at`       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -54,7 +56,7 @@ CREATE TABLE `users` (
   `username`                   VARCHAR(50)  NULL,
   `email`                      VARCHAR(150) NOT NULL,
   `password_hash`              VARCHAR(255) NOT NULL,
-  `role`                       ENUM('admin','procurement','requestor','supply','twg','bac') NOT NULL DEFAULT 'requestor',
+  `role`                       ENUM('admin','procurement','requestor','supply','twg') NOT NULL DEFAULT 'requestor',
   `is_active`                  TINYINT(1)   NOT NULL DEFAULT 1,
   -- 1 once an admin approved the account; a waiting account can't sign in.
   `is_verified`                TINYINT(1)   NOT NULL DEFAULT 0,
@@ -70,6 +72,9 @@ CREATE TABLE `users` (
   -- A TWG member's own saved signature (PNG data URL), filled in when they certify; only they read it.
   `saved_signature`            MEDIUMTEXT   NULL,
   `saved_sign_method`          ENUM('drawn','uploaded') NULL,
+  -- A staff member's face check: 128 face measurements (never a photo), AES-256-GCM encrypted, and when they consented.
+  `face_template`              BLOB         NULL,
+  `face_enrolled_at`           DATETIME     NULL,
   `created_at`                 TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at`                 TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
@@ -248,7 +253,11 @@ CREATE TABLE `pr_attachments` (
   `original_name` VARCHAR(255) NOT NULL,
   `mimetype`      VARCHAR(100) NULL,
   `size`          INT UNSIGNED NULL,
+  -- 1 for a supplier's returned RFQ, seen only by Procurement, admins, and the TWG while it checks the offers.
+  `is_rfq`        TINYINT(1)   NOT NULL DEFAULT 0,
   `uploaded_by`   INT UNSIGNED NOT NULL,
+  -- When the file was deleted from storage under the retention rule (utils/retention.js); the row stays on record.
+  `removed_at`    DATETIME     NULL,
   `created_at`    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_pr_attachments_pr_id` (`pr_id`),
@@ -560,6 +569,8 @@ CREATE TABLE `delivery_attachments` (
   `mimetype`      VARCHAR(100) NULL,
   `size`          INT UNSIGNED NULL,
   `uploaded_by`   INT UNSIGNED NOT NULL,
+  -- When the file was deleted from storage under the retention rule (utils/retention.js); the row stays on record.
+  `removed_at`    DATETIME     NULL,
   `created_at`    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_delivery_attachments_delivery_id` (`delivery_id`),
@@ -800,4 +811,10 @@ INSERT INTO `org_settings` (`setting_key`, `setting_value`) VALUES
   -- The committee as it prints on the BAC Resolution (bac_members: one name per line).
   ('bac_chairman_name',             NULL),
   ('bac_chairman_designation',      'BAC Chairman'),
-  ('bac_members',                   NULL);
+  ('bac_members',                   NULL),
+  -- What the BAC weighs when it chooses a supplier, one per line; Procurement ticks them when it records the award.
+  ('award_criteria',                NULL),
+  -- Days after a request is finished (completed, cancelled, rejected or deleted) that its uploaded files are deleted; 0 keeps them.
+  ('file_retention_days',           '90'),
+  -- '1': staff pass a face check at sign-in and before critical actions (utils/faceCheck.js); off until the admin turns it on.
+  ('face_check',                    '0');

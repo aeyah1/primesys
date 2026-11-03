@@ -14,7 +14,7 @@ const config = require(path.join(H.SERVER, 'config.js'))
 const jwt    = serverReq('jsonwebtoken')
 
 // 3 is ICT's Fund Administrator, 6 is HR's, 7 has no office yet.
-const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 4: 'twg', 5: 'bac', 6: 'requestor', 7: 'requestor', 8: 'supply' }
+const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 4: 'twg', 5: 'procurement', 6: 'requestor', 7: 'requestor', 8: 'supply' }
 const OFFICE = { 3: 1, 6: 2 }
 const tok  = (id) => jwt.sign({ id, tv: 0 }, config.jwt.secret, { expiresIn: '1h' })
 const XLSX = makeXlsx(SAMPLE_ROWS)

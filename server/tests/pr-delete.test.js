@@ -8,7 +8,7 @@ const { db: TEST_DB, base: BASE } = H.configure({ db: 'primesys_pr_delete_test_t
 const serverReq = (m) => require(require.resolve(m, { paths: [H.SERVER] }))
 const config = require(path.join(H.SERVER, 'config.js'))
 const jwt    = serverReq('jsonwebtoken')
-const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 4: 'procurement', 5: 'twg', 6: 'bac' }
+const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 4: 'procurement', 5: 'twg', 6: 'procurement' }
 const tok  = (id) => jwt.sign({ id }, config.jwt.secret, { expiresIn: '1h' })
 
 function fixtures() {

@@ -21,7 +21,7 @@ const fields = (required) => [
   textRule('status_note', 'Reason for the blacklisting', 500),
 ]
 
-router.get('/', authorize('procurement', 'admin', 'bac'), c.list)
+router.get('/', authorize('procurement', 'admin'), c.list)
 router.get('/:id', staff, c.profile)
 router.post('/', staff, fields(true), handle, c.create)
 router.patch('/:id', staff, fields(false), handle, c.update)

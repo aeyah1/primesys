@@ -3,8 +3,23 @@ const pool         = require('../db/pool')
 const asyncHandler = require('../utils/asyncHandler')
 const fileStore    = require('../utils/fileStore')
 const { loadPR, fileDeleteBlock } = require('../utils/prWorkflow')
+const { canSeeQuotes, IS_RFQ, LOCKED } = require('../utils/quoteAccess')
+const { removedMessage } = require('../utils/retention')
 
-// A PR's files: handled within the PR's scope, and kept once the PR is closed.
+// A PR's files: handled within the PR's scope, and kept once the PR is closed. The suppliers' RFQs among them only for
+// those who may see the quotations (utils/quoteAccess.js).
+
+// Whether this user may see the RFQs on PR `id`.
+async function seesRfqs(user, id) {
+  const [[pr]] = await pool.execute('SELECT status FROM purchase_requests WHERE id = ?', [id])
+  return !!pr && canSeeQuotes(user, pr.status)
+}
+
+// Whether attachment `attachId` of PR `id` is one of its RFQs.
+async function isRfq(id, attachId) {
+  const [[row]] = await pool.execute(`SELECT ${IS_RFQ('pa')} AS rfq FROM pr_attachments pa WHERE pa.id = ? AND pa.pr_id = ?`, [attachId, id])
+  return !!row?.rfq
+}
 exports.uploadAttachment = asyncHandler(async (req, res) => {
   if (!req.file) return res.status(400).json({ message: 'No file uploaded' })
   const [rows] = await pool.execute('SELECT id FROM purchase_requests WHERE id = ?', [req.params.id])
@@ -12,23 +27,26 @@ exports.uploadAttachment = asyncHandler(async (req, res) => {
     fs.unlink(req.file.path, () => {})
     return res.status(404).json({ message: 'PR not found' })
   }
+  // A supplier's returned RFQ, sent with rfq=1 from the quotation form, is kept from those who may not see quotations.
+  const rfq = req.user.role === 'procurement' && req.body?.rfq === '1' ? 1 : 0
   // The file is stored before its row, so a row never points at a missing file.
   await fileStore.keep('pr', req.file)
   const [result] = await pool.execute(
-    'INSERT INTO pr_attachments (pr_id, filename, original_name, mimetype, size, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)',
-    [req.params.id, req.file.filename, req.file.originalname, req.file.mimetype, req.file.size, req.user.id]
+    'INSERT INTO pr_attachments (pr_id, filename, original_name, mimetype, size, is_rfq, uploaded_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [req.params.id, req.file.filename, req.file.originalname, req.file.mimetype, req.file.size, rfq, req.user.id]
   )
   res.status(201).json({ id: result.insertId, original_name: req.file.originalname })
 })
 
 exports.listAttachments = asyncHandler(async (req, res) => {
+  const rfqs = await seesRfqs(req.user, req.params.id)
   const [rows] = await pool.execute(`
-    SELECT pa.id, pa.original_name, pa.mimetype, pa.size, pa.created_at,
+    SELECT pa.id, pa.original_name, pa.mimetype, pa.size, pa.created_at, pa.removed_at,
            u.name AS uploaded_by_name
     FROM pr_attachments pa
     JOIN users u ON pa.uploaded_by = u.id
-    WHERE pa.pr_id = ?
-    ORDER BY pa.created_at ASC
+    WHERE pa.pr_id = ?${rfqs ? '' : ` AND NOT ${IS_RFQ('pa')}`}
+    ORDER BY pa.created_at ASC, pa.id ASC
   `, [req.params.id])
   res.json(rows)
 })
@@ -39,6 +57,8 @@ exports.downloadAttachment = asyncHandler(async (req, res) => {
     [req.params.attachId, req.params.id]
   )
   if (!rows.length) return res.status(404).json({ message: 'Attachment not found' })
+  if (await isRfq(req.params.id, req.params.attachId) && !(await seesRfqs(req.user, req.params.id))) return res.status(403).json({ message: LOCKED })
+  if (rows[0].removed_at) return res.status(410).json({ message: removedMessage(rows[0].removed_at), removed_at: rows[0].removed_at })
   await fileStore.send(res, 'pr', rows[0].filename, rows[0].original_name)
 })
 
@@ -51,6 +71,7 @@ exports.deleteAttachment = asyncHandler(async (req, res) => {
     [req.params.attachId, req.params.id]
   )
   if (!rows.length) return res.status(404).json({ message: 'Attachment not found' })
+  if (await isRfq(req.params.id, req.params.attachId) && !(await seesRfqs(req.user, req.params.id))) return res.status(403).json({ message: LOCKED })
   // A quotation's RFQ file stays until the quotation points to another one, so no quotation loses its file.
   const [[quoted]] = await pool.execute('SELECT name FROM canvass_bidders WHERE attachment_id = ? LIMIT 1', [req.params.attachId])
   if (quoted) {

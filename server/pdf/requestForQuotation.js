@@ -1,5 +1,3 @@
-const fs   = require('fs')
-const path = require('path')
 const { M } = require('../utils/pdfHelpers')
 const { canvassersOf } = require('../utils/orgSettings')
 const { signatureOf } = require('../utils/orgSignatures')
@@ -22,7 +20,6 @@ const { drawSignature } = require('../utils/signature')
 const W     = 612 - M * 2
 const BLACK = '#000000'
 const LINE  = 0.75
-const SEAL  = path.join(__dirname, '..', 'assets', 'nemsu-seal.png')
 
 // Columns, left to right; they sum to W. The last three are left empty for the
 // supplier to fill in: what it offers (brand, model, specifications), and the
@@ -95,11 +92,8 @@ function drawLot(doc, { pr, orgSettings: org, lot, first }) {
   let y = M
 
   // ── Letterhead ─────────────────────────────────────────────────────
-  // The campus's form also carries its ISO 9001 and UKAS marks on the right;
-  // those images are not in the repository, so the space is left clear.
-  if (fs.existsSync(SEAL)) {
-    try { doc.image(SEAL, M + 18, y, { width: 56, height: 56 }) } catch { /* not fatal */ }
-  }
+  // The campus's form also carries the university seal and its ISO 9001 and UKAS marks;
+  // none is printed without the university's authorisation.
   const centre = { width: W, align: 'center' }
   doc.font('Times-Roman').fontSize(10).fillColor(BLACK).text('Republic of the Philippines', M, y + 2, centre)
   doc.font('Times-Bold').fontSize(11).text(s('entity_full_name', 'NORTH EASTERN MINDANAO STATE UNIVERSITY'), M, y + 16, centre)
@@ -286,4 +280,4 @@ module.exports = function drawRequestForQuotation(doc, { pr, orgSettings = {}, i
   lots.forEach((lot, i) => drawLot(doc, { pr, orgSettings, lot, first: i === 0 }))
   doc.fillColor(BLACK).strokeColor(BLACK)
 }
-Object.assign(module.exports, { lotsOf, COLS, SEAL, REQUEST_TEXT, NOTES, TERMS, ACCEPT_TEXT, ADDRESSEE, amount, qty })
+Object.assign(module.exports, { lotsOf, COLS, REQUEST_TEXT, NOTES, TERMS, ACCEPT_TEXT, ADDRESSEE, amount, qty })

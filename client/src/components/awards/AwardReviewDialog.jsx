@@ -1,15 +1,15 @@
 import { useQuery } from '@tanstack/react-query'
-import { CheckCircle2, ShieldCheck, ShieldOff, Star, AlertTriangle, FileText } from 'lucide-react'
+import { CheckCircle2, ShieldCheck, ShieldOff, FileText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
 import { fmtCurrency } from '@/lib/utils'
 import api from '@/lib/axios'
 import { lineCents } from './supplier'
 
-/* The BAC's last look before it awards: each lot's winner with its items, prices and total against the
-   lot's budget, whether that is the recommended bid (with the BAC's remark), whether the TWG certified the
-   bids or was skipped, what the award is recorded on, and the grand total. Nothing is awarded until
-   Confirm award. chosen: BacAwardSheet's picks ({ lot, bidder, total, budget }); reasons: remark by lot label. */
+/* Procurement's last look before it records the BAC's award: each lot's winner with its items, prices and total
+   against the lot's budget, the criteria the BAC applied (with its remark), whether the TWG certified the
+   bids or was skipped, what the award is recorded on, and the grand total. Nothing is recorded until
+   Confirm award. chosen: BacAwardSheet's picks ({ lot, bidder, total, budget, criteria }); reasons: remark by lot label. */
 export default function AwardReviewDialog({ prId, chosen, reasons, notes, doc, skipped, pending, onConfirm, onClose }) {
   const { data: bac } = useQuery({
     queryKey: ['bac', 'pr', prId],
@@ -23,10 +23,10 @@ export default function AwardReviewDialog({ prId, chosen, reasons, notes, doc, s
 
   return (
     <Dialog open onOpenChange={v => { if (!v && !pending) onClose() }}>
-      <DialogContent className="max-w-3xl" title="Review the Award"
-        description="Check every lot before you confirm. The winners are then recorded and Procurement issues the purchase orders.">
+      <DialogContent className="max-w-3xl" title="Review the award"
+        description="Check every lot against the BAC's decision before you confirm. The winners are then recorded and the purchase orders can be issued.">
         <div className="space-y-4">
-          <p className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${skipped ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-teal-300 bg-teal-50 text-teal-900'}`}>
+          <p className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${skipped ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-blue-300 bg-blue-50 text-blue-900'}`}>
             {skipped ? <ShieldOff className="size-3.5 shrink-0 mt-px" /> : <ShieldCheck className="size-3.5 shrink-0 mt-px" />}
             {skipped
               ? 'Not evaluated by the TWG: the canvass went straight to the award, so no TWG certificate is issued.'
@@ -44,18 +44,13 @@ export default function AwardReviewDialog({ prId, chosen, reasons, notes, doc, s
                 </tr>
               </thead>
               {chosen.map(c => {
-                const recommended = c.bidder.id === c.lot.recommended_bidder_id
                 const remark = reasons[c.lot.label]?.trim()
                 return (
                   <tbody key={c.lot.label} className="border-t border-[--color-border-strong]">
                     <tr className="bg-[--color-canvas]">
                       <td colSpan={4} className="px-3 py-2">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="font-semibold text-[--color-text-primary]">{c.lot.name}: {c.bidder.name}</span>
-                          {recommended
-                            ? <span className="flex items-center gap-1 text-[11px] font-medium text-[--color-text-secondary]"><Star className="size-3 fill-amber-400 text-amber-500" /> Recommended</span>
-                            : <span className="flex items-center gap-1 text-[11px] font-medium text-amber-700"><AlertTriangle className="size-3" /> Not the recommended bid</span>}
-                        </div>
+                        <span className="font-semibold text-[--color-text-primary]">{c.lot.name}: {c.bidder.name}</span>
+                        <p className="mt-0.5 text-xs text-[--color-text-secondary]">Basis: {c.criteria.join('; ')}</p>
                         {remark && <p className="mt-0.5 text-xs text-[--color-text-secondary]">Remarks: {remark}</p>}
                       </td>
                     </tr>
@@ -97,7 +92,7 @@ export default function AwardReviewDialog({ prId, chosen, reasons, notes, doc, s
         <DialogFooter className="px-0 pb-0 pt-6">
           <Button variant="outline" onClick={onClose} disabled={pending}>Go back</Button>
           <Button className="gap-1.5" onClick={onConfirm} disabled={pending}>
-            <CheckCircle2 className="size-3.5" /> {pending ? 'Awarding…' : 'Confirm award'}
+            <CheckCircle2 className="size-3.5" /> {pending ? 'Recording…' : 'Confirm award'}
           </Button>
         </DialogFooter>
       </DialogContent>

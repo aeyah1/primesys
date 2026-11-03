@@ -16,7 +16,9 @@ const cron      = require('node-cron')
 const { sendDueReminders } = require('./controllers/reminders.controller')
 const { loadUserState, sessionEnded } = require('./middleware/auth.middleware')
 const { auditTrail, pruneAudit } = require('./utils/audit')
-const { lockWhenDue } = require('./utils/quoteAccess')
+const { removeExpiredFiles } = require('./utils/retention')
+const { watchFailures, adminEmails } = require('./utils/errorAlert')
+const maintenance = require('./utils/maintenance')
 
 const app    = express()
 // Behind a hosting proxy, req.ip must be the visitor's address so rate limits apply per visitor.
@@ -83,6 +85,8 @@ app.use((req, _, next) => { req.io = io; next() })
 
 // Every change anyone makes goes into the audit log the admin reads (utils/audit.js).
 app.use('/api', auditTrail)
+// Every request the server fails is emailed to the admins, at most once an hour (utils/errorAlert.js).
+app.use('/api', watchFailures)
 
 app.use('/api/auth',          require('./routes/auth.routes'))
 app.use('/api/users',         require('./routes/users.routes'))
@@ -105,6 +109,7 @@ app.use('/api/ppmp',          require('./routes/ppmp.routes'))
 app.use('/api/dashboard',     require('./routes/dashboard.routes'))
 app.use('/api/rfqs',          require('./routes/rfqs.routes'))
 app.use('/api/audit',         require('./routes/audit.routes'))
+app.use('/api/maintenance',   require('./routes/maintenance.routes'))
 
 app.use((err, req, res, next) => {
   // Client-facing 4xx errors (status set explicitly, e.g. a workflow rule
@@ -116,6 +121,7 @@ app.use((err, req, res, next) => {
   // Everything else is logged in full server-side and masked as a generic 500
   // so internal details (SQL fragments, file paths, etc.) don't leak.
   console.error(err)
+  res.locals.errorCode = err.code   // for the admins' error email: what kind of failure, never its details
   res.status(err.status || 500).json({ message: 'Internal server error' })
 })
 
@@ -153,21 +159,27 @@ io.on('connection', (socket) => {
 // doesn't propagate out of the cron task (node-cron silently swallows errors).
 cron.schedule('* * * * *', async () => {
   try {
+    // Reminders wait out maintenance: nobody can act on them meanwhile.
+    if ((await maintenance.status()).state === 'on') return
     await sendDueReminders()
   } catch (err) {
     console.error('[cron] sendDueReminders failed:', err.message)
   }
 })
 
-// The suppliers' RFQs lock again when the time the BAC opened them for runs out (they are refused past it either way).
-cron.schedule('* * * * *', () => lockWhenDue(io).catch(err => console.error('[cron] RFQ lock failed:', err.message)))
-
 // The audit log keeps a year: older entries go each night, and when the server starts (it may sleep through the night).
 const prune = () => pruneAudit().catch(err => console.error('[audit] prune failed:', err.message))
 cron.schedule('20 3 * * *', prune)
 
+// Finished requests' files are deleted after the retention period (utils/retention.js), likewise each night and at start.
+const expireFiles = () => removeExpiredFiles().catch(err => console.error('[retention] failed:', err.message))
+cron.schedule('40 3 * * *', expireFiles)
+
 server.listen(config.port, () => {
   console.log(`PRimeSys server running on http://localhost:${config.port}`)
   require('./db/pool').checkClock()
+  if (!require('./utils/fileCrypto').enabled()) console.warn('[files] FILE_ENCRYPTION_KEY is not set: new uploads are stored unencrypted')
   prune()
+  expireFiles()
+  adminEmails()   // known before any failure, in case the database is what fails
 })

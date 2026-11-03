@@ -3,6 +3,7 @@ const { body }  = require('express-validator')
 const c         = require('../controllers/po.controller')
 const auth      = require('../middleware/auth.middleware')
 const authorize = require('../middleware/authorize.middleware')
+const requireFace = require('../middleware/face.middleware')
 const { handle, textRule, dateRule, idRule, moneyRule } = require('../middleware/validate')
 const { requireAccess } = require('../middleware/scope.middleware')
 
@@ -28,6 +29,7 @@ router.post('/',
     .custom((v, { req }) => v >= req.body.issued_date).withMessage('The expected delivery date can\'t be before the issued date'),
   textRule('notes', 'Notes', 2000),
   handle,
+  requireFace,
   c.create
 )
 
@@ -46,6 +48,7 @@ router.patch('/:id/cancel',
   poAccess,
   textRule('reason', 'A reason', 1000),
   handle,
+  requireFace,
   c.cancel
 )
 
@@ -56,6 +59,7 @@ router.patch('/:id/close',
   textRule('reason', 'Reason', 1000, { required: true }),
   moneyRule('short_amount', 'The value not delivered', { positive: true }),
   handle,
+  requireFace,
   c.close
 )
 

@@ -20,7 +20,7 @@ export default function CancelPODialog({ po, onClose }) {
   })
   return (
     <Dialog open onOpenChange={v => { if (!v) onClose() }}>
-      <DialogContent title="Cancel Purchase Order">
+      <DialogContent title="Cancel the purchase order">
         <div className="space-y-3">
           <p className="text-sm text-[--color-text-secondary]">
             Cancel <strong>{po.po_number}</strong> to {po.supplier_name}? It is kept on record as cancelled, its awards are cancelled with it,

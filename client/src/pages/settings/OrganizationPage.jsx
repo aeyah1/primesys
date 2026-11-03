@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Save, Building2, PenLine, FileText, Coins, Scale, Trash2, UserPlus } from 'lucide-react'
+import { Save, Building2, PenLine, FileText, Coins, Scale, Trash2, UserPlus, Archive, ShieldCheck, ScanFace } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -8,6 +8,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import DepartmentsCard from './DepartmentsCard'
 import SignaturesCard from './SignaturesCard'
+import PageHeader from '@/components/shared/PageHeader'
+import { useMyFace } from '@/hooks/useMyFace'
 import api from '@/lib/axios'
 
 // Campus-wide values printed on the procurement forms. Admin-only; the route
@@ -84,6 +86,9 @@ const KEYS = [
   'resolution_threshold',
   ...SIGNATORIES.flatMap(s => [`${s.key}_name`, `${s.key}_designation`]),
   'bac_members',
+  'award_criteria',
+  'file_retention_days',
+  'face_check',
 ]
 const EMPTY = Object.fromEntries(KEYS.map(k => [k, '']))
 
@@ -99,13 +104,14 @@ function readCanvassers(settings) {
 // The rows worth saving: trimmed, blank ones dropped.
 const keptCanvassers = (rows) => rows.map(c => ({ name: c.name.trim(), designation: c.designation.trim() })).filter(c => c.name || c.designation)
 
-export default function OrganizationTab() {
+export default function OrganizationPage() {
   const qc = useQueryClient()
 
   const { data: settings, isLoading } = useQuery({
     queryKey: ['org-settings'],
     queryFn:  () => api.get('/settings').then(r => r.data),
   })
+  const { data: myFace } = useMyFace()
 
   const [form, setForm] = useState(EMPTY)
   const setF = (k, v) => setForm(p => ({ ...p, [k]: v }))
@@ -129,6 +135,7 @@ export default function OrganizationTab() {
       toast.success('Organization details saved')
       qc.invalidateQueries({ queryKey: ['org-settings'] })
       qc.invalidateQueries({ queryKey: ['org-signatures'] })
+      qc.invalidateQueries({ queryKey: ['my-face'] })
     },
     onError: (err) => toast.error(err.response?.data?.message || 'Failed to save'),
   })
@@ -150,8 +157,21 @@ export default function OrganizationTab() {
     </div>
   )
 
+  const saveButton = (
+    <Button onClick={() => save()} disabled={saving || isLoading || !dirty} className="gap-1.5">
+      <Save className="size-4" />
+      {saving ? 'Saving…' : dirty ? 'Save changes' : 'Saved'}
+    </Button>
+  )
+
   return (
     <div className="space-y-5">
+      <PageHeader title="Organization" sub="The campus details printed on every form, who signs them, and the offices with their heads.">
+        {saveButton}
+      </PageHeader>
+
+      <div className="grid items-start gap-5 xl:grid-cols-2">
+      <div className="space-y-5">
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
@@ -162,7 +182,7 @@ export default function OrganizationTab() {
             Printed at the top of every Purchase Request form.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">{FIELDS.map(field)}</CardContent>
+        <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">{FIELDS.map(field)}</CardContent>
       </Card>
 
       <Card>
@@ -172,7 +192,7 @@ export default function OrganizationTab() {
             <CardTitle>Request for Quotation letterhead</CardTitle>
           </div>
           <CardDescription>
-            The block under the seal at the top of every Request for Quotation printed for the canvassers.
+            The block at the top of every Request for Quotation printed for the canvassers.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">{LETTERHEAD.map(field)}</CardContent>
@@ -192,8 +212,118 @@ export default function OrganizationTab() {
         <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">{FUND_CODES.map(field)}</CardContent>
       </Card>
 
-      <DepartmentsCard />
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Scale className="size-4 text-[--color-text-muted]" />
+            <CardTitle>Bids and Awards Committee</CardTitle>
+          </div>
+          <CardDescription>
+            The BAC meets and decides outside PRimeSys; its members have no account. Procurement enters the bids from
+            the canvassers' returned RFQs and sends them to the TWG; once the TWG certifies them, Procurement records
+            the supplier the BAC chose for each lot, with the criteria it applied, in a BAC Resolution, or below the
+            resolution threshold on the Abstract of sealed Quotations alone.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="max-w-xs">
+            {field({
+              key: 'resolution_threshold',
+              title: 'Resolution threshold (₱)',
+              placeholder: '50000',
+              hint: 'A request whose approved budget is this amount or more is awarded in a numbered BAC Resolution; below it, on the Abstract of sealed Quotations alone.',
+            })}
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="org-bac_members">Members</Label>
+            <textarea id="org-bac_members" rows={4} value={form.bac_members} disabled={isLoading}
+              onChange={e => setF('bac_members', e.target.value)}
+              placeholder={'One name per line, e.g.\nCARLO P. VILLANUEVA\nLIZA M. TORRES'}
+              className="w-full rounded-md border border-[--color-border] bg-[--color-surface] px-3 py-2 text-sm text-[--color-text-primary] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent resize-y" />
+            <p className="text-[11px] text-[--color-text-muted]">Each signs the BAC Resolution and the Abstract as a BAC Member. The chairman and vice chairman are set under Signatories.</p>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="org-award_criteria">Award criteria</Label>
+            <textarea id="org-award_criteria" rows={4} value={form.award_criteria} disabled={isLoading}
+              onChange={e => setF('award_criteria', e.target.value)}
+              placeholder={'One per line, e.g.\nLowest calculated and responsive quotation\nComplies with the technical specifications\nDelivery period\nWarranty and after-sales service'}
+              className="w-full rounded-md border border-[--color-border] bg-[--color-surface] px-3 py-2 text-sm text-[--color-text-primary] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent resize-y" />
+            <p className="text-[11px] text-[--color-text-muted]">What the BAC weighs in choosing a supplier, as approved by the BAC and the Procurement Office. Procurement ticks the ones the BAC applied on every award, and they print on the BAC Resolution and the Abstract. Left blank, the four in the example are used.</p>
+          </div>
+        </CardContent>
+      </Card>
 
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Archive className="size-4 text-[--color-text-muted]" />
+            <CardTitle>Records and uploaded files</CardTitle>
+          </div>
+          <CardDescription>
+            How long uploaded files are kept, and how they are protected. The paper originals stay with the offices.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="max-w-xs">
+            {field({
+              key: 'file_retention_days',
+              title: 'Delete uploaded files after (days)',
+              placeholder: '90',
+              hint: 'Counted from when a request is completed, cancelled, rejected or deleted; its files and its deliveries\' files are then deleted, and the request keeps a line saying when. 0 keeps them; blank means 90.',
+            })}
+          </div>
+          {settings?.file_encryption && (
+            <p className={`flex items-start gap-2 rounded-xl border px-4 py-2.5 text-ui-xs ${settings.file_encryption === 'on'
+              ? 'border-emerald-300 bg-emerald-50 text-emerald-900' : 'border-amber-300 bg-amber-50 text-amber-900'}`}>
+              <ShieldCheck className="mt-0.5 size-3.5 shrink-0" />
+              {settings.file_encryption === 'on'
+                ? 'Every uploaded file is encrypted by PRimeSys (AES-256) before it is stored, on top of the storage service\'s own encryption.'
+                : 'Uploaded files are not encrypted by PRimeSys yet: set FILE_ENCRYPTION_KEY on the server, then run the one-time encryption of the files already stored (see the manual).'}
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Face checks for staff (server/utils/faceCheck.js); faces are kept with the same key as the files. */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <ScanFace className="size-4 text-[--color-text-muted]" />
+            <CardTitle>Face checks</CardTitle>
+          </div>
+          <CardDescription>
+            TWG, Procurement, Supply and Admin accounts confirm it's them with their face when they sign in and before
+            critical actions. End Users sign in as before.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <label className={`flex items-start gap-2.5 rounded-lg border border-[--color-border] px-3 py-2.5 ${settings?.file_encryption === 'on' ? 'cursor-pointer' : 'opacity-60'}`}>
+            <input type="checkbox" checked={form.face_check === '1'} disabled={isLoading || settings?.file_encryption !== 'on'}
+              onChange={e => setF('face_check', e.target.checked ? '1' : '0')}
+              className="mt-0.5 size-4 shrink-0 cursor-pointer accent-[--color-brand]" />
+            <span>
+              <span className="block text-ui-sm font-medium text-[--color-text-primary]">Require a face check for staff</span>
+              <span className="block text-[11px] text-[--color-text-muted]">
+                Staff without one set it up at their next sign-in. Critical actions: recording an award; issuing, cancelling or
+                closing a PO; certifying bids; cancelling or deleting a request; user accounts; these settings.
+              </span>
+            </span>
+          </label>
+          {settings?.file_encryption !== 'on' ? (
+            <p className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-ui-xs text-amber-900">
+              Needs FILE_ENCRYPTION_KEY on the server first: faces are kept encrypted with it.
+            </p>
+          ) : !myFace?.enrolled_at && (
+            <p className="text-ui-xs text-[--color-text-secondary]">
+              You haven't set up your own face check yet. Do it in Settings, Security; once this is on, you'll be asked to first.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      </div>
+
+      <div className="space-y-5">
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
@@ -268,46 +398,13 @@ export default function OrganizationTab() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Scale className="size-4 text-[--color-text-muted]" />
-            <CardTitle>Bids and Awards Committee</CardTitle>
-          </div>
-          <CardDescription>
-            Give BAC members the BAC role in User Management. The BAC enters the bids from the canvassers' returned
-            RFQs and sends them to the TWG; once the TWG certifies them, the BAC awards each lot in a BAC Resolution,
-            or below the resolution threshold on the Abstract of sealed Quotations alone.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="max-w-xs">
-            {field({
-              key: 'resolution_threshold',
-              title: 'Resolution threshold (₱)',
-              placeholder: '50000',
-              hint: 'A request whose approved budget is this amount or more is awarded in a numbered BAC Resolution; below it, on the Abstract of sealed Quotations alone.',
-            })}
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="org-bac_members">Members</Label>
-            <textarea id="org-bac_members" rows={4} value={form.bac_members} disabled={isLoading}
-              onChange={e => setF('bac_members', e.target.value)}
-              placeholder={'One name per line, e.g.\nCARLO P. VILLANUEVA\nLIZA M. TORRES'}
-              className="w-full rounded-md border border-[--color-border] bg-[--color-surface] px-3 py-2 text-sm text-[--color-text-primary] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent resize-y" />
-            <p className="text-[11px] text-[--color-text-muted]">Each signs the BAC Resolution and the Abstract as a BAC Member. The chairman and vice chairman are set under Signatories.</p>
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="flex justify-end">
-        <Button onClick={() => save()} disabled={saving || isLoading || !dirty} className="gap-1.5" size="sm">
-          <Save className="size-3.5" />
-          {saving ? 'Saving…' : 'Save changes'}
-        </Button>
+      <SignaturesCard unsaved={dirty} />
+      </div>
       </div>
 
-      <SignaturesCard unsaved={dirty} />
+      <div className="flex justify-end">{saveButton}</div>
+
+      <DepartmentsCard />
     </div>
   )
 }

@@ -16,22 +16,28 @@ function amount(text) {
   return m ? Number(`${m[1].replace(/\D/g, '')}.${(m[2] || '0').padEnd(2, '0')}`) : null
 }
 
-const CAPTION = /name of supplier\s*\/?\s*company|business address/i
+// OCR may run a caption's words together or drop a letter ("Name ofSupper/ Company").
+const NAME_CAPTION = /name\s*of\s*sup\w*\s*\/?\s*compan\w*/i
+const CAPTION = /name\s*of\s*sup\w*\s*\/?\s*compan\w*|business\s*address/i
 const LABEL = /^[a-z][\w ./]{0,30}:|^(date|quotation no)\b/i
 const QUOTATION = /quotation\s*no\.?\s*:?\s*([^|]+(?:\|\s*-[^|]*)?)/i
 const quotationOf = (line) => line.match(QUOTATION)?.[1].replace(/\s*\|\s*/g, ' ').trim()
 const HEAD_WORDS = new Set(['item', 'items', 'no', 'description', 'qty', 'quantity', 'unit', 'offered', 'specification', 'specifications', 'amount', 'total', 'price', 'cost', 'and'])
 const END = /^(abc|purpose|grand total|total|delivery period|after having)\b/i
 
+// A line's first cell worth reading as a value: the stray marks OCR finds at a photo's edge (fewer than three letters,
+// "Lo | ABC Supplies") are skipped.
+const firstCell = (line) => (line || '').split(' | ').map(c => c.trim()).find(c => (c.match(/[a-z]/gi) || []).length >= 3) || ''
+
 // What the supplier typed for a caption: after it on its line (Name of Supplier/Company: X), else above it, as the campus
 // form prints the caption under a blank; never another label or caption.
 function field(lines, caption) {
   const n = lines.findIndex(l => caption.test(l))
   if (n < 0) return null
-  const after = lines[n].slice(lines[n].search(caption)).replace(caption, '').replace(/^\s*:?\s*\|?\s*/, '').split(' | ')[0].trim()
+  const after = firstCell(lines[n].slice(lines[n].search(caption)).replace(caption, '').replace(/^\s*:?\s*\|?\s*/, ''))
   if (after && !LABEL.test(after)) return after
   for (let k = n - 1; k >= Math.max(0, n - 2) && !CAPTION.test(lines[k]); k--) {
-    const first = lines[k].split(' | ')[0].trim()
+    const first = firstCell(lines[k])
     if (first && !LABEL.test(first)) return first
   }
   return null
@@ -41,9 +47,10 @@ function field(lines, caption) {
 function besideDate(lines) {
   const n = lines.findIndex(l => /(^|\| )date\b/i.test(l))
   if (n < 0) return null
-  const first = lines[n].split(' | ')[0].trim()
+  const cells = lines[n].split(' | ')
+  const at = cells.findIndex(c => /^date\b/i.test(c.trim()))
   // Left of "Date:" on its line, even after a label OCR garbled ("Narne of Suppiier/Cornpany: X"); else the line above.
-  const name = /^date\b/i.test(first) ? lines[n - 1]?.split(' | ')[0].trim() : first.replace(LABEL, '').trim()
+  const name = at === 0 ? firstCell(lines[n - 1]) : firstCell(cells.slice(0, at < 0 ? 1 : at).map(c => c.replace(LABEL, '')).join(' | '))
   return name && !LABEL.test(name) && !CAPTION.test(name) ? name : null
 }
 
@@ -123,7 +130,7 @@ export function readRfq(raw) {
   // Stray marks OCR puts around a value ("‘Sample Trading,") go.
   const clean = (s) => s?.replace(/^[^\w(&]+|[^\w.)]+$/g, '') || null
   return {
-    name: clean(field(lines, /name of supplier\s*\/?\s*company/i) ?? besideDate(lines)),
+    name: clean(field(lines, NAME_CAPTION) ?? besideDate(lines)),
     address: clean(field(lines, /business address/i)),
     email: text.match(/[\w.+-]+@[\w-]+(\.[\w-]+)+/)?.[0] || null,
     phone: text.match(/(\+?63|0)9\d{2}[\s-]?\d{3}[\s-]?\d{4}/)?.[0] || null,
@@ -178,7 +185,7 @@ export function matchRfq(read, lots, { exact = false } = {}) {
     if (total == null && row.qty == null && price === qty) continue
     const adds = (total == null ? qty === 1 : Math.abs(Math.round(qty * price * 100) - Math.round(total * 100)) <= 1) && (row.qty == null || row.qty === qty)
     // OCR can misread a digit or a row: a scan's price its row's total disagrees with, or one with no total that is ten
-    // times off the budget, is left to type; one with no total is filled for the BAC to check. Typed text is taken as written.
+    // times off the budget, is left to type; one with no total is filled for Procurement to check. Typed text is taken as written.
     const est = Number(item.estimated_cost)
     const unproven = !exact && total == null
     if ((!exact && total != null && !adds) || (unproven && est > 0 && (price > est * 10 || price * 10 < est))) { out.unsure.push(item.id); continue }

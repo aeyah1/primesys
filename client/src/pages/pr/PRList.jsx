@@ -1,37 +1,22 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query'
-import { Link, useNavigate } from 'react-router-dom'
-import { Plus, Search, FileText, Pencil, Trash2, Eye, ArrowUpDown } from 'lucide-react'
-import { Card, CardContent } from '@/components/ui/card'
+import { Link } from 'react-router-dom'
+import { Plus, ArrowUpDown } from 'lucide-react'
+import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import DeletePRDialog from '@/components/shared/DeletePRDialog'
+import PageHeader from '@/components/shared/PageHeader'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableEmpty } from '@/components/ui/table'
-import { Skeleton } from '@/components/ui/skeleton'
-import { PRStatusBadge, DeliveryStatusBadge, CategoryBadge, MarkerBadges } from '@/components/shared/StatusBadge'
-import { FilterChip, Tab, Pager } from '@/components/shared/ListParts'
-import { fmtDate, fmtCurrency, daysSince, CATEGORY_LABELS } from '@/lib/utils'
+import { TabBar, Tab, Toolbar, SearchBox, ListCount, Pager } from '@/components/shared/ListParts'
+import RequestTable from '@/components/request/RequestTable'
+import { CATEGORY_LABELS, PR_STATUS_LABELS } from '@/lib/utils'
 import { useAuth } from '@/context/AuthContext'
 import useUrlParams from '@/hooks/useUrlParams'
 import api from '@/lib/axios'
 
-// Status tabs in workflow order. "Approved by TWG" is Procurement's inbox.
-const TABS = [
-  { key: 'all',                label: 'All' },
-  { key: 'draft',              label: 'Draft' },
-  { key: 'submitted',          label: 'At TWG' },
-  { key: 'revision_requested', label: 'Revision' },
-  { key: 'twg_review',         label: 'Approved by TWG' },
-  { key: 'bidding',            label: 'Canvass' },
-  { key: 'twg_certification',  label: 'TWG certification' },
-  { key: 're_pr',              label: 'Re-PR' },
-  { key: 'bac_review',         label: 'BAC award' },
-  { key: 'for_po',             label: 'Ready for PO' },
-  { key: 'completed',          label: 'Completed' },
-  { key: 'rejected',           label: 'Rejected' },
-  { key: 'cancelled',          label: 'Cancelled' },
-]
+// Status tabs in workflow order, named as the statuses read everywhere; a status with no request is left out.
+const STATUSES = ['draft', 'submitted', 'revision_requested', 'twg_review', 'bidding', 'twg_certification', 're_pr',
+  'bac_review', 'for_po', 'completed', 'rejected', 'cancelled']
 // Server-side orders (pr.controller LIST_SORTS).
 const SORTS = [
   { key: 'newest',          label: 'Newest first' },
@@ -39,44 +24,41 @@ const SORTS = [
   { key: 'total',           label: 'Largest estimated total' },
 ]
 const CATEGORIES = Object.keys(CATEGORY_LABELS)
+const ANY = 'any'
 
-// Amount: the PO total once there is a PO, before that the items' estimate.
-function Amount({ pr }) {
-  if (pr.total_amount) return <span className="text-[--color-text-secondary]">{fmtCurrency(pr.total_amount)}</span>
-  if (Number(pr.estimated_total) > 0) {
-    return <span className="text-[--color-text-muted]" title="Estimated from the PR items">est. {fmtCurrency(pr.estimated_total)}</span>
-  }
-  return <span className="text-[--color-text-muted]">—</span>
+// What each role finds on this page.
+const SUB = {
+  procurement: 'Every purchase request from draft to delivery. Open one to see its steps and do your part.',
+  admin:       'Every purchase request from draft to delivery. Open one to see its steps.',
+  bac:         'The requests the TWG approved, through their canvass and award.',
+  twg:         'The requests in your review areas, and the ones you decided on.',
 }
 
+// Every request the viewer may see, by status, with who has each one now.
 export default function PRList() {
   const { user }     = useAuth()
-  const navigate     = useNavigate()
   const qc           = useQueryClient()
   const [deleteTarget, setDeleteTarget] = useState(null)
 
-  // Tab, category, sort, search, and page live in the URL, so the back button,
-  // a refresh, and a shared link all keep the same view.
+  // Tab, category, sort, search, and page live in the URL, so the back button, a refresh, and a shared link keep the view.
   const [params, update] = useUrlParams()
-  const tab      = TABS.some(t => t.key === params.get('status')) ? params.get('status') : 'all'
+  const tab      = STATUSES.includes(params.get('status')) ? params.get('status') : 'all'
   const category = CATEGORIES.includes(params.get('category')) ? params.get('category') : ''
   const sort     = SORTS.some(s => s.key === params.get('sort')) ? params.get('sort')
                  : tab === 'twg_review' ? 'oldest_approval' : 'newest'
   const page     = Math.max(parseInt(params.get('page')) || 1, 1)
   const [search, setSearch] = useState(params.get('q') || '')
 
-  const isRequestor = user?.role === 'requestor'
-  const isStaff     = ['procurement', 'admin'].includes(user?.role)
+  const isStaff = ['procurement', 'admin'].includes(user?.role)
+  const canCreate = ['admin', 'procurement', 'requestor'].includes(user?.role)
 
-  // Server-backed "I've opened this PR" set, for the NEW marker on TWG
-  // approvals Procurement hasn't looked at yet.
+  // Requests Procurement opened, for the New mark on TWG approvals it hasn't looked at yet.
   const { data: readSet = new Set() } = useQuery({
     queryKey: ['pr-reads', user?.id],
     queryFn: () => api.get('/pr/reads').then(r => new Set(r.data.map(String))),
     enabled: isStaff,
     staleTime: 60_000,
   })
-
   const { data: stats } = useQuery({
     queryKey: ['pr-stats'],
     queryFn: () => api.get('/pr/stats').then(r => r.data),
@@ -89,7 +71,7 @@ export default function PRList() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['pr-list', { search, tab, category, sort, page }],
     queryFn: () => {
-      const q = new URLSearchParams({ page, limit: 10, sort })
+      const q = new URLSearchParams({ page, limit: 15, sort })
       if (search)        q.set('search', search)
       if (tab !== 'all') q.set('status', tab)
       if (category)      q.set('category', category)
@@ -97,6 +79,7 @@ export default function PRList() {
     },
     placeholderData: keepPreviousData,
   })
+  const rows = data?.data ?? []
 
   const afterDelete = () => {
     qc.invalidateQueries({ queryKey: ['pr-list'] })
@@ -104,203 +87,43 @@ export default function PRList() {
     setDeleteTarget(null)
   }
 
-  const canCreate = ['admin', 'procurement', 'requestor'].includes(user?.role)
-
-  // column count for empty/skeleton states
-  const colCount = isStaff ? 10 : isRequestor ? 8 : 7
-
   return (
-    <div className="space-y-4">
-      <h2 className="text-ui-2xl font-bold text-[--color-text-primary]">Purchase Requests</h2>
-      <div className="flex items-center gap-3 flex-wrap">
-        <div className="relative flex-1 min-w-48 max-w-72">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-[--color-text-muted]" />
-          <Input
-            placeholder="Search by PR number or title…"
-            value={search}
-            onChange={e => { setSearch(e.target.value); update({ q: e.target.value, page: '' }) }}
-            className="pl-9"
-          />
-        </div>
-        {canCreate && (
-          <Button asChild className="ml-auto gap-1.5">
-            <Link to="/pr/create"><Plus className="size-4" /> New Purchase Request</Link>
-          </Button>
-        )}
-      </div>
+    <div className="space-y-5">
+      <PageHeader title="Requests" sub={SUB[user?.role] || 'The purchase requests you can see.'}>
+        {canCreate && <Button asChild className="gap-1.5"><Link to="/pr/create"><Plus className="size-4" /> New Request</Link></Button>}
+      </PageHeader>
 
-      <Card>
-        <div className="flex items-center gap-1 px-4 pt-3 border-b border-[--color-border] overflow-x-auto">
-          {TABS.map(t => (
-            <Tab key={t.key} active={tab === t.key} count={tabCount(t.key)}
-              onClick={() => update({ status: t.key === 'all' ? '' : t.key, sort: '', page: '' })}>
-              {t.label}
+      <Card className="overflow-hidden">
+        <TabBar>
+          <Tab active={tab === 'all'} count={tabCount('all')} onClick={() => update({ status: '', sort: '', page: '' })}>All</Tab>
+          {STATUSES.filter(s => tabCount(s) > 0 || s === tab).map(s => (
+            <Tab key={s} active={tab === s} count={tabCount(s)} onClick={() => update({ status: s, sort: '', page: '' })}>
+              {PR_STATUS_LABELS[s]}
             </Tab>
           ))}
-        </div>
+        </TabBar>
 
-        {/* Category filter (counts follow the tab) and sort order */}
-        <div className="flex items-center justify-between gap-3 flex-wrap px-4 py-3 border-b border-[--color-border]">
-          <div className="flex flex-wrap gap-1.5">
-            {['', ...CATEGORIES].map(c => (
-              <FilterChip key={c || 'all'} active={category === c} count={c ? catCount(c) : tabCount(tab)}
-                onClick={() => update({ category: c, page: '' })}>
-                {c ? CATEGORY_LABELS[c] : 'All categories'}
-              </FilterChip>
-            ))}
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <ArrowUpDown className="size-3.5 text-[--color-text-muted]" />
-            <Select value={sort} onValueChange={v => update({ sort: v, page: '' })}>
-              <SelectTrigger className="h-8 w-56 text-ui-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {SORTS.map(s => <SelectItem key={s.key} value={s.key} className="text-ui-xs">{s.label}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
+        <Toolbar end={<ListCount n={data?.total} one="request" />}>
+          <SearchBox value={search} placeholder="Search by PR number or title" onChange={v => { setSearch(v); update({ q: v, page: '' }) }} />
+          <Select value={category || ANY} onValueChange={v => update({ category: v === ANY ? '' : v, page: '' })}>
+            <SelectTrigger className="h-9 w-52 text-ui-xs" aria-label="Category"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ANY} className="text-ui-xs">All categories ({tabCount(tab)})</SelectItem>
+              {CATEGORIES.map(c => <SelectItem key={c} value={c} className="text-ui-xs">{CATEGORY_LABELS[c]} ({catCount(c)})</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={sort} onValueChange={v => update({ sort: v, page: '' })}>
+            <SelectTrigger className="h-9 w-56 gap-2 text-ui-xs" aria-label="Order"><ArrowUpDown className="size-3.5 text-[--color-text-muted]" /><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {SORTS.map(s => <SelectItem key={s.key} value={s.key} className="text-ui-xs">{s.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </Toolbar>
 
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                {isStaff && <TableHead className="w-24 p-0" />}
-                <TableHead>PR Number</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>{isStaff ? 'Request' : 'Title'}</TableHead>
-                {isStaff && <TableHead>TWG Review</TableHead>}
-                <TableHead className="text-right">Amount</TableHead>
-                <TableHead>PR Status</TableHead>
-                <TableHead>Delivery</TableHead>
-                {!isStaff && <TableHead>Filed</TableHead>}
-                {(isRequestor || isStaff) && <TableHead className="w-20" />}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {isLoading
-                ? Array(5).fill(0).map((_, i) => (
-                    <TableRow key={i}>
-                      {Array(colCount).fill(0).map((_, j) => (
-                        <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
-                      ))}
-                    </TableRow>
-                  ))
-                : isError
-                  ? (
-                    <TableEmpty colSpan={colCount}>
-                      <p className="text-red-500">Failed to load purchase requests.</p>
-                    </TableEmpty>
-                  )
-                : data?.data?.length === 0
-                  ? (
-                    <TableEmpty colSpan={colCount}>
-                      <FileText className="size-8 text-[--color-text-muted] mx-auto mb-2" />
-                      <p>No purchase requests found.</p>
-                      {(category || tab !== 'all') && <p className="text-ui-xs mt-1">Try another tab or category.</p>}
-                    </TableEmpty>
-                  )
-                  : data?.data?.map(pr => {
-                      // TWG approvals this user hasn't opened yet: Procurement's new work.
-                      const isNew    = isStaff && pr.status === 'twg_review' && !readSet.has(String(pr.id))
-                      const isOpened = isStaff && pr.status === 'twg_review' && readSet.has(String(pr.id))
-                      const waiting  = pr.status === 'twg_review' && pr.twg_reviewed_at ? daysSince(pr.twg_reviewed_at) : null
-                      return (
-                        <TableRow
-                          key={pr.id}
-                          className={`cursor-pointer transition-colors ${isNew ? 'bg-amber-50/50' : ''}`}
-                          onClick={() => navigate(`/pr/${pr.id}`)}
-                        >
-                          {isStaff && (
-                            <TableCell className="p-1.5 w-24">
-                              {isNew ? (
-                                <div className="flex flex-col items-center justify-center rounded-lg bg-amber-500 px-1.5 py-2 text-center leading-tight select-none">
-                                  <span className="text-[10px] font-bold text-white uppercase tracking-wide">New</span>
-                                  <span className="text-[10px] font-bold text-white uppercase tracking-wide">Approval</span>
-                                </div>
-                              ) : isOpened ? (
-                                <div className="flex flex-col items-center justify-center rounded-lg border border-[--color-border] bg-[--color-canvas] px-1.5 py-2 text-center leading-tight select-none">
-                                  <Eye className="size-3 text-[--color-text-muted] mb-0.5" />
-                                  <span className="text-[10px] text-[--color-text-muted] uppercase tracking-wide">Opened</span>
-                                </div>
-                              ) : null}
-                            </TableCell>
-                          )}
-
-                          <TableCell className="font-mono font-semibold text-[--color-brand] whitespace-nowrap">
-                            {pr.pr_number}
-                          </TableCell>
-                          <TableCell><CategoryBadge category={pr.category} /></TableCell>
-                          <TableCell className="text-sm max-w-56">
-                            <p className="truncate text-[--color-text-primary]">
-                              {pr.title || <span className="text-[--color-text-muted] italic">No title</span>}
-                            </p>
-                            {isStaff && (
-                              <p className="truncate text-[11px] text-[--color-text-muted] mt-0.5">
-                                {pr.created_by_name}{pr.department ? ` · ${pr.department}` : ''}
-                              </p>
-                            )}
-                          </TableCell>
-                          {isStaff && (
-                            <TableCell className="text-sm whitespace-nowrap">
-                              {pr.twg_reviewer_name && pr.twg_reviewed_at ? (
-                                <>
-                                  <p className="text-[--color-text-secondary]">{pr.twg_reviewer_name}</p>
-                                  <p className={`text-[11px] mt-0.5 ${waiting > 3 ? 'text-amber-700 font-medium' : 'text-[--color-text-muted]'}`}>
-                                    {fmtDate(pr.twg_reviewed_at)}{waiting !== null && ` · waiting ${waiting} day${waiting === 1 ? '' : 's'}`}
-                                  </p>
-                                </>
-                              ) : <span className="text-[--color-text-muted]">—</span>}
-                            </TableCell>
-                          )}
-                          <TableCell className="text-right text-sm whitespace-nowrap"><Amount pr={pr} /></TableCell>
-                          <TableCell><div className="flex flex-wrap items-center gap-1.5"><PRStatusBadge status={pr.status} /><MarkerBadges pr={pr} /></div></TableCell>
-                          <TableCell>
-                            {pr.po_id
-                              ? <DeliveryStatusBadge status={pr.delivery_status} />
-                              : <span className="text-xs text-[--color-text-muted]">No PO yet</span>
-                            }
-                          </TableCell>
-                          {!isStaff && (
-                            <TableCell className="text-sm text-[--color-text-muted] whitespace-nowrap">
-                              {fmtDate(pr.created_at)}
-                            </TableCell>
-                          )}
-
-                          {/* Actions column */}
-                          {(isRequestor || isStaff) && (
-                            <TableCell onClick={e => e.stopPropagation()}>
-                              <div className="flex items-center gap-1">
-                                {isRequestor && pr.permissions?.edit && (
-                                  <button
-                                    onClick={() => navigate(`/pr/${pr.id}/edit`)}
-                                    title="Edit PR"
-                                    className="p-1.5 rounded-lg text-[--color-text-muted] hover:text-[--color-brand] hover:bg-[--color-overlay] transition-colors"
-                                  >
-                                    <Pencil className="size-3.5" />
-                                  </button>
-                                )}
-                                {pr.permissions?.delete && (
-                                  <button
-                                    onClick={() => setDeleteTarget(pr)}
-                                    title="Delete PR"
-                                    className="p-1.5 rounded-lg text-[--color-text-muted] hover:text-red-600 hover:bg-red-50 transition-colors"
-                                  >
-                                    <Trash2 className="size-3.5" />
-                                  </button>
-                                )}
-                              </div>
-                            </TableCell>
-                          )}
-                        </TableRow>
-                      )
-                    })
-              }
-            </TableBody>
-          </Table>
-
-          <Pager page={page} totalPages={data?.totalPages} summary={`${data?.total} total`}
-            onPage={(n) => update({ page: n > 1 ? n : '' })} />
-        </CardContent>
+        <RequestTable rows={rows} isLoading={isLoading} isError={isError} onDelete={setDeleteTarget}
+          isNew={(pr) => isStaff && pr.status === 'twg_review' && !readSet.has(String(pr.id))}
+          empty={{ title: 'No request here', sub: search || category || tab !== 'all' ? 'Try another tab, category or search.' : 'Requests appear here once they are filed.' }} />
+        <Pager page={page} totalPages={data?.totalPages} summary={`${data?.total} requests`} onPage={(n) => update({ page: n > 1 ? n : '' })} />
       </Card>
 
       <DeletePRDialog pr={deleteTarget} onClose={() => setDeleteTarget(null)} onDeleted={afterDelete} />

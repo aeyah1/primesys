@@ -9,7 +9,7 @@ const serverReq = (m) => require(require.resolve(m, { paths: [H.SERVER] }))
 const config = require(path.join(H.SERVER, 'config.js'))
 const jwt    = serverReq('jsonwebtoken')
 
-const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 4: 'twg', 5: 'bac', 6: 'supply' }
+const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 4: 'twg', 5: 'procurement', 6: 'supply' }
 const tok  = (id) => jwt.sign({ id, tv: 0 }, config.jwt.secret, { expiresIn: '1h' })
 
 function fixtures() {
@@ -143,7 +143,7 @@ async function run() {
   t.check(W, '…and counts only their own request', mine.data?.find(x => x.id === 2)?.prs === 1 && mine.data?.find(x => x.id === 1)?.prs === 0,
     JSON.stringify(mine.data?.map(x => [x.id, x.prs])))
   await is(W, '…whose figures leave out the rest', 3, 'GET', '/archive/quarters/1', undefined, r => r.data.totals.prs === 0 && r.data.totals.budget === 0)
-  await is(W, 'the BAC sees the canvassed and completed ones', 5, 'GET', '/archive/quarters/1', undefined, r => r.data.totals.prs === 2, '2')
+  await is(W, 'Procurement sees every one but others\' drafts', 2, 'GET', '/archive/quarters/1', undefined, r => r.data.totals.prs === 4, '4')
   await is(W, 'Supply sees the one with purchase orders', 6, 'GET', '/archive/quarters/1', undefined, r => r.data.totals.prs === 1, '1')
   await is(W, 'a Fund Administrator\'s register prints', 3, 'GET', '/archive/quarters/2/register', undefined, r => r.status === 200 && r.pdf.length > 1000)
   await is(W, 'not without signing in', null, 'GET', '/archive/quarters', undefined, r => r.status === 401, '401')

@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useConfirm } from '@/components/shared/ConfirmDialog'
 import SignatureDialog from '@/components/shared/SignatureDialog'
-import { fmtDate } from '@/lib/utils'
+import { fmtDatetime } from '@/lib/utils'
 import api from '@/lib/axios'
 
 /* The saved signatures of the officials named above (server/utils/orgSignatures.js). Each prints over its
@@ -86,7 +86,7 @@ export default function SignaturesCard({ unsaved = false }) {
                         ? (
                           <div className="flex items-center gap-2">
                             <img src={p.signature.image} alt={`Signature of ${p.name}`} className="h-10 max-w-40 rounded border border-[--color-border] bg-white object-contain px-1" />
-                            <span className="text-[11px] text-[--color-text-muted]">Saved {fmtDate(p.signature.updated_at)}</span>
+                            <span className="text-[11px] text-[--color-text-muted]">Saved {fmtDatetime(p.signature.updated_at)}</span>
                           </div>
                         )
                         : <span className="text-xs text-[--color-text-muted]">No signature: prints a blank line</span>}

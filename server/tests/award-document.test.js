@@ -8,7 +8,7 @@ const { db: TEST_DB, base: BASE } = H.configure({ db: 'primesys_award_doc_test_t
 const serverReq = (m) => require(require.resolve(m, { paths: [H.SERVER] }))
 const config = require(path.join(H.SERVER, 'config.js'))
 const jwt    = serverReq('jsonwebtoken')
-const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 5: 'twg', 6: 'bac' }
+const ROLE = { 1: 'admin', 2: 'procurement', 3: 'requestor', 5: 'twg', 6: 'procurement' }
 const tok  = (id) => jwt.sign({ id }, config.jwt.secret, { expiresIn: '1h' })
 
 function fixtures() {
@@ -63,8 +63,8 @@ async function run() {
   t.check(B, '…in a numbered BAC Resolution', at?.kind === 'resolution' && /^\d{4}-001$/.test(at.resolution_number || ''), JSON.stringify(at))
   t.check(B, 'items dropped don\'t count: 60,000 less a dropped 20,000 is awarded', (await awardIt(92, { 921: 39000 })) === 'ok', '')
   t.check(B, '…on the Abstract alone', (await roundOf(92))?.kind === 'abstract', '')
-  await is(B, 'Procurement is told it was awarded on the Abstract', 2, 'GET', '/notifications', undefined,
-    (r) => r.status === 200 && r.data.some(n => n.message === 'PR PR-D-90 was awarded by the BAC on the Abstract of sealed Quotations. The purchase orders can be issued.'))
+  await is(B, 'the other Procurement officers are told it was recorded on the Abstract', 2, 'GET', '/notifications', undefined,
+    (r) => r.status === 200 && r.data.some(n => n.message === 'The BAC\'s award of PR PR-D-90 was recorded on the Abstract of sealed Quotations. The purchase orders can be issued.'))
 
   const C = 'The documents'
   await is(C, 'an Abstract award has no BAC Resolution to print (404)', 6, 'GET', `/bac/90/resolutions/${below?.id}/pdf`, undefined, (r) => r.status === 404)

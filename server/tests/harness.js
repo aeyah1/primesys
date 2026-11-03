@@ -47,6 +47,8 @@ function configure({ db, port, env = {} }) {
     JWT_SECRET: 'test-only-jwt-secret-0123456789abcdef0123456789abcdef',
     MAIL_USER: '', MAIL_PASS: '', CAPTCHA_ENABLED: 'false', CAPTCHA_SECRET_KEY: '',
     ALLOWED_EMAIL_DOMAINS: '*',
+    // Files are stored as uploaded unless a test sets its own key, whatever the local .env holds.
+    FILE_ENCRYPTION_KEY: '',
     ...env,
   })
   return { db, port, base: `http://127.0.0.1:${port}/api` }
@@ -117,17 +119,32 @@ const canvassScan = () => {
   return form
 }
 
-// The BAC's award for a canvass (GET /canvass/:prId): each lot with an item
-// still to award goes to `pick(lot)`, the bidder the system recommends unless given.
-const lotWinners = (canvass, pick = (lot) => lot.recommended_bidder_id) => ({
+// The first of the default award criteria (server/utils/orgSettings.js), ticked on every test award.
+const CRITERION = 'Lowest calculated and responsive quotation'
+
+// The lowest total of a lot's open items among the bidders that bid on all of them, none found non-compliant.
+function lowestOf(canvass, lot) {
+  const open = canvass.items.filter(i => lot.item_ids.includes(i.id) && i.state === 'pending')
+  let best = null
+  for (const b of canvass.bidders) {
+    if (!open.every(i => b.prices[i.id] != null && b.evaluation[i.id]?.compliant !== false)) continue
+    const total = open.reduce((sum, i) => sum + Math.round(Number(i.quantity) * Number(b.prices[i.id]) * 100), 0)
+    if (!best || total < best.total) best = { id: b.id, total }
+  }
+  return best?.id ?? null
+}
+
+// Procurement's record of the BAC's award for a canvass (GET /canvass/:prId): each lot with an item
+// still to award goes to `pick(lot)`, the lowest compliant total unless given, on `criteria`.
+const lotWinners = (canvass, pick = (lot) => lowestOf(canvass, lot), criteria = [CRITERION]) => ({
   winners: canvass.lots.filter(l => canvass.items.some(i => l.item_ids.includes(i.id) && i.state === 'pending'))
-    .map(l => ({ lot: l.label, bidder_id: pick(l) })),
+    .map(l => ({ lot: l.label, bidder_id: pick(l), criteria })),
 })
 
-// Takes a PR in canvass through to Ready for PO: the BAC enters the bids,
+// Takes a PR in canvass through to Ready for PO: Procurement enters the bids,
 // attaches the canvasser's file and sends them to the TWG; the TWG marks every
-// bid compliant and certifies; the BAC awards each lot to its lowest total.
-// `tok(id)` signs a user's token; `as` names the { bac, twg } users;
+// bid compliant and certifies; Procurement records each lot's award to its lowest total.
+// `tok(id)` signs a user's token; `as` names the { bac (a Procurement officer), twg } users;
 // bids: [{ name, prices: { [pr_item_id]: unit_price } }]. Throws on any refusal.
 async function award(base, tok, prId, as, bids) {
   const call = async (who, method, p, body = {}) => {
@@ -216,4 +233,4 @@ async function main({ db, base, fixtures = '', onMail, run }) {
   }
 }
 
-module.exports = { SERVER, CLIENT, LOGS, print, configure, buildDb, dropDb, sql, bootServer, suite, main, twgAreas, ALL_AREAS, LINK_POS, CERTIFIED, ppmpFor, canvassScan, lotWinners, award }
+module.exports = { SERVER, CLIENT, LOGS, print, configure, buildDb, dropDb, sql, bootServer, suite, main, twgAreas, ALL_AREAS, LINK_POS, CERTIFIED, ppmpFor, canvassScan, CRITERION, lowestOf, lotWinners, award }

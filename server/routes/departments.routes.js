@@ -14,6 +14,7 @@ const fields = (required) => [
   textRule('name', 'Office name', 150, { required }),
   textRule('head_name', 'Head of office', 150),
   textRule('head_designation', 'Head\'s designation', 150),
+  textRule('sections', 'Sections', 4000),
   body('is_active').optional().isBoolean().withMessage('Active must be true or false').toBoolean(),
 ]
 

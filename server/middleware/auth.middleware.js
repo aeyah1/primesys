@@ -1,6 +1,7 @@
 const jwt    = require('jsonwebtoken')
 const pool   = require('../db/pool')
 const config = require('../config')
+const maintenance = require('../utils/maintenance')
 
 // Short-TTL LRU cache of each user's account state (active flag, role, token
 // version), so the database isn't hit on every request. The role inside a JWT
@@ -120,6 +121,10 @@ const verifyToken = async (req, res, next) => {
   if (ended) return res.status(401).json(ended)
   req.user.role = state.role   // the account's current role, not the one in the token
   req.user.name = state.name   // the account's current name; tokens no longer carry one
+
+  // During maintenance only admins get through; signing out still works, so the session ends on the server too.
+  const signingOut = req.method === 'POST' && req.originalUrl.split('?')[0] === '/api/auth/logout'
+  if (state.role !== 'admin' && !signingOut && await maintenance.refuse(res)) return
 
   next()
 }

@@ -22,7 +22,7 @@ export default function DeletePRDialog({ pr, onClose, onDeleted }) {
 
   return (
     <Dialog open={!!pr} onOpenChange={o => { if (!o && !isPending) onClose() }}>
-      <DialogContent title="Delete Purchase Request">
+      <DialogContent title="Delete the purchase request">
         <div className="pt-1 space-y-3">
           <p className="text-sm text-[--color-text-secondary]">
             Delete <strong>{pr?.pr_number}</strong>? It will be removed from active lists and kept, with its items,

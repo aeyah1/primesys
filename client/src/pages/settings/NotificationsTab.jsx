@@ -38,7 +38,7 @@ export default function NotificationsTab() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="grid items-start gap-5 xl:grid-cols-2">
       <Card>
         <CardHeader>
           <CardTitle>In-app sound</CardTitle>

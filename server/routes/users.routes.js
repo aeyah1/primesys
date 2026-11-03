@@ -3,13 +3,14 @@ const { body } = require('express-validator')
 const c = require('../controllers/users.controller')
 const auth = require('../middleware/auth.middleware')
 const authorize = require('../middleware/authorize.middleware')
+const requireFace = require('../middleware/face.middleware')
 const { handle, passwordRule, textRule, oneOfRule, idRule } = require('../middleware/validate')
 const { CATEGORIES } = require('../utils/categories')
 
 // User Management, admin only: the only place roles are assigned, and where sign-ups are approved.
 router.use(auth, authorize('admin'))
 
-const ROLES = ['admin', 'procurement', 'requestor', 'supply', 'twg', 'bac']
+const ROLES = ['admin', 'procurement', 'requestor', 'supply', 'twg']
 const username = (chain) => chain.isString().withMessage('Username is required').bail().trim()
   .matches(/^[a-zA-Z0-9_]{3,50}$/).withMessage('Username must be 3 to 50 letters, numbers, or underscores')
 // A TWG member's review areas: PR categories (utils/categories.js).
@@ -20,6 +21,8 @@ const areas = [
 
 // Which categories have a TWG reviewer (before the /:id routes).
 router.get('/twg-coverage',   c.twgCoverage)
+// One person's last sign-in, kinds of activity and transaction history, read only.
+router.get('/:id(\\d+)/activity', c.activity)
 
 // A new account has no password: it is emailed a link to set one; left out, the username is made from the email.
 router.post('/',
@@ -34,6 +37,7 @@ router.post('/',
   textRule('designation', 'Designation', 150),
   areas,
   handle,
+  requireFace,
   c.create)
 router.get('/',               c.list)
 router.patch('/:id',
@@ -50,11 +54,14 @@ router.patch('/:id',
   body('skip_login_code').optional().isBoolean({ strict: true }).withMessage('No sign-in code must be on or off'),
   areas,
   handle,
+  requireFace,
   c.update)
-router.patch('/:id/toggle',         c.toggleActive)
-router.patch('/:id/approve',        c.approve)
-router.post('/:id/reject',          textRule('reason', 'Reason', 500, { required: true }), handle, c.reject)
-router.patch('/:id/reset-password', passwordRule('password'), handle, c.resetPassword)
-router.delete('/:id',               c.remove)
+router.patch('/:id/toggle',         requireFace, c.toggleActive)
+router.patch('/:id/approve',        requireFace, c.approve)
+router.post('/:id/reject',          textRule('reason', 'Reason', 500, { required: true }), handle, requireFace, c.reject)
+router.patch('/:id/reset-password', passwordRule('password'), handle, requireFace, c.resetPassword)
+router.delete('/:id',               requireFace, c.remove)
+// Removes a person's face measurements (a new face, a camera that can't read them); they set it up again.
+router.delete('/:id/face',          requireFace, c.resetFace)
 
 module.exports = router

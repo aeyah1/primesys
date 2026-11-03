@@ -45,6 +45,13 @@ const SETTING_KEYS = [
   'bac_chairman_name',
   'bac_chairman_designation',
   'bac_members',                  // one name per line
+  'award_criteria',               // what the BAC weighs when it chooses a supplier, one per line
+
+  // Records
+  'file_retention_days',          // days after a request is finished that its uploaded files are deleted; 0 keeps them
+
+  // Security
+  'face_check',                   // '1': staff pass a face check at sign-in and before critical actions (utils/faceCheck.js)
 ]
 
 // The three funds the campus draws on. The code is configurable because it is
@@ -110,6 +117,29 @@ function requesterFor(org, total, pr) {
 // The BAC members, one per line, blanks dropped.
 const bacMembers = (org) => String(org.bac_members || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean)
 
+// What the BAC weighs when it chooses a supplier until the admin lists the campus's own (Organization settings).
+const DEFAULT_AWARD_CRITERIA = [
+  'Lowest calculated and responsive quotation',
+  'Complies with the technical specifications',
+  'Delivery period',
+  'Warranty and after-sales service',
+]
+
+// The award criteria, one per line, blanks and repeats dropped; the defaults when none are saved.
+function awardCriteriaOf(org) {
+  const list = [...new Set(String(org.award_criteria || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean))]
+  return list.length ? list : DEFAULT_AWARD_CRITERIA
+}
+
+// Days after a request is finished that its uploaded files are deleted (utils/retention.js): the saved number, 0 to
+// keep them, else the default.
+const DEFAULT_RETENTION_DAYS = 90
+function retentionDaysOf(org) {
+  const raw = String(org.file_retention_days ?? '').trim()
+  const days = Number(raw)
+  return raw !== '' && Number.isInteger(days) && days >= 0 ? days : DEFAULT_RETENTION_DAYS
+}
+
 // How many canvassers the RFQ names at most (three to a row, two rows).
 const MAX_CANVASSERS = 6
 
@@ -125,4 +155,5 @@ function canvassersOf(org) {
 module.exports = {
   SETTING_KEYS, FUND_SOURCES, FUND_SOURCE_VALUES, PR_PREFIX, DEFAULT_PR_PREFIX, DEFAULT_APPROVER_THRESHOLD, DEFAULT_RESOLUTION_THRESHOLD,
   loadOrgSettings, prNumberPrefix, fundCodeFor, approverFor, awardDocumentFor, requesterFor, bacMembers, MAX_CANVASSERS, canvassersOf,
+  DEFAULT_AWARD_CRITERIA, awardCriteriaOf, DEFAULT_RETENTION_DAYS, retentionDaysOf,
 }

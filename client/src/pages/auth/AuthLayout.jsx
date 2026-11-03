@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowLeft, Check } from 'lucide-react'
+import BrandMark from '@/components/shared/BrandMark'
 import { ENTER, NAVY_BG } from '@/pages/landing/LandingParts'
 
 function Brand() {
   return (
     <Link to="/" className="flex w-fit items-center gap-3">
-      <img src="/nemsu-logo.png" alt="NEMSU seal" className="size-9 object-contain" />
+      <BrandMark className="size-9" />
       <span>
         <span className="block text-base font-bold leading-none tracking-tight text-white">PRimeSys</span>
         <span className="mt-1 block text-[11px] font-medium leading-none text-[--color-gold]">Procurement Management System</span>

@@ -48,7 +48,7 @@ module.exports = function drawBacResolution(doc, { resolution, pr, abc, lots, or
   para('WHEREAS,', `${office} submitted Purchase Request No. ${pr.pr_number} dated ${fmtDate(pr.created_at)} for ${purpose}, with an Approved Budget for the Contract of PHP ${amount(abc)};`)
   para('WHEREAS,', `the procurement is undertaken through ${pr.mode_of_procurement || 'the mode recorded by the Committee'}, pursuant to ${LAW};`)
   para('WHEREAS,', 'Requests for Quotation were issued and the canvass was conducted, and its result was reviewed by the Committee;')
-  para('WHEREAS,', 'after review, the offers below were found to be the lowest calculated and responsive quotations, except where a reason is stated;')
+  para('WHEREAS,', 'the Committee evaluated the quotations against its approved criteria and chose the offers below, on the basis stated for each lot;')
   para('NOW, THEREFORE,', `the Bids and Awards Committee RESOLVES, as it hereby RESOLVES, to recommend to the ${approver.designation || 'Head of the Procuring Entity'} the award of contract as follows:`)
 
   // ── The awards ─────────────────────────────────────────────────────
@@ -75,7 +75,7 @@ module.exports = function drawBacResolution(doc, { resolution, pr, abc, lots, or
   f.put(amount(total), X[3], y, COLS[3].width, ROW_H, { font: 'Times-Bold', align: 'right' })
   y += ROW_H + 8
 
-  // Why an award was not the lowest, as Procurement recorded it.
+  // Each lot's basis for the award, as Procurement recorded it from the Committee's decision.
   for (const lot of lots.filter(l => l.notes)) {
     const text = `${lot.lot_number}: ${lot.notes}`
     const h = f.heightIn('Times-Roman', 8.5, text, W)

@@ -27,7 +27,7 @@ export default function AppearanceTab() {
   }, [collapsed])
 
   return (
-    <div className="space-y-5">
+    <div className="grid items-start gap-5 xl:grid-cols-2">
       <Card>
         <CardHeader>
           <CardTitle>Theme</CardTitle>
@@ -50,7 +50,7 @@ export default function AppearanceTab() {
       <Card>
         <CardHeader>
           <CardTitle>Layout</CardTitle>
-          <CardDescription>Saved on this device only — doesn't sync across browsers</CardDescription>
+          <CardDescription>Saved on this device only; other browsers keep their own.</CardDescription>
         </CardHeader>
         <CardContent>
           <ToggleRow

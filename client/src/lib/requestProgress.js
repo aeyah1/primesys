@@ -6,10 +6,11 @@
 import { RE_PR_TYPES, fmtDate } from './utils'
 
 // The stages a request moves through, as the workflow names them (server/utils/prWorkflow.js).
-export const REQUEST_STEPS = ['Submitted', 'TWG review', 'Canvass (RFQ)', 'TWG evaluation', 'BAC award', 'Purchase order', 'Delivered']
+export const REQUEST_STEPS = ['Submitted', 'TWG review', 'Canvass', 'TWG check', 'Award', 'Purchase order', 'Delivered']
 
 const TWG = 'Technical Working Group (TWG)'
 const BAC = 'Bids and Awards Committee (BAC)'
+const PROCUREMENT = 'Procurement Office'
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`
 
 // `step` is the index of the stage in progress (earlier ones are done); REQUEST_STEPS.length
@@ -27,7 +28,7 @@ export function requestProgress(pr) {
   const since = pr.rfq_at ? ` since ${fmtDate(pr.rfq_at)}` : ''
   const rePrWhy = RE_PR_TYPES[pr.re_pr_type] || 'change the specifications'
   // Some items may already be ordered while a supplier is found for the rest.
-  const partly = po && { step: 5, title: 'Partly ordered', who: BAC,
+  const partly = po && { step: 5, title: 'Partly ordered', who: PROCUREMENT,
     next: `Some items are ordered from ${po.supplier_name}. A supplier is still being chosen for the rest.` }
 
   switch (pr.status) {
@@ -39,7 +40,7 @@ export function requestProgress(pr) {
         next: 'They will approve it, ask you for changes, or turn it down. You get a notification either way.' }
     case 'revision_requested':
       // `revision` (on the PR page) says who sent it back: the TWG, Procurement
-      // returning an approved request, or the BAC with the TWG's Re-PR.
+      // returning an approved request, or Procurement with the TWG's Re-PR.
       if (pr.revision?.from_status === 're_pr') {
         return { step: 1, tone: 'rework', who: 'You', title: 'Re-PR: change your request',
           next: `No supplier's offer met your specifications (${rePrWhy}). Click Edit PR to change the specifications or prices, then Submit to TWG again.` }
@@ -54,28 +55,28 @@ export function requestProgress(pr) {
     case 'bidding':
       if (partly) return partly
       if (pr.recanvass_reason) {
-        return { step: 2, tone: 'rework', title: 'Re-canvass: new quotations', who: BAC,
+        return { step: 2, tone: 'rework', title: 'Re-canvass: new quotations', who: PROCUREMENT,
           next: `The TWG found no offer that meets your specifications: ${pr.recanvass_reason}. The canvasser takes the RFQ to suppliers again for new quotations.` }
       }
       if (pr.certification_return_reason) {
-        return { step: 2, tone: 'rework', title: 'Quotations being corrected', who: BAC,
-          next: 'The TWG found a quotation entered wrong. The BAC corrects it and sends the offers to the TWG again.' }
+        return { step: 2, tone: 'rework', title: 'Quotations being corrected', who: PROCUREMENT,
+          next: 'The TWG found a quotation entered wrong. Procurement corrects it and sends the offers to the TWG again.' }
       }
       if (quotes) {
-        return { step: 2, title: `RFQ out: ${plural(quotes, 'quotation', 'quotations')} in`, who: BAC,
-          next: `The canvasser took the RFQ to suppliers${since}. The BAC enters their quotations from the returned RFQs, then sends them to the TWG or chooses the winners.` }
+        return { step: 2, title: `RFQ out: ${plural(quotes, 'quotation', 'quotations')} in`, who: PROCUREMENT,
+          next: `The canvasser took the RFQ to suppliers${since}. Procurement enters their quotations from the returned RFQs, then sends them to the TWG or on to the award.` }
       }
-      return { step: 2, title: 'RFQ out to suppliers', who: 'The canvasser, then the BAC',
-        next: `The canvasser has the Request for Quotation (RFQ)${since} and is asking suppliers for prices. The BAC enters their quotations, then chooses the winners (the TWG checks them first when needed).` }
+      return { step: 2, title: 'RFQ out to suppliers', who: 'The canvasser, then Procurement',
+        next: `The canvasser has the Request for Quotation (RFQ)${since} and is asking suppliers for prices. Procurement enters their quotations, then the BAC chooses the winners (the TWG checks them first when needed).` }
     case 'twg_certification':
       return partly || { step: 3, title: 'Offers being checked', who: TWG,
-        next: `The TWG checks ${quotes ? `the ${plural(quotes, 'supplier\'s offer', 'suppliers\' offers')}` : 'every supplier\'s offer'} against your specifications. Then the BAC chooses the winners.` }
+        next: `The TWG checks ${quotes ? `the ${plural(quotes, 'supplier\'s offer', 'suppliers\' offers')}` : 'every supplier\'s offer'} against your specifications. Then the BAC chooses the winners and Procurement records them.` }
     case 're_pr':
-      return { step: 3, tone: 'rework', title: 'Re-PR proposed', who: BAC,
-        next: `No supplier's offer met your specifications, so the TWG proposed a Re-PR (${rePrWhy}). The BAC checks it, then sends the request back to you to change.` }
+      return { step: 3, tone: 'rework', title: 'Re-PR proposed', who: PROCUREMENT,
+        next: `No supplier's offer met your specifications, so the TWG proposed a Re-PR (${rePrWhy}). Procurement checks it, then sends the request back to you to change.` }
     case 'bac_review':
       return partly || { step: 4, title: 'Choosing the supplier', who: BAC,
-        next: 'Once the BAC chooses the winners, Procurement prepares the purchase order.' }
+        next: 'The BAC chooses the winners at its meeting; Procurement records them, then prepares the purchase order.' }
     case 'for_po':
       if (!po) {
         return { step: 5, title: 'Supplier chosen', who: 'Procurement Office',

@@ -3,8 +3,8 @@ const { approverFor, bacMembers } = require('../utils/orgSettings')
 const { signatureOf } = require('../utils/orgSignatures')
 const { lineCents } = require('../utils/awardWorkflow')
 
-// Abstract of sealed Quotations, in the campus's house style: the letterhead,
-// bordered grid and lot rows of its Request for Quotation, on a landscape page
+// Abstract of sealed Quotations: the campus letterhead, then ruled tables (lines
+// between the rows, a light line between suppliers, no boxes) on a landscape page
 // so the suppliers sit side by side. Every item runs down the side with its
 // approved unit cost, each supplier's unit price and amount across, then each
 // supplier's total, the awards and the BAC's signatures. Below the resolution
@@ -15,6 +15,7 @@ const { lineCents } = require('../utils/awardWorkflow')
 // gives its own form, match that instead.
 
 const FS = 8.5
+const LIGHT = '#9A9A9A'              // the lines between rows and between suppliers
 const PER_TABLE = 3                  // suppliers side by side; more continue in another table
 const PRICE_W = 58, TOTAL_W = 66     // a supplier's two columns
 const FIXED = [
@@ -39,17 +40,23 @@ module.exports = function drawAbstract(doc, { resolution, pr, abc, items, bidder
 
   let y = f.letterhead(orgSettings, 'ABSTRACT OF SEALED QUOTATIONS')
 
-  // ── The request, in a bordered grid as on the RFQ ──────────────────
-  const LBL = 130, VAL = W / 2 - LBL
+  // Lines: across the page (`w` thick), and the light ones down between suppliers.
+  const hr = (x1, x2, yy, w = 0.4, color = BLACK) => doc.lineWidth(w).strokeColor(color).moveTo(x1, yy).lineTo(x2, yy).stroke()
+  const vr = (x, y1, y2) => doc.lineWidth(0.4).strokeColor(LIGHT).moveTo(x, y1).lineTo(x, y2).stroke()
+
+  // ── The request: label and value, two to a line ────────────────────
+  const LBL = 150, HALF = W / 2
   const info = [
     ['PR No.', pr.pr_number, 'Date', fmtDate(resolution.resolved_on)],
     ['Purpose', purpose, 'Office / Section', pr.department || ''],
     ['Approved Budget for the Contract', `PHP ${amount(abc)}`, 'Mode of Procurement', pr.mode_of_procurement || ''],
   ]
   for (const [l1, v1, l2, v2] of info) {
-    const cells = [[l1, M, LBL, 'Times-Bold'], [v1, M + LBL, VAL, 'Times-Roman'], [l2, M + W / 2, LBL, 'Times-Bold'], [v2, M + W / 2 + LBL, VAL, 'Times-Roman']]
-    const h = Math.max(ROW_H + 2, ...cells.map(([t, , w, font]) => f.heightIn(font, FS, t, w - PAD * 2) + PAD * 2))
-    cells.forEach(([t, x, w, font]) => { f.rect(x, y, w, h); f.put(t, x, y, w, h, { font, size: FS }) })
+    const h = Math.max(ROW_H, f.heightIn('Times-Roman', FS, v1, HALF - LBL - 16), f.heightIn('Times-Roman', FS, v2, HALF - LBL)) + 3
+    f.put(`${l1}:`, M, y, LBL, h, { font: 'Times-Bold', size: FS, pad: 0 })
+    f.put(v1, M + LBL, y, HALF - LBL - 16, h, { size: FS, pad: 0 })
+    f.put(`${l2}:`, M + HALF, y, LBL, h, { font: 'Times-Bold', size: FS, pad: 0 })
+    f.put(v2, M + HALF + LBL, y, HALF - LBL, h, { size: FS, pad: 0 })
     y += h
   }
   y += 10
@@ -66,17 +73,18 @@ module.exports = function drawAbstract(doc, { resolution, pr, abc, items, bidder
     // The header: each supplier's name and RFQ No. over its two columns.
     const head = (top) => {
       const nameH = Math.max(26, ...chunk.map(b => f.heightIn('Times-Bold', 8, `${b.name}\nRFQ No. ${b.rfq_no || 'none'}`, PRICE_W + TOTAL_W - PAD * 2) + PAD * 2))
-      const subH = 15
-      cols.forEach((c, i) => { f.rect(xs[i], top, c.width, nameH + subH); f.put(c.header, xs[i], top, c.width, nameH + subH, { font: 'Times-Bold', size: 7.5, align: 'center' }) })
+      const subH = 14
+      hr(M, M + W, top, 1)
+      cols.forEach((c, i) => f.put(c.header, xs[i], top, c.width, nameH + subH, { font: 'Times-Bold', size: 7.5, align: c.align }))
       chunk.forEach((b, k) => {
         const x = sx(k)
-        f.rect(x, top, PRICE_W + TOTAL_W, nameH)
+        vr(x, top, top + nameH + subH)
         f.put(`${b.name}\nRFQ No. ${b.rfq_no || 'none'}`, x, top, PRICE_W + TOTAL_W, nameH, { font: 'Times-Bold', size: 8, align: 'center' })
-        f.rect(x, top + nameH, PRICE_W, subH)
-        f.put('UNIT PRICE', x, top + nameH, PRICE_W, subH, { font: 'Times-Bold', size: 7, align: 'center' })
-        f.rect(x + PRICE_W, top + nameH, TOTAL_W, subH)
-        f.put('TOTAL', x + PRICE_W, top + nameH, TOTAL_W, subH, { font: 'Times-Bold', size: 7, align: 'center' })
+        hr(x + 6, x + PRICE_W + TOTAL_W - 6, top + nameH, 0.4, LIGHT)
+        f.put('UNIT PRICE', x, top + nameH, PRICE_W, subH, { font: 'Times-Bold', size: 7, align: 'right' })
+        f.put('TOTAL', x + PRICE_W, top + nameH, TOTAL_W, subH, { font: 'Times-Bold', size: 7, align: 'right' })
       })
+      hr(M, M + W, top + nameH + subH, 0.75)
       return top + nameH + subH
     }
 
@@ -94,20 +102,20 @@ module.exports = function drawAbstract(doc, { resolution, pr, abc, items, bidder
       if (item.group_label && item.group_label !== section) {
         section = item.group_label
         if (y + ROW_H * 2 > bottom()) y = head(newPage())
-        f.rect(M, y, W, ROW_H)
-        f.put(section.toUpperCase(), M, y, W, ROW_H, { font: 'Times-Bold', size: FS })
-        y += ROW_H
+        f.put(section.toUpperCase(), M, y, W, ROW_H + 2, { font: 'Times-Bold', size: FS })
+        chunk.forEach((b, k) => vr(sx(k), y, y + ROW_H + 2))
+        y += ROW_H + 2
+        hr(M, M + W, y, 0.3, LIGHT)
       }
       no += 1
       const h = Math.max(ROW_H, f.heightIn('Times-Roman', FS, item.item_name, cols[3].width - PAD * 2) + PAD * 2)
       if (y + h > bottom()) y = head(newPage())
       const cells = [String(no), qty(item.quantity), item.unit || '', item.item_name, amount(item.estimated_cost)]
-      cols.forEach((c, i) => { f.rect(xs[i], y, c.width, h); f.put(cells[i], xs[i], y, c.width, h, { size: FS, align: c.align }) })
+      cols.forEach((c, i) => f.put(cells[i], xs[i], y, c.width, h, { size: FS, align: c.align }))
       abcSum += lineCents(item.quantity, item.estimated_cost)
       chunk.forEach((b, k) => {
         const x = sx(k), bid = bidOf(b.id, item.id)
-        f.rect(x, y, PRICE_W, h)
-        f.rect(x + PRICE_W, y, TOTAL_W, h)
+        vr(x, y, y + h)
         if (!bid || bid.unit_price == null) return
         const line = lineCents(item.quantity, bid.unit_price)
         sums[k] += line
@@ -116,18 +124,19 @@ module.exports = function drawAbstract(doc, { resolution, pr, abc, items, bidder
         f.put(`${amount(line / 100)}${bid.compliant === false ? ' *' : ''}`, x + PRICE_W, y, TOTAL_W, h, { size: FS, align: 'right' })
       })
       y += h
+      hr(M, M + W, y, 0.3, LIGHT)
     }
     if (y + ROW_H > bottom()) y = head(newPage())
     const lead = xs[4] - M
-    f.rect(M, y, lead, ROW_H)
-    f.put('TOTAL', M, y, lead, ROW_H, { font: 'Times-Bold', size: FS, align: 'right' })
-    f.rect(xs[4], y, cols[4].width, ROW_H)
-    f.put(amount(abcSum / 100), xs[4], y, cols[4].width, ROW_H, { font: 'Times-Bold', size: FS, align: 'right' })
+    hr(M, M + W, y, 0.75)
+    f.put('TOTAL', M, y, lead, ROW_H + 2, { font: 'Times-Bold', size: FS, align: 'right' })
+    f.put(amount(abcSum / 100), xs[4], y, cols[4].width, ROW_H + 2, { font: 'Times-Bold', size: FS, align: 'right' })
     chunk.forEach((b, k) => {
-      f.rect(sx(k), y, PRICE_W + TOTAL_W, ROW_H)
-      f.put(amount(sums[k] / 100), sx(k), y, PRICE_W + TOTAL_W, ROW_H, { font: 'Times-Bold', size: FS, align: 'right' })
+      vr(sx(k), y, y + ROW_H + 2)
+      f.put(amount(sums[k] / 100), sx(k), y, PRICE_W + TOTAL_W, ROW_H + 2, { font: 'Times-Bold', size: FS, align: 'right' })
     })
-    y += ROW_H
+    y += ROW_H + 2
+    hr(M, M + W, y, 1)
   })
 
   // Small print under the tables, moved to a new page when it won't fit.
@@ -149,27 +158,35 @@ module.exports = function drawAbstract(doc, { resolution, pr, abc, items, bidder
     { header: 'AMOUNT',     width: 96,  align: 'right'  },
   ]
   const ax = AWARD.reduce((acc, c) => [...acc, acc[acc.length - 1] + c.width], [M])
+  // The awards' header: ruled above and below.
+  const awardHead = (top) => {
+    hr(M, M + W, top, 1)
+    AWARD.forEach((c, i) => f.put(c.header, ax[i], top, c.width, 16, { font: 'Times-Bold', size: 7.5, align: c.align }))
+    hr(M, M + W, top + 16, 0.75)
+    return top + 16
+  }
   if (y + 20 + ROW_H * 2 > bottom()) y = newPage()
-  y = f.columnHeader(AWARD, M, y, 18)
+  y = awardHead(y)
   for (const lot of lots) {
     const names = lot.items.map(i => i.item_name).join('; ') || 'The whole purchase request'
     const h = Math.max(ROW_H, f.heightIn('Times-Roman', FS, names, AWARD[2].width - PAD * 2) + PAD * 2,
       f.heightIn('Times-Bold', FS, lot.awarded_to, AWARD[1].width - PAD * 2) + PAD * 2)
-    if (y + h > bottom()) y = f.columnHeader(AWARD, M, newPage(), 18)
-    AWARD.forEach((c, i) => f.rect(ax[i], y, c.width, h))
+    if (y + h > bottom()) y = awardHead(newPage())
     f.put(lot.title || lot.lot_number, ax[0], y, AWARD[0].width, h, { size: FS, align: 'center' })
     f.put(lot.awarded_to, ax[1], y, AWARD[1].width, h, { font: 'Times-Bold', size: FS })
     f.put(names, ax[2], y, AWARD[2].width, h, { size: FS })
     f.put(amount(lot.awarded_amount), ax[3], y, AWARD[3].width, h, { size: FS, align: 'right' })
     y += h
+    hr(M, M + W, y, 0.3, LIGHT)
   }
-  f.rect(M, y, ax[3] - M, ROW_H)
-  f.rect(ax[3], y, AWARD[3].width, ROW_H)
-  f.put('TOTAL AMOUNT AWARDED', M, y, ax[3] - M, ROW_H, { font: 'Times-Bold', size: FS, align: 'right' })
-  f.put(amount(total), ax[3], y, AWARD[3].width, ROW_H, { font: 'Times-Bold', size: FS, align: 'right' })
-  y += ROW_H + 6
+  hr(M, M + W, y, 0.75)
+  f.put('TOTAL AMOUNT AWARDED', M, y, ax[3] - M, ROW_H + 2, { font: 'Times-Bold', size: FS, align: 'right' })
+  f.put(amount(total), ax[3], y, AWARD[3].width, ROW_H + 2, { font: 'Times-Bold', size: FS, align: 'right' })
+  y += ROW_H + 2
+  hr(M, M + W, y, 1)
+  y += 8
 
-  note('Each lot is awarded to its lowest calculated and responsive quotation, except where a reason is stated below.')
+  note('Each lot is awarded on the basis the Committee applied, stated below.')
   for (const lot of lots.filter(l => l.notes)) note(`${lot.title || lot.lot_number}: ${lot.notes}`)
   if (resolution.notes) note(`Note: ${resolution.notes}`)
   note(`Done this ${fmtDate(resolution.resolved_on)} at ${s('entity_campus', 'the campus')}${s('entity_address') ? `, ${s('entity_address')}` : ''}.`)
