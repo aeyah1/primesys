@@ -4,7 +4,7 @@ export function Badge({ className, children, animate = true, ...props }) {
   return (
     <span
       className={cn(
-        'inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-semibold',
+        'inline-flex items-center whitespace-nowrap rounded-md border px-2.5 py-0.5 text-xs font-semibold',
         animate && 'animate-scale-in-fast',
         className
       )}

@@ -11,7 +11,7 @@ export const TEXTAREA = 'w-full rounded-md border border-[--color-border] bg-[--
 export function useRefreshDeliveries() {
   const qc = useQueryClient()
   return () => {
-    for (const key of [['po-list'], ['po-detail'], ['deliveries'], ['pr'], ['pr-list'], ['pr-stats'], ['pr-logs'], ['lots'], ['lot-queue'], ['lot-suppliers'], ['canvass'], ['bac']]) {
+    for (const key of [['po-list'], ['po-detail'], ['deliveries'], ['pr'], ['pr-list'], ['pr-stats'], ['pr-logs'], ['lots'], ['lot-queue'], ['lot-suppliers'], ['canvass'], ['bac'], ['pr-tasks']]) {
       qc.invalidateQueries({ queryKey: key })
     }
   }

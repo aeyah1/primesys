@@ -2,7 +2,7 @@ import { Fragment, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  ArrowLeft, Trash2, Printer, Upload, ShieldCheck, ShieldAlert, AlertTriangle, FileSpreadsheet, FileSignature, PenLine, Search, GitCompare, FilePlus, Undo2, Pencil,
+  Trash2, Printer, Upload, ShieldCheck, ShieldAlert, AlertTriangle, FileSpreadsheet, FileSignature, PenLine, Search, GitCompare, FilePlus, Undo2, Pencil,
 } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Card, CardContent } from '@/components/ui/card'
@@ -21,6 +21,7 @@ import { fmtCurrency, fmtDatetime, FUND_SOURCES, PR_STATUS_LABELS } from '@/lib/
 import { openPdf, downloadFile, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
 import { useAuth } from '@/context/AuthContext'
+import PageHeader from '@/components/shared/PageHeader'
 import { inQuarter } from '@/components/ppmp/PpmpLinePicker'
 
 const QUARTER_SPANS = ['Jan to Mar', 'Apr to Jun', 'Jul to Sep', 'Oct to Dec']
@@ -132,44 +133,32 @@ export default function PpmpDetail() {
   const usedShare = p.totals.all > 0 ? Math.min(100, Math.round((p.requested_amount / p.totals.all) * 100)) : 0
 
   return (
-    <div className="space-y-4">
-      <Link to="/ppmp" className="inline-flex items-center gap-1.5 text-ui-sm text-[--color-text-secondary] hover:text-[--color-brand]">
-        <ArrowLeft className="size-4" /> All PPMPs
-      </Link>
+    <div className="space-y-5">
+      <PageHeader back={{ to: '/ppmp', label: 'PPMP' }}
+        title={<span className="flex flex-wrap items-center gap-2">PPMP No. {p.version_no} <PpmpStatusBadge status={p.status} year={p.fiscal_year} /></span>}
+        sub={`${p.office_name} (${p.office_code}) · Fiscal Year ${p.fiscal_year} · ${p.kind === 'final' ? 'Final' : 'Indicative'} · ${FUND_SOURCES.find(s => s.value === p.fund_source)?.label || ''}`}>
+        <Button variant="secondary" onClick={print} className="gap-2"><Printer className="size-4" /> Print</Button>
+        {can.remove && <Button variant="ghost" onClick={remove} disabled={acting} className="gap-2 text-red-600"><Trash2 className="size-4" /> Delete</Button>}
+        {can.request_removal && (
+          <Button variant="ghost" onClick={() => setAsking({ kind: 'request', reason: '' })} disabled={acting} className="gap-2 text-red-600">
+            <Trash2 className="size-4" /> Ask to remove
+          </Button>
+        )}
+        {can.edit && <Button variant="outline" onClick={() => navigate(`/ppmp/${id}/edit`)} className="gap-2"><Pencil className="size-4" /> Edit</Button>}
+        {(can.reupload || can.amend) && (
+          <Button onClick={() => setUploading(can.reupload ? 'again' : 'amend')} className="gap-2"><Upload className="size-4" /> Change</Button>
+        )}
+        {can.withdraw && !asked && <Button variant="outline" onClick={() => setAsking({ kind: 'withdraw', reason: '' })} className="gap-2 text-red-600 hover:text-red-700"><Undo2 className="size-4" /> Withdraw</Button>}
+      </PageHeader>
 
       <Card>
         <CardContent className="py-4 space-y-3">
-          <div className="flex items-start justify-between gap-4 flex-wrap">
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="text-ui-lg font-bold text-[--color-text-primary]">PPMP No. {p.version_no}</h2>
-                <PpmpStatusBadge status={p.status} year={p.fiscal_year} />
-              </div>
-              <p className="text-ui-sm text-[--color-text-secondary] mt-0.5">
-                {p.office_name} ({p.office_code}) · Fiscal Year {p.fiscal_year} · {p.kind === 'final' ? 'Final' : 'Indicative'} · {FUND_SOURCES.find(s => s.value === p.fund_source)?.label}
-              </p>
-              <p className="text-ui-xs text-[--color-text-muted] mt-0.5">
-                {p.edited_from_version
-                  ? <>Edited in PRimeSys by {p.uploaded_by_name}{p.uploaded_at ? ` on ${fmtDatetime(p.uploaded_at)}` : ''}, from <Link to={`/ppmp/${p.edited_from}`} className="text-[--color-brand] hover:underline">PPMP No. {p.edited_from_version}</Link></>
-                  : <>Uploaded by {p.uploaded_by_name}{p.uploaded_at ? ` on ${fmtDatetime(p.uploaded_at)}` : ''}</>}
-                {p.effective_at ? ` · in effect since ${fmtDatetime(p.effective_at)}` : ''}
-              </p>
-            </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <Button variant="secondary" onClick={print} className="gap-2"><Printer className="size-4" /> Print</Button>
-              {can.remove && <Button variant="ghost" onClick={remove} disabled={acting} className="gap-2 text-red-600"><Trash2 className="size-4" /> Delete</Button>}
-              {can.request_removal && (
-                <Button variant="ghost" onClick={() => setAsking({ kind: 'request', reason: '' })} disabled={acting} className="gap-2 text-red-600">
-                  <Trash2 className="size-4" /> Ask to remove
-                </Button>
-              )}
-              {can.edit && <Button variant="outline" onClick={() => navigate(`/ppmp/${id}/edit`)} className="gap-2"><Pencil className="size-4" /> Edit</Button>}
-              {(can.reupload || can.amend) && (
-                <Button onClick={() => setUploading(can.reupload ? 'again' : 'amend')} className="gap-2"><Upload className="size-4" /> Change</Button>
-              )}
-              {can.withdraw && !asked && <Button variant="outline" onClick={() => setAsking({ kind: 'withdraw', reason: '' })} className="gap-2 text-red-600 hover:text-red-700"><Undo2 className="size-4" /> Withdraw</Button>}
-            </div>
-          </div>
+          <p className="text-ui-xs text-[--color-text-muted]">
+            {p.edited_from_version
+              ? <>Edited in PRimeSys by {p.uploaded_by_name}{p.uploaded_at ? ` on ${fmtDatetime(p.uploaded_at)}` : ''}, from <Link to={`/ppmp/${p.edited_from}`} className="text-[--color-brand] hover:underline">PPMP No. {p.edited_from_version}</Link></>
+              : <>Uploaded by {p.uploaded_by_name}{p.uploaded_at ? ` on ${fmtDatetime(p.uploaded_at)}` : ''}</>}
+            {p.effective_at ? ` · in effect since ${fmtDatetime(p.effective_at)}` : ''}
+          </p>
           {user?.role === 'requestor' && can.amend && !can.request_removal && p.requests_on > 0 && (
             <p className="text-ui-xs text-[--color-text-muted]">
               {p.requests_on} request{p.requests_on === 1 ? ' draws' : 's draw'} on this PPMP, so it can't be removed. Change or Edit it instead; either makes its next version.

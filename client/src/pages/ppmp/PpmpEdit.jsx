@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Plus, Trash2, Save, Lock } from 'lucide-react'
+import { Plus, Trash2, Save, Lock } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -10,6 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useConfirm } from '@/components/shared/ConfirmDialog'
 import { fmtCurrency, PROCUREMENT_MODES } from '@/lib/utils'
 import api from '@/lib/axios'
+import PageHeader from '@/components/shared/PageHeader'
 
 const SELECT = 'h-9 w-full rounded-md border border-[--color-border] bg-[--color-surface] px-2 text-sm text-[--color-text-primary] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent'
 const TH = 'px-2 py-2 text-left text-xs font-semibold uppercase tracking-wide text-[--color-text-secondary] bg-[--color-canvas] border-b border-[--color-border]'
@@ -103,22 +104,12 @@ export default function PpmpEdit() {
   }
 
   return (
-    <div className="space-y-4">
-      <Link to={`/ppmp/${id}`} className="inline-flex items-center gap-1.5 text-ui-sm text-[--color-text-secondary] hover:text-[--color-brand]">
-        <ArrowLeft className="size-4" /> PPMP No. {p.version_no}
-      </Link>
-
-      <Card>
-        <CardContent className="py-4 space-y-1">
-          <h2 className="text-ui-lg font-bold text-[--color-text-primary]">Edit PPMP No. {p.version_no}</h2>
-          <p className="text-ui-sm text-[--color-text-secondary]">
-            {p.office_name} ({p.office_code}) · Fiscal Year {p.fiscal_year}. Saving makes PPMP No. {next}, in effect at once; No. {p.version_no} is kept as superseded.
-          </p>
-          <p className="text-ui-xs text-[--color-text-muted]">
-            Set each line's quantity for each quarter. Lines that requests already use keep their description and unit, and can't go below what was requested.
-          </p>
-        </CardContent>
-      </Card>
+    <div className="space-y-5">
+      <PageHeader title={`Edit PPMP No. ${p.version_no}`} back={{ to: `/ppmp/${id}`, label: `PPMP No. ${p.version_no}` }}
+        sub={`${p.office_name} (${p.office_code}) · Fiscal Year ${p.fiscal_year}. Saving makes PPMP No. ${next}, in effect at once; No. ${p.version_no} is kept as superseded.`} />
+      <p className="text-ui-xs text-[--color-text-muted]">
+        Set each line's quantity for each quarter. Lines that requests already use keep their description and unit, and can't go below what was requested.
+      </p>
 
       <Card>
         <div className="overflow-x-auto">

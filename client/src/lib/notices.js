@@ -31,6 +31,7 @@ const TYPE_LINK = {
   lot:      { to: () => '/dashboard',  label: 'Open' },
   delivery: { to: () => '/delivery',   label: 'Open deliveries' },
   ppmp:     { to: (id) => `/ppmp/${id}`, label: 'Open PPMP' },
+  maintenance: { to: () => '/maintenance', label: 'Open' },
   rfqs:     { to: () => '/rfqs',       label: 'Open RFQ History' },
 }
 

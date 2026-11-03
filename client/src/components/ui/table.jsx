@@ -1,8 +1,9 @@
 import { cn } from '@/lib/utils'
 
-export function Table({ className, children }) {
+// A table framed on its own; inside a list's card (framed={false}) the card is its frame.
+export function Table({ className, children, framed = true }) {
   return (
-    <div className="w-full overflow-x-auto rounded-xl border border-[--color-border]">
+    <div className={cn('w-full overflow-x-auto', framed && 'rounded-xl border border-[--color-border]')}>
       <table className={cn('w-full caption-bottom text-ui-sm', className)}>{children}</table>
     </div>
   )

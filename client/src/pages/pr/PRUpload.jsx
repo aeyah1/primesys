@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, Fragment } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Package, Plus, Trash2, Info, ListPlus } from 'lucide-react'
+import { Package, Plus, Trash2, Info, ListPlus } from 'lucide-react'
 import ItemCategorySelector from '@/components/shared/ItemCategorySelector'
 import RequestContextForm from '@/components/shared/RequestContextForm'
 import { uploadPendingFiles } from '@/components/shared/SupportingFiles'
@@ -16,6 +16,7 @@ import { fmtCurrency, CATEGORY_FORM, buildItemNotes, groupItemsBySection, FUND_S
 import { SectionNameInput, SectionHeaderRow } from '@/components/shared/ItemSections'
 import CategorySpecFields from '@/components/shared/CategorySpecFields'
 import { useAuth } from '@/context/AuthContext'
+import PageHeader from '@/components/shared/PageHeader'
 import api from '@/lib/axios'
 import ReviewSubmitDialog from '@/components/shared/ReviewSubmitDialog'
 import { usePpmpPlans, takenByKey, lineChecks, PpmpLineNote, PpmpItemField, NoPpmpNotice, QuarterSelect, quarterOf, quarterLines, leftFor } from '@/components/ppmp/PpmpLinePicker'
@@ -44,7 +45,7 @@ function AutoField({ label, value }) {
       ) : (
         <div className="flex items-center gap-1.5">
           <Info className="size-3 text-amber-500 shrink-0" />
-          <p className="text-sm text-amber-600 italic">Not configured — admin must set this in Organization Settings.</p>
+          <p className="text-sm text-amber-600 italic">Not set yet: an admin sets it on the Organization page.</p>
         </div>
       )}
     </div>
@@ -334,15 +335,8 @@ export default function PRCreate() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
-          <ArrowLeft className="size-4" />
-        </Button>
-        <div>
-          <h2 className="text-ui-xl font-bold text-[--color-text-primary]">New Purchase Request</h2>
-          <p className="text-ui-xs text-[--color-text-muted] mt-0.5">Tell us what you need, why, and by when.</p>
-        </div>
-      </div>
+      <PageHeader title="New Request" sub="Say what you need, why, and by when. Save it as a draft or submit it to the TWG."
+        back={isRequestor ? { to: '/my-requests', label: 'My Requests' } : { to: '/pr', label: 'Requests' }} />
 
       <form onSubmit={e => e.preventDefault()} className="space-y-5">
 
@@ -357,7 +351,8 @@ export default function PRCreate() {
           </div>
         )}
 
-        {/* ── Request Context ─────────────────────────────── */}
+        <div className="grid items-start gap-5 xl:grid-cols-2">
+        {/* Request context */}
         <Card>
           <CardHeader>
             <CardTitle>About your request</CardTitle>
@@ -368,7 +363,7 @@ export default function PRCreate() {
           </CardContent>
         </Card>
 
-        {/* ── PR Details ─────────────────────────────────────── */}
+        {/* Purpose and type */}
         <Card>
           <CardHeader><CardTitle>Purpose and type</CardTitle></CardHeader>
           <CardContent className="space-y-4">
@@ -464,6 +459,7 @@ export default function PRCreate() {
 
           </CardContent>
         </Card>
+        </div>
 
         {/* ── Item List ──────────────────────────────────────── */}
         <Card>
@@ -471,7 +467,7 @@ export default function PRCreate() {
             <div className="flex items-center gap-2">
               <Package className="size-4 text-[--color-text-muted]" />
               <CardTitle>
-                {isRequestor ? 'Items you need' : 'Item List'}
+                {isRequestor ? 'Items you need' : 'Items'}
                 {isRequestor && <span className="text-red-500 text-xs ml-1">*</span>}
               </CardTitle>
               {items.length > 0 && (
@@ -505,7 +501,7 @@ export default function PRCreate() {
                   {processed.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="px-6 py-12 text-center text-sm text-[--color-text-muted]">
-                        No items yet — use the form below to add items.
+                        No items yet. Use the form below to add them.
                       </td>
                     </tr>
                   ) : (
@@ -589,7 +585,7 @@ export default function PRCreate() {
               <p className="bg-[--color-canvas] px-4 py-4 text-ui-sm text-[--color-text-secondary]">Pick the quarter above, then add its items from your PPMP here.</p>
             ) : (
             <div className="bg-[--color-canvas] px-4 py-4 space-y-3">
-              <p className="text-xs font-semibold text-[--color-text-muted] uppercase tracking-wide">Add Item</p>
+              <p className="text-xs font-semibold text-[--color-text-muted] uppercase tracking-wide">Add item</p>
 
               <div className="space-y-1.5">
                 <Label className="text-xs" htmlFor="pr-section">
@@ -684,8 +680,8 @@ export default function PRCreate() {
           </CardContent>
         </Card>
 
-        {/* Submit */}
-        <div className="flex justify-end gap-3">
+        {/* The buttons stay in view while the form scrolls. */}
+        <div className="sticky bottom-0 z-10 flex flex-wrap justify-end gap-3 rounded-xl border border-[--color-border] bg-[--color-surface] px-4 py-3 shadow-md">
           <Button type="button" variant="outline" size="lg" onClick={() => navigate(-1)} className="px-8">
             Cancel
           </Button>

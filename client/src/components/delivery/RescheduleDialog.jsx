@@ -25,7 +25,7 @@ export default function RescheduleDialog({ po, onClose }) {
   const valid = !!date && date >= issued && !!reason.trim()
   return (
     <Dialog open onOpenChange={v => { if (!v) onClose() }}>
-      <DialogContent title="Change Expected Delivery" description={`${po.po_number}${po.expected_delivery_date ? `, now expected ${fmtDate(po.expected_delivery_date)}` : ''}`}>
+      <DialogContent title="Change the expected delivery" description={`${po.po_number}${po.expected_delivery_date ? `, now expected ${fmtDate(po.expected_delivery_date)}` : ''}`}>
         <div className="space-y-3">
           <div className="space-y-1.5">
             <Label>New expected date <span className="text-red-500">*</span></Label>
@@ -41,7 +41,7 @@ export default function RescheduleDialog({ po, onClose }) {
         <DialogFooter className="px-0 pb-0 pt-6">
           <Button variant="outline" onClick={onClose} disabled={isPending}>Cancel</Button>
           <Button disabled={isPending || !valid} onClick={() => mutate()} className="gap-2">
-            <CalendarDays className="size-4" /> {isPending ? 'Saving…' : 'Change Date'}
+            <CalendarDays className="size-4" /> {isPending ? 'Saving…' : 'Change the date'}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -27,7 +27,7 @@ function ReopenDialog({ prId, onClose }) {
   })
   return (
     <Dialog open onOpenChange={v => { if (!v) onClose() }}>
-      <DialogContent title="Take the Canvass Back"
+      <DialogContent title="Take the canvass back"
         description="The bids can be corrected, or new suppliers' quotations added, then the canvass is sent on again, to the TWG or straight to the award. Bids left unchanged keep the TWG's marks.">
         <div className="space-y-1.5">
           <Label>Reason <span className="text-red-600 text-xs">*</span></Label>
@@ -51,7 +51,7 @@ function ReopenDialog({ prId, onClose }) {
    and is noted on the award), never one the TWG found non-compliant on an item of the lot.
    A lot's award can't exceed its approved budget.
    Award opens the review (AwardReviewDialog); confirming adopts a BAC Resolution, or below the resolution threshold records the
-   award on the Abstract alone (canvass.award_document); the request is then Ready for PO.
+   award on the Abstract alone (canvass.award_document); the request is then Ready for purchase order.
    pr: { id }; canvass: GET /canvass/:prId. */
 export default function BacAwardSheet({ pr, canvass }) {
   const prId = String(pr.id)

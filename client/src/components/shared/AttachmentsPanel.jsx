@@ -159,7 +159,7 @@ export default function AttachmentsPanel({ endpoint, queryKey, canDelete, canUpl
             onClick={() => fileRef.current?.click()}
           >
             <Upload className="size-3.5" />
-            {uploading ? 'Uploading…' : 'Upload File'}
+            {uploading ? 'Uploading…' : 'Upload a file'}
           </Button>
           <p className="text-[10px] text-[--color-text-muted] text-center">
             PDF, images, Word, Excel · max 10 MB

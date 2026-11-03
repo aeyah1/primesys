@@ -23,10 +23,10 @@ export default function AwardReviewDialog({ prId, chosen, reasons, notes, doc, s
 
   return (
     <Dialog open onOpenChange={v => { if (!v && !pending) onClose() }}>
-      <DialogContent className="max-w-3xl" title="Review the Award"
+      <DialogContent className="max-w-3xl" title="Review the award"
         description="Check every lot before you confirm. The winners are then recorded and Procurement issues the purchase orders.">
         <div className="space-y-4">
-          <p className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${skipped ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-teal-300 bg-teal-50 text-teal-900'}`}>
+          <p className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${skipped ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-blue-300 bg-blue-50 text-blue-900'}`}>
             {skipped ? <ShieldOff className="size-3.5 shrink-0 mt-px" /> : <ShieldCheck className="size-3.5 shrink-0 mt-px" />}
             {skipped
               ? 'Not evaluated by the TWG: the canvass went straight to the award, so no TWG certificate is issued.'

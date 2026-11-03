@@ -45,9 +45,11 @@ export function ViewPpmpButton({ plan, newTab = false }) {
    quantity, unit, estimated_cost). compact: two stacked columns, for a dialog. */
 export default function PpmpComparison({ prId, items, compact = false }) {
   const { data: review, isLoading } = usePrPpmp(prId)
-  if (isLoading) return <div className="space-y-2">{Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-10" />)}</div>
+  // On the request page the card has no padding of its own (the table fills it); a dialog pads it already.
+  const pad = compact ? '' : 'px-6 py-4'
+  if (isLoading) return <div className={`space-y-2 ${pad}`}>{Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-10" />)}</div>
   if (!review?.plan) {
-    return <p className="text-ui-sm text-[--color-text-secondary]">{review?.problems?.[0] || 'No PPMP in effect to compare with.'}</p>
+    return <p className={`text-ui-sm text-[--color-text-secondary] ${pad}`}>{review?.problems?.[0] || 'No PPMP in effect to compare with.'}</p>
   }
   const byId = new Map(review.items.map(r => [r.id, r]))
   const rows = items.map(it => ({ it, r: byId.get(it.id) || { line: null, warnings: [], problem: null } }))

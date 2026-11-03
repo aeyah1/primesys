@@ -103,7 +103,7 @@ export default function RequestContextForm({ value = {}, onChange, followOffice 
             </SelectTrigger>
             <SelectContent>
               {departments.map(d => (
-                <SelectItem key={d.id} value={String(d.id)}>{d.code} — {d.name}</SelectItem>
+                <SelectItem key={d.id} value={String(d.id)}>{d.code}: {d.name}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -116,7 +116,7 @@ export default function RequestContextForm({ value = {}, onChange, followOffice 
               onChange={(e) => set('department', e.target.value)}
             />
             <p className="text-[11px] text-[--color-text-muted]">
-              No offices have been set up yet. An admin adds them under Settings &gt; Organization.
+              No offices have been set up yet. An admin adds them on the Organization page.
             </p>
           </>
         )}
