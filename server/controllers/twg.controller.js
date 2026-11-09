@@ -1,6 +1,6 @@
 // TWG (Technical Working Group) controller - isolated from pr.controller.
 // Owns the review of a requestor's submission before the canvass, and the
-// evaluation and certification of the canvass's bids before the award.
+// check of an IT or hardware award's winning offers before its purchase order.
 
 const pool         = require('../db/pool')
 const notify       = require('../utils/notify')
@@ -9,9 +9,8 @@ const httpError    = require('../utils/httpError')
 const withTransaction    = require('../db/transaction')
 const { loadPR, changePRStatus } = require('../utils/prWorkflow')
 const { notifyProcurement } = require('../utils/bacWorkflow')
-const { prName }         = require('../utils/requesterNotice')
-const { RE_PR_TYPES, proposeRePr } = require('../utils/rePr')
-const { saveEvaluation, certifyBids } = require('../utils/canvassBids')
+const { announceAwards } = require('../utils/awardWorkflow')
+const { awardsUnderCheck, saveEvaluation, certifyAward, returnAward } = require('../utils/canvassAward')
 const { checkSignature, METHODS } = require('../utils/signature')
 const { issueCertificate } = require('../utils/twgCertificate')
 const { paging }         = require('../middleware/validate')
@@ -176,31 +175,27 @@ exports.checkSpec = asyncHandler(async (req, res) => {
   res.json({ message: checked ? 'Specification checked' : 'Specification no longer marked checked', left: await uncheckedSpecs(pool, req.params.prId) })
 })
 
-// PUT /twg/:prId/evaluation - { bids: [{ bidder_id, pr_item_id, compliant, offered_spec, remarks }], dq: [{ bidder_id, remarks }] }:
-// the TWG's evaluation of the canvass's bids so far (utils/canvassBids.js saveEvaluation).
+// PUT /twg/:prId/evaluation - { bids: [{ pr_item_id, compliant, offered_spec, remarks }] }: the TWG's marks so far
+// on the winning offers of an award under its check (utils/canvassAward.js saveEvaluation).
 exports.saveEvaluation = asyncHandler(async (req, res) => {
   const denied = await notReviewer(req.user, req.params.prId)
   if (denied) return res.status(denied.status).json({ message: denied.message })
   await withTransaction(async (conn) => {
     const pr = await loadPR(conn, req.params.prId, { lock: true })
-    await saveEvaluation(conn, pr, req.body.bids, req.body.dq)
+    await saveEvaluation(conn, pr, req.body.bids)
   })
-  res.json({ message: 'Evaluation saved' })
+  res.json({ message: 'Marks saved' })
 })
 
-// POST /twg/:prId/certify - body: { action: 'certify' | 'recanvass' | 'return' | 'repr', comment, re_pr_type, cert_no, signature, sign_method }
-// The TWG decides the canvass result. Certifying (every bid marked compliant
-// or not) issues the certificate and Procurement records the BAC's award next;
-// a re-canvass (no offer for a lot is compliant) sends it back to canvass
-// for new quotations; returning gives the canvass back to Procurement to correct
-// its entries; a Re-PR (every supplier DQ, utils/rePr.js) sends it to Procurement
-// to go back to the End User. All but certifying need a comment.
+// POST /twg/:prId/certify - body: { action: 'certify' | 'return', comment, cert_no, signature, sign_method }
+// The TWG's decision on an IT or hardware award: certifying (every winning offer compliant) issues the
+// certificate and Procurement issues the purchase orders; returning (comment required) cancels the award
+// and puts the request back in canvass for the BAC's next choice.
 exports.certifyPR = asyncHandler(async (req, res) => {
   const { action } = req.body
   const comment = req.body.comment?.trim() || null
-  if (!['certify', 'recanvass', 'return', 'repr'].includes(action)) return res.status(400).json({ message: 'Action must be "certify", "recanvass", "return" or "repr"' })
-  if (action === 'return' && !comment) return res.status(400).json({ message: 'A comment is required when returning it to Procurement' })
-  if (action === 'recanvass' && !comment) return res.status(400).json({ message: 'Give the reason for the re-canvass' })
+  if (!['certify', 'return'].includes(action)) return res.status(400).json({ message: 'Action must be "certify" or "return"' })
+  if (action === 'return' && !comment) return res.status(400).json({ message: 'Give the reason for returning the award' })
   const denied = await notReviewer(req.user, req.params.prId)
   if (denied) return res.status(denied.status).json({ message: denied.message })
   // The certifier's signature on the certificate, signed on the screen or uploaded (optional).
@@ -208,43 +203,22 @@ exports.certifyPR = asyncHandler(async (req, res) => {
     ? { image: checkSignature(req.body.signature), method: METHODS.includes(req.body.sign_method) ? req.body.sign_method : 'drawn' }
     : null
 
-  const { pr, certificate } = await withTransaction(async (conn) => {
+  const { pr, certificate, lots } = await withTransaction(async (conn) => {
     const pr = await loadPR(conn, req.params.prId, { lock: true })
     if (!pr || pr.deleted_at) throw httpError(404, 'PR not found')
-    if (action === 'certify') return { pr, certificate: await certifyBids(conn, pr, req.user, { certNo: req.body.cert_no, signature, comment }) }
-    if (action === 'repr') { await proposeRePr(conn, pr, req.user, { type: req.body.re_pr_type, reason: comment }); return { pr } }
-    const recanvass = action === 'recanvass'
-    await changePRStatus(pr.id, 'bidding', {
-      user: req.user, via: 'twg', conn,
-      note: `${recanvass ? 'Re-canvass ordered by the TWG' : 'Returned by the TWG'}: ${comment}`,
-      notice: recanvass
-        ? `The TWG found no offer for ${prName(pr)} that meets your specifications: ${comment}. It goes back to canvass for new quotations.`
-        : `The TWG returned the offers for ${prName(pr)} to Procurement to correct: ${comment}.`,
-    })
-    // A re-canvass stays counted on the request for good (its "Re-canvassed" marker).
-    await conn.execute(`UPDATE purchase_requests SET certification_return_reason = ?, recanvass_reason = ?${recanvass ? ', recanvass_count = LEAST(recanvass_count + 1, 255)' : ''} WHERE id = ?`,
-      [recanvass ? null : comment, recanvass ? comment : null, pr.id])
-    return { pr }
+    if (action === 'return') { await returnAward(conn, pr, req.user, comment); return { pr } }
+    const lots = await awardsUnderCheck(conn, pr.id)
+    return { pr, lots, certificate: await certifyAward(conn, pr, req.user, { certNo: req.body.cert_no, signature, comment }) }
   })
 
   const prLabel = pr.title ? `${pr.pr_number} — ${pr.title}` : pr.pr_number
   if (action === 'return') {
-    await notifyProcurement(req.io, pr.id, pr.pr_number, `PR ${prLabel} was returned by the TWG: ${comment}`)
-    return res.json({ message: 'Returned to Procurement' })
+    await notifyProcurement(req.io, pr.id, pr.pr_number, `The TWG returned the award of PR ${prLabel}: ${comment}. Record the BAC's next choice.`)
+    return res.json({ message: 'Award returned to Procurement. It is back in canvass.' })
   }
-  if (action === 'recanvass') {
-    // Procurement prints the RFQ for the canvasser again and enters the new quotations.
-    await notifyProcurement(req.io, pr.id, pr.pr_number,
-      `The TWG ordered a re-canvass of PR ${prLabel}: ${comment}. Give the canvasser the RFQ again, enter the new quotations, then send the canvass again.`)
-    return res.json({ message: 'Sent back to canvass for new quotations. The End User and Procurement are told.' })
-  }
-  if (action === 'repr') {
-    await notifyProcurement(req.io, pr.id, pr.pr_number,
-      `The TWG proposed a Re-PR of PR ${prLabel} (${RE_PR_TYPES[req.body.re_pr_type]}): ${comment}. Check it, then send it to the End User or return it to the TWG.`)
-    return res.json({ message: 'Re-PR proposed. Procurement checks it, then sends it to the End User.' })
-  }
-  await notifyProcurement(req.io, pr.id, pr.pr_number, `The TWG certified the bids of PR ${prLabel} (Cert. No. ${certificate.cert_no}). Record the BAC's award.`)
-  res.json({ message: `Certified in Cert. No. ${certificate.cert_no}. Procurement records the BAC's award next.`, certificate })
+  await announceAwards(req.io, pr.pr_number, lots.map(l => ({ id: l.lot_id, lot_number: l.lot_number, awarded_to: l.awarded_to })))
+  await notifyProcurement(req.io, pr.id, pr.pr_number, `The TWG certified the award of PR ${prLabel} (Cert. No. ${certificate.cert_no}). Issue the purchase orders.`)
+  res.json({ message: `Certified in Cert. No. ${certificate.cert_no}. Procurement issues the purchase orders next.`, certificate })
 })
 
 // GET /twg/stats - dashboard tiles for the TWG dashboard, counted over this

@@ -8,8 +8,8 @@ import { openPdf, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
 import { LockedChip } from './QuotesLocked'
 
-// What each certificate certifies: the request (issued when the TWG approves it) or the canvass bids.
-const KINDS = { review: 'Request checked (market price and specifications)', bids: 'Canvass bids checked' }
+// What each certificate certifies: the request (issued when the TWG approves it) or the suppliers' offers (an award's winning offers; every bid on older requests).
+const KINDS = { review: 'Request checked (market price and specifications)', bids: 'Offers checked against the specifications' }
 
 // The TWG's certificates for a request, each printable as the Certification (Goods and services); nothing when there are none.
 // title: show them as a card with this heading (the request page).

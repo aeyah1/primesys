@@ -8,9 +8,8 @@ const { body }  = require('express-validator')
 const { handle, textRule, oneOfRule, moneyRule } = require('../middleware/validate')
 const { PROCUREMENT_MODES } = require('../utils/procurementModes')
 
-// A PR's canvass: Procurement starts it, enters each supplier's quotation, drops
-// items no supplier offers, sends them to the TWG (or straight to the award), and
-// once the TWG has certified them, records the award the BAC decided offline.
+// A PR's canvass: Procurement starts it, drops items no supplier offers, and
+// records the award the BAC decided offline (an IT or hardware award then goes to the TWG's check).
 // Scoped (C2): 404 unless this user may see the PR.
 router.use(auth)
 const prAccess = requireAccess('pr', 'prId')
@@ -23,29 +22,14 @@ router.post('/:prId/start', staff, prAccess,
   textRule('pr_number', 'PR number', 50),
   handle,
   c.start)
-router.put('/:prId/bids', clerk, prAccess,
-  body('bidders').isArray({ max: 30 }).withMessage('Enter at most 30 bidders'),
-  body('bidders.*.id').optional({ values: 'null' }).isInt({ min: 1 }).withMessage('Unknown quotation').toInt(),
-  textRule('bidders.*.name', 'Bidder name', 200, { required: true }),
-  textRule('bidders.*.rfq_no', 'RFQ No.', 50),
-  body('bidders.*.attachment_id').optional({ values: 'null' }).isInt({ min: 1 }).withMessage('Unknown RFQ file').toInt(),
-  body('bidders.*.prices').optional().isArray({ max: 500 }).withMessage('Too many prices'),
-  body('bidders.*.prices.*.pr_item_id').isInt({ min: 1 }).withMessage('Unknown item').toInt(),
-  moneyRule('bidders.*.prices.*.unit_price', 'Each bid price', { required: true, positive: true }),
-  textRule('bidders.*.prices.*.offered_spec', 'Offered specification', 1000),
-  handle,
-  c.saveBids)
-router.delete('/:prId/bidders/:bidderId', clerk, prAccess, c.removeBidder)
-router.post('/:prId/re-pr', clerk, prAccess,
-  oneOfRule('action', 'Action must be "send" or "return"', ['send', 'return'], { required: true }),
-  textRule('note', 'Note', 2000),
-  handle,
-  c.settleRePr)
-router.post('/:prId/send', clerk, prAccess, oneOfRule('to', 'Send it to "twg" or "award"', ['twg', 'award']), handle, c.send)
 router.post('/:prId/award', clerk, prAccess,
-  body('winners').isArray({ max: 200 }).withMessage('Pick the winners'),
+  body('winners').isArray({ max: 200 }).withMessage('Record the supplier of each lot'),
   textRule('winners.*.lot', 'Lot', 255),
-  body('winners.*.bidder_id').isInt({ min: 1 }).withMessage('Unknown bidder').toInt(),
+  textRule('winners.*.supplier', 'Supplier', 200, { required: true }),
+  body('winners.*.prices').isArray({ min: 1, max: 500 }).withMessage('Type the unit price of each item'),
+  body('winners.*.prices.*.pr_item_id').isInt({ min: 1 }).withMessage('Unknown item').toInt(),
+  moneyRule('winners.*.prices.*.unit_price', 'Each unit price', { required: true, positive: true }),
+  textRule('winners.*.prices.*.offered_spec', 'Offered specification', 1000),
   body('winners.*.criteria').isArray({ min: 1, max: 20 }).withMessage('Tick the criteria the BAC applied'),
   textRule('winners.*.criteria.*', 'Award criterion', 200, { required: true }),
   textRule('winners.*.reason', 'Reason', 500),
@@ -53,7 +37,6 @@ router.post('/:prId/award', clerk, prAccess,
   handle,
   requireFace,
   c.award)
-router.post('/:prId/reopen', clerk, prAccess, textRule('reason', 'Reason', 500), handle, c.reopen)
 router.post('/:prId/items/:itemId/drop', clerk, prAccess, textRule('reason', 'Reason', 500), handle, c.dropItem)
 router.post('/:prId/items/:itemId/restore', staff, prAccess, c.restoreItem)
 

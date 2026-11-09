@@ -35,7 +35,7 @@ const SLIDES = {
       Icon:  Eye,
       color: 'from-blue-400 to-indigo-400',
       title: 'Track Your PR',
-      body:  'My tasks, your home, shows what needs you and where each request is: TWG review → Ready for canvass → Canvass → Choosing the supplier → Ready for purchase order → Ordered → Completed. My Requests lists them all, and you\'ll get a notification at every stage.',
+      body:  'My tasks, your home, shows what needs you and where each request is: TWG review → Ready for canvass → Canvass → TWG checking the award (IT equipment) → Ready for purchase order → Ordered → Completed. My Requests lists them all, and you\'ll get a notification at every stage.',
     },
     {
       Icon:  CheckCircle,
@@ -61,8 +61,8 @@ const SLIDES = {
     {
       Icon:  Gavel,
       color: 'from-purple-400 to-pink-400',
-      title: 'Sign the RFQ, Then Enter the Quotations',
-      body:  'Sign the printed RFQ by hand and give it to the canvasser, who brings the returned RFQs back to you. You enter the bids, the TWG checks every offer when needed, the BAC chooses the winners at its meeting, and you record its award with the criteria it applied; then each supplier gets its own purchase order.',
+      title: 'Sign the RFQ, Then Record the Award',
+      body:  'Sign the printed RFQ by hand and give it to the canvasser, who brings the returned RFQs back to you. The BAC chooses the winners at its meeting; you record its award: each lot\'s supplier, its prices from the returned RFQ, and the criteria the BAC applied. IT equipment goes to the TWG to check the winning offer; then each supplier gets its own purchase order.',
     },
     {
       Icon:  ShoppingCart,

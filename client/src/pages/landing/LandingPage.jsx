@@ -19,9 +19,9 @@ const NAV = [
 
 const ROLES = [
   { icon: UserRound,      name: 'End User',                  text: 'Files requests from the office PPMP and follows each one until it is delivered.' },
-  { icon: ClipboardCheck, name: 'Technical Working Group',   text: 'Reviews requests in their assigned categories and certifies the offers suppliers send.' },
+  { icon: ClipboardCheck, name: 'Technical Working Group',   text: 'Reviews requests in their assigned categories and checks the winning offer on IT equipment.' },
   { icon: Building2,      name: 'Procurement Office',        text: 'Starts the canvass, prints the Request for Quotation and issues the purchase orders.' },
-  { icon: Gavel,          name: 'Bids and Awards Committee', text: 'Records the quotations and awards each lot to a supplier the TWG found compliant.' },
+  { icon: Gavel,          name: 'Bids and Awards Committee', text: 'Chooses each lot\'s supplier at its own meeting; Procurement records the award.' },
   { icon: PackageCheck,   name: 'Supply Office',             text: 'Receives what was ordered and records each delivery, item by item.' },
   { icon: ShieldCheck,    name: 'Administrator',             text: 'Manages accounts, roles, offices and signatories, and oversees the whole flow.' },
 ]

@@ -22,7 +22,7 @@ function requesterNotice(pr, from, to, { note = null, message = null } = {}) {
     case 'bidding':            return from === 'twg_review'
       ? notice('info', `${name} is now in canvass.`)
       : notice('warning', `${name} is back in canvass${why}.`)
-    case 'twg_certification':  return notice('info', `The suppliers' offers for ${name} are in. The TWG is checking them against your specifications.`)
+    case 'twg_certification':  return notice('info', `The BAC chose the supplier for ${name}. The TWG is checking its offer against your specifications.`)
     case 'bac_review':         return notice('info', `The TWG checked the offers for ${name}. The BAC chooses the suppliers next.`)
     case 're_pr':              return notice('warning', `The TWG proposed a Re-PR of ${name}${why}. Procurement checks it next.`)
     case 'for_po':             return notice('success', `The suppliers for ${name} are chosen. Procurement prepares the purchase orders.`)

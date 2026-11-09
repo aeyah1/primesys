@@ -122,51 +122,48 @@ const canvassScan = () => {
 // The first of the default award criteria (server/utils/orgSettings.js), ticked on every test award.
 const CRITERION = 'Lowest calculated and responsive quotation'
 
-// The lowest total of a lot's open items among the bidders that bid on all of them, none found non-compliant.
-function lowestOf(canvass, lot) {
+// The bid with the lowest total on a lot's open items among `bids` ([{ name, prices: { [pr_item_id]: unit_price } }]) that priced all of them.
+function lowestOf(canvass, lot, bids) {
   const open = canvass.items.filter(i => lot.item_ids.includes(i.id) && i.state === 'pending')
   let best = null
-  for (const b of canvass.bidders) {
-    if (!open.every(i => b.prices[i.id] != null && b.evaluation[i.id]?.compliant !== false)) continue
+  for (const b of bids) {
+    if (!open.every(i => b.prices[i.id] != null)) continue
     const total = open.reduce((sum, i) => sum + Math.round(Number(i.quantity) * Number(b.prices[i.id]) * 100), 0)
-    if (!best || total < best.total) best = { id: b.id, total }
+    if (!best || total < best.total) best = { bid: b, total }
   }
-  return best?.id ?? null
+  return best?.bid ?? null
 }
 
-// Procurement's record of the BAC's award for a canvass (GET /canvass/:prId): each lot with an item
-// still to award goes to `pick(lot)`, the lowest compliant total unless given, on `criteria`.
-const lotWinners = (canvass, pick = (lot) => lowestOf(canvass, lot), criteria = [CRITERION]) => ({
-  winners: canvass.lots.filter(l => canvass.items.some(i => l.item_ids.includes(i.id) && i.state === 'pending'))
-    .map(l => ({ lot: l.label, bidder_id: pick(l), criteria })),
+// Procurement's record of the BAC's award for a canvass (GET /canvass/:prId): each lot with an item still to award
+// goes to the supplier `pick(lot)` returns ({ name, prices }), the lowest total among `bids` unless given, on `criteria`.
+const lotWinners = (canvass, bids = [], pick = (lot) => lowestOf(canvass, lot, bids), criteria = [CRITERION]) => ({
+  winners: canvass.lots.map(l => ({ l, open: canvass.items.filter(i => l.item_ids.includes(i.id) && i.state === 'pending') }))
+    .filter(x => x.open.length)
+    .map(({ l, open }) => {
+      const b = pick(l)
+      return { lot: l.label, supplier: b?.name, prices: open.map(i => ({ pr_item_id: i.id, unit_price: b?.prices[i.id] })), criteria }
+    }),
 })
 
-// Takes a PR in canvass through to Ready for PO: Procurement enters the bids,
-// attaches the canvasser's file and sends them to the TWG; the TWG marks every
-// bid compliant and certifies; Procurement records each lot's award to its lowest total.
-// `tok(id)` signs a user's token; `as` names the { bac (a Procurement officer), twg } users;
-// bids: [{ name, prices: { [pr_item_id]: unit_price } }]. Throws on any refusal.
+// Takes a PR in canvass through to Ready for PO: Procurement records the BAC's award of each lot to the
+// lowest total among bids: [{ name, prices: { [pr_item_id]: unit_price } }]; an IT or hardware award is then
+// marked compliant and certified by the TWG. `tok(id)` signs a user's token; `as` names the { bac (a Procurement
+// officer), twg } users. Throws on any refusal.
 async function award(base, tok, prId, as, bids) {
-  const call = async (who, method, p, body = {}) => {
-    const form = body instanceof FormData
+  const call = async (who, method, p, body) => {
     const res = await fetch(base + p, {
-      method, body: method === 'GET' ? undefined : form ? body : JSON.stringify(body),
-      headers: { Authorization: `Bearer ${tok(who)}`, ...(form || method === 'GET' ? {} : { 'Content-Type': 'application/json' }) },
+      method, body: body && JSON.stringify(body),
+      headers: { Authorization: `Bearer ${tok(who)}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
     })
     if (!res.ok) throw new Error(`${method} ${p} → ${res.status} ${(await res.text()).slice(0, 200)}`)
     return res.json()
   }
-  await call(as.bac, 'PUT', `/canvass/${prId}/bids`, {
-    bidders: bids.map(b => ({ name: b.name, prices: Object.entries(b.prices).map(([id, unit_price]) => ({ pr_item_id: Number(id), unit_price })) })),
-  })
-  await call(as.bac, 'POST', `/pr/${prId}/attachments`, canvassScan())
-  await call(as.bac, 'POST', `/canvass/${prId}/send`)
-  const sent = await call(as.bac, 'GET', `/canvass/${prId}`)
-  const open = new Set(sent.items.filter(i => i.state === 'pending').map(i => String(i.id)))
-  const all = sent.bidders.flatMap(b => Object.keys(b.prices).filter(item => open.has(item)).map(item => ({ bidder_id: b.id, pr_item_id: Number(item), compliant: true })))
-  await call(as.twg, 'PUT', `/twg/${prId}/evaluation`, { bids: all })
+  await call(as.bac, 'POST', `/canvass/${prId}/award`, lotWinners(await call(as.bac, 'GET', `/canvass/${prId}`), bids))
+  const after = await call(as.bac, 'GET', `/canvass/${prId}`)
+  if (after.status !== 'twg_certification') return
+  const marks = after.under_check.flatMap(l => l.items.map(i => ({ pr_item_id: i.pr_item_id, compliant: true })))
+  await call(as.twg, 'PUT', `/twg/${prId}/evaluation`, { bids: marks })
   await call(as.twg, 'POST', `/twg/${prId}/certify`, { action: 'certify' })
-  await call(as.bac, 'POST', `/canvass/${prId}/award`, lotWinners(await call(as.bac, 'GET', `/canvass/${prId}`)))
 }
 
 const listUploads = () => new Set(UPLOADS.flatMap(d => (fs.existsSync(d) ? fs.readdirSync(d).map(f => path.join(d, f)) : [])))

@@ -1,22 +1,14 @@
-import { useQuery } from '@tanstack/react-query'
-import { CheckCircle2, ShieldCheck, ShieldOff, FileText } from 'lucide-react'
+import { CheckCircle2, ShieldCheck, FileText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
 import { fmtCurrency } from '@/lib/utils'
-import api from '@/lib/axios'
 import { lineCents } from './supplier'
 
-/* Procurement's last look before it records the BAC's award: each lot's winner with its items, prices and total
-   against the lot's budget, the criteria the BAC applied (with its remark), whether the TWG certified the
-   bids or was skipped, what the award is recorded on, and the grand total. Nothing is recorded until
-   Confirm award. chosen: BacAwardSheet's picks ({ lot, bidder, total, budget, criteria }); reasons: remark by lot label. */
-export default function AwardReviewDialog({ prId, chosen, reasons, notes, doc, skipped, pending, onConfirm, onClose }) {
-  const { data: bac } = useQuery({
-    queryKey: ['bac', 'pr', prId],
-    queryFn: () => api.get(`/bac/${prId}`).then(r => r.data),
-    enabled: !skipped,
-  })
-  const cert = bac?.certificates?.filter(c => c.kind === 'bids').at(-1)
+/* Procurement's last look before it records the BAC's award: each lot's supplier with its items, prices, offers and
+   total against the lot's budget, the criteria the BAC applied (with its remark), what the award is recorded on,
+   whether the TWG checks it next, and the grand total. Nothing is recorded until Confirm award.
+   chosen: BacAwardSheet's lots ({ lot, supplier, priced: [{ item, price, spec }], total, budget, criteria }); reasons: remark by lot label. */
+export default function AwardReviewDialog({ chosen, reasons, notes, doc, twg, pending, onConfirm, onClose }) {
   const awarded = chosen.reduce((s, c) => s + c.total, 0)
   const budget = chosen.reduce((s, c) => s + c.budget, 0)
   const CELL = 'px-3 py-2 text-right tabular-nums whitespace-nowrap'
@@ -24,13 +16,13 @@ export default function AwardReviewDialog({ prId, chosen, reasons, notes, doc, s
   return (
     <Dialog open onOpenChange={v => { if (!v && !pending) onClose() }}>
       <DialogContent className="max-w-3xl" title="Review the award"
-        description="Check every lot against the BAC's decision before you confirm. The winners are then recorded and the purchase orders can be issued.">
+        description="Check every lot against the BAC's decision before you confirm.">
         <div className="space-y-4">
-          <p className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${skipped ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-blue-300 bg-blue-50 text-blue-900'}`}>
-            {skipped ? <ShieldOff className="size-3.5 shrink-0 mt-px" /> : <ShieldCheck className="size-3.5 shrink-0 mt-px" />}
-            {skipped
-              ? 'Not evaluated by the TWG: the canvass went straight to the award, so no TWG certificate is issued.'
-              : `Certified by the TWG${cert ? `, Cert. No. ${cert.cert_no}` : ''}.`}
+          <p className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${twg ? 'border-blue-300 bg-blue-50 text-blue-900' : 'border-emerald-300 bg-emerald-50 text-emerald-900'}`}>
+            <ShieldCheck className="size-3.5 shrink-0 mt-px" />
+            {twg
+              ? 'IT equipment: the TWG checks the winning offers next. The purchase orders can be issued once it certifies the award.'
+              : 'Once recorded, the purchase orders can be issued.'}
           </p>
 
           <div className="rounded-xl border border-[--color-border] overflow-x-auto">
@@ -49,17 +41,20 @@ export default function AwardReviewDialog({ prId, chosen, reasons, notes, doc, s
                   <tbody key={c.lot.label} className="border-t border-[--color-border-strong]">
                     <tr className="bg-[--color-canvas]">
                       <td colSpan={4} className="px-3 py-2">
-                        <span className="font-semibold text-[--color-text-primary]">{c.lot.name}: {c.bidder.name}</span>
+                        <span className="font-semibold text-[--color-text-primary]">{c.lot.name}: {c.supplier}</span>
                         <p className="mt-0.5 text-xs text-[--color-text-secondary]">Basis: {c.criteria.join('; ')}</p>
                         {remark && <p className="mt-0.5 text-xs text-[--color-text-secondary]">Remarks: {remark}</p>}
                       </td>
                     </tr>
-                    {c.lot.pending.map(i => (
+                    {c.priced.map(({ item: i, price, spec }) => (
                       <tr key={i.id} className="border-t border-[--color-border]">
-                        <td className="px-3 py-2 text-[--color-text-primary]">{i.item_name}</td>
+                        <td className="px-3 py-2 text-[--color-text-primary]">
+                          {i.item_name}
+                          <span className="block text-[11px] text-[--color-text-muted]">Offered: {spec || 'As specified'}</span>
+                        </td>
                         <td className={`${CELL} text-[--color-text-secondary]`}>{Number(i.quantity)} {i.unit}</td>
-                        <td className={`${CELL} text-[--color-text-secondary]`}>{fmtCurrency(c.bidder.prices[i.id])}</td>
-                        <td className={`${CELL} text-[--color-text-primary]`}>{fmtCurrency(lineCents(i.quantity, c.bidder.prices[i.id]) / 100)}</td>
+                        <td className={`${CELL} text-[--color-text-secondary]`}>{fmtCurrency(price)}</td>
+                        <td className={`${CELL} text-[--color-text-primary]`}>{fmtCurrency(lineCents(i.quantity, price) / 100)}</td>
                       </tr>
                     ))}
                     <tr className="border-t border-[--color-border]">
@@ -83,7 +78,7 @@ export default function AwardReviewDialog({ prId, chosen, reasons, notes, doc, s
             <p className="flex items-start gap-2 text-xs text-[--color-text-secondary]">
               <FileText className="size-3.5 shrink-0 mt-0.5 text-[--color-text-muted]" />
               {doc.kind === 'abstract'
-                ? 'Recorded on the Abstract of sealed Quotations, with no BAC Resolution (approved budget below the resolution threshold).'
+                ? 'Recorded on the BAC\'s Abstract of sealed Quotations, with no BAC Resolution (approved budget below the resolution threshold).'
                 : 'Adopted in a numbered BAC Resolution.'}
             </p>
           )}

@@ -126,6 +126,7 @@ mysql -u root -p primesys < remove_bac_role.sql
 mysql -u root -p primesys < add_department_sections.sql
 mysql -u root -p primesys < add_file_retention.sql
 mysql -u root -p primesys < add_face_check.sql
+mysql -u root -p primesys < award_only_canvass.sql
 ```
 
 Apply only the ones your database is missing. The last twenty need MariaDB (XAMPP); several of the earlier ones are one-shot `ALTER`s that fail if run twice. `add_user_columns.sql`, `add_missing_tables.sql`, and `add_twg_role.sql` would erase the `requestor` and `twg` roles on a newer database, so they stop with an error and change nothing when the database already has either role.

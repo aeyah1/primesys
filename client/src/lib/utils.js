@@ -46,7 +46,8 @@ export const PR_STATUS_LABELS = {
   revision_requested: 'Returned for changes',
   twg_review:         'Ready for canvass',
   bidding:            'Canvass',
-  twg_certification:  'TWG checking offers',
+  twg_certification:  'TWG checking the award',
+  // Retired 2026-11-09; kept for the history of older requests.
   bac_review:         'Choosing the supplier',
   re_pr:              'Re-PR proposed',
   for_po:             'Ready for purchase order',
@@ -61,7 +62,7 @@ export const PR_STATUS_LABELS = {
 export const prStatusKey = (pr) => (pr?.status === 'for_po' && pr.awaiting_po != null && !Number(pr.awaiting_po)
   && (pr.po_id || pr.pos?.some(po => po.po_status !== 'cancelled')) ? 'ordered' : pr?.status)
 
-// Why the TWG sends a request back to its End User (a Re-PR); keep in sync with server/utils/rePr.js.
+// Why the TWG sent a request back to its End User (a Re-PR, retired 2026-11-09), for older requests' history.
 export const RE_PR_TYPES = {
   raise_budget: 'Only higher-end specifications were offered: raise the budget (ABC)',
   change_specs: 'The specifications are not available on the market: change them',
@@ -75,8 +76,8 @@ export const PR_STATUS_HELP = {
   twg_review:         'The TWG approved it. The Procurement Office starts the canvass next.',
   revision_requested: 'Sent back to its End User to change, then submit again.',
   rejected:           'The TWG did not approve it. Its End User may change it and submit it again.',
-  bidding:            'The canvasser is getting suppliers\' prices; Procurement enters them.',
-  twg_certification:  'The TWG is checking every offer against the specifications.',
+  bidding:            'The canvasser is getting suppliers\' prices; the BAC chooses the winners and Procurement records them.',
+  twg_certification:  'The TWG is checking the winning supplier\'s offer against the specifications.',
   bac_review:         'The Bids and Awards Committee is choosing the supplier of each lot.',
   re_pr:              'No offer met the specifications. The TWG proposed a Re-PR; Procurement checks it, then the End User changes the request.',
   for_po:             'A supplier was chosen. The Procurement Office issues the purchase order next.',

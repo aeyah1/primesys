@@ -21,7 +21,7 @@ const COLS = 5
 // A count in a supplier's row: muted at zero, else in its tone.
 const Count = ({ n, tone }) => <span className={`font-semibold tabular-nums ${Number(n) ? tone : 'text-[--color-text-muted]'}`}>{n}</span>
 
-// The supplier profiles Procurement and Admin keep, each with its quotations, awards and DQs.
+// The supplier profiles Procurement and Admin keep, each with the requests it was on, its awards and DQs.
 export default function SupplierList() {
   const navigate = useNavigate()
   const [params, update] = useUrlParams()
@@ -44,7 +44,7 @@ export default function SupplierList() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Suppliers" sub="Each supplier's profile and the requests it quoted on. Procurement fills a quotation from these.">
+      <PageHeader title="Suppliers" sub="Each supplier's profile and the requests it was on. Procurement picks the awarded supplier from these.">
         <Button className="gap-1.5" onClick={() => setAdding(true)}><Plus className="size-4" /> Add supplier</Button>
       </PageHeader>
 
@@ -65,7 +65,7 @@ export default function SupplierList() {
             <TableRow>
               <TableHead>Supplier</TableHead>
               <TableHead>Address and contact</TableHead>
-              <TableHead className="text-right">Quotations</TableHead>
+              <TableHead className="text-right">Requests</TableHead>
               <TableHead className="text-right">Awards</TableHead>
               <TableHead className="text-right">DQ</TableHead>
             </TableRow>

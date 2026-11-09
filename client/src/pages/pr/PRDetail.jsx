@@ -605,11 +605,11 @@ const MOVED = {
 }
 
 const TAB_LABELS = { overview: 'Overview', canvass: 'Canvass & award', orders: 'Orders & delivery', documents: 'Documents', history: 'History' }
-// The statuses from which the TWG has checked a canvass's offers (or is checking them).
-const TWG_CANVASS = ['twg_certification', 're_pr', 'bac_review', 'for_po', 'completed']
+// The statuses from which the TWG has checked an award's winning offers (or is checking them).
+const TWG_CANVASS = ['twg_certification', 'for_po', 'completed']
 
 // The tabs a role has on a request: the overview, the canvass once it started (staff; the TWG once it
-// checks the offers), the purchase orders once there are any to issue, the documents and the history.
+// checks the award), the purchase orders once there are any to issue, the documents and the history.
 function tabsFor(pr, role) {
   const staff = ['admin', 'procurement'].includes(role)
   const started = Boolean(pr.rfq_at) || Number(pr.quotes) > 0 || ['bidding', ...TWG_CANVASS].includes(pr.status)
@@ -861,7 +861,6 @@ export default function PRDetail() {
             className={`-mb-px flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-2.5 text-ui-sm font-semibold transition-colors ${
               tab === t ? 'border-[--color-brand] text-[--color-brand]' : 'border-transparent text-[--color-text-secondary] hover:text-[--color-text-primary]'}`}>
             {TAB_LABELS[t]}
-            {t === 'canvass' && Number(pr.quotes) > 0 && <span className="rounded-full border border-[--color-border] bg-[--color-canvas] px-1.5 text-[11px] font-medium text-[--color-text-muted]">{pr.quotes}</span>}
             {t === 'orders' && pr.pos?.length > 0 && <span className="rounded-full border border-[--color-border] bg-[--color-canvas] px-1.5 text-[11px] font-medium text-[--color-text-muted]">{pr.pos.filter(po => po.po_status !== 'cancelled').length}</span>}
             {t === workTab && <span className="size-2 rounded-full bg-amber-500" aria-label="Your next step is here" />}
           </button>
@@ -927,7 +926,7 @@ export default function PRDetail() {
             </Card>
           )}
           <PRItemsSection prId={id} pr={pr} canEdit={!!pr.permissions?.edit} category={pr.category} />
-          {/* The suppliers that quoted, with their profiles, once Procurement has sent the quotations (everyone on the request) */}
+          {/* The request's suppliers, with their profiles, once the BAC's award is recorded (everyone on the request) */}
           <QuotedSuppliers pr={pr} />
         </div>
       )}

@@ -1,97 +1,81 @@
 import { useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
-import { Ban, CheckCircle2, Undo2, AlertTriangle, FileText } from 'lucide-react'
+import { useQuery, useMutation } from '@tanstack/react-query'
+import { Ban, Undo2, CheckCircle2, AlertTriangle, FileText, Store } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Dialog, DialogContent, DialogFooter } from '@/components/ui/dialog'
 import { fmtCurrency } from '@/lib/utils'
 import api from '@/lib/axios'
-import { lineCents, totalOf, lotsWithItems, useRefreshAwards } from './supplier'
-import BidsTable from './BidsTable'
+import { nameKey, cents, lineCents, lotsWithItems, useRefreshAwards } from './supplier'
 import CanvassFiles from './CanvassFiles'
 import AwardReviewDialog from './AwardReviewDialog'
 import { DropItemDialog } from './CanvassPanel'
 
 const TEXTAREA = 'w-full rounded-md border border-[--color-border] bg-[--color-surface] px-3 py-2 text-sm text-[--color-text-primary] placeholder:text-[--color-text-muted] focus:outline-none focus:ring-2 focus:ring-[--color-brand] focus:border-transparent resize-y'
+const ICON = 'p-1.5 rounded-lg text-[--color-text-muted] transition-colors'
 
-// Procurement takes a certified canvass back to correct its bids, with the reason.
-function ReopenDialog({ prId, onClose }) {
-  const refresh = useRefreshAwards(prId)
-  const [reason, setReason] = useState('')
-  const { mutate, isPending } = useMutation({
-    mutationFn: () => api.post(`/canvass/${prId}/reopen`, { reason: reason.trim() }),
-    onSuccess: ({ data }) => { toast.success(data.message); refresh(); onClose() },
-    onError: (err) => toast.error(err.response?.data?.message || 'Failed to take the canvass back'),
-  })
+// Under a lot's supplier: its profile in the supplier list (a warning when blacklisted), or that it has none.
+function ProfileNote({ name, profiles }) {
+  if (!name.trim()) return null
+  const profile = profiles.find(p => nameKey(p.name) === nameKey(name))
+  if (!profile) return <p className="text-[11px] text-[--color-text-muted]">Not in the supplier list. Procurement can add it under Suppliers.</p>
+  const black = profile.status === 'blacklisted'
   return (
-    <Dialog open onOpenChange={v => { if (!v) onClose() }}>
-      <DialogContent title="Take the canvass back"
-        description="The bids can be corrected, or new suppliers' quotations added, then the canvass is sent on again, to the TWG or straight to the award. Bids left unchanged keep the TWG's marks.">
-        <div className="space-y-1.5">
-          <Label>Reason <span className="text-red-600 text-xs">*</span></Label>
-          <textarea value={reason} onChange={e => setReason(e.target.value)} rows={3} maxLength={500} autoFocus className={TEXTAREA}
-            placeholder="e.g. A price was entered wrong from the RFQ" />
-        </div>
-        <DialogFooter className="px-0 pb-0 pt-6">
-          <Button variant="outline" onClick={onClose} disabled={isPending}>Cancel</Button>
-          <Button variant="danger" disabled={isPending || !reason.trim()} onClick={() => mutate()}>{isPending ? 'Saving…' : 'Take it back'}</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <p className={`flex items-start gap-1.5 text-[11px] ${black ? 'font-medium text-red-700' : 'text-emerald-800'}`}>
+      {black ? <Ban className="mt-px size-3 shrink-0" /> : <Store className="mt-px size-3 shrink-0" />}
+      {black ? `Blacklisted in the supplier list${profile.status_note ? `: ${profile.status_note}` : ''}`
+        : [profile.address, profile.contact_person, profile.tin && `TIN ${profile.tin}`].filter(Boolean).join(' · ') || 'In the supplier list'}
+    </p>
   )
 }
 
-/* Procurement records the BAC's award once the TWG has certified the bids (or the canvass came
-   straight to the award, canvass.twg_skipped), a lot at a time: each lot goes to one supplier that bid
-   on all of it. The BAC chooses offline, on its approved criteria; the system picks no one. For each lot
-   Procurement picks the supplier the BAC chose and ticks the criteria it applied (canvass.award_criteria,
-   the admin's list), with the BAC's remark if any; never a supplier the TWG found non-compliant on an item
-   of the lot. A lot's award can't exceed its approved budget.
-   Review opens AwardReviewDialog; confirming adopts a BAC Resolution, or below the resolution threshold records the
-   award on the Abstract alone (canvass.award_document); the request is then Ready for purchase order.
-   pr: { id }; canvass: GET /canvass/:prId. */
+/* Procurement records the award the BAC decided offline, while the request is in canvass, a lot at a time: the
+   supplier the BAC chose (the supplier list suggests names), each item's awarded unit price and what it offered
+   (blank: as specified), the criteria the BAC applied (canvass.award_criteria, the admin's list) and its remark if
+   any. The system picks no one, and a lot's award can't exceed its approved budget. Review opens AwardReviewDialog;
+   confirming adopts a BAC Resolution, or below the resolution threshold records it on the Abstract alone
+   (canvass.award_document). An IT or hardware award then goes to the TWG to check the winning offers
+   (canvass.twg_check); any other is Ready for purchase order. pr: { id }; canvass: GET /canvass/:prId. */
 export default function BacAwardSheet({ pr, canvass }) {
   const prId = String(pr.id)
   const refresh = useRefreshAwards(prId)
-  const { bidders, award_document: doc, twg_skipped: skipped, award_criteria: criteriaList = [] } = canvass
-  const lots = lotsWithItems(canvass).map(l => ({ ...l, pending: l.items.filter(i => i.state === 'pending') })).filter(l => l.pending.length)
-  const [picks, setPicks] = useState({})
+  const { award_document: doc, award_criteria: criteriaList = [], twg_check: twg } = canvass
+  const allLots = lotsWithItems(canvass)
+  const lots = allLots.map(l => ({ ...l, pending: l.items.filter(i => i.state === 'pending') })).filter(l => l.pending.length)
+  const [suppliers, setSuppliers] = useState({})
+  const [prices, setPrices] = useState({})
+  const [specs, setSpecs] = useState({})
   const [criteria, setCriteria] = useState({})
   const [reasons, setReasons] = useState({})
   const [notes, setNotes] = useState('')
+  const [shown, setShown] = useState(null)
   const [dropping, setDropping] = useState(null)
-  const [reopening, setReopening] = useState(false)
   const [reviewing, setReviewing] = useState(false)
-
-  // Each lot's pick, its total, its budget (as the server checks them), the item the TWG found the pick
-  // non-compliant on, the criteria ticked, and the bids that could be awarded it: those on the whole lot,
-  // not found non-compliant, of which `within` stay within its budget.
-  const failedOn = (b, l) => l.pending.find(i => b.evaluation?.[i.id]?.compliant === false)
-  const chosen = lots.map(l => {
-    const budget = l.pending.reduce((s, i) => s + lineCents(i.quantity, i.estimated_cost), 0)
-    const bidder = bidders.find(b => b.id === picks[l.label])
-    const total = bidder ? totalOf(bidder, l.pending) : null
-    const eligible = bidders.filter(b => !failedOn(b, l)).map(b => ({ b, total: totalOf(b, l.pending) })).filter(x => x.total != null)
-    const within = eligible.filter(x => !(budget > 0 && x.total > budget))
-    return { lot: l, bidder: total != null ? bidder : null, total, budget, eligible, within, over: total != null && budget > 0 && total > budget,
-      failed: total != null ? failedOn(bidder, l) : null, criteria: criteriaList.filter(c => criteria[l.label]?.includes(c)) }
+  const { data: profiles = [] } = useQuery({
+    queryKey: ['suppliers', 'pick'],
+    queryFn: () => api.get('/suppliers?limit=200').then(r => r.data.data),
+    staleTime: 60_000,
   })
-  const unpicked = chosen.find(c => !c.bidder)
-  const failing = chosen.find(c => c.failed)
-  const over = chosen.find(c => c.bidder && c.over)
-  const unticked = chosen.find(c => c.bidder && !c.criteria.length)
-  const block = (unpicked && (unpicked.eligible.length
-      ? `Pick the supplier the BAC chose for ${unpicked.lot.name}, or drop its items if no bid can be awarded.`
-      : skipped
-        ? `No supplier can be awarded all of ${unpicked.lot.name}. Drop an item, or take it back to the canvass for new quotations.`
-        : `No supplier is compliant on all of ${unpicked.lot.name}. Drop a non-compliant item, or take it back to the canvass for new quotations.`))
-    || (failing && `The TWG found ${failing.bidder.name}'s offer for "${failing.failed.item_name}" non-compliant, so it can't be awarded ${failing.lot.name}. Pick a compliant supplier, drop the item, or take it back to the canvass.`)
-    || (over && (over.within.length
-      ? `${over.bidder.name}'s total for ${over.lot.name} is above its approved budget. Only a bid within it can be awarded.`
-      : `Every bid for ${over.lot.name} is above its approved budget (${fmtCurrency(over.budget / 100)}). Drop an item, or take it back to the canvass.`))
-    || (unticked && `Tick the criteria the BAC applied in choosing ${unticked.bidder.name} for ${unticked.lot.name}.`)
+
+  // Each lot as typed: its supplier, each item's price, its total and budget (as the server checks them), the criteria ticked.
+  const priceOf = (id) => (Number(prices[id]) > 0 ? Number(prices[id]) : null)
+  const chosen = lots.map(l => {
+    const priced = l.pending.map(item => ({ item, price: priceOf(item.id), spec: specs[item.id]?.trim() || '' }))
+    const budget = l.pending.reduce((s, i) => s + lineCents(i.quantity, i.estimated_cost), 0)
+    const total = priced.every(p => p.price != null) ? priced.reduce((s, p) => s + lineCents(p.item.quantity, p.price), 0) : null
+    return { lot: l, supplier: (suppliers[l.label] || '').trim().replace(/\s+/g, ' '), priced, total, budget,
+      over: total != null && budget > 0 && total > budget, criteria: criteriaList.filter(c => criteria[l.label]?.includes(c)) }
+  })
+  const unnamed = chosen.find(c => !c.supplier)
+  const unpriced = chosen.map(c => ({ c, p: c.priced.find(p => p.price == null) })).find(x => x.p)
+  const over = chosen.find(c => c.over)
+  const unticked = chosen.find(c => !c.criteria.length)
+  const block = (!lots.length && 'No item is waiting for its award.')
+    || (unnamed && `Type the supplier the BAC chose for ${unnamed.lot.name}, or drop its items.`)
+    || (unpriced && `Type ${unpriced.c.supplier}'s unit price for "${unpriced.p.item.item_name}".`)
+    || (over && `${over.supplier}'s total for ${over.lot.name} is above its approved budget (${fmtCurrency(over.budget / 100)}). Only an award within it can be recorded.`)
+    || (unticked && `Tick the criteria the BAC applied in choosing ${unticked.supplier} for ${unticked.lot.name}.`)
   const tick = (lot, c) => setCriteria(x => {
     const now = x[lot.label] || []
     return { ...x, [lot.label]: now.includes(c) ? now.filter(v => v !== c) : [...now, c] }
@@ -99,78 +83,129 @@ export default function BacAwardSheet({ pr, canvass }) {
   const awarded = chosen.reduce((s, c) => s + (c.total || 0), 0)
   const budget = chosen.reduce((s, c) => s + c.budget, 0)
 
-  // Under a lot: a pick the TWG found non-compliant, or above its budget, can't be awarded, so it says so
-  // instead; any other pick takes the criteria the BAC applied, at least one, and its remark if any.
-  const lotNote = (lot) => {
-    const c = chosen.find(x => x.lot.label === lot.label)
-    if (c?.failed) {
-      return (
-        <p className="flex items-center gap-1 text-[11px] font-medium text-red-700">
-          <AlertTriangle className="size-3 shrink-0" />
-          The TWG found {c.bidder.name}'s offer for "{c.failed.item_name}" non-compliant
-          {c.bidder.evaluation[c.failed.id].remarks ? ` (${c.bidder.evaluation[c.failed.id].remarks})` : ''}, so it can't be awarded.
-        </p>
-      )
-    }
-    if (c?.bidder && c.over) {
-      return (
-        <p className="flex items-center gap-1 text-[11px] font-medium text-red-700">
-          <AlertTriangle className="size-3 shrink-0" />
-          {fmtCurrency((c.total - c.budget) / 100)} over this lot's approved budget ({fmtCurrency(c.budget / 100)}), so it can't be awarded.
-        </p>
-      )
-    }
-    if (!c?.bidder) return null
-    return (
-      <div className="space-y-2">
-        <fieldset>
-          <legend className="text-[11px] font-semibold text-[--color-text-primary]">
-            Why the BAC chose {c.bidder.name} <span className="font-normal text-[--color-text-muted]">(tick at least one)</span>
-          </legend>
-          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
-            {criteriaList.map(k => (
-              <label key={k} className="flex items-center gap-1.5 text-xs text-[--color-text-secondary]">
-                <input type="checkbox" className="size-3.5 accent-[--color-brand]" checked={c.criteria.includes(k)} onChange={() => tick(lot, k)} />
-                {k}
-              </label>
-            ))}
-          </div>
-        </fieldset>
-        <Input value={reasons[lot.label] || ''} maxLength={500} aria-label={`The BAC's remarks on awarding ${lot.name} to ${c.bidder.name}`}
-          placeholder="The BAC's remarks (optional)"
-          onChange={e => setReasons(r => ({ ...r, [lot.label]: e.target.value }))} className="h-8 max-w-md text-xs" />
-      </div>
-    )
+  const restore = async (item) => {
+    try { await api.post(`/canvass/${prId}/items/${item.id}/restore`); toast.success('Item brought back to canvass'); refresh() }
+    catch (err) { toast.error(err.response?.data?.message || 'Failed to bring the item back') }
   }
-
-  const { mutate: award, isPending } = useMutation({
+  const { mutate: record, isPending } = useMutation({
     mutationFn: () => api.post(`/canvass/${prId}/award`, {
-      winners: chosen.map(c => ({ lot: c.lot.label, bidder_id: c.bidder.id, criteria: c.criteria, reason: reasons[c.lot.label]?.trim() || undefined })),
+      winners: chosen.map(c => ({
+        lot: c.lot.label, supplier: c.supplier, criteria: c.criteria, reason: reasons[c.lot.label]?.trim() || undefined,
+        prices: c.priced.map(p => ({ pr_item_id: p.item.id, unit_price: p.price, offered_spec: p.spec || undefined })),
+      })),
       notes: notes.trim() || undefined,
     }),
     onSuccess: ({ data }) => { toast.success(data.message); setReviewing(false); refresh() },
-    onError: (err) => toast.error(err.response?.data?.message || 'The award could not be made'),
+    onError: (err) => toast.error(err.response?.data?.message || 'The award could not be recorded'),
   })
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 gap-4 2xl:grid-cols-5">
-        <section className="space-y-3 2xl:col-span-3">
-          <h3 className="text-ui-sm font-bold uppercase tracking-wide text-[--color-text-secondary]">Record the BAC's choice for each lot</h3>
-          <p className="text-xs text-[--color-text-secondary]">
-            The BAC chooses each lot's supplier at its own meeting, on its approved criteria; nothing is picked for you.
-            Each lot goes to one supplier that bid on all of it. Pick the one the BAC chose and tick the criteria it applied.
-            {skipped
-              ? ' The TWG did not evaluate these bids, so any supplier that bid on the whole lot can be recorded.'
-              : ' A supplier the TWG found non-compliant on an item of the lot can\'t be awarded it.'}
-          </p>
-          <BidsTable canvass={canvass} pick={picks} onPick={(lot, id) => setPicks(x => ({ ...x, [lot.label]: id }))} lotNote={lotNote}
-            action={(i) => i.state === 'pending' && (
-              <button type="button" onClick={() => setDropping(i)} title="Drop this item (no bid can be awarded)"
-                className="p-1.5 rounded-lg text-[--color-text-muted] hover:text-red-600 hover:bg-red-50 transition-colors">
-                <Ban className="size-3.5" />
-              </button>
-            )} />
+        <section className="space-y-4 2xl:col-span-3">
+          <div className="space-y-1">
+            <h3 className="text-ui-sm font-bold uppercase tracking-wide text-[--color-text-secondary]">Record the BAC's award</h3>
+            <p className="text-xs text-[--color-text-secondary]">
+              The BAC chooses each lot's supplier at its own meeting, on its approved criteria; nothing is picked for you.
+              For each lot, type the supplier it chose, the unit price of each item from that supplier's RFQ, and tick the criteria it applied.
+              {twg && ' This is IT equipment, so the TWG checks the winning offers before the purchase orders.'}
+            </p>
+          </div>
+
+          {allLots.map(lot => {
+            const c = chosen.find(x => x.lot.label === lot.label)
+            const dropped = lot.items.filter(i => i.state === 'dropped')
+            if (!c && !dropped.length) return null
+            return (
+              <div key={lot.label || '-'} className="space-y-3 rounded-xl border border-[--color-border] bg-[--color-surface] p-4 shadow-sm">
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <p className="text-sm font-bold uppercase tracking-wide text-[--color-text-primary]">{lot.name}</p>
+                  {c && <p className="text-xs text-[--color-text-secondary]">Approved budget {fmtCurrency(c.budget / 100)}</p>}
+                </div>
+                {c && (
+                  <>
+                    <div className="space-y-1.5">
+                      <Label htmlFor={`supplier-${lot.label || 'all'}`}>Supplier the BAC chose <span className="text-red-600 text-xs">*</span></Label>
+                      <Input id={`supplier-${lot.label || 'all'}`} value={suppliers[lot.label] || ''} maxLength={200} list="award-suppliers"
+                        placeholder="As written on its RFQ" onChange={e => setSuppliers(x => ({ ...x, [lot.label]: e.target.value }))} />
+                      <ProfileNote name={suppliers[lot.label] || ''} profiles={profiles} />
+                    </div>
+                    <div className="rounded-xl border border-[--color-border] overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="bg-[--color-canvas] text-left text-xs font-bold uppercase tracking-wider text-[--color-text-secondary]">
+                            <th className="px-3 py-2.5 min-w-40">Item</th>
+                            <th className="px-3 py-2.5 text-right whitespace-nowrap">Budget each</th>
+                            <th className="px-3 py-2.5 w-36">Unit price</th>
+                            <th className="px-3 py-2.5 min-w-44">Offered specification</th>
+                            <th className="px-3 py-2.5 text-right">Amount</th>
+                            <th className="px-2 py-2.5 w-10" />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {c.priced.map(({ item: i, price }) => {
+                            const above = price != null && Number(i.estimated_cost) > 0 && cents(price) > cents(i.estimated_cost)
+                            return (
+                              <tr key={i.id} className="border-t border-[--color-border] align-top">
+                                <td className="px-3 py-2.5">
+                                  <span className="text-[--color-text-primary]">{i.item_name}</span>
+                                  <span className="block text-[11px] text-[--color-text-muted]">{Number(i.quantity)} {i.unit || ''}</span>
+                                </td>
+                                <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap text-[--color-text-secondary]">{Number(i.estimated_cost) > 0 ? fmtCurrency(i.estimated_cost) : 'None'}</td>
+                                <td className="px-3 py-1.5">
+                                  <Input type="number" min="0.01" step="0.01" value={prices[i.id] ?? ''} aria-label={`Unit price for ${i.item_name}`}
+                                    onChange={e => setPrices(x => ({ ...x, [i.id]: e.target.value }))}
+                                    className={`text-right tabular-nums ${above ? 'border-amber-400 text-amber-800' : ''}`} />
+                                  {above && <span className="block text-[10px] text-amber-700">above the budget</span>}
+                                </td>
+                                <td className="px-3 py-1.5">
+                                  <Input value={specs[i.id] ?? ''} maxLength={1000} placeholder="As specified" aria-label={`What the supplier offered for ${i.item_name}`}
+                                    onChange={e => setSpecs(x => ({ ...x, [i.id]: e.target.value }))} className="text-xs" />
+                                </td>
+                                <td className="px-3 py-2.5 text-right tabular-nums whitespace-nowrap text-[--color-text-secondary]">{price != null ? fmtCurrency(lineCents(i.quantity, price) / 100) : ''}</td>
+                                <td className="px-2 py-1.5 text-right">
+                                  <button type="button" onClick={() => setDropping(i)} title="Drop this item (no supplier can supply it)" className={`${ICON} hover:text-red-600 hover:bg-red-50`}><Ban className="size-3.5" /></button>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                    {c.total != null && (
+                      <p className={`text-right text-xs ${c.over ? 'font-medium text-red-700' : 'text-[--color-text-secondary]'}`}>
+                        {lot.name} total <span className="font-semibold tabular-nums">{fmtCurrency(c.total / 100)}</span>
+                        {c.over ? `, ${fmtCurrency((c.total - c.budget) / 100)} over its approved budget` : ''}
+                      </p>
+                    )}
+                    <fieldset>
+                      <legend className="text-[11px] font-semibold text-[--color-text-primary]">
+                        Why the BAC chose {c.supplier || 'this supplier'} <span className="font-normal text-[--color-text-muted]">(tick at least one)</span>
+                      </legend>
+                      <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+                        {criteriaList.map(k => (
+                          <label key={k} className="flex items-center gap-1.5 text-xs text-[--color-text-secondary]">
+                            <input type="checkbox" className="size-3.5 accent-[--color-brand]" checked={c.criteria.includes(k)} onChange={() => tick(lot, k)} />
+                            {k}
+                          </label>
+                        ))}
+                      </div>
+                    </fieldset>
+                    <Input value={reasons[lot.label] || ''} maxLength={500} aria-label={`The BAC's remarks on the award of ${lot.name}`}
+                      placeholder="The BAC's remarks (optional)" onChange={e => setReasons(r => ({ ...r, [lot.label]: e.target.value }))} className="h-8 max-w-md text-xs" />
+                  </>
+                )}
+                {dropped.map(i => (
+                  <p key={i.id} className="flex items-center justify-between gap-2 text-xs text-[--color-text-muted]">
+                    <span><span className="line-through">{i.item_name}</span> dropped{i.drop_reason ? `: ${i.drop_reason}` : ''}</span>
+                    <button type="button" onClick={() => restore(i)} title="Bring it back to canvass" className={`${ICON} hover:text-[--color-brand] hover:bg-[--color-overlay]`}><Undo2 className="size-3.5" /></button>
+                  </p>
+                ))}
+              </div>
+            )
+          })}
+          <datalist id="award-suppliers">{profiles.map(p => <option key={p.id} value={p.name} />)}</datalist>
+
           {lots.length > 0 && (
             <p className="text-right text-sm text-[--color-text-secondary]">
               To award <span className="font-semibold tabular-nums text-[--color-text-primary]">{fmtCurrency(awarded / 100)}</span>
@@ -180,7 +215,7 @@ export default function BacAwardSheet({ pr, canvass }) {
           )}
         </section>
 
-        <div className="2xl:col-span-2"><CanvassFiles prId={prId} /></div>
+        <div className="2xl:col-span-2"><CanvassFiles prId={prId} shown={shown} onShow={setShown} canRemove /></div>
       </div>
 
       <section className="space-y-3 rounded-xl border border-[--color-border] bg-[--color-surface] px-4 py-4 shadow-sm">
@@ -190,7 +225,7 @@ export default function BacAwardSheet({ pr, canvass }) {
             <span>
               Approved budget <span className="font-semibold text-[--color-text-primary]">{fmtCurrency(doc.abc)}</span>
               {doc.kind === 'abstract'
-                ? <>, below {fmtCurrency(doc.threshold)}: the award goes on the <span className="font-semibold text-[--color-text-primary]">Abstract of sealed Quotations</span>, with no BAC Resolution.</>
+                ? <>, below {fmtCurrency(doc.threshold)}: the award goes on the BAC's <span className="font-semibold text-[--color-text-primary]">Abstract of sealed Quotations</span>, with no BAC Resolution.</>
                 : <>, {fmtCurrency(doc.threshold)} or more: the award is adopted in a numbered <span className="font-semibold text-[--color-text-primary]">BAC Resolution</span>.</>}
             </span>
           </p>
@@ -202,9 +237,6 @@ export default function BacAwardSheet({ pr, canvass }) {
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
           {block && <p className="mr-auto flex items-center gap-1.5 text-xs text-amber-700"><AlertTriangle className="size-3.5 shrink-0" /> {block}</p>}
-          <Button variant="secondary" className="gap-1.5" disabled={isPending} onClick={() => setReopening(true)}>
-            <Undo2 className="size-3.5" /> Take back to the canvass
-          </Button>
           <Button className="gap-1.5" disabled={isPending || !!block} onClick={() => setReviewing(true)}>
             <CheckCircle2 className="size-3.5" /> Review and record
           </Button>
@@ -212,10 +244,9 @@ export default function BacAwardSheet({ pr, canvass }) {
       </section>
 
       {dropping && <DropItemDialog prId={prId} item={dropping} onClose={() => setDropping(null)} />}
-      {reopening && <ReopenDialog prId={prId} onClose={() => setReopening(false)} />}
       {reviewing && !block && (
-        <AwardReviewDialog prId={prId} chosen={chosen} reasons={reasons} notes={notes} doc={doc} skipped={skipped}
-          pending={isPending} onConfirm={() => award()} onClose={() => setReviewing(false)} />
+        <AwardReviewDialog chosen={chosen} reasons={reasons} notes={notes} doc={doc} twg={twg}
+          pending={isPending} onConfirm={() => record()} onClose={() => setReviewing(false)} />
       )}
     </div>
   )
