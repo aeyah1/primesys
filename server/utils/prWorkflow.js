@@ -22,7 +22,7 @@ const { requesterNotice } = require('./requesterNotice')
 const STATUS_LABELS = {
   draft: 'Draft', submitted: 'TWG review', twg_review: 'Ready for canvass',
   revision_requested: 'Returned for changes', rejected: 'Not approved', bidding: 'Canvass',
-  bac_review: 'Choosing the supplier', twg_certification: 'TWG checking offers', re_pr: 'Re-PR proposed',
+  bac_review: 'Choosing the supplier', twg_certification: 'TWG checking the award', re_pr: 'Re-PR proposed',
   for_po: 'Ready for purchase order', completed: 'Completed', cancelled: 'Cancelled',
 }
 
@@ -46,15 +46,12 @@ const CANVASS_STAGES = ['bidding', 'twg_certification', 'bac_review', 're_pr']
 // (editBlock), so the requestor fixes it and it goes back through the TWG.
 //
 // After the TWG approves, Procurement starts the canvass (Canvass, status
-// bidding), done outside the system by the canvasser, who gives the returned
-// RFQs to Procurement; Procurement enters every bid and sends them to the TWG (TWG
-// certification); the TWG marks each bid compliant or not and certifies them
-// (Choosing the supplier) or returns them to the canvass; the BAC chooses the
-// winners offline and Procurement records its award (Ready for PO), or takes the
-// canvass back to correct it (utils/canvassBids.js).
-// When every supplier is DQ the TWG may instead propose a Re-PR (re_pr):
-// Procurement sends it to the End User to change the request (revision_requested) or
-// returns it to the TWG (utils/rePr.js).
+// bidding), done outside the system by the canvasser; the BAC chooses the
+// winners offline and Procurement records its award (Ready for PO). An IT or
+// hardware request goes to the TWG first (TWG checking the award), which
+// certifies it (Ready for PO) or returns it to the canvass (utils/canvassAward.js).
+// bac_review and re_pr are retired (2026-11-09, quotations are no longer
+// entered): no request enters them, and one left there can only be cancelled.
 // From then on the awards decide
 // (syncPRProgress): an item needing an award again (an award or PO cancelled,
 // a PO closed short) puts the request back in canvass, to be reviewed again,
@@ -67,12 +64,12 @@ const TRANSITIONS = {
   revision_requested: { submitted: { roles: EDITORS, owner: true }, cancelled: { roles: ADMIN } },
   twg_review:         { bidding: { via: 'canvass' }, revision_requested: { roles: STAFF, reason: true },
                         cancelled: { roles: STAFF } },
-  bidding:            { twg_certification: { via: 'steps' }, bac_review: { via: 'steps' }, for_po: { via: 'award' },
+  bidding:            { for_po: { via: 'award' }, twg_certification: { via: 'award' },
                         revision_requested: { roles: STAFF, reason: true, noAward: true },
                         cancelled: { roles: STAFF, noPO: true } },
-  twg_certification:  { bac_review: { via: 'twg' }, bidding: { via: 'twg' }, re_pr: { via: 'twg' }, cancelled: { roles: ADMIN, noPO: true } },
-  bac_review:         { for_po: { via: 'steps' }, bidding: { via: 'steps' }, cancelled: { roles: STAFF, noPO: true } },
-  re_pr:              { revision_requested: { via: 'steps' }, twg_certification: { via: 'steps' }, cancelled: { roles: STAFF, noPO: true } },
+  twg_certification:  { for_po: { via: 'twg' }, bidding: { via: 'twg' }, cancelled: { roles: ADMIN, noPO: true } },
+  bac_review:         { cancelled: { roles: STAFF, noPO: true } },
+  re_pr:              { cancelled: { roles: STAFF, noPO: true } },
   for_po:             { bidding: { roles: STAFF, noPO: true, alsoVia: 'award' }, completed: { via: 'delivery' },
                         cancelled: { roles: STAFF, noPO: true } },
   // Rejected stays on record, but its End User may reopen it to change and resubmit, so a long request isn't retyped.

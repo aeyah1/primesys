@@ -3,7 +3,7 @@ const asyncHandler = require('../utils/asyncHandler')
 const httpError    = require('../utils/httpError')
 const { paging }   = require('../middleware/validate')
 const { prScope }  = require('../middleware/scope.middleware')
-const { AWARDED, DQ } = require('../utils/canvassBids')
+const { AWARDED, DQ } = require('../utils/canvassAward')
 const { lineCents } = require('../utils/awardWorkflow')
 const { seesQuotes, LOCKED, IS_RFQ } = require('../utils/quoteAccess')
 

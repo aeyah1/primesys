@@ -219,10 +219,10 @@ export default function OrganizationPage() {
             <CardTitle>Bids and Awards Committee</CardTitle>
           </div>
           <CardDescription>
-            The BAC meets and decides outside PRimeSys; its members have no account. Procurement enters the bids from
-            the canvassers' returned RFQs and sends them to the TWG; once the TWG certifies them, Procurement records
-            the supplier the BAC chose for each lot, with the criteria it applied, in a BAC Resolution, or below the
-            resolution threshold on the Abstract of sealed Quotations alone.
+            The BAC meets and decides outside PRimeSys; its members have no account. Procurement records the supplier
+            the BAC chose for each lot, with its prices and the criteria the BAC applied, in a BAC Resolution, or below
+            the resolution threshold on the BAC's Abstract of sealed Quotations alone. The TWG then checks the winning
+            offers on IT equipment.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

@@ -3,12 +3,13 @@ const asyncHandler = require('../utils/asyncHandler')
 const httpError    = require('../utils/httpError')
 const { paging }   = require('../middleware/validate')
 const { supplierKey } = require('../utils/awardWorkflow')
-const { AWARDED, DQ } = require('../utils/canvassBids')
+const { AWARDED, DQ } = require('../utils/canvassAward')
 
 // The supplier profiles Procurement and Admin keep
-// A quotation Procurement enters is linked to the profile of the same name
-// (canvass_bidders.supplier_id, utils/canvassBids.js), so a profile shows every
-// request the supplier quoted on, what it was awarded and where it was DQ.
+// A supplier Procurement records an award to (and, before 2026-11-09, a quotation it
+// entered) is linked to the profile of the same name (canvass_bidders.supplier_id,
+// utils/canvassAward.js), so a profile shows every request it was on, what it was
+// awarded and where it was DQ.
 
 const FIELDS = ['name', 'address', 'tin', 'philgeps_no', 'contact_person', 'designation', 'phone', 'email', 'status', 'status_note']
 const COLUMNS = 's.id, s.name, s.address, s.tin, s.philgeps_no, s.contact_person, s.designation, s.phone, s.email, s.status, s.status_note, s.created_at, s.updated_at'

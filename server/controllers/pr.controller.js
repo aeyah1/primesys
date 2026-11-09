@@ -270,7 +270,7 @@ exports.getById = asyncHandler(async (req, res) => {
   // No itemCount here: Submit stays offered on an empty draft, and the move
   // itself (changePRStatus) answers "Add at least one item before submitting".
   const facts = { ...pr, hasPO: active.length > 0, hasAnyPO: pos.length > 0, hasLot: !!has_lot, hasAward: !!has_award }
-  // TWG decisions, by a reviewer of its area: the review of a submitted PR, and the certification of its canvass result.
+  // TWG decisions, by a reviewer of its area: the review of a submitted PR, and the check of its award.
   const twgDecides = !pr.deleted_at && ['submitted', 'twg_certification'].includes(pr.status)
     && req.user.role === 'twg' && await reviewsCategory(pool, req.user.id, pr.category)
   res.json({

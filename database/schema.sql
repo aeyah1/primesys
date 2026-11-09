@@ -392,12 +392,11 @@ CREATE TABLE `suppliers` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- BAC resolutions
--- The canvass bids the BAC enters from the canvasser's returned RFQs, one
--- quotation at a time: each bidder (a supplier, by name, with its RFQ No. and
--- its RFQ file) and its unit price for each PR item it offered. The TWG marks
--- each bid compliant or not, with the offered specification and the reason
--- (its certificate lists them), and the BAC picks each lot's winner
--- (pr_items.winner_bidder_id, on each item of the lot) and awards.
+-- A request's suppliers: since 2026-11-09 only the supplier the BAC chose for a
+-- lot, recorded by Procurement with its awarded unit price for each item
+-- (pr_items.winner_bidder_id, on each item of the lot). Older requests also keep
+-- the quotations typed in from the returned RFQs (RFQ No., RFQ file, offered
+-- specification) and the TWG's compliance marks on them.
 CREATE TABLE `canvass_bidders` (
   `id`         INT UNSIGNED      NOT NULL AUTO_INCREMENT,
   `pr_id`      INT UNSIGNED      NOT NULL,

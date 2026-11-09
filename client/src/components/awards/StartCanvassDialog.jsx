@@ -32,7 +32,7 @@ export default function StartCanvassDialog({ pr, onClose, onStarted }) {
   const { mutate, isPending } = useMutation({
     mutationFn: () => api.post(`/canvass/${pr.id}/start`, { mode_of_procurement: mode, ...(assigned ? {} : { pr_number: number.trim() }) }),
     onSuccess: ({ data }) => {
-      toast.success(`${data.pr_number} is in canvass`, { description: 'Print the RFQ for the canvasser, then enter the quotations when they come back.' })
+      toast.success(`${data.pr_number} is in canvass`, { description: 'Print the RFQ for the canvasser, then record the BAC\'s award once it has chosen.' })
       for (const key of [['lot-queue'], ['pr', String(pr.id)], ['pr-list'], ['pr-stats'], ['canvass', String(pr.id)], ['bac'], ['pr-logs', String(pr.id)], ['pr-tasks']]) {
         qc.invalidateQueries({ queryKey: key })
       }

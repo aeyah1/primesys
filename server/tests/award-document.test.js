@@ -1,6 +1,7 @@
 // What the BAC's award is recorded on: a request whose approved budget (its items not dropped) is at or above
 // the resolution threshold (50,000 by default) is awarded in a numbered BAC Resolution; below it on the Abstract
-// of sealed Quotations alone, still with its Notice of Award. Real HTTP against a throwaway database.
+// of sealed Quotations alone (kept by the BAC, not printed here), still with its Notice of Award. Real HTTP against a
+// throwaway database.
 const path = require('path')
 const H    = require('./harness')
 
@@ -20,7 +21,7 @@ function fixtures() {
     INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified) VALUES ${[1, 2, 3, 5, 6].map(U).join(', ')};
     ${H.twgAreas([5], ['office_supplies'])}
     INSERT INTO purchase_requests (id, pr_number, title, status, created_by, category, mode_of_procurement) VALUES
-      ${P(90, 'bidding')}, ${P(91, 'bidding')}, ${P(92, 'bidding')}, ${P(93, 'bidding')}, ${P(94, 'bac_review')};
+      ${P(90, 'bidding')}, ${P(91, 'bidding')}, ${P(92, 'bidding')}, ${P(93, 'bidding')}, ${P(94, 'bidding')};
     INSERT INTO pr_items (id, pr_id, item_name, quantity, unit, estimated_cost, dropped_at) VALUES
       (901, 90, 'Laptop', 1, 'unit', 49999.99, NULL),
       (911, 91, 'Printer', 2, 'unit', 25000, NULL),
@@ -49,7 +50,7 @@ async function run() {
   const pdf = (r) => r.status === 200 && r.type.includes('pdf') && r.raw.subarray(0, 4).toString() === '%PDF'
 
   const A = 'Before the award'
-  await is(A, 'the BAC sees what the award will be recorded on', 6, 'GET', '/canvass/94', undefined,
+  await is(A, 'Procurement sees what the award will be recorded on', 6, 'GET', '/canvass/94', undefined,
     (r) => r.status === 200 && r.data.award_document?.kind === 'abstract' && r.data.award_document.abc === 12000 && r.data.award_document.threshold === 50000)
 
   const B = 'The 50,000 line'
@@ -57,7 +58,7 @@ async function run() {
   const below = await roundOf(90)
   t.check(B, '…on the Abstract alone, with no resolution number', below?.kind === 'abstract' && below.resolution_number === null, JSON.stringify(below))
   const [log] = await H.sql(TEST_DB, "SELECT note FROM pr_status_logs WHERE pr_id = 90 AND to_status = 'for_po'")
-  t.check(B, '…its history says so', log?.note === 'Awarded by the BAC on the Abstract of sealed Quotations', log?.note)
+  t.check(B, '…its history says so', log?.note === 'Award of the BAC recorded on the Abstract of sealed Quotations', log?.note)
   t.check(B, 'a request of exactly 50,000 is awarded', (await awardIt(91, { 911: 24000 })) === 'ok', '')
   const at = await roundOf(91)
   t.check(B, '…in a numbered BAC Resolution', at?.kind === 'resolution' && /^\d{4}-001$/.test(at.resolution_number || ''), JSON.stringify(at))
@@ -68,13 +69,10 @@ async function run() {
 
   const C = 'The documents'
   await is(C, 'an Abstract award has no BAC Resolution to print (404)', 6, 'GET', `/bac/90/resolutions/${below?.id}/pdf`, undefined, (r) => r.status === 404)
-  await is(C, '…its Abstract of sealed Quotations prints, landscape', 6, 'GET', `/bac/90/resolutions/${below?.id}/abstract`, undefined,
-    (r) => pdf(r) && /Abstract-of-Quotations-PR-D-90-\d{4}-\d{2}-\d{2}\.pdf/.test(r.file) && r.raw.toString('latin1').includes('/MediaBox [0 0 792 612]'))
+  await is(C, '…nor an Abstract printout: the BAC keeps its own (404)', 6, 'GET', `/bac/90/resolutions/${below?.id}/abstract`, undefined, (r) => r.status === 404)
   await is(C, '…and its Notice of Award, named by its date', 6, 'GET', `/bac/90/resolutions/${below?.id}/notice/${below?.lots?.[0]?.id}`, undefined,
     (r) => pdf(r) && /Notice-of-Award-\d{4}-\d{2}-\d{2}-Alpha-Trading\.pdf/.test(r.file))
   await is(C, 'a resolution award prints its BAC Resolution', 2, 'GET', `/bac/91/resolutions/${at?.id}/pdf`, undefined, pdf)
-  await is(C, '…and its Abstract too', 2, 'GET', `/bac/91/resolutions/${at?.id}/abstract`, undefined, pdf)
-  await is(C, 'an End User can\'t print the Abstract (403)', 3, 'GET', `/bac/90/resolutions/${below?.id}/abstract`, undefined, (r) => r.status === 403)
   await is(C, 'the BAC\'s list shows each award\'s kind', 6, 'GET', '/bac/queue?view=approved', undefined,
     (r) => r.status === 200 && r.data.data.map(x => `${x.pr_number}:${x.kind}`).sort().join() === 'PR-D-90:abstract,PR-D-91:resolution,PR-D-92:abstract')
 

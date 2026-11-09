@@ -1,64 +1,49 @@
 import { useQuery } from '@tanstack/react-query'
-import { FileText, AlertTriangle, ShieldCheck } from 'lucide-react'
+import { FileText } from 'lucide-react'
 import { toast } from '@/lib/toast'
 import { Button } from '@/components/ui/button'
 import { fmtCurrency, fmtDate, plural } from '@/lib/utils'
 import { openPdf, blobErrorMessage } from '@/lib/download'
 import api from '@/lib/axios'
 import { awardRecordName } from './supplier'
-import { LockedChip } from './QuotesLocked'
 
-/* Where a canvass stands between Procurement and the TWG. part 'status': returned
-   by the TWG (Procurement corrects the bids, BacBidSheet), with the TWG for its
-   evaluation, or certified and waiting for the BAC's award to be recorded (BacAwardSheet).
-   part 'resolutions': each award, in a BAC Resolution or (below the resolution
-   threshold) on the Abstract alone, with its Abstract and Notices of Award. */
-export default function BacPanel({ prId, part = 'status' }) {
+/* A request's award records (its Documents tab): each award, in a BAC Resolution or (below the resolution threshold)
+   on the BAC's Abstract alone, with its Notices of Award. The Abstract itself is the BAC's, kept outside PRimeSys. */
+export default function BacPanel({ prId }) {
   const { data } = useQuery({
     queryKey: ['bac', 'pr', prId],
     queryFn: () => api.get(`/bac/${prId}`).then(r => r.data),
   })
   if (!data) return null
-  if (part === 'resolutions' && !data.resolutions.length) {
-    return <p className="text-sm text-[--color-text-muted]">No award is recorded on this request yet.</p>
-  }
+  if (!data.resolutions.length) return <p className="text-sm text-[--color-text-muted]">No award is recorded on this request yet.</p>
 
   const can = data.permissions
   const print = (endpoint, label) => openPdf(endpoint)
     .catch(async (err) => toast.error(await blobErrorMessage(err, `Could not open the ${label}`)))
 
-  if (part === 'resolutions') {
-    return (
-      <div className="space-y-3">
-        {data.resolutions.map(r => (
+  return (
+    <div className="space-y-3">
+      {data.resolutions.map(r => {
+        const live = r.lots.filter(l => l.status === 'awarded')
+        return (
           <div key={r.id} className="rounded-xl border border-[--color-border] px-4 py-3 space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <p className="text-sm font-semibold text-[--color-text-primary]">{awardRecordName(r)}</p>
                 <p className="text-xs text-[--color-text-muted]">
                   {fmtDate(r.resolved_on)}, by {r.approved_by_name}
-                  {' · '}{plural(r.lots.length, 'award')} for {fmtCurrency(r.lots.reduce((s, l) => s + Number(l.awarded_amount), 0))}
+                  {' · '}{live.length ? `${plural(live.length, 'award')} for ${fmtCurrency(live.reduce((s, l) => s + Number(l.awarded_amount), 0))}` : 'its awards were cancelled'}
                   {r.kind === 'abstract' && ' · approved budget below the resolution threshold'}
                 </p>
               </div>
-              {can.print && (
-                <div className="flex flex-wrap gap-2">
-                  {r.kind !== 'abstract' && (
-                    <Button size="sm" variant="outline" className="gap-1.5"
-                      onClick={() => print(`/bac/${prId}/resolutions/${r.id}/pdf`, 'BAC Resolution')}>
-                      <FileText className="size-3.5" /> Resolution
-                    </Button>
-                  )}
-                  {data.quotes_visible ? (
-                    <Button size="sm" variant="outline" className="gap-1.5"
-                      onClick={() => print(`/bac/${prId}/resolutions/${r.id}/abstract`, 'Abstract of sealed Quotations')}>
-                      <FileText className="size-3.5" /> Abstract
-                    </Button>
-                  ) : <LockedChip label="Abstract" />}
-                </div>
+              {can.print && r.kind !== 'abstract' && (
+                <Button size="sm" variant="outline" className="gap-1.5"
+                  onClick={() => print(`/bac/${prId}/resolutions/${r.id}/pdf`, 'BAC Resolution')}>
+                  <FileText className="size-3.5" /> Resolution
+                </Button>
               )}
             </div>
-            {can.print && (
+            {can.print && r.notices.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {r.notices.map(n => (
                   <button key={n.lot_id} onClick={() => print(`/bac/${prId}/resolutions/${r.id}/notice/${n.lot_id}`, 'Notice of Award')}
@@ -69,42 +54,8 @@ export default function BacPanel({ prId, part = 'status' }) {
               </div>
             )}
           </div>
-        ))}
-      </div>
-    )
-  }
-
-  return (
-    <div className="space-y-3">
-      {data.certification_return_reason && (
-        <p className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          <AlertTriangle className="size-4 shrink-0 mt-0.5" />
-          <span><span className="font-semibold">Returned by the TWG:</span> {data.certification_return_reason}. Procurement corrects the bids and sends the canvass again.</span>
-        </p>
-      )}
-
-      {data.recanvass_reason && (
-        <p className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          <AlertTriangle className="size-4 shrink-0 mt-0.5" />
-          <span><span className="font-semibold">Re-canvass ordered by the TWG:</span> {data.recanvass_reason}. The canvasser gets new quotations; Procurement enters them and sends the canvass again.</span>
-        </p>
-      )}
-
-      {data.status === 'twg_certification' && (
-        <p className="flex items-center gap-2 rounded-xl border border-blue-300 bg-blue-50 px-4 py-3 text-sm text-blue-900">
-          <ShieldCheck className="size-4 shrink-0" />
-          <span><span className="font-semibold">With the TWG.</span> It checks every bid against the required specifications, marks each compliant or not, and certifies them or orders a re-canvass.</span>
-        </p>
-      )}
-
-      {data.status === 'bac_review' && (
-        <p className="flex items-center gap-2 rounded-xl border border-blue-300 bg-blue-50 px-4 py-3 text-sm text-blue-900">
-          <ShieldCheck className="size-4 shrink-0" />
-          {data.twg_skipped
-            ? <span><span className="font-semibold">Ready for the award, without the TWG.</span> The BAC chooses each lot's winner at its meeting; Procurement records it with the criteria applied.</span>
-            : <span><span className="font-semibold">Certified by the TWG.</span> The BAC chooses each lot's winner at its meeting; Procurement records it with the criteria applied.</span>}
-        </p>
-      )}
+        )
+      })}
     </div>
   )
 }

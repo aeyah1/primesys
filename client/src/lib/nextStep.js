@@ -10,8 +10,8 @@ const STEP_WHO = ['End User', 'TWG', 'Procurement', 'BAC decides, Procurement re
 // (sent back to be fixed), stopped, or done.
 const AT = {
   draft: [0, 'moving'], revision_requested: [0, 'back'], submitted: [1, 'moving'], rejected: [1, 'stopped'],
-  twg_review: [2, 'moving'], bidding: [2, 'moving'], twg_certification: [3, 'moving'], re_pr: [3, 'back'],
-  bac_review: [3, 'moving'], for_po: [4, 'moving'], ordered: [5, 'moving'], completed: [6, 'done'],
+  twg_review: [2, 'moving'], bidding: [2, 'moving'], twg_certification: [3, 'moving'],
+  for_po: [4, 'moving'], ordered: [5, 'moving'], completed: [6, 'done'],
 }
 
 // { at, tone, notes }: the current step, how it stands, and a short note under each step.
@@ -23,12 +23,10 @@ export function stepsOf(pr) {
     tone = 'stopped'
     at = pr.pos?.length ? 5 : Number(pr.quotes) ? 3 : pr.twg_reviewed_at ? 2 : 1
   }
-  const quotes = Number(pr.quotes) || 0
-  const quoted = `${quotes} quotation${quotes === 1 ? '' : 's'}`
-  const done = { 1: pr.twg_reviewed_at && `Approved ${fmtDate(pr.twg_reviewed_at)}`, 2: quotes > 0 && quoted }
+  const done = { 1: pr.twg_reviewed_at && `Approved ${fmtDate(pr.twg_reviewed_at)}` }
   // Under the step it is on, what is happening in it (its step's name already says which step).
   const now = {
-    draft: 'Not submitted yet', submitted: 'Being checked', twg_review: 'Ready to start', bidding: quotes ? `${quoted} in` : 'Waiting for quotations',
+    draft: 'Not submitted yet', submitted: 'Being checked', twg_review: 'Ready to start', bidding: 'Waiting for the BAC\'s award', twg_certification: 'TWG checking the award',
     for_po: 'Ready to issue', ordered: pr.pos?.some(po => po.delivery_status === 'partial') ? 'Partly delivered' : 'Waiting for delivery', cancelled: 'Cancelled',
   }
   const notes = STEPS.map((_, i) => (i < at ? done[i] || 'Done'
@@ -94,30 +92,18 @@ export function nextStepOf(pr, user) {
         : wait('Procurement starts the canvass next', `The TWG approved it${pr.twg_reviewed_at ? ` on ${fmtDatetime(pr.twg_reviewed_at)}` : ''}.`, remind)
 
     case 'bidding': {
-      const quotes = Number(pr.quotes) || 0
-      const back = pr.certification_return_reason ? `Returned by the TWG: ${said(pr.certification_return_reason)} `
-        : pr.recanvass_reason ? `Re-canvass ordered by the TWG: ${said(pr.recanvass_reason)} ` : ''
+      const back = pr.certification_return_reason ? `The TWG returned the last award: ${said(pr.certification_return_reason)} ` : ''
       if (role === 'procurement') {
-        return mine('Enter the quotations', `${back}${quotes ? `${quotes} entered so far.` : 'None entered yet.'} Add each supplier's returned RFQ, then send them to the TWG (IT and hardware) or go straight to the award.`, ['enter_quotations', 'print_rfq', 'word_rfq'])
+        return mine('Record the BAC\'s award', `${back}Once the BAC has chosen, type each lot's supplier and its prices from the returned RFQ, and tick the criteria it applied.`, ['record_award', 'print_rfq', 'word_rfq'])
       }
-      return wait('Procurement is entering the suppliers\' quotations', `${back}${quotes ? `${quotes} in so far. ` : ''}The canvasser takes the RFQ to the suppliers and brings their quotations back.`,
+      return wait('The BAC chooses the supplier', `${back}The canvasser takes the RFQ to the suppliers; the BAC chooses each lot's supplier and Procurement records it.`,
         staff ? ['print_rfq', 'word_rfq'] : remind)
     }
 
     case 'twg_certification':
       return pr.permissions?.twg_certify
-        ? mine('Check the offers', 'Mark each bid compliant or not against the specifications, then certify them, order a re-canvass, or return them to Procurement.', ['check_offers'])
-        : wait('The TWG is checking the offers', 'The BAC chooses the supplier next, and Procurement records its award.')
-
-    case 're_pr':
-      return role === 'procurement'
-        ? mine('Check the Re-PR', `${RE_PR_TYPES[pr.re_pr_type] || 'Change the specifications'}. Send it to the End User to change, or return it to the TWG.`, ['check_repr'])
-        : wait('Procurement is checking the TWG\'s Re-PR', 'No supplier\'s offer met the specifications; the End User changes the request next.')
-
-    case 'bac_review':
-      return role === 'procurement'
-        ? mine('Record the BAC\'s award', 'Pick the supplier the BAC chose for each lot and tick the criteria it applied, then review and confirm.', ['choose_winners'])
-        : wait('The BAC is choosing the supplier', 'Procurement records its award, then issues the purchase order.')
+        ? mine('Check the award', 'Check the winning supplier\'s offer on each item against the specifications, then certify the award or return it to Procurement.', ['check_offers'])
+        : wait('The TWG is checking the award', 'It checks the winning offers against the specifications. Procurement issues the purchase order once it certifies.')
 
     case 'for_po':
       if (staff) return mine('Issue the purchase order', 'Each winning supplier gets its own PO, with its expected delivery date.', ['issue_po'])
@@ -143,6 +129,6 @@ export function nextStepOf(pr, user) {
 
 // Where each action is done: a tab of the request page, for the ones that open work there.
 export const ACTION_TAB = {
-  enter_quotations: 'canvass', check_offers: 'canvass', check_repr: 'canvass', choose_winners: 'canvass',
+  record_award: 'canvass', check_offers: 'canvass',
   issue_po: 'orders', record_delivery: 'orders',
 }
