@@ -10,23 +10,19 @@ const { loadOrgSettings } = require('../utils/orgSettings')
 const { withSignatures, signedCopy } = require('../utils/orgSignatures')
 const { M }            = require('../pdf/campusForm')
 const drawResolution   = require('../pdf/bacResolution')
-const drawAbstract     = require('../pdf/abstractOfQuotations')
-const { abstractOf }   = require('../utils/awardAbstract')
 const drawTwgCertificate = require('../pdf/twgCertificate')
 const drawTwgReviewCertificate = require('../pdf/twgReviewCertificate')
 const { suggestCertNo, certificateOf } = require('../utils/twgCertificate')
 const { resolutionOf, noticeFor, drawOf, noticeLeads } = require('../utils/awardNotice')
-const { twgSkipped }   = require('../utils/canvassBids')
 const { seesQuotes, canSeeQuotes, LOCKED } = require('../utils/quoteAccess')
 
 // The award records
-// The BAC decides offline; Procurement enters the canvass bids, sends them to the TWG, and once the TWG has certified
-// them, records the BAC's award (canvass.controller). Each award round adopts a BAC Resolution, printed with a Notice
-// of Award per supplier, and the TWG's certificates print here too. The queue lists the requests in canvass (bids to
-// enter) and those the TWG certified (the award to record).
+// The BAC decides offline and Procurement records its award (canvass.controller). Each award round adopts a BAC
+// Resolution, printed with a Notice of Award per supplier, and the TWG's certificates print here too. The queue lists
+// the requests in canvass, waiting for their award to be recorded.
 
-// GET /bac/queue?view=pending|approved&search=&page= - PRs waiting for their award to be recorded
-// (bids to enter, or winners to record), or the resolutions adopted, with both counts.
+// GET /bac/queue?view=pending|approved&search=&page= - PRs waiting for their award to be recorded, or the resolutions
+// adopted, with both counts.
 exports.queue = asyncHandler(async (req, res) => {
   const view = req.query.view === 'approved' ? 'approved' : 'pending'
   const { page, limit, offset } = paging(req.query, { defaultLimit: 20, maxLimit: 100 })
@@ -69,8 +65,6 @@ exports.queue = asyncHandler(async (req, res) => {
   res.json({
     data: rows, total, page, totalPages: Math.max(Math.ceil(total / limit), 1),
     counts: { pending: Number(counts.pending), approved: Number(counts.approved) },
-    // The Abstracts list every supplier's prices (utils/quoteAccess.js); awards are made past the TWG's check.
-    quotes_visible: seesQuotes(req.user.role, 'awarded'),
   })
 })
 
@@ -78,7 +72,7 @@ exports.queue = asyncHandler(async (req, res) => {
 // its awards), and what this user may do.
 exports.summary = asyncHandler(async (req, res) => {
   const pr = await loadPR(pool, req.params.prId)
-  const [[extra]] = await pool.execute('SELECT certification_return_reason, recanvass_reason FROM purchase_requests WHERE id = ?', [pr.id])
+  const [[extra]] = await pool.execute('SELECT certification_return_reason FROM purchase_requests WHERE id = ?', [pr.id])
   const [resolutions] = await pool.execute(`
     SELECT r.id, r.kind, r.resolution_number, r.resolved_on, r.notes, r.created_at, u.name AS approved_by_name
       FROM bac_resolutions r JOIN users u ON u.id = r.approved_by
@@ -92,11 +86,8 @@ exports.summary = asyncHandler(async (req, res) => {
   const live = !pr.deleted_at
   res.json({
     status: pr.status,
-    // Why the TWG returned the canvass or ordered a re-canvass, while Procurement has it again.
+    // Why the TWG returned the last award, while the request is back in canvass.
     certification_return_reason: live && pr.status === 'bidding' ? extra.certification_return_reason : null,
-    recanvass_reason: live && pr.status === 'bidding' ? extra.recanvass_reason : null,
-    // Waiting for the award without the TWG's evaluation.
-    twg_skipped: live && pr.status === 'bac_review' && await twgSkipped(pool, pr.id),
     resolutions: resolutions.map(r => {
       const theirs = lots.filter(l => l.resolution_id === r.id)
       return {
@@ -106,13 +97,13 @@ exports.summary = asyncHandler(async (req, res) => {
         notices: noticeLeads(theirs),
       }
     }),
-    // The TWG's certificates, and the Cert. No. suggested for the next one while the TWG reviews or certifies.
+    // The TWG's certificates, and the Cert. No. suggested for the next one while the TWG reviews or checks the award.
     certificates: certificates.map(c => ({ ...c, signed: !!c.signed })),
     suggested_cert_no: live && ['submitted', 'twg_certification'].includes(pr.status) ? await suggestCertNo(pool) : null,
     permissions: {
       print: [...BAC_READERS, 'twg'].includes(req.user.role),
     },
-    // Whether the Abstract and the bids certificate open for this viewer (utils/quoteAccess.js).
+    // Whether a bids certificate opens for this viewer (utils/quoteAccess.js).
     quotes_visible: await canSeeQuotes(req.user, pr.status),
   })
 })
@@ -136,16 +127,6 @@ exports.resolutionPdf = asyncHandler(async (req, res) => {
   const orgSettings = await withSignatures(pool, await loadOrgSettings(pool), signedCopy(req.user, !pr.deleted_at))
   sendPdf(res, `BAC-Resolution-${resolution.resolution_number}.pdf`, (doc) =>
     drawResolution(doc, { resolution, pr, abc, lots, orgSettings }))
-})
-
-// GET /bac/:prId/resolutions/:rid/abstract - the Abstract of sealed Quotations of an award (either kind), on a landscape page.
-exports.abstractPdf = asyncHandler(async (req, res) => {
-  const pr = await loadPR(pool, req.params.prId)
-  if (!(await canSeeQuotes(req.user, pr.status))) throw httpError(403, LOCKED)
-  const data = await abstractOf(req.params.prId, req.params.rid)
-  const orgSettings = await withSignatures(pool, await loadOrgSettings(pool), signedCopy(req.user, !data.pr.deleted_at))
-  sendPdf(res, `Abstract-of-Quotations-${data.pr.pr_number}-${data.resolution.resolved_on}.pdf`, (doc) =>
-    drawAbstract(doc, { ...data, orgSettings }), 'landscape')
 })
 
 // GET /bac/certificates?kind=review|bids&search=&page= - the TWG's certificates on the PRs this user may see, newest first, with counts by kind.

@@ -143,7 +143,8 @@ async function run() {
 
   // WF-3: one supplier per PR; the PO comes from the awards
   const G5 = 'Supplier and PO (WF-3)'
-  await is(G5, 'no more bids on a PR whose items are all awarded → 409', 7, 'PUT', '/canvass/51/bids', { bidders: [{ name: 'Other Co', prices: [] }] }, code(409, /in canvass/))
+  await is(G5, 'no more awards on a PR whose items are all awarded → 409', 7, 'POST', '/canvass/51/award',
+    { winners: [{ lot: '', supplier: 'Other Co', prices: [{ pr_item_id: 1, unit_price: 5 }], criteria: [H.CRITERION] }] }, code(409, /in canvass/))
   const po46 = await is(G5, 'issue a PO sending a fake supplier and total', 2, 'POST', '/po',
     { purchase_request_id: 46, supplier_name: 'Evil Co', total_amount: 1, issued_date: '2026-09-12' }, code(201))
   await is(G5, '…PO names the awarded supplier and the awards\' total', 2, 'GET', `/po/${po46.data?.id}`, undefined,
@@ -216,11 +217,11 @@ async function run() {
   await is(G7, 'PR: date the calendar lacks → 400', 3, 'POST', '/pr', { title: 'x', event_date: '2026-02-30' }, code(400))
   await is(G7, 'PR: bad quantity names the item', 3, 'POST', '/pr', { title: 'x', items: [{ item_name: 'a' }, { item_name: 'b', quantity: 'x' }] }, code(400, /Item 2 quantity/))
   await is(G7, 'PR edit: department over 150 characters → 400', 3, 'PATCH', '/pr/53', { title: 't', department: 'd'.repeat(151) }, code(400))
-  const one = [{ pr_item_id: 1, unit_price: 5 }]
-  await is(G7, 'bids: price 0 → 400', 7, 'PUT', '/canvass/43/bids', { bidders: [{ name: 'X', prices: [{ pr_item_id: 1, unit_price: 0 }] }] }, code(400))
-  await is(G7, 'bids: prices not a list → 400', 7, 'PUT', '/canvass/43/bids', { bidders: [{ name: 'X', prices: 5 }] }, code(400))
-  await is(G7, 'bids: a winner that isn\'t a bidder\'s place → 400', 7, 'PUT', '/canvass/43/bids', { bidders: [{ name: 'X', prices: one }], winners: [{ pr_item_id: 1, bidder: 'x' }] }, code(400))
-  await is(G7, 'bids: bidder name over 200 characters → 400', 7, 'PUT', '/canvass/43/bids', { bidders: [{ name: 'x'.repeat(201), prices: one }] }, code(400))
+  const awardOf = (w) => ({ winners: [{ lot: '', supplier: 'X', prices: [{ pr_item_id: 1, unit_price: 5 }], criteria: [H.CRITERION], ...w }] })
+  await is(G7, 'award: price 0 → 400', 7, 'POST', '/canvass/43/award', awardOf({ prices: [{ pr_item_id: 1, unit_price: 0 }] }), code(400))
+  await is(G7, 'award: prices not a list → 400', 7, 'POST', '/canvass/43/award', awardOf({ prices: 5 }), code(400))
+  await is(G7, 'award: no supplier → 400', 7, 'POST', '/canvass/43/award', awardOf({ supplier: '  ' }), code(400))
+  await is(G7, 'award: supplier name over 200 characters → 400', 7, 'POST', '/canvass/43/award', awardOf({ supplier: 'x'.repeat(201) }), code(400))
   await is(G7, 'quarters are automatic: none is added by hand', 1, 'POST', '/quarters', { label: 'Q1', year: 2027 }, code(404))
   await is(G7, '…nor switched on or given a budget', 1, 'PATCH', '/quarters/1/toggle', undefined, code(404))
   await is(G7, 'the list holds this year\'s four quarters, with their dates', 1, 'GET', '/quarters', undefined,

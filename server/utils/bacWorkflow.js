@@ -2,15 +2,14 @@ const pool   = require('../db/pool')
 const notify = require('./notify')
 
 // Award records
-// The canvass is done outside the system and the BAC decides offline. The canvasser gives the returned RFQs to
-// Procurement, which enters the bids and sends them to the TWG; once the TWG certifies them Procurement records the
-// BAC's award (utils/canvassBids.js), each award round adopting a BAC Resolution.
+// The canvass is done outside the system and the BAC decides offline; Procurement records the BAC's award
+// (utils/canvassAward.js), each award round adopting a BAC Resolution.
 
 // Who may read the award queue and print its documents (only Procurement records the award; admins supervise).
 const BAC_READERS = ['procurement', 'admin']
 
 // Tells Procurement a PR waits for it. With no active Procurement officer the admins are
-// warned instead, since nobody could record the award.
+// warned instead, since nobody could act on it.
 async function notifyProcurement(io, prId, prNumber, message) {
   const [officers] = await pool.execute("SELECT id FROM users WHERE role = 'procurement' AND is_active = 1")
   if (officers.length) return Promise.all(officers.map(u => notify(io, u.id, message, 'info', prId, 'pr')))

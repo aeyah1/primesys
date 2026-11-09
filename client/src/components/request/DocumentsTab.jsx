@@ -46,7 +46,7 @@ export default function DocumentsTab({ pr, role }) {
       {awarded && (
         <section className="space-y-3">
           <h3 className="flex items-center gap-2 text-ui-sm font-bold uppercase tracking-wide text-[--color-text-secondary]"><Scale className="size-4" /> Awards</h3>
-          <BacPanel prId={id} part="resolutions" />
+          <BacPanel prId={id} />
         </section>
       )}
 

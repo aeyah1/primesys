@@ -67,7 +67,7 @@ export function SupplierDialog({ supplier, onClose, onSaved }) {
               <input type="checkbox" className="size-4 accent-red-600" checked={form.status === 'blacklisted'}
                 onChange={e => set('status', e.target.checked ? 'blacklisted' : 'active')} />
               <span className="font-medium text-[--color-text-primary]">Blacklisted</span>
-              <span className="text-xs text-[--color-text-muted]">(Procurement is warned when it enters this supplier's quotation)</span>
+              <span className="text-xs text-[--color-text-muted]">(Procurement is warned when it records an award to this supplier)</span>
             </label>
             {form.status === 'blacklisted' && (
               <Input value={form.status_note} maxLength={500} onChange={e => set('status_note', e.target.value)} placeholder="Why, e.g. failed to deliver PO-2026-014" aria-label="Why it is blacklisted" />

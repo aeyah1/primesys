@@ -10,8 +10,6 @@ import { fmtCurrency, fmtDatetime, plural } from '@/lib/utils'
 import { useAuth } from '@/context/AuthContext'
 import api from '@/lib/axios'
 import { lineCents, useRefreshAwards } from './supplier'
-import BidsTable from './BidsTable'
-import { QuotesLockedNote } from './QuotesLocked'
 import AwardList from './AwardList'
 
 /* ── Drop an item that can't be procured, with the reason (Procurement's) ── */
@@ -69,9 +67,8 @@ function ItemStatus({ item }) {
   return <span className="inline-flex rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">Needs a winner</span>
 }
 
-/* A PR's canvass, read only (the request's Canvass & award tab, components/request/CanvassTab.jsx; Procurement enters the
-   bids on BacBidSheet): each item and its winner, every bid Procurement entered,
-   then the awards by supplier. pr: { id, pr_number, title, status }. */
+/* A PR's canvass, read only (the request's Canvass & award tab, components/request/CanvassTab.jsx; Procurement records
+   the award on BacAwardSheet): each item and its winner, then the awards by supplier. pr: { id, pr_number, title, status }. */
 export default function CanvassPanel({ pr }) {
   const prId = String(pr.id)
   const { user } = useAuth()
@@ -153,15 +150,6 @@ export default function CanvassPanel({ pr }) {
           </table>
         </div>
       )}
-
-      {canvass.bidders.length > 0 && (canvass.quotes_visible ? (
-        <div className="space-y-2">
-          <p className="text-xs font-bold uppercase tracking-wider text-[--color-text-secondary]">Every bid</p>
-          <BidsTable canvass={canvass} />
-        </div>
-      ) : (
-        <QuotesLockedNote>Only Procurement sees every supplier's bid. The winners show above once awarded.</QuotesLockedNote>
-      ))}
 
       <AwardList lots={lots} canManage={canManage} prStatus={pr.status} />
 

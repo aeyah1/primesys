@@ -20,16 +20,13 @@ router.post('/:prId/review', authorize('twg'), requireAccess('pr', 'prId'),
   textRule('comment', 'Comment', 2000), textRule('cert_no', 'Cert. No.', 30), handle, c.reviewPR)
 router.patch('/:prId/items/:itemId/spec-check', authorize('twg'), requireAccess('pr', 'prId'),
   body('checked').optional().isBoolean({ strict: true }).withMessage('Say whether it is checked'), handle, c.checkSpec)
+// The check of an IT or hardware award's winning offers.
 router.put('/:prId/evaluation', authorize('twg'), requireAccess('pr', 'prId'),
-  body('bids').isArray({ min: 1, max: 2000 }).withMessage('Send the bids evaluated'),
-  body('bids.*.bidder_id').isInt({ min: 1 }).withMessage('Unknown bidder').toInt(),
+  body('bids').isArray({ min: 1, max: 2000 }).withMessage('Send the items checked'),
   body('bids.*.pr_item_id').isInt({ min: 1 }).withMessage('Unknown item').toInt(),
-  body('bids.*.compliant').optional({ values: 'null' }).isBoolean({ strict: true }).withMessage('Mark each bid compliant or non-compliant'),
+  body('bids.*.compliant').optional({ values: 'null' }).isBoolean({ strict: true }).withMessage('Mark each item compliant or non-compliant'),
   textRule('bids.*.offered_spec', 'Offered specification', 1000),
   textRule('bids.*.remarks', 'Reason', 500),
-  body('dq').optional().isArray({ max: 200 }).withMessage('Send the DQ remarks as a list'),
-  body('dq.*.bidder_id').isInt({ min: 1 }).withMessage('Unknown bidder').toInt(),
-  textRule('dq.*.remarks', 'DQ remark', 500),
   handle, c.saveEvaluation)
 router.post('/:prId/certify', authorize('twg'), requireAccess('pr', 'prId'),
   textRule('comment', 'Comment', 2000), textRule('cert_no', 'Cert. No.', 30), handle, requireFace, c.certifyPR)

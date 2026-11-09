@@ -1,5 +1,5 @@
-// Supplier profiles: Procurement and Admin keep them, a quotation links to the
-// profile of its name, and a profile shows each request it quoted on with its award or DQ. Real HTTP
+// Supplier profiles: Procurement and Admin keep them, an award (or an older quotation) links to the
+// profile of its name, and a profile shows each request it was on with its award or DQ. Real HTTP
 // against a throwaway database.
 const path = require('path')
 const H    = require('./harness')
@@ -71,43 +71,29 @@ async function run() {
   await is(B, 'made active again, the reason cleared', 2, 'PATCH', `/suppliers/${bravo}`, { status: 'active' }, code(200))
   await is(B, '…so', 2, 'GET', `/suppliers/${bravo}`, undefined, (r) => r.status === 200 && r.data.status === 'active' && r.data.status_note === null)
 
-  const Q = 'A quotation links by name'
-  await is(Q, 'Procurement enters Alpha\'s quotation in other case', 6, 'PUT', '/canvass/90/bids',
-    { bidders: [{ name: 'alpha  trading', prices: [{ pr_item_id: 901, unit_price: 240 }] }, { name: 'Delta Store', prices: [{ pr_item_id: 901, unit_price: 230 }] }] }, code(200))
-  await is(Q, '…linked to the profile; a name with none stays unlinked', 6, 'GET', '/canvass/90', undefined,
-    (r) => r.status === 200 && r.data.bidders.find(b => b.name === 'alpha trading')?.supplier_id === alpha && r.data.bidders.find(b => b.name === 'Delta Store')?.supplier_id === null)
-  await is(Q, 'a profile added later for Delta links its quotation', 2, 'POST', '/suppliers', { name: 'Delta Store' }, code(201))
-  await is(Q, '…so', 6, 'GET', '/canvass/90', undefined, (r) => r.status === 200 && r.data.bidders.every(b => b.supplier_id))
-
   const F = 'A file attached by mistake'
   const wrong = await is(F, 'Procurement attaches a wrong file', 6, 'POST', '/pr/90/attachments', H.canvassScan(), code(201))
   await is(F, '…and removes it', 6, 'DELETE', `/pr/90/attachments/${wrong.data?.id}`, undefined, code(200))
   await is(F, '…gone from the request', 6, 'GET', '/pr/90/attachments', undefined, (r) => r.status === 200 && !r.data.some(a => a.id === wrong.data?.id))
-  const rfq = await is(F, 'Delta\'s RFQ attached', 6, 'POST', '/pr/90/attachments', H.canvassScan(), code(201))
-  await is(F, '…and set on its quotation', 6, 'PUT', '/canvass/90/bids',
-    { bidders: [{ name: 'Delta Store', attachment_id: rfq.data?.id, prices: [{ pr_item_id: 901, unit_price: 230 }] }] }, code(200))
-  await is(F, 'a quotation\'s RFQ file can\'t be removed → 409', 6, 'DELETE', `/pr/90/attachments/${rfq.data?.id}`, undefined, code(409, /RFQ file of Delta Store's quotation/))
 
   const V = 'Inside the request'
-  await is(V, 'while Procurement enters the quotations, its End User sees no supplier profile', 3, 'GET', '/pr/90/suppliers', undefined,
+  await is(V, 'while in canvass, its End User sees no supplier profile', 3, 'GET', '/pr/90/suppliers', undefined,
     (r) => r.status === 200 && r.data.visible === false && r.data.suppliers.length === 0)
   await is(V, 'a completed canvass shows each supplier\'s profile to its End User', 3, 'GET', '/pr/91/suppliers', undefined,
     (r) => r.status === 200 && r.data.visible === true && r.data.suppliers.map(s => s.profile?.name).join() === 'Alpha Trading,Bravo Supply'
            && r.data.suppliers[0].profile.address === 'Purok 3, Cantilan' && !('status_note' in r.data.suppliers[0].profile))
 
-  const W = 'An award takes the profile\'s details'
-  await is(W, 'the returned RFQs attached', 6, 'POST', '/pr/90/attachments', H.canvassScan(), code(201))
-  await is(W, '…sent to the TWG', 6, 'POST', '/canvass/90/send', {}, code(200))
-  await is(V, 'once sent, the TWG sees them too', 5, 'GET', '/pr/90/suppliers', undefined,
-    (r) => r.status === 200 && r.data.visible === true && r.data.suppliers.length === 2 && r.data.suppliers.every(s => s.profile))
-  const ids = Object.fromEntries(((await http(6, 'GET', '/canvass/90')).data?.bidders || []).map(b => [b.name, b.id]))
-  await is(W, 'the TWG finds Alpha compliant, Delta not', 5, 'PUT', '/twg/90/evaluation', { bids: [
-    { bidder_id: ids['alpha trading'], pr_item_id: 901, compliant: true }, { bidder_id: ids['Delta Store'], pr_item_id: 901, compliant: false, remarks: '70 gsm only' }] }, code(200))
-  await is(W, '…and certifies', 5, 'POST', '/twg/90/certify', { action: 'certify' }, code(200))
-  await is(W, 'Procurement records the BAC\'s award to Alpha', 6, 'POST', '/canvass/90/award', { winners: [{ lot: '', bidder_id: ids['alpha trading'], criteria: [H.CRITERION] }] }, code(200))
-  await is(W, '…its award carries the address, TIN, contact and phone for the PO', 2, 'GET', '/lots/pr/90', undefined,
-    (r) => r.status === 200 && r.data.length === 1 && r.data[0].supplier_address === 'Purok 3, Cantilan' && r.data[0].supplier_tin === '123-456-789-000'
+  const W = 'An award links by name and takes the profile\'s details'
+  await is(W, 'Procurement records the BAC\'s award to Alpha, typed in other case', 6, 'POST', '/canvass/90/award',
+    { winners: [{ lot: '', supplier: 'alpha  trading', prices: [{ pr_item_id: 901, unit_price: 240 }], criteria: [H.CRITERION] }] }, code(200))
+  await is(W, '…recorded under the profile\'s name, with the address, TIN, contact and phone for the PO', 2, 'GET', '/lots/pr/90', undefined,
+    (r) => r.status === 200 && r.data.length === 1 && r.data[0].awarded_to === 'Alpha Trading' && Number(r.data[0].awarded_amount) === 2400
+           && r.data[0].supplier_address === 'Purok 3, Cantilan' && r.data[0].supplier_tin === '123-456-789-000'
            && r.data[0].supplier_contact === 'Ana Reyes' && r.data[0].supplier_phone === '0998 123 4567')
+  await is(W, '…the End User now sees the awarded supplier\'s profile', 3, 'GET', '/pr/90/suppliers', undefined,
+    (r) => r.status === 200 && r.data.visible === true && r.data.suppliers.length === 1 && r.data.suppliers[0].profile?.id === alpha)
+  await is(W, '…and Alpha\'s profile lists the request with its award', 2, 'GET', `/suppliers/${alpha}`, undefined,
+    (r) => r.status === 200 && Number(r.data.record.find(x => x.pr_number === 'PR-S-90')?.awarded_amount) === 2400)
 
   const D = 'Removing'
   await is(D, 'a supplier with quotations stays → 409', 2, 'DELETE', `/suppliers/${alpha}`, undefined, code(409, /blacklisted instead/))

@@ -28,7 +28,7 @@ async function usablePlans(db, deptId, { anyYear = false } = {}) {
 // The quarter of the plan's year a request is filed under (1 to 4), or null when it is filed under another year's.
 const quarterIn = (plan, label, year) => (Number(year) === plan.fiscal_year && /^Q[1-4]$/.test(label || '') ? Number(label[1]) : null)
 
-// What a Re-PR'd request may spend past its office's PPMP (utils/rePr.js): an item above its line's planned cost,
+// What a Re-PR'd request (returned by a Re-PR before 2026-11-09) may spend past its office's PPMP: an item above its line's planned cost,
 // or an item not in the PPMP at all. That extra comes out of the office's PPMP budget for the year, so every
 // submission is checked against the budget left once any extra is held (`budgetOf`).
 // Each item's extra over the plan: its whole amount when it is not in the PPMP, else what it costs above the line's planned cost.

@@ -15,7 +15,7 @@ import { SupplierDialog, SupplierDetails, BlacklistedBadge } from '@/components/
 import { fmtCurrency, fmtDate, fmtDatetime } from '@/lib/utils'
 import api from '@/lib/axios'
 
-// What became of one quotation: awarded (its total), DQ (with the TWG's remark), or neither yet.
+// What became of the supplier on one request: awarded (its total), DQ on an older quotation (with the TWG's remark), or neither yet.
 function Outcome({ q }) {
   if (q.awarded_amount != null) return <span className="font-semibold text-emerald-700">Awarded {fmtCurrency(q.awarded_amount)}</span>
   if (q.dq) return <span className="font-semibold text-red-700" title={q.dq_remarks || ''}>DQ{q.dq_remarks ? `: ${q.dq_remarks}` : ''}</span>
@@ -23,7 +23,7 @@ function Outcome({ q }) {
   return <span className="text-[--color-text-secondary]">In progress</span>
 }
 
-// One supplier's profile: its details, and every request it quoted on with the outcome.
+// One supplier's profile: its details, and every request it was on (awarded, or quoted before 2026-11-09) with the outcome.
 export default function SupplierProfile() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -48,11 +48,11 @@ export default function SupplierProfile() {
     <div className="space-y-5">
       <PageHeader back={{ to: '/suppliers', label: 'Suppliers' }}
         title={<>{s.name}{s.status === 'blacklisted' && <BlacklistedBadge note={s.status_note} />}</>}
-        sub={`${s.record.length} quotation${s.record.length === 1 ? '' : 's'} · ${s.record.filter(q => q.awarded_amount != null).length} awarded${awarded > 0 ? ` (${fmtCurrency(awarded)})` : ''} · ${s.record.filter(q => q.dq).length} DQ · added ${fmtDate(s.created_at)}`}>
+        sub={`${s.record.length} request${s.record.length === 1 ? '' : 's'} · ${s.record.filter(q => q.awarded_amount != null).length} awarded${awarded > 0 ? ` (${fmtCurrency(awarded)})` : ''} · ${s.record.filter(q => q.dq).length} DQ · added ${fmtDate(s.created_at)}`}>
         <Button variant="outline" className="gap-1.5" onClick={() => setEditing(true)}><Pencil className="size-3.5" /> Edit</Button>
         {!s.record.length && (
           <Button variant="outline" className="gap-1.5 text-red-700 hover:bg-red-50" disabled={isPending}
-            onClick={async () => { if (await confirm({ title: `Remove ${s.name}?`, message: 'It has no quotation on record.', confirmLabel: 'Remove', danger: true })) remove() }}>
+            onClick={async () => { if (await confirm({ title: `Remove ${s.name}?`, message: 'It is on no request.', confirmLabel: 'Remove', danger: true })) remove() }}>
             <Trash2 className="size-3.5" /> Remove
           </Button>
         )}
@@ -66,20 +66,20 @@ export default function SupplierProfile() {
         </Card>
 
         <Card className="overflow-hidden xl:col-span-2">
-          <CardHeader className="pb-3"><CardTitle>Quotations</CardTitle></CardHeader>
+          <CardHeader className="pb-3"><CardTitle>Requests</CardTitle></CardHeader>
           <Table framed={false}>
             <TableHeader>
               <TableRow>
                 <TableHead>PR No.</TableHead>
                 <TableHead>Request</TableHead>
-                <TableHead>Quoted</TableHead>
+                <TableHead>Recorded</TableHead>
                 <TableHead>Outcome</TableHead>
                 <TableHead>Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {!s.record.length
-                ? <EmptyRow cols={5} icon={Store} title="No quotation yet" sub="The quotations under this name appear here." />
+                ? <EmptyRow cols={5} icon={Store} title="No request yet" sub="The requests awarded to this name appear here." />
                 : s.record.map(q => (
                   <TableRow key={q.bidder_id} className="cursor-pointer" onClick={() => navigate(`/pr/${q.pr_id}`)}>
                     <TableCell className="whitespace-nowrap font-mono font-semibold text-[--color-brand]">{q.pr_number}</TableCell>

@@ -93,17 +93,11 @@ const R = []
 const add = (g, label, who, m, p, body, fn, want) => R.push({ g, label, who, m, p, body, fn, want })
 // A step that isn't one request: `run` throws to fail it.
 const step = (g, label, run) => R.push({ g, label, run })
-// The bids the BAC entered on a PR go to the TWG with the returned RFQ, the TWG certifies them compliant, and the BAC awards the recommended ones.
-const review = (g, prId) => step(g, '…sent to the TWG, certified, and awarded by the BAC', async () => {
-  const must = async (who, m, path, body) => { const r = await http(who, m, path, body); if (r.status >= 400) throw new Error(`${m} ${path}: ${show(r)}`); return r.data }
-  await must(7, 'POST', `/pr/${prId}/attachments`, H.canvassScan())
-  await must(7, 'POST', `/canvass/${prId}/send`)
-  const { items, bidders } = await must(6, 'GET', `/canvass/${prId}`)
-  const open = items.filter(i => i.state === 'pending')
-  const bids = bidders.flatMap(b => open.filter(i => b.prices[i.id] != null).map(i => ({ bidder_id: b.id, pr_item_id: i.id, compliant: true })))
-  await must(6, 'PUT', `/twg/${prId}/evaluation`, { bids })
-  await must(6, 'POST', `/twg/${prId}/certify`, { action: 'certify' })
-  await must(7, 'POST', `/canvass/${prId}/award`, H.lotWinners(await must(7, 'GET', `/canvass/${prId}`)))
+// Procurement records the BAC's award of the PR's open item `item` to `supplier` at `price`.
+const awardTo = (g, label, prId, supplier, item, price) => step(g, label, async () => {
+  const canvass = await http(7, 'GET', `/canvass/${prId}`)
+  const r = await http(7, 'POST', `/canvass/${prId}/award`, H.lotWinners(canvass.data, [{ name: supplier, prices: { [item]: price } }]))
+  if (r.status !== 200) throw new Error(show(r))
 })
 // set_mode: Procurement or an admin may still pick the mode of procurement (no award yet, PR not closed).
 const P_ = (edit, del, next, twg_review = false, set_mode = false) => ({ edit, delete: del, next_statuses: next, set_mode, twg_review, twg_certify: false })
@@ -177,15 +171,14 @@ add('TWG', 'second review of same PR',              6, 'POST', '/twg/21/review',
 add('TWG', 'review a draft by ID (TWG never sees drafts)', 6, 'POST', '/twg/13/review', { action: 'approve' }, code(404), '404')
 add('TWG', 'request revision on resubmitted PR',    6, 'POST', '/twg/14/review', { action: 'revise', comment: 'fix specs' }, code(200), '200')
 
-// Awards: the BAC enters a bid and awards it
-const bid = (supplier, item, price) => ({ bidders: [{ name: supplier, prices: [{ pr_item_id: item, unit_price: price }] }], winners: [{ pr_item_id: item, bidder: 0 }] })
-add('Award', 'the BAC enters the bid while in canvass', 7, 'PUT', '/canvass/18/bids', bid('S18', 180, 400), code(200), '200')
-review('Award', 18)
+// Awards: Procurement records the BAC's award from the canvass
+const winner = (supplier, item, price) => ({ winners: [{ lot: '', supplier, prices: [{ pr_item_id: item, unit_price: price }], criteria: [H.CRITERION] }] })
+awardTo('Award', "Procurement records the BAC's award in canvass", 18, 'S18', 180, 400)
 add('Award', '…PR moved to for_po',                 2, 'GET',  '/pr/18', undefined, statusIs('for_po'), 'for_po')
-add('Award', '…audit log written (was missing)',    2, 'GET',  '/pr/18/logs', undefined, logHas('bac_review', 'for_po'), 'bac_review→for_po')
+add('Award', '…audit log written (was missing)',    2, 'GET',  '/pr/18/logs', undefined, logHas('bidding', 'for_po'), 'bidding→for_po')
 // Its award covered every item, so nothing is left to award.
-add('Award', 'no more bids, same supplier',         7, 'PUT', '/canvass/18/bids', bid(' s18 ', 180, 250), code(409), '409 every item awarded')
-add('Award', '…nor another supplier',               7, 'PUT', '/canvass/18/bids', bid('S18b', 180, 250), code(409), '409 every item awarded')
+add('Award', 'no second award, same supplier',      7, 'POST', '/canvass/18/award', winner(' s18 ', 180, 250), code(409), '409 every item awarded')
+add('Award', '…nor another supplier',               7, 'POST', '/canvass/18/award', winner('S18b', 180, 250), code(409), '409 every item awarded')
 add('Award', 'award before canvass',                7, 'POST', '/canvass/20/award', { winners: [] }, code(409), '409')
 add('Award', '…no lot left behind (rolled back)',   2, 'GET',  '/lots/pr/20', undefined, (r) => r.status === 200 && r.data.length === 0, '[]')
 add('Award', 'award after PO issued',               7, 'POST', '/canvass/19/award', { winners: [] }, code(409), '409')
@@ -194,8 +187,7 @@ add('Award', 'award after PO issued',               7, 'POST', '/canvass/19/awar
 add('Award', 'recanvass cancelled the old award',   2, 'GET',  '/lots/pr/22', undefined, (r) => r.status === 200 && r.data.every(l => l.status === 'cancelled'), 'all cancelled')
 add('Award', 'reviving the cancelled award refused', 2, 'PATCH', '/lots/6', { status: 'awarded', awarded_to: 'S22' }, code(409), '409')
 add('Award', '…the recanvassed PR waits for the BAC', 2, 'GET',  '/pr/22', undefined, statusIs('bidding'), 'bidding')
-add('Award', 'a new bid',                           7, 'PUT', '/canvass/22/bids', bid('S22-new', 220, 800), code(200), '200')
-review('Award', 22)
+awardTo('Award', "the BAC's new award recorded", 22, 'S22-new', 220, 800)
 add('Award', '…Ready for PO again',                 2, 'GET',  '/pr/22', undefined, statusIs('for_po'), 'for_po')
 
 // Completion by delivery
@@ -273,8 +265,7 @@ add('PO cancel', 'no delivery on a cancelled PO',        2, 'POST', '/delivery',
 add('PO cancel', 'PO list hides cancelled by default',   2, 'GET', '/po?limit=100', undefined, (r) => r.status === 200 && !idsOf(r.data).includes(5), 'no 5')
 add('PO cancel', 'Cancelled tab lists it',               2, 'GET', '/po?po_status=cancelled&limit=100', undefined, idsEq([5]), 'ids=[5]')
 add('PO cancel', 'cancelled PO PDF still opens',         2, 'GET', '/po/5/pdf', undefined, code(200), '200')
-add('PO cancel', 'the BAC bids the next supplier',       7, 'PUT', '/canvass/28/bids', bid('S28b', 280, 950), code(200), '200')
-review('PO cancel', 28)
+awardTo('PO cancel', 'Procurement records the next supplier', 28, 'S28b', 280, 950)
 add('PO cancel', 'issue a replacement PO',               2, 'POST', '/po', { purchase_request_id: 28, supplier_name: 'S28b', issued_date: '2026-09-11', total_amount: 950 }, code(201), '201')
 add('PO cancel', 'another PO with no award waiting refused', 2, 'POST', '/po', { purchase_request_id: 28, supplier_name: 'X', issued_date: '2026-09-11', total_amount: 1 }, code(409), '409')
 add('PO cancel', 'requestor notified',                   4, 'GET', '/notifications', undefined, (r) => r.status === 200 && r.data.some(n => /PO-P2-005/.test(n.message) && /cancelled/.test(n.message)), 'cancellation notice')

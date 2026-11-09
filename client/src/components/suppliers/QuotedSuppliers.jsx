@@ -4,10 +4,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { SupplierDetails, BlacklistedBadge } from './SupplierParts'
 import api from '@/lib/axios'
 
-// The request stages after Procurement has sent the quotations (server: suppliers.controller QUOTED).
+// The request stages after the BAC's award is recorded (server: suppliers.controller QUOTED; bac_review and re_pr for older requests).
 export const QUOTED = ['twg_certification', 'bac_review', 're_pr', 'for_po', 'completed']
 
-// The suppliers that quoted on a request, each with its profile from the supplier list, once the quotations are sent.
+// A request's suppliers (the awarded ones, and on older requests every one that quoted), each with its profile from the
+// supplier list, once the award is recorded.
 export default function QuotedSuppliers({ pr }) {
   const shown = QUOTED.includes(pr.status)
   const { data } = useQuery({
@@ -22,7 +23,7 @@ export default function QuotedSuppliers({ pr }) {
     <Card>
       <CardHeader className="flex flex-row items-center gap-2 pb-3">
         <Store className="size-4 text-[--color-text-muted]" />
-        <CardTitle>Suppliers that quoted</CardTitle>
+        <CardTitle>Suppliers</CardTitle>
       </CardHeader>
       <CardContent className="divide-y divide-[--color-border] p-0">
         {suppliers.map(({ bidder_id, quoted_as, profile }) => (

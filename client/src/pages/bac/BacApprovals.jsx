@@ -7,7 +7,6 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table'
 import PageHeader from '@/components/shared/PageHeader'
-import { LockedChip } from '@/components/awards/QuotesLocked'
 import { Toolbar, SearchBox, ListCount, SkeletonRows, EmptyRow, Pager } from '@/components/shared/ListParts'
 import { awardRecordName } from '@/components/awards/supplier'
 import { fmtCurrency, fmtDate } from '@/lib/utils'
@@ -32,13 +31,12 @@ export default function BacApprovals() {
   })
   const rows = data?.data ?? []
 
-  const abstract = (row) => row.kind === 'abstract'
-  const printRecord = (row) => openPdf(`/bac/${row.id}/resolutions/${row.resolution_id}/${abstract(row) ? 'abstract' : 'pdf'}`)
-    .catch(async (err) => toast.error(await blobErrorMessage(err, `Could not open the ${abstract(row) ? 'Abstract' : 'BAC Resolution'}`)))
+  const printResolution = (row) => openPdf(`/bac/${row.id}/resolutions/${row.resolution_id}/pdf`)
+    .catch(async (err) => toast.error(await blobErrorMessage(err, 'Could not open the BAC Resolution')))
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Awards" sub="Every award the BAC made, with its BAC Resolution or Abstract. Open one to see its request." />
+      <PageHeader title="Awards" sub="Every award the BAC made, with its BAC Resolution or on its Abstract. Open one to see its request." />
 
       <Card className="overflow-hidden">
         <Toolbar end={<ListCount n={data?.total} one="award" />}>
@@ -76,9 +74,9 @@ export default function BacApprovals() {
                     </TableCell>
                     <TableCell onClick={e => e.stopPropagation()}>
                       <div className="flex justify-end">
-                        {abstract(row) && !data?.quotes_visible ? <LockedChip label="Abstract" short /> : (
-                          <Button size="sm" variant="outline" className="h-7 gap-1.5 px-2 text-xs" onClick={() => printRecord(row)}>
-                            <FileText className="size-3.5" /> {abstract(row) ? 'Abstract' : 'Resolution'}
+                        {row.kind === 'abstract' ? <span className="text-[11px] text-[--color-text-muted]">On the BAC's Abstract</span> : (
+                          <Button size="sm" variant="outline" className="h-7 gap-1.5 px-2 text-xs" onClick={() => printResolution(row)}>
+                            <FileText className="size-3.5" /> Resolution
                           </Button>
                         )}
                       </div>
