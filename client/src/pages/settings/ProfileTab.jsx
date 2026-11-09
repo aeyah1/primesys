@@ -114,7 +114,7 @@ function MySignatureCard() {
       <CardHeader>
         <CardTitle>My signature</CardTitle>
         <CardDescription>
-          Saved, it is filled in on the certificate each time you approve a request or certify bids. You still see it
+          Saved, it is filled in on the certificate each time you approve a request or certify an award. You still see it
           there, and can sign differently or leave it off before you confirm. Only you can see it.
         </CardDescription>
       </CardHeader>

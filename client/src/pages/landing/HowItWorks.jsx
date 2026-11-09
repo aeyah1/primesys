@@ -16,12 +16,12 @@ const STAGES = [
     text: 'Procurement assigns the PR number and prints the Request for Quotation. Canvassers take it to suppliers on paper, the way the office already works.',
   },
   {
-    title: 'Quotations and compliance', roles: ['Procurement', 'TWG'], prints: 'TWG certificate on the offers',
-    text: 'Procurement enters each returned quotation with its prices and attaches the signed RFQ. The TWG marks every offer compliant or not, gives the reason, and certifies the results.',
+    title: 'Award', roles: ['Procurement'], prints: 'BAC resolution and Notice of Award',
+    text: 'One winner per lot, chosen by the BAC at its own meeting on its approved criteria. Procurement records the winner, its prices from the returned RFQ, and the criteria the BAC applied.',
   },
   {
-    title: 'Award', roles: ['Procurement'], prints: 'BAC resolution and Notice of Award',
-    text: 'One winner per lot, chosen by the BAC at its own meeting on its approved criteria. Procurement records the winner and the criteria the BAC applied.',
+    title: 'TWG check', roles: ['TWG'], prints: 'TWG certificate on the award',
+    text: 'For IT equipment, the TWG checks the winning offer against the specifications and certifies it, or returns it for the BAC\'s next choice.',
   },
   {
     title: 'Order and delivery', roles: ['Procurement', 'Supply'], prints: 'Purchase Order',

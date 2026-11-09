@@ -17,7 +17,7 @@ import api from '@/lib/axios'
 const KINDS = [
   { key: 'all',    label: 'All' },
   { key: 'review', label: 'Request checked',      note: 'Request checked (market price and specifications)' },
-  { key: 'bids',   label: 'Canvass bids checked', note: 'Canvass bids checked' },
+  { key: 'bids',   label: 'Offers checked',       note: 'Offers checked against the specifications' },
 ]
 const COLS = 7
 

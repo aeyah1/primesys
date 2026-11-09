@@ -1,6 +1,6 @@
-// The RFQ History: every RFQ uploaded to a request (a file marked as an RFQ when Procurement attached it, or one a
-// quotation uses), newest first, for Procurement and admins; and the same privacy on each request's RFQ files and
-// quotations: the TWG sees them only while it checks the offers, the End User never (utils/quoteAccess.js). Real HTTP
+// The RFQ History: every RFQ uploaded to a request (a file marked as an RFQ when Procurement attached it, or one an
+// older quotation uses), newest first, for Procurement and admins; and the same privacy on each request's RFQ files and
+// prices: the TWG sees them only while it checks the award, the End User never (utils/quoteAccess.js). Real HTTP
 // against a throwaway database.
 const path = require('path')
 const H    = require('./harness')
@@ -20,7 +20,7 @@ function fixtures() {
     SET FOREIGN_KEY_CHECKS = 0;
     INSERT INTO users (id, name, username, email, password_hash, role, is_active, is_verified) VALUES ${U(1)}, ${U(2)}, ${U(3)}, ${U(5)}, ${U(6)};
     INSERT INTO purchase_requests (id, pr_number, title, status, created_by, category, mode_of_procurement, deleted_at) VALUES
-      (90, 'PR-R-90', 'Bond paper', 'bac_review', 3, 'office_supplies', 'Shopping', NULL),
+      (90, 'PR-R-90', 'Bond paper', 'bidding', 3, 'office_supplies', 'Shopping', NULL),
       (91, 'PR-R-91', 'Printer ink', 'for_po', 3, 'office_supplies', 'Shopping', NULL),
       (92, 'PR-R-92', 'Deleted one', 'cancelled', 3, 'office_supplies', 'Shopping', NOW());
     INSERT INTO pr_items (id, pr_id, item_name, quantity, estimated_cost) VALUES
@@ -56,9 +56,6 @@ async function run() {
   const is = async (g, label, who, m, p, ok, body) => { const r = await http(who, m, p, body); t.check(g, label, ok(r), `${r.status} ${JSON.stringify(r.data)}`.slice(0, 300)); return r }
   const files = (r) => r.data.data.map(q => q.file_id).join()
   const attached = (r) => (Array.isArray(r.data) ? r.data.map(f => f.id).join() : '')
-  const namesOnly = (r) => r.status === 200 && r.data.quotes_visible === false && r.data.bidders.map(b => b.name).join() === 'Alpha Trading,Bravo Supply'
-    && r.data.bidders.every(b => !Object.keys(b.prices).length && !Object.keys(b.evaluation).length && b.rfq_no === null && b.attachment_id === null)
-  const priced = (r) => r.status === 200 && r.data.quotes_visible === true && Number(r.data.bidders[0].prices[901]) === 240 && r.data.bidders[0].rfq_no === '7'
 
   const A = 'Who sees it'
   const list = await is(A, 'Procurement lists every RFQ, newest first', 2, 'GET', '/rfqs', (r) => r.status === 200 && r.data.total === 4 && files(r) === '6,2,1,4')
@@ -80,16 +77,23 @@ async function run() {
   await is(Q, 'the End User can\'t (403)', 3, 'GET', '/pr/90/attachments/2/download', (r) => r.status === 403)
   await is(Q, '…nor a quotation\'s file Procurement uploaded unmarked (403)', 3, 'GET', '/pr/90/attachments/6/download', (r) => r.status === 403)
   await is(Q, 'the End User\'s own file still opens (not refused)', 3, 'GET', '/pr/90/attachments/3/download', (r) => r.status !== 403)
-  await is(Q, 'Procurement sees every price', 2, 'GET', '/canvass/90', priced)
-  await is(Q, '…an admin too', 1, 'GET', '/canvass/90', priced)
-  await is(Q, 'the TWG past its check sees the suppliers\' names only', 5, 'GET', '/canvass/90', namesOnly)
+  await is(Q, 'in canvass, no award is under the TWG\'s check', 2, 'GET', '/canvass/90', (r) => r.status === 200 && r.data.under_check === null)
+  await is(Q, 'the quotations are no longer listed', 2, 'GET', '/canvass/90', (r) => r.status === 200 && !('bidders' in r.data))
   await is(Q, 'no winner is picked for anyone', 2, 'GET', '/canvass/90', (r) => r.data.lots.every(l => !('recommended_bidder_id' in l)))
   await is(Q, 'the request says so: Procurement', 2, 'GET', '/pr/90', (r) => r.status === 200 && r.data.quotes_visible === true)
   await is(Q, '…and the End User', 3, 'GET', '/pr/90', (r) => r.status === 200 && r.data.quotes_visible === false)
-  await H.sql(TEST_DB, "UPDATE purchase_requests SET status = 'twg_certification' WHERE id = 90")
-  await is(Q, 'the TWG sees them while it checks the offers: the files', 5, 'GET', '/pr/90/attachments', (r) => attached(r) === '3,1,2,6')
-  await is(Q, '…and the prices', 5, 'GET', '/canvass/90', priced)
-  await H.sql(TEST_DB, "UPDATE purchase_requests SET status = 'bac_review' WHERE id = 90")
+  // Alpha's award of the bond paper, waiting for the TWG's check.
+  await H.sql(TEST_DB, `INSERT INTO lots (id, purchase_request_id, lot_number, status, awarded_to, awarded_amount, created_by) VALUES (2, 90, 'LOT-2', 'awarded', 'Alpha Trading', 2400, 6);
+    INSERT INTO lot_items (lot_id, pr_item_id, item_name, quantity, unit_price) VALUES (2, 901, 'Bond paper', 10, 240);
+    UPDATE pr_items SET winner_bidder_id = 2 WHERE id = 901;
+    UPDATE purchase_requests SET status = 'twg_certification' WHERE id = 90`)
+  const winning = (r) => r.status === 200 && r.data.under_check?.length === 1 && r.data.under_check[0].awarded_to === 'Alpha Trading'
+    && r.data.under_check[0].items.length === 1 && Number(r.data.under_check[0].items[0].unit_price) === 240
+  await is(Q, 'the TWG sees the files while it checks the award', 5, 'GET', '/pr/90/attachments', (r) => attached(r) === '3,1,2,6')
+  await is(Q, '…and the winning offer with its price', 5, 'GET', '/canvass/90', winning)
+  await is(Q, 'Procurement sees it too', 2, 'GET', '/canvass/90', winning)
+  await is(Q, 'the End User never reads the canvass (403)', 3, 'GET', '/canvass/90', (r) => r.status === 403)
+  await H.sql(TEST_DB, "UPDATE lots SET status = 'cancelled' WHERE id = 2; UPDATE pr_items SET winner_bidder_id = NULL WHERE id = 901; UPDATE purchase_requests SET status = 'bidding' WHERE id = 90")
 
   const M = 'Marked as an RFQ when uploaded'
   const marked = await is(M, 'Procurement attaches a returned RFQ, marked as one', 2, 'POST', '/pr/90/attachments', (r) => r.status === 201, upload(true))

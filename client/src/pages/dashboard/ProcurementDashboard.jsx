@@ -11,8 +11,8 @@ import api from '@/lib/axios'
 // What a tile counts (lots.controller STAGES) and the list it opens (the Requests list at that status).
 const STAGE_TILES = [
   { stage: 'to_canvass',  status: 'twg_review',        title: 'Ready for canvass', icon: Gavel,          color: 'amber', sub: 'approved by the TWG' },
-  { stage: 'needs_award', status: 'bidding',           title: 'Quotations, award', icon: Scale,          color: 'blue',  sub: 'to enter or record' },
-  { stage: 'with_twg',    status: 'twg_certification', title: 'With the TWG',      icon: ClipboardCheck, color: 'blue',  sub: 'checking the offers' },
+  { stage: 'needs_award', status: 'bidding',           title: 'Award to record',   icon: Scale,          color: 'blue',  sub: 'the BAC\'s choice' },
+  { stage: 'with_twg',    status: 'twg_certification', title: 'With the TWG',      icon: ClipboardCheck, color: 'blue',  sub: 'checking the award' },
   { stage: 'awaiting_po', status: 'for_po',            title: 'Issue PO',          icon: ShoppingCart,   color: 'brand', sub: 'awards without a PO' },
 ]
 // Purchase order views (po.controller VIEWS), the late ones first.

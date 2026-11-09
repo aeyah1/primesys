@@ -70,7 +70,7 @@ async function notifyAreaReviewers(io, pr, { resubmitted = false, certify = fals
   const reviewers = await areaReviewers(pool, pr.category)
   if (reviewers.length) {
     const message = told || (certify
-      ? `Procurement sent the bids of PR ${prLabel} (${area}). They are awaiting the TWG's evaluation and certification.`
+      ? `Procurement recorded the BAC's award of PR ${prLabel} (${area}). Check the winning offer and certify it, or return it.`
       : resubmitted
       ? `PR ${prLabel} (${area}) was revised and is awaiting TWG review again.`
       : `PR ${prLabel} (${area}) is awaiting TWG review.`)
@@ -80,7 +80,7 @@ async function notifyAreaReviewers(io, pr, { resubmitted = false, certify = fals
   const [admins] = await pool.execute("SELECT id FROM users WHERE role = 'admin' AND is_active = 1")
   for (const a of admins) {
     await notify(io, a.id,
-      `PR ${prLabel} is waiting for ${certify ? 'the TWG\'s certification' : 'TWG review'}, but no active TWG member reviews ${area}. Assign a reviewer in User Management.`,
+      `PR ${prLabel} is waiting for ${certify ? 'the TWG\'s check of its award' : 'TWG review'}, but no active TWG member reviews ${area}. Assign a reviewer in User Management.`,
       'warning', pr.id, 'pr')
   }
 }

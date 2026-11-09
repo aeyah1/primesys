@@ -68,25 +68,10 @@ async function run() {
     await must(2, 'POST', `/canvass/${id}/start`, { mode_of_procurement: 'Small Value Procurement' })
     return { id, items: (await must(2, 'GET', `/canvass/${id}`)).items }
   }
-  // The BAC enters one supplier's bids ({ itemId: price }) with the returned RFQ and sends them to
-  // the TWG, which certifies them compliant; the BAC then awards every open lot to that supplier.
-  // A canvass left waiting by a refused award is taken back first.
+  // Procurement records the BAC's award of every open lot to one supplier at the given prices ({ itemId: price }).
   const bidAndAward = async (pr, supplier, prices) => {
-    const [{ status }] = await q('SELECT status FROM purchase_requests WHERE id = ?', [pr])
-    if (status === 'bac_review') await must(5, 'POST', `/canvass/${pr}/reopen`, { reason: 'Another bidder' })
-    await must(5, 'PUT', `/canvass/${pr}/bids`, {
-      bidders: [{ name: supplier, prices: Object.entries(prices).map(([i, unit_price]) => ({ pr_item_id: Number(i), unit_price })) }],
-    })
-    await must(5, 'POST', `/pr/${pr}/attachments`, H.canvassScan())
-    await must(5, 'POST', `/canvass/${pr}/send`)
-    const sent = await must(4, 'GET', `/canvass/${pr}`)
-    const open = sent.items.filter(i => i.state === 'pending')
-    const key = (name) => name.trim().replace(/\s+/g, ' ').toLowerCase()
-    const bidder = sent.bidders.find(b => key(b.name) === key(supplier))
-    const bids = sent.bidders.flatMap(b => open.filter(i => b.prices[i.id] != null).map(i => ({ bidder_id: b.id, pr_item_id: i.id, compliant: true })))
-    await must(4, 'PUT', `/twg/${pr}/evaluation`, { bids })
-    await must(4, 'POST', `/twg/${pr}/certify`, { action: 'certify' })
-    return http(5, 'POST', `/canvass/${pr}/award`, H.lotWinners(await must(5, 'GET', `/canvass/${pr}`), () => bidder.id))
+    const bid = { name: supplier, prices }
+    return http(5, 'POST', `/canvass/${pr}/award`, H.lotWinners(await must(5, 'GET', `/canvass/${pr}`), [bid], () => bid))
   }
   const win = async (pr, supplier, prices) => {
     const r = await bidAndAward(pr, supplier, prices)
@@ -248,8 +233,8 @@ async function run() {
   await deliver(po6.id, { Monitor: 7 })
   await must(2, 'PATCH', `/po/${po6.id}/close`, { reason: 'Only 7 in stock' })
   const b1 = (await q('SELECT id FROM pr_items WHERE balance_of = ?', [mon]))[0].id
-  await is(B, 'the balance needs its bids before the TWG', 5, 'POST', `/canvass/${p6.id}/send`, {},
-    r => r.status === 409 && /Enter the bids for/.test(r.data.message), '409')
+  await awardIs(B, 'the balance\'s award needs its unit price', p6.id, 'Beta Tech', {},
+    r => r.status === 400 && /unit price/.test(r.data.message), '400')
   await awardIs(B, 'Beta wins the balance of 3', p6.id, 'Beta Tech', { [b1]: 8500 }, r => r.status === 200)
   await must(2, 'POST', '/po', { purchase_request_id: p6.id, issued_date: day(0) })
   const po6b = await poOf(p6.id, 'Beta Tech')
