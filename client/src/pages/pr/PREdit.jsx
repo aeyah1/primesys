@@ -13,7 +13,7 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { fmtCurrency, CATEGORY_FORM, buildItemNotes, groupItemsBySection, FUND_SOURCES, CATEGORY_LABELS } from '@/lib/utils'
-import { SectionNameInput, SectionHeaderRow } from '@/components/shared/ItemSections'
+import { LotSelect, SectionHeaderRow } from '@/components/shared/ItemSections'
 import CategorySpecFields from '@/components/shared/CategorySpecFields'
 import { useAuth } from '@/context/AuthContext'
 import PageHeader from '@/components/shared/PageHeader'
@@ -526,13 +526,12 @@ export default function PREdit() {
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="space-y-1.5 sm:col-span-2">
-                  <Label className="text-xs">
-                    {categoryForm.sectionLabel}
-                    <span className="ml-1 font-normal text-[--color-text-muted]">(optional) Items with the same name share one section and subtotal.</span>
+                  <Label className="text-xs" htmlFor="pr-section">
+                    Lot
+                    <span className="ml-1 font-normal text-[--color-text-muted]">(optional) Items in one lot share a subtotal and go to one supplier.</span>
                   </Label>
-                  <SectionNameInput
+                  <LotSelect
                     id="pr-section"
-                    placeholder={categoryForm.sectionPlaceholder}
                     value={draft.group_label}
                     onChange={v => setD('group_label', v)}
                     sections={grouped.map(g => g.label).filter(Boolean)}

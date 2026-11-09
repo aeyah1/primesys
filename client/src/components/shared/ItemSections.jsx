@@ -1,30 +1,44 @@
 import { Plus } from 'lucide-react'
-import { Input } from '@/components/ui/input'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 
 // Pieces shared by every PR item table that can add items (create, edit, and
 // the PR page). Grouping itself is groupItemsBySection in lib/utils.js.
 
-// Section name field (e.g. "Day 1"), offering the sections already in this PR
-// so a day is picked rather than retyped. Pages keep its value after each item
-// is added, so several items can go into one section in a row.
-export function SectionNameInput({ id, value, onChange, placeholder, sections }) {
-  const listId = `${id}-options`
+const NONE = 'none'
+const LOT = /^lot\s+([a-z])$/i
+// The letter of a lot named "LOT A" (any case or spacing), else null.
+const lotLetter = (label) => LOT.exec(String(label || '').trim())?.[1].toUpperCase() ?? null
+
+// The lots to offer: those already used on the request and the next letter after the last (letters are never
+// skipped), then any older typed section names still on it. sections: the request's section names; value: the picked one.
+export function lotOptions(sections, value = '') {
+  const letters = [...new Set(sections.map(lotLetter).filter(Boolean))].sort()
+  const last = letters.at(-1)
+  const next = !last ? 'A' : last < 'Z' ? String.fromCharCode(last.charCodeAt(0) + 1) : null
+  const lots = [...letters, ...(next ? [next] : [])].map(l => `LOT ${l}`)
+  const older = [...new Set([...sections, value].map(s => String(s || '').trim()).filter(s => s && !lotLetter(s)))]
+  return [...lots, ...older]
+}
+
+// The Lot field: No lot, or LOT A, B, C... (lotOptions). Pages keep its value after each item is added, so several
+// items can go into one lot in a row; `hint` says so under it.
+export function LotSelect({ id, value, onChange, sections, hint = true }) {
+  const letter = lotLetter(value)
+  const current = letter ? `LOT ${letter}` : String(value || '').trim()
   return (
     <>
-      <Input
-        id={id}
-        list={listId}
-        autoComplete="off"
-        placeholder={placeholder}
-        value={value}
-        onChange={e => onChange(e.target.value)}
-      />
-      <datalist id={listId}>
-        {sections.map(s => <option key={s} value={s} />)}
-      </datalist>
-      <p className="text-[11px] text-[--color-text-muted]">
-        Stays filled after you add an item, so you can list several items under the same day. Change it to start a new section.
-      </p>
+      <Select value={current || NONE} onValueChange={v => onChange(v === NONE ? '' : v)}>
+        <SelectTrigger id={id}><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NONE}>No lot</SelectItem>
+          {lotOptions(sections, current).map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+        </SelectContent>
+      </Select>
+      {hint && (
+        <p className="text-[11px] text-[--color-text-muted]">
+          Stays picked after you add an item, so several items can go into one lot in a row. Pick the next letter to start a new lot.
+        </p>
+      )}
     </>
   )
 }

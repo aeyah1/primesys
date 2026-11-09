@@ -155,53 +155,41 @@ export const CATEGORY_LABELS = {
 const CATEGORY_TONE = 'bg-[--color-canvas] text-[--color-text-secondary] border-[--color-border-strong]'
 export const CATEGORY_COLORS = Object.fromEntries(Object.keys(CATEGORY_LABELS).map(k => [k, CATEGORY_TONE]))
 
-// Per-category vocabulary for the Add Item form (label, placeholder, unit list).
+// Per-category vocabulary for the Add Item form (item label, placeholder, unit list).
 // Drives PRUpload / PREdit / PRDetail so the form reads naturally for each category.
 // To tweak a category's form: edit just the entry here, no other file changes.
 export const CATEGORY_FORM = {
   hardware: {
-    sectionLabel:       'Project / Setup',
-    sectionPlaceholder: 'e.g. PROJECT: New Computer Laboratory',
     itemLabel:          'Equipment',
     itemPlaceholder:    'e.g. Laptop computer, 15.6 inch / Ink tank printer, A4',
     units: ['pc','set','unit','pair','lot','box'],
     defaultUnit: 'pc',
   },
   office_supplies: {
-    sectionLabel:       'Section / Office',
-    sectionPlaceholder: 'e.g. Administrative Office, Q2 Supplies',
     itemLabel:          'Supply Item',
     itemPlaceholder:    'e.g. Bond paper A4 / Black ink cartridge',
     units: ['ream','box','pack','pc','pair','set','bottle','roll','sheet'],
     defaultUnit: 'ream',
   },
   lab_educational: {
-    sectionLabel:       'Subject / Module / Lab',
-    sectionPlaceholder: 'e.g. Chemistry Lab, Semester 1',
     itemLabel:          'Material',
     itemPlaceholder:    'e.g. Compound microscope 1000x / Chemistry textbook',
     units: ['pc','set','box','bottle','kg','L','ream','pack','bag'],
     defaultUnit: 'pc',
   },
   furniture: {
-    sectionLabel:       'Room / Location',
-    sectionPlaceholder: 'e.g. Faculty Room, 2nd Floor',
     itemLabel:          'Furniture Item',
     itemPlaceholder:    'e.g. Ergonomic office chair / Conference table 8-seater',
     units: ['pc','set','pair','unit'],
     defaultUnit: 'pc',
   },
   food_catering: {
-    sectionLabel:       'Event / Day Reference',
-    sectionPlaceholder: 'e.g. Faculty Training Day 1',
     itemLabel:          'Meal / Refreshment',
     itemPlaceholder:    'e.g. AM snacks (sandwich + softdrinks)',
     units: ['pax','pack','box','bottle','can','set','L'],
     defaultUnit: 'pax',
   },
   event_supplies: {
-    sectionLabel:       'Event / Activity',
-    sectionPlaceholder: 'e.g. Foundation Day Celebration',
     itemLabel:          'Supply',
     itemPlaceholder:    'e.g. Tarpaulin 3x5ft, Welcome Banner',
     units: ['pc','set','pair','roll','lot','unit'],
