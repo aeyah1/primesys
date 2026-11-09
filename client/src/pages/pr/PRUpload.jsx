@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { fmtCurrency, CATEGORY_FORM, buildItemNotes, groupItemsBySection, FUND_SOURCES, fundCodeFor } from '@/lib/utils'
-import { SectionNameInput, SectionHeaderRow } from '@/components/shared/ItemSections'
+import { LotSelect, SectionHeaderRow } from '@/components/shared/ItemSections'
 import CategorySpecFields from '@/components/shared/CategorySpecFields'
 import { useAuth } from '@/context/AuthContext'
 import PageHeader from '@/components/shared/PageHeader'
@@ -156,14 +156,6 @@ export default function PRCreate() {
 
   const many = (n) => `${n} item${n === 1 ? '' : 's'}`
 
-  // Items go under a section, so it is filled in before any item is added; else a warning and the cursor goes there.
-  const needSection = () => {
-    if (draft.group_label.trim()) return true
-    toast.error(`Fill in the ${categoryForm.sectionLabel} first, then add the items`)
-    document.getElementById('pr-section')?.focus()
-    return false
-  }
-
   // A Fund Administrator's request is for one quarter, whose items they then add one by one; picking it fills nothing.
   // Changing it removes the items picked for the other quarter, once confirmed.
   const chooseQuarter = async (quarterId) => {
@@ -217,7 +209,6 @@ export default function PRCreate() {
   }, [fromPpmp, plansLoading, lineById, form.category])
 
   const handleAddItem = () => {
-    if (!needSection()) return
     if (!draft.line) {
       toast.error('Pick the item from the PPMP')
       return
@@ -404,7 +395,7 @@ export default function PRCreate() {
                       <QuarterSelect id="pr-quarter" plans={plans} value={form.quarter_id} onChange={chooseQuarter} />
                     </div>
                     {chosenQuarter && quarter && quarterLines(chosenQuarter.plan, quarter).length > 0 && (
-                      <Button type="button" variant="secondary" className="gap-1.5 shrink-0" onClick={() => needSection() && fillQuarter(form.quarter_id)}>
+                      <Button type="button" variant="secondary" className="gap-1.5 shrink-0" onClick={() => fillQuarter(form.quarter_id)}>
                         <ListPlus className="size-4" /> Add all {chosenQuarter.label} items
                       </Button>
                     )}
@@ -589,12 +580,11 @@ export default function PRCreate() {
 
               <div className="space-y-1.5">
                 <Label className="text-xs" htmlFor="pr-section">
-                  {categoryForm.sectionLabel} <span className="text-red-500">*</span>
-                  <span className="ml-1 font-normal text-[--color-text-muted]">Items with the same name share one section and subtotal.</span>
+                  Lot
+                  <span className="ml-1 font-normal text-[--color-text-muted]">(optional) Items in one lot share a subtotal and go to one supplier.</span>
                 </Label>
-                <SectionNameInput
+                <LotSelect
                   id="pr-section"
-                  placeholder={categoryForm.sectionPlaceholder}
                   value={draft.group_label}
                   onChange={v => setD('group_label', v)}
                   sections={grouped.map(g => g.label).filter(Boolean)}
@@ -615,7 +605,7 @@ export default function PRCreate() {
 
                 {/* The item, picked from the PPMP: its description and unit are the line's */}
                 <div className="col-span-4">
-                  <PpmpItemField id="pr-ppmp-item" plans={plans} isLoading={plansLoading} value={draft.line} onPick={pickLine} onPickMany={addLines} canBrowse={needSection} taken={taken} year={planYear} quarter={quarter}
+                  <PpmpItemField id="pr-ppmp-item" plans={plans} isLoading={plansLoading} value={draft.line} onPick={pickLine} onPickMany={addLines} taken={taken} year={planYear} quarter={quarter}
                     kind={form.category} />
                 </div>
 

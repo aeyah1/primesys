@@ -18,7 +18,7 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { PRStatusBadge, CategoryBadge, MarkerBadges } from '@/components/shared/StatusBadge'
 import { fmtDatetime, fmtCurrency, PR_STATUS_LABELS, CATEGORY_FORM, buildItemNotes, groupItemsBySection, PROCUREMENT_MODES, isTemporaryPrNumber } from '@/lib/utils'
 import { nextStepOf, ACTION_TAB } from '@/lib/nextStep'
-import { SectionNameInput, SectionHeaderRow } from '@/components/shared/ItemSections'
+import { LotSelect, SectionHeaderRow } from '@/components/shared/ItemSections'
 import CategorySpecFields from '@/components/shared/CategorySpecFields'
 import SpecCheck from '@/components/shared/SpecCheck'
 import { RequestContextFields, PurposeTypeBadge, hasRequestContext } from '@/components/shared/RequestContextDisplay'
@@ -369,13 +369,12 @@ function PRItemsSection({ prId, pr, canEdit, category }) {
                   </label>
                 )}
                 <div className="space-y-1.5">
-                  <Label className="text-xs">
-                    {categoryForm.sectionLabel}
+                  <Label className="text-xs" htmlFor="pr-detail-section">
+                    Lot
                     <span className="ml-1 font-normal text-[--color-text-muted]">(optional)</span>
                   </Label>
-                  <SectionNameInput
+                  <LotSelect
                     id="pr-detail-section"
-                    placeholder={categoryForm.sectionPlaceholder}
                     value={draft.group_label}
                     onChange={v => setD('group_label', v)}
                     sections={sectionNames}
@@ -489,17 +488,11 @@ function PRItemsSection({ prId, pr, canEdit, category }) {
           {editDraft && (
             <div className="space-y-3 pt-2">
               <div className="space-y-1">
-                <Label className="text-xs">
-                  {categoryForm.sectionLabel}
+                <Label className="text-xs" htmlFor="pr-edit-item-lot">
+                  Lot
                   <span className="ml-1 font-normal text-[--color-text-muted]">(optional)</span>
                 </Label>
-                <Input
-                  list="pr-detail-section-options"
-                  autoComplete="off"
-                  placeholder={categoryForm.sectionPlaceholder}
-                  value={editDraft.group_label}
-                  onChange={e => setED('group_label', e.target.value)}
-                />
+                <LotSelect id="pr-edit-item-lot" value={editDraft.group_label} onChange={v => setED('group_label', v)} sections={sectionNames} hint={false} />
               </div>
 
               <div className="space-y-1">
