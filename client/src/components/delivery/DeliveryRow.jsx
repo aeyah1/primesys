@@ -35,7 +35,7 @@ export function DeliveryRow({ d, canUpload = false, canDelete = false, openFiles
       </div>
       {files && (
         <div className="mt-3">
-          <AttachmentsPanel endpoint={`/delivery/${d.id}`} queryKey={`delivery-attachments-${d.id}`} canUpload={canUpload} canDelete={canDelete} preview />
+          <AttachmentsPanel endpoint={`/delivery/${d.id}`} queryKey={`delivery-attachments-${d.id}`} canUpload={canUpload} canDelete={canDelete} />
         </div>
       )}
     </div>
