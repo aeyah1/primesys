@@ -52,12 +52,17 @@ function seal(mean) {
   return fileCrypto.encrypt(buf)
 }
 
-// The account's face measurements, or null when it has none on record.
+// The account's face measurements, or null when it has none on record or cannot be decrypted.
 async function templateOf(userId, db = pool) {
   const [[row]] = await db.execute('SELECT face_template FROM users WHERE id = ?', [userId])
   if (!row?.face_template) return null
-  const buf = fileCrypto.decrypt(Buffer.from(row.face_template))
-  return Array.from({ length: SIZE }, (_, i) => buf.readFloatLE(i * 4))
+  try {
+    const buf = fileCrypto.decrypt(Buffer.from(row.face_template))
+    return Array.from({ length: SIZE }, (_, i) => buf.readFloatLE(i * 4))
+  } catch (err) {
+    console.warn(`[faceCheck] Unable to decrypt face_template for user ${userId}:`, err.message)
+    return null
+  }
 }
 
 // Whether the readings sent are the account's face: 'match', 'mismatch', 'unclear' (not one steady face) or 'none'.
